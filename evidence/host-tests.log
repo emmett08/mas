@@ -4,6 +4,7 @@ test_installed_default_matches_compose_topology (test_demo.DemoContractTests.tes
 test_live_missing_secret_fails_without_provider_call (test_demo.DemoContractTests.test_live_missing_secret_fails_without_provider_call) ... ok
 test_reviewer_provider_consumes_delivered_candidate (test_demo.DemoContractTests.test_reviewer_provider_consumes_delivered_candidate) ... ok
 test_unexpected_error_is_safe_for_shared_console (test_demo.DemoContractTests.test_unexpected_error_is_safe_for_shared_console) ... ok
+test_demo_resume_reuses_calls_and_rejects_changed_provider_binding (test_demo.NativeMeshTests.test_demo_resume_reuses_calls_and_rejects_changed_provider_binding) ... ok
 test_fresh_runs_do_not_reuse_spent_invocations (test_demo.NativeMeshTests.test_fresh_runs_do_not_reuse_spent_invocations) ... ok
 test_lost_reply_after_committed_result_reports_unknown_without_replay (test_demo.NativeMeshTests.test_lost_reply_after_committed_result_reports_unknown_without_replay) ... ok
 test_mock_mesh_round_trip_with_real_gateway (test_demo.NativeMeshTests.test_mock_mesh_round_trip_with_real_gateway) ... ok
@@ -91,6 +92,6 @@ test_sigterm_cleans_child_and_restores_host_handler (test_supervision.Supervisio
 test_zero_cost_mock_reservation_still_uses_parent_admission (test_supervision.SupervisionTests.test_zero_cost_mock_reservation_still_uses_parent_admission) ... ok
 
 ----------------------------------------------------------------------
-Ran 91 tests in 4.677s
+Ran 92 tests in 4.136s
 
 OK

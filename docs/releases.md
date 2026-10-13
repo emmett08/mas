@@ -62,21 +62,28 @@ that an application's live-provider acceptance has passed.
 1. Stop admission of new jobs and inspect open tasks and unknown provider
    outcomes. Quiesce host runners before making a backup with the supported
    administration command. Keep the old image digest and configuration.
-2. Restore the backup into a separate staging state directory. Never let staging
-   invoke a provider for an unresolved call merely to test recovery. Run the
-   mocked acceptance harness and inspection/reconciliation commands against the
-   candidate. Review schema/version errors before upgrading production.
+2. Restore the backup into a separate staging state directory. Restored state
+   remains audit-only: use candidate inspection, reconciliation and cached
+   completed-result replay to check it. Run the mocked acceptance harness in a
+   separate, fresh state directory. Never invoke a provider for an unresolved
+   call merely to test recovery. Review schema/version errors before upgrading
+   production.
 3. Run bounded live acceptance with a dedicated provider project, spending
    limits and an operator. Record actual provider/model identity and usage.
    The automated workflows never invoke the paid API.
 4. Start the candidate with the production state volume and independent
    reconciliation watcher. Inspect budgets, disk headroom, expiries and errors.
    Keep the pre-upgrade backup until the acceptance window has closed.
-5. If rollback is needed, stop the candidate first. Restore the pre-upgrade
-   backup into a fresh directory and run the previous image against it. Do not
-   run an older binary against a database that a newer schema has modified.
-   Restoring old state does not undo remote effects: reconcile calls made since
-   the backup before admitting retries. Preserve both state copies for review.
+5. If rollback is needed, stop the candidate first. Preserve its current state
+   and restore the pre-upgrade backup into a separate directory for audit.
+   Restore does not enable new admissions or undo remote effects. Reconcile
+   calls made since the backup before making any retry decision, and retain
+   both state copies. An older binary must never modify a database upgraded to
+   a newer schema or reactivate a restored snapshot. A cutover that needs new
+   work must use a separately authorised and budgeted fresh deployment, with
+   the previous deployment's reserved expenditure and unresolved effects
+   included in the operator's account-level accounting. Restoring a backup
+   never replenishes the deployment's spending allowance.
 
 The supplied Compose resource caps limit each container's CPU, memory, PID count
 and log rotation. The named volume still requires host disk monitoring, backup

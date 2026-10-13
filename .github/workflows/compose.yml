@@ -26,7 +26,7 @@ jobs:
           python -m pip check
           python -m unittest discover -s host/tests -v
       - name: Check arm64 locked wheels
-        run: python -m pip download --require-hashes --platform manylinux2014_aarch64 --python-version 3.12 --implementation cp --abi cp312 --dest /tmp/arm64-wheels -r host/requirements-openai.txt
+        run: python -m pip download --require-hashes --only-binary=:all: --platform manylinux2014_aarch64 --python-version 3.12 --implementation cp --abi cp312 --dest /tmp/arm64-wheels -r host/requirements-openai.txt
       - name: Bounded deployment acceptance
         env:
           MAS_BIN: ${{ github.workspace }}/rust-protocol/target/release/mas

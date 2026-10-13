@@ -10,7 +10,7 @@ These results establish the checked finite-model properties and tested runtime
 behaviours. They do not establish unrestricted implementation correctness,
 mathematical truth, live AI-agent performance or remote cryptographic security.
 
-The optional Python host adds **91 passing offline tests**, including integration
+The optional Python host adds **92 passing offline tests**, including integration
 with the real Rust binaries and an HTTP contract test using OpenAI SDK 3.29.0
 with a simulated transport. The mock mesh exercised all six directed edges,
 three completed tasks and two recorded mock calls; its exact Python checker

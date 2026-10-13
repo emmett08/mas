@@ -113,6 +113,23 @@ class NativeMeshTests(unittest.TestCase):
             self.assertEqual(report["status"]["usage"]["calls"], 2)
             self.assertEqual(report["status"]["usage"]["messages"], 6)
 
+    def test_demo_resume_reuses_calls_and_rejects_changed_provider_binding(self):
+        with tempfile.TemporaryDirectory() as state:
+            original = self.run_mesh(state)
+            options = dict(topology=DEFAULT_TOPOLOGY, state_dir=state,
+                planner_provider=MockProvider("planner"), reviewer_provider=MockProvider("reviewer"),
+                resume_dir=Path(original["report_path"]).parent, mas_bin=str(MAS), gateway_bin=str(GATEWAY))
+            resumed = run_demo(**options)
+            self.assertTrue(resumed["ok"])
+            self.assertEqual(resumed["run_id"], original["run_id"])
+            self.assertEqual(resumed["status"]["usage"]["calls"], 2)
+            class ChangedProvider(MockProvider):
+                def descriptor(self):
+                    return {**super().descriptor(), "model": "changed-model"}
+            options["planner_provider"] = ChangedProvider("planner")
+            with self.assertRaises(RunnerError):
+                run_demo(**options)
+
     def test_provider_failure_retains_report_and_unknown_invocation(self):
         class FailedProvider:
             def total(self, invoice, **_kwargs):
