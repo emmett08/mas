@@ -111,8 +111,10 @@ class DeploymentAcceptanceTests(unittest.TestCase):
             proc = Path(f"/proc/{child}/stat")
             try:
                 return proc.exists() and proc.read_text().split()[2] == "Z"
-            except FileNotFoundError:
-                return False
+            except (FileNotFoundError, ProcessLookupError):
+                # The child can be reaped after the signal probe or exists()
+                # succeeds, but before procfs opens/reads its status file.
+                return True
         self.wait_until(terminated)
         return run_dir
 

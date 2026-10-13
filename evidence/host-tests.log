@@ -92,6 +92,6 @@ test_sigterm_cleans_child_and_restores_host_handler (test_supervision.Supervisio
 test_zero_cost_mock_reservation_still_uses_parent_admission (test_supervision.SupervisionTests.test_zero_cost_mock_reservation_still_uses_parent_admission) ... ok
 
 ----------------------------------------------------------------------
-Ran 92 tests in 4.136s
+Ran 92 tests in 4.419s
 
 OK

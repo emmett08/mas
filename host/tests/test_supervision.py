@@ -85,7 +85,7 @@ class SupervisionTests(unittest.TestCase):
         stat = Path(f"/proc/{pid}/stat")
         try:
             return stat.read_text().split(") ", 1)[1].startswith("Z")
-        except FileNotFoundError:
+        except (FileNotFoundError, ProcessLookupError):
             return True
 
     def test_invocation_is_admitted_and_completed_by_parent(self):
