@@ -152,4 +152,5 @@ semantics derive from MAS Protocol Lab; the original MIT notice is retained in
 [THIRD_PARTY_LICENSE.txt](THIRD_PARTY_LICENSE.txt). The native runtime and models
 apply Holzmann's design method; sources and scope are recorded in the design
 specification. There is one protocol implementation, in Rust; the Python host
-uses it rather than reimplementing its state machine or storage.
+uses its protocol state machine. Host workflow checkpoints and deployment
+admissions are separate application records.

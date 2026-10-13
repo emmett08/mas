@@ -4,7 +4,7 @@ COPY rust-protocol/Cargo.toml rust-protocol/Cargo.lock ./
 COPY rust-protocol/src ./src
 RUN cargo build --locked --release --bin mas --bin mas-gateway
 
-FROM python:3.12-slim-bookworm@sha256:34386ef0cb081344d7ec1c103ba398e6e9f64e9ab3a1509accc92a4e24a07258 AS python-build
+FROM python:3.12-slim-trixie@sha256:a6e34c598f2467ed0e9a8d349809fcd8b5c603269512df273a0bb1784edc11b1 AS python-build
 WORKDIR /build/host
 COPY host/pyproject.toml host/requirements-openai.txt host/requirements-build.txt ./
 RUN python -m pip install --no-cache-dir --require-hashes -r requirements-build.txt \
@@ -13,7 +13,7 @@ COPY host/mas_host ./mas_host
 RUN --network=none python -m pip wheel --no-cache-dir --no-index --no-deps --no-build-isolation --wheel-dir /wheels . \
     && python -c 'from pathlib import Path; import hashlib; p=next(Path("/wheels").glob("mas_host-*.whl")); Path("/wheels/host-wheel.txt").write_text(str(p)+" --hash=sha256:"+hashlib.sha256(p.read_bytes()).hexdigest()+"\n")'
 
-FROM python:3.12-slim-bookworm@sha256:34386ef0cb081344d7ec1c103ba398e6e9f64e9ab3a1509accc92a4e24a07258
+FROM python:3.12-slim-trixie@sha256:a6e34c598f2467ed0e9a8d349809fcd8b5c603269512df273a0bb1784edc11b1
 LABEL org.opencontainers.image.source="https://github.com/emmett08/mas"
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \

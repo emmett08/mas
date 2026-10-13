@@ -35,7 +35,7 @@ a dependency-update PR until its regenerated locks pass the same checks.
 Base-image tags identify the upstream release series; their digests identify the
 actual downloaded manifests. Refresh them from Docker Hub using
 `docker buildx imagetools inspect rust:1.85.1-bookworm` and
-`docker buildx imagetools inspect python:3.12-slim-bookworm`, then review both
+`docker buildx imagetools inspect python:3.12-slim-trixie`, then review both
 architecture manifests and rerun image scanning. A fixed digest deliberately
 does not receive security updates until changed. GitHub actions are pinned to
 commits and must also be updated through review.
