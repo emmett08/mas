@@ -3,149 +3,149 @@
     "aarch64": [
       {
         "dependencies": "",
-        "filename": "musl-1.2.5-r11.apk",
+        "filename": "musl-1.2.6-r2.apk",
         "name": "musl",
-        "sha256": "721010e6bff908878d9c527428598661be59dde0d9f013f8431d01fd4dd16652",
-        "url": "https://dl-cdn.alpinelinux.org/alpine/v3.21/main/aarch64/musl-1.2.5-r11.apk",
-        "version": "1.2.5-r11"
+        "sha256": "5e9674b7f41152fe2119093b5cb4c13eaaadb19c2d5422b2d7267913e663ee6e",
+        "url": "https://dl-cdn.alpinelinux.org/alpine/v3.24/main/aarch64/musl-1.2.6-r2.apk",
+        "version": "1.2.6-r2"
       },
       {
-        "dependencies": "musl=1.2.5-r11",
-        "filename": "musl-dev-1.2.5-r11.apk",
+        "dependencies": "musl=1.2.6-r2",
+        "filename": "musl-dev-1.2.6-r2.apk",
         "name": "musl-dev",
-        "sha256": "9c4ebdc7e2a29f12de5135cee8f1b92439bfff7c74839b4fb7b422680cf18db4",
-        "url": "https://dl-cdn.alpinelinux.org/alpine/v3.21/main/aarch64/musl-dev-1.2.5-r11.apk",
-        "version": "1.2.5-r11"
+        "sha256": "ca72b84f4eb3c36bbbec04d919eb10159d414c7a43413cc2253841d301fa9486",
+        "url": "https://dl-cdn.alpinelinux.org/alpine/v3.24/main/aarch64/musl-dev-1.2.6-r2.apk",
+        "version": "1.2.6-r2"
       },
       {
         "dependencies": "so:libc.musl-aarch64.so.1",
-        "filename": "pkgconf-2.3.0-r0.apk",
+        "filename": "pkgconf-2.5.1-r0.apk",
         "name": "pkgconf",
-        "sha256": "132f883dbf420ac171cefad9599a9c5a387a90aa78ef7a7db131bd25a311b219",
-        "url": "https://dl-cdn.alpinelinux.org/alpine/v3.21/main/aarch64/pkgconf-2.3.0-r0.apk",
-        "version": "2.3.0-r0"
+        "sha256": "6b716719ac9457bd35c8ea5373da1dc33ae86863bbb0f411aed0cb5e71b9cf2d",
+        "url": "https://dl-cdn.alpinelinux.org/alpine/v3.24/main/aarch64/pkgconf-2.5.1-r0.apk",
+        "version": "2.5.1-r0"
       },
       {
         "dependencies": "so:libc.musl-aarch64.so.1 so:libreadline.so.8",
-        "filename": "sqlite-3.48.0-r4.apk",
+        "filename": "sqlite-3.53.4-r0.apk",
         "name": "sqlite",
-        "sha256": "8f818aedd63234cef8cd564947115f24b51fd313540a5b6c670b727608251a70",
-        "url": "https://dl-cdn.alpinelinux.org/alpine/v3.21/main/aarch64/sqlite-3.48.0-r4.apk",
-        "version": "3.48.0-r4"
+        "sha256": "753f39e446fa0208a58323147e568326c8426454dc4f7ccc4b375d7e6dd19b3b",
+        "url": "https://dl-cdn.alpinelinux.org/alpine/v3.24/main/aarch64/sqlite-3.53.4-r0.apk",
+        "version": "3.53.4-r0"
       },
       {
-        "dependencies": "sqlite=3.48.0-r4 pkgconfig sqlite-libs=3.48.0-r4",
-        "filename": "sqlite-dev-3.48.0-r4.apk",
+        "dependencies": "sqlite=3.53.4-r0 sqlite-libs=3.53.4-r0 pkgconfig",
+        "filename": "sqlite-dev-3.53.4-r0.apk",
         "name": "sqlite-dev",
-        "sha256": "12e4c0c5d619306152dab4a4b24fd86d4991966876e4b56c459483037b1b6657",
-        "url": "https://dl-cdn.alpinelinux.org/alpine/v3.21/main/aarch64/sqlite-dev-3.48.0-r4.apk",
-        "version": "3.48.0-r4"
+        "sha256": "1f407625d425902a7230a62edb80aba78470277a55a4edd5dac3d4e087e15495",
+        "url": "https://dl-cdn.alpinelinux.org/alpine/v3.24/main/aarch64/sqlite-dev-3.53.4-r0.apk",
+        "version": "3.53.4-r0"
       },
       {
         "dependencies": "so:libc.musl-aarch64.so.1",
-        "filename": "sqlite-libs-3.48.0-r4.apk",
+        "filename": "sqlite-libs-3.53.4-r0.apk",
         "name": "sqlite-libs",
-        "sha256": "0e4e80c156f65307d0b35c4caf5771fae2a8c3d7f5ffb642a72d13e9c6d3cd14",
-        "url": "https://dl-cdn.alpinelinux.org/alpine/v3.21/main/aarch64/sqlite-libs-3.48.0-r4.apk",
-        "version": "3.48.0-r4"
+        "sha256": "b39d8d73c1208838a436f2d481ba605b52a095f8d6ff781556eafc81cd1a13e9",
+        "url": "https://dl-cdn.alpinelinux.org/alpine/v3.24/main/aarch64/sqlite-libs-3.53.4-r0.apk",
+        "version": "3.53.4-r0"
       },
       {
         "dependencies": "so:libc.musl-aarch64.so.1 so:libncursesw.so.6",
-        "filename": "readline-8.2.13-r0.apk",
+        "filename": "readline-8.3.3-r1.apk",
         "name": "readline",
-        "sha256": "7dad49f83ecbcfa00c5c7df044a5566b928ac1995651cfff219e1df1c2b93871",
-        "url": "https://dl-cdn.alpinelinux.org/alpine/v3.21/main/aarch64/readline-8.2.13-r0.apk",
-        "version": "8.2.13-r0"
+        "sha256": "9f0ae0923c02b0d6aba62e9173542b65396ba3f0efefcbf087ea32f1120e7b34",
+        "url": "https://dl-cdn.alpinelinux.org/alpine/v3.24/main/aarch64/readline-8.3.3-r1.apk",
+        "version": "8.3.3-r1"
       },
       {
-        "dependencies": "ncurses-terminfo-base=6.5_p20241006-r3 so:libc.musl-aarch64.so.1",
-        "filename": "libncursesw-6.5_p20241006-r3.apk",
+        "dependencies": "ncurses-terminfo-base=6.6_p20260516-r0 so:libc.musl-aarch64.so.1",
+        "filename": "libncursesw-6.6_p20260516-r0.apk",
         "name": "libncursesw",
-        "sha256": "c1a5a3a552ad4d44c94454555f38de71b151dc2d608ea2246d92b3bd845b7f3a",
-        "url": "https://dl-cdn.alpinelinux.org/alpine/v3.21/main/aarch64/libncursesw-6.5_p20241006-r3.apk",
-        "version": "6.5_p20241006-r3"
+        "sha256": "51a7aa4b3ec40b144d0801c0544e0a9f62e2a41d04b6067bb5e95786040741c6",
+        "url": "https://dl-cdn.alpinelinux.org/alpine/v3.24/main/aarch64/libncursesw-6.6_p20260516-r0.apk",
+        "version": "6.6_p20260516-r0"
       },
       {
         "dependencies": "",
-        "filename": "ncurses-terminfo-base-6.5_p20241006-r3.apk",
+        "filename": "ncurses-terminfo-base-6.6_p20260516-r0.apk",
         "name": "ncurses-terminfo-base",
-        "sha256": "a86fb76ba2ac494ed3a550a5c42d032c486d942966bceae38f6ce95eaa384550",
-        "url": "https://dl-cdn.alpinelinux.org/alpine/v3.21/main/aarch64/ncurses-terminfo-base-6.5_p20241006-r3.apk",
-        "version": "6.5_p20241006-r3"
+        "sha256": "e0c546b9461bdce206a90bc720cb69aa4628b5a5b8d908c3e5084e00f28f6a9d",
+        "url": "https://dl-cdn.alpinelinux.org/alpine/v3.24/main/aarch64/ncurses-terminfo-base-6.6_p20260516-r0.apk",
+        "version": "6.6_p20260516-r0"
       }
     ],
     "x86_64": [
       {
         "dependencies": "",
-        "filename": "musl-1.2.5-r11.apk",
+        "filename": "musl-1.2.6-r2.apk",
         "name": "musl",
-        "sha256": "61e84757a8bfbc0d7fa8f4ce6de9cd4d791714369d78f6a08e5b03510fb2a623",
-        "url": "https://dl-cdn.alpinelinux.org/alpine/v3.21/main/x86_64/musl-1.2.5-r11.apk",
-        "version": "1.2.5-r11"
+        "sha256": "573712e2f49c15bfc20a2699f204acdfc74c772722b15e7353d768057fae0e71",
+        "url": "https://dl-cdn.alpinelinux.org/alpine/v3.24/main/x86_64/musl-1.2.6-r2.apk",
+        "version": "1.2.6-r2"
       },
       {
-        "dependencies": "musl=1.2.5-r11",
-        "filename": "musl-dev-1.2.5-r11.apk",
+        "dependencies": "musl=1.2.6-r2",
+        "filename": "musl-dev-1.2.6-r2.apk",
         "name": "musl-dev",
-        "sha256": "d3b5ab01046a92b9a168b790f516606e320f015cbd4deeb584c5e115a02124ba",
-        "url": "https://dl-cdn.alpinelinux.org/alpine/v3.21/main/x86_64/musl-dev-1.2.5-r11.apk",
-        "version": "1.2.5-r11"
+        "sha256": "6831e8b9e4821dae2c9121f0641f81e543f4ac27c03144c4876980ee84e6988f",
+        "url": "https://dl-cdn.alpinelinux.org/alpine/v3.24/main/x86_64/musl-dev-1.2.6-r2.apk",
+        "version": "1.2.6-r2"
       },
       {
         "dependencies": "so:libc.musl-x86_64.so.1",
-        "filename": "pkgconf-2.3.0-r0.apk",
+        "filename": "pkgconf-2.5.1-r0.apk",
         "name": "pkgconf",
-        "sha256": "df410a0e485d40a2bd0bf9b36d1e26f7577c5fe60e25b99906a7d63a426e0d29",
-        "url": "https://dl-cdn.alpinelinux.org/alpine/v3.21/main/x86_64/pkgconf-2.3.0-r0.apk",
-        "version": "2.3.0-r0"
+        "sha256": "20cc47b76b82e9424a35ecc4fdd7bd904ef49ada1684214910fae31bc0cab737",
+        "url": "https://dl-cdn.alpinelinux.org/alpine/v3.24/main/x86_64/pkgconf-2.5.1-r0.apk",
+        "version": "2.5.1-r0"
       },
       {
         "dependencies": "so:libc.musl-x86_64.so.1 so:libreadline.so.8",
-        "filename": "sqlite-3.48.0-r4.apk",
+        "filename": "sqlite-3.53.4-r0.apk",
         "name": "sqlite",
-        "sha256": "fe7bbf2257d73e26bf248c5a11752a328caf3d71c1cb3003f5e1fc1406266b27",
-        "url": "https://dl-cdn.alpinelinux.org/alpine/v3.21/main/x86_64/sqlite-3.48.0-r4.apk",
-        "version": "3.48.0-r4"
+        "sha256": "c51f4aae4fdbbec678639cdaa7af6758eef331dbf7299e2777fa7020b41ff194",
+        "url": "https://dl-cdn.alpinelinux.org/alpine/v3.24/main/x86_64/sqlite-3.53.4-r0.apk",
+        "version": "3.53.4-r0"
       },
       {
-        "dependencies": "sqlite=3.48.0-r4 pkgconfig sqlite-libs=3.48.0-r4",
-        "filename": "sqlite-dev-3.48.0-r4.apk",
+        "dependencies": "sqlite=3.53.4-r0 sqlite-libs=3.53.4-r0 pkgconfig",
+        "filename": "sqlite-dev-3.53.4-r0.apk",
         "name": "sqlite-dev",
-        "sha256": "f8e106d23b275cb3f97768bcd762cc8ec7ff66fcad4b2dc0f47df5de5ce446d1",
-        "url": "https://dl-cdn.alpinelinux.org/alpine/v3.21/main/x86_64/sqlite-dev-3.48.0-r4.apk",
-        "version": "3.48.0-r4"
+        "sha256": "c30a6155ebd456f37524242c2a60690e516666fa487fba6630280e7ecdf9442f",
+        "url": "https://dl-cdn.alpinelinux.org/alpine/v3.24/main/x86_64/sqlite-dev-3.53.4-r0.apk",
+        "version": "3.53.4-r0"
       },
       {
         "dependencies": "so:libc.musl-x86_64.so.1",
-        "filename": "sqlite-libs-3.48.0-r4.apk",
+        "filename": "sqlite-libs-3.53.4-r0.apk",
         "name": "sqlite-libs",
-        "sha256": "56b55029cce8d43a67f5076e07c96b68b80b26dc412b205b7f0b5c63704ab234",
-        "url": "https://dl-cdn.alpinelinux.org/alpine/v3.21/main/x86_64/sqlite-libs-3.48.0-r4.apk",
-        "version": "3.48.0-r4"
+        "sha256": "a8a216e53d22faa3f04d2e3650c1991af66f8d0b42fadff5afcdb9afb60b19e5",
+        "url": "https://dl-cdn.alpinelinux.org/alpine/v3.24/main/x86_64/sqlite-libs-3.53.4-r0.apk",
+        "version": "3.53.4-r0"
       },
       {
         "dependencies": "so:libc.musl-x86_64.so.1 so:libncursesw.so.6",
-        "filename": "readline-8.2.13-r0.apk",
+        "filename": "readline-8.3.3-r1.apk",
         "name": "readline",
-        "sha256": "fa4ff2347886f5516d021b9064a00259b29fc6e2608eac5588a339de244acf12",
-        "url": "https://dl-cdn.alpinelinux.org/alpine/v3.21/main/x86_64/readline-8.2.13-r0.apk",
-        "version": "8.2.13-r0"
+        "sha256": "766911ecb986a6c5cf0841a6b556cd1e9dbbf22b3559726de32416486cd15c81",
+        "url": "https://dl-cdn.alpinelinux.org/alpine/v3.24/main/x86_64/readline-8.3.3-r1.apk",
+        "version": "8.3.3-r1"
       },
       {
-        "dependencies": "ncurses-terminfo-base=6.5_p20241006-r3 so:libc.musl-x86_64.so.1",
-        "filename": "libncursesw-6.5_p20241006-r3.apk",
+        "dependencies": "ncurses-terminfo-base=6.6_p20260516-r0 so:libc.musl-x86_64.so.1",
+        "filename": "libncursesw-6.6_p20260516-r0.apk",
         "name": "libncursesw",
-        "sha256": "3919cf673e841d91865213799ccfd5f77a48f5f9f5402723167470295ee32a49",
-        "url": "https://dl-cdn.alpinelinux.org/alpine/v3.21/main/x86_64/libncursesw-6.5_p20241006-r3.apk",
-        "version": "6.5_p20241006-r3"
+        "sha256": "cf8caa8a88bc4ce9d9e395567fefaf9ef7fbd55c50ae6155b35c1b58f3755023",
+        "url": "https://dl-cdn.alpinelinux.org/alpine/v3.24/main/x86_64/libncursesw-6.6_p20260516-r0.apk",
+        "version": "6.6_p20260516-r0"
       },
       {
         "dependencies": "",
-        "filename": "ncurses-terminfo-base-6.5_p20241006-r3.apk",
+        "filename": "ncurses-terminfo-base-6.6_p20260516-r0.apk",
         "name": "ncurses-terminfo-base",
-        "sha256": "46402464710d165a8fed4b843b3a20d9950e1e9a20923c3869241014bf6b2f51",
-        "url": "https://dl-cdn.alpinelinux.org/alpine/v3.21/main/x86_64/ncurses-terminfo-base-6.5_p20241006-r3.apk",
-        "version": "6.5_p20241006-r3"
+        "sha256": "ce83be6d0bd10584a53c3a5868cc1595ce5f0f8e0b621f8f7f70b6144e521fc9",
+        "url": "https://dl-cdn.alpinelinux.org/alpine/v3.24/main/x86_64/ncurses-terminfo-base-6.6_p20260516-r0.apk",
+        "version": "6.6_p20260516-r0"
       }
     ]
   },

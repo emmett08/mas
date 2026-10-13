@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Refresh wheel-only dependency locks for the supported Linux container targets.
 
-Run with CPython 3.12. Resolution is deliberately an explicit maintenance action;
+Run with CPython 3.14. Resolution is deliberately an explicit maintenance action;
 normal builds only consume the committed, hash-checked result.
 """
 from __future__ import annotations
@@ -39,17 +39,21 @@ def collect(directory: Path) -> dict[str, tuple[str, set[str]]]:
     return packages
 
 
-def refresh(filename: str, requirements: list[str], platforms: tuple[str, ...]) -> None:
+def refresh(filename: str, requirements: list[str], platforms: tuple[str, ...],
+            keep_versions: bool = False) -> None:
+    if keep_versions:
+        requirements = [*requirements, *re.findall(
+            r"^([a-z0-9-]+==[^\s]+)", (ROOT / "host" / filename).read_text(), re.MULTILINE)]
     with tempfile.TemporaryDirectory(prefix="mas-lock-") as temporary:
         directory = Path(temporary)
         for platform in platforms:
             subprocess.run([
                 sys.executable, "-m", "pip", "download", "--only-binary=:all:",
-                "--platform", platform, "--python-version", "3.12", "--implementation", "cp",
-                "--abi", "cp312", "--dest", str(directory / platform), *requirements,
+                "--platform", platform, "--python-version", "3.14", "--implementation", "cp",
+                "--abi", "cp314", "--dest", str(directory / platform), *requirements,
             ], check=True)
         packages = collect(directory)
-    scope = "CPython 3.12 Linux amd64/arm64, glibc/musl" if len(platforms) > 1 else "CPython 3.12 Linux amd64 (CI tooling only)"
+    scope = "CPython 3.14 Linux amd64/arm64, glibc/musl" if len(platforms) > 1 else "CPython 3.14 Linux amd64 (CI tooling only)"
     lines = [f"# Generated from downloaded wheels; {scope}.",
              "# Refresh: python scripts/release-locks.py; review changes before committing.",
              "--only-binary=:all:", ""]
@@ -83,14 +87,16 @@ def check() -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--check", action="store_true", help="check lock structure and direct pins without network")
+    parser.add_argument("--keep-versions", action="store_true",
+                        help="refresh wheel hashes for the new Python ABI while preserving every locked version")
     args = parser.parse_args()
     if not args.check:
-        if sys.version_info[:2] != (3, 12):
-            parser.error("refresh requires CPython 3.12")
+        if sys.version_info[:2] != (3, 14):
+            parser.error("refresh requires CPython 3.14")
         metadata = tomllib.loads((ROOT / "host/pyproject.toml").read_text())
-        refresh("requirements-openai.txt", metadata["project"]["optional-dependencies"]["openai"], PLATFORMS)
-        refresh("requirements-build.txt", [*metadata["build-system"]["requires"], "pip==26.2.1", "wheel==0.48.0"], PLATFORMS)
-        refresh("requirements-security.txt", ["pip-audit==2.10.1"], PLATFORMS[:1])
+        refresh("requirements-openai.txt", metadata["project"]["optional-dependencies"]["openai"], PLATFORMS, args.keep_versions)
+        refresh("requirements-build.txt", [*metadata["build-system"]["requires"], "pip==26.2.1", "wheel==0.48.0"], PLATFORMS, args.keep_versions)
+        refresh("requirements-security.txt", ["pip-audit==2.10.1"], PLATFORMS[:1], args.keep_versions)
     check()
     print("Dependency lock structure and direct pins verified.")
 

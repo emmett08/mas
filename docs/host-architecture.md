@@ -77,9 +77,9 @@ They do not model Python schemas, Linux process cleanup, actual storage flushes
 or provider behaviour. Implementation regressions supply evidence for these
 additional boundaries; no refinement proof is claimed.
 
-The project retains Python's declared supported syntax and the pinned Rust
-1.85.1 toolchain, existing unittest/Cargo tests, locked dependencies and SPIN
-verification. This repair introduces no new formatter, linter or framework.
+The project retains Python's declared supported syntax, existing unittest/Cargo
+tests, locked dependencies and SPIN verification. Rust 1.99.0 is the current
+pinned toolchain. The runtime repair introduces no new formatter, linter or framework.
 Private orchestration helpers remain with their owning workflow when separating
 them would split a transaction or replay invariant; bootstrap and command
 execution were extracted because they have independent failure and lifecycle

@@ -49,9 +49,12 @@ protocol guarantee. See [operations](docs/operations.md),
 [release controls](docs/releases.md). Live-provider acceptance needs your own
 credentials and is not implied by the offline tests.
 
+See [when to choose MAS](docs/choosing-mas.md) for organisational use cases,
+alternatives and a measurable adoption pilot.
+
 ## Build and run
 
-Requirements: Rust 1.85.1 (pinned), a C compiler for bundled SQLite and SPIN's
+Requirements: Rust 1.99.0 (pinned), a C compiler for bundled SQLite and SPIN's
 verifier, and SPIN for formal checks. The runtime does not need Python, an API
 key or an MCP service. The verification harness requires Linux, `sh` and `sha256sum`; recorded
 checks use Linux.

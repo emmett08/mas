@@ -143,7 +143,8 @@ impl Gateway {
         }
         // This is a fingerprint of high-entropy credentials, not plaintext
         // secrets. It freezes the entire policy even across process restarts.
-        let fingerprint = format!("{:x}", Sha256::digest(format!("MAS-GATEWAY-1\n{normal}").as_bytes()));
+        let digest = Sha256::digest(format!("MAS-GATEWAY-1\n{normal}").as_bytes());
+        let fingerprint: String = digest.iter().map(|byte| format!("{byte:02x}")).collect();
         store.register_admission(&scope, &fingerprint, limit).map_err(|_| "gateway policy registration rejected")?;
         for credential in &credentials {
             store.register_admission(&credential.scope, &fingerprint, credential.limit).map_err(|_| "gateway policy registration rejected")?;
