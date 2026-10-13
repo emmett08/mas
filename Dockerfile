@@ -1,4 +1,4 @@
-FROM python:3.12-alpine@sha256:1b668429b3511ab407d8e00648891631b0b1a4d7e15e3ca70f38ab5b91ad4ab4 AS alpine-packages
+FROM python:3.14-alpine@sha256:f6a589d43c42b9e7f7dc67a12d37132491f362859a5d750607710cc56da3bc72 AS alpine-packages
 ARG TARGETARCH
 COPY docker/alpine-packages.json /build/alpine-packages.json
 COPY scripts/release-apk.py /build/release-apk.py
@@ -14,7 +14,7 @@ COPY rust-protocol/Cargo.toml rust-protocol/Cargo.lock ./
 COPY rust-protocol/src ./src
 RUN cargo build --locked --release --bin mas --bin mas-gateway
 
-FROM python:3.12-alpine@sha256:1b668429b3511ab407d8e00648891631b0b1a4d7e15e3ca70f38ab5b91ad4ab4 AS python-build
+FROM python:3.14-alpine@sha256:f6a589d43c42b9e7f7dc67a12d37132491f362859a5d750607710cc56da3bc72 AS python-build
 WORKDIR /build/host
 COPY host/pyproject.toml host/requirements-openai.txt host/requirements-build.txt ./
 RUN python -m pip install --no-cache-dir --require-hashes -r requirements-build.txt \
@@ -23,7 +23,7 @@ COPY host/mas_host ./mas_host
 RUN --network=none python -m pip wheel --no-cache-dir --no-index --no-deps --no-build-isolation --wheel-dir /wheels . \
     && python -c 'from pathlib import Path; import hashlib; p=next(Path("/wheels").glob("mas_host-*.whl")); Path("/wheels/host-wheel.txt").write_text(str(p)+" --hash=sha256:"+hashlib.sha256(p.read_bytes()).hexdigest()+"\n")'
 
-FROM python:3.12-alpine@sha256:1b668429b3511ab407d8e00648891631b0b1a4d7e15e3ca70f38ab5b91ad4ab4
+FROM python:3.14-alpine@sha256:f6a589d43c42b9e7f7dc67a12d37132491f362859a5d750607710cc56da3bc72
 LABEL org.opencontainers.image.source="https://github.com/emmett08/mas"
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
