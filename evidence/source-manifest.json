@@ -27,8 +27,8 @@
     "docs/host-runner.md": "162feeb46aef52df20d687dc97b41621090acd78987d0bd5c0d12f35b978aa74",
     "docs/independent-review.md": "59c3f3454017181b416249dda9f6c839157bc197d5ec0531114ca5298368d9ef",
     "docs/operations.md": "6de792be2c764962c25450309b8feb3abfcacc36b9d9dd1d6ab8f8e45c6dc6a0",
-    "docs/releases.md": "5c561c8d55431f9c54783f58b63bfa692b400634f9c4818c3f3b5dc1670905bb",
-    "docs/verification.md": "e1dadd1029717e902ed1faf174b9e9b781980a2ed5e631c8d6cc0f4ff1cb35b3",
+    "docs/releases.md": "2597ab54f9d78954f7a0c9b394d93e790a7878937e17fe076fc5e55d5374610a",
+    "docs/verification.md": "352a4d7896442f370adda1d125aa0de0a168d2d67318fb2199f78b9bdea3594f",
     "examples/evaluator-optimiser.json": "e0df929804ce9d5784430d465c3ba54b8387a17cc16a039fab66e62ba743d62b",
     "examples/host/mesh.json": "68bc78a6dafa566917db84b531990027972616eb8597e2c177136c5968a6dfba",
     "examples/human-review.json": "3ef383446a4edb322e4e5c579f0d9dfaf51347cc3a1252a8396b2bfe6c8e531e",
@@ -106,8 +106,8 @@
     "scripts/release-container-check.py": "04d416ed64f7d68a5bbcd53cafeded7326a46a3136ebab9b9ca3d099c6baf773",
     "scripts/release-locks.py": "cf1429939c30fb464ec6b02ac2a0b79beab459479f27daf192ddec23e60c6f4d",
     "scripts/release-manifest.py": "3e8453c329364cd35e1603f790c6e18a9daa94d9290dfbd96f05d15ac91a85c5",
-    "scripts/release-oci.py": "544feb4d9791e2e5ab82b6082fff69659b726090512d2fd7298a6ec2f997162f",
+    "scripts/release-oci.py": "64bbb62ad8539da76a7d8f5402f7e5edcf7ba622e7664c3a378c00ed679bc919",
     "scripts/tests/test_release_candidate.py": "ca187555e03b358e7716655cf2c17d1c97292955d39be842507f16c94963766a",
-    "scripts/tests/test_release_oci.py": "97305b17c82e8af815f278202c342604c4c01f0bf758b2b5b7a967a48ef0339f"
+    "scripts/tests/test_release_oci.py": "0d0fba363bd67bcd42ed214471a3aa05fa0f54d3fac57e82855f267df104bc96"
   }
 }

@@ -1,0 +1,27 @@
+{
+  "schema": "mas-ci-acceptance/1",
+  "source_commit": "9c0a55480461a4bd119a09c0d04df137a63cb221",
+  "tag": "v0.1.2",
+  "run_url": "https://github.com/emmett08/mas/actions/runs/38477174894",
+  "status": "release_scanner_reference_failed",
+  "passed": [
+    "all three standalone workflows",
+    "all release prerequisites",
+    "native and installed-container host acceptance on both architectures (132 tests each)",
+    "both final package OCI imports and identity binding",
+    "both final package 132-test host suites",
+    "verified scanner layout creation"
+  ],
+  "failed": {
+    "stage": "Scan the release runtime manifest",
+    "architectures": [
+      "amd64",
+      "arm64"
+    ],
+    "message": "invalid OCI image ref",
+    "cause": "Trivy 0.75.0 matches an explicit digest only among root index descriptors before descending. BuildKit's root names a nested index, so the selected runtime leaf digest did not match a root descriptor.",
+    "source": "https://github.com/aquasecurity/trivy/blob/v0.75.0/pkg/fanal/image/oci.go",
+    "required_repair": "Derive a scanner-only root index with one direct descriptor for the verified runtime manifest. Preserve all content-addressed blobs, original archive, original index and provenance; record original and derived index hashes."
+  },
+  "scope": "No final release packages were accepted or uploaded. The tag remains unchanged."
+}

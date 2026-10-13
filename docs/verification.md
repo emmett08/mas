@@ -21,7 +21,7 @@ implementation tests; the [host recovery model](../formal/host-recovery-notes.md
 recovery abstraction, not the Python implementation.
 The separate `Host and Compose checks` workflow runs the full installed-container
 suite on native amd64 and arm64, checks reconciler readiness and tests live-mode
-secret delivery with a dummy key. Sixteen offline release-helper tests check
+secret delivery with a dummy key. Seventeen offline release-helper tests check
 immutable tag binding, OCI integrity, build provenance and imported-image identity.
 Workflow success is recorded separately in Actions.
 
@@ -38,7 +38,11 @@ the new deterministic regression proves premature recovery remains rejected.
 Both final architecture image imports and container suites passed, but
 [Trivy rejected the OCI tar input](../evidence/readiness-ci-scanner-input.json).
 The workflow now scans a verified OCI directory with explicit manifest selection.
-Candidate `v0.1.2` must pass the full release gates with these corrections.
+Candidate `v0.1.2` passed all architecture suites and prerequisites but
+[failed Trivy's root-only reference resolution](../evidence/readiness-ci-scanner-reference.json).
+The scanner layout now directly names the verified runtime manifest at its root,
+preserving the original archive and every blob. Candidate `v0.1.3` must pass the
+full release gates with this correction.
 
 Deployment fault checks exercise actual process termination, response loss,
 SQLite write failure and restored-state admission blocking. New regressions cover

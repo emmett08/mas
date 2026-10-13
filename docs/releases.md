@@ -97,9 +97,12 @@ while retaining attestations in the distributed OCI archive.
 
 For scanning, the verifier copies only validated regular OCI members into a
 fresh directory, without applying tar paths or permissions. Trivy receives that
-directory with the verified runtime manifest digest explicitly selected. Both
+directory with a derived root index directly naming the verified runtime
+manifest. Trivy 0.75 matches explicit references only among root descriptors;
+it cannot resolve a nested leaf digest from the original root. Both
 the vulnerability scan and SBOM use this input. Copied file hashes are rechecked
-before packaging; the original archive and provenance remain unchanged.
+before packaging; the binding records original and derived index hashes, and
+all blobs, the original archive and its provenance remain unchanged.
 Layer hashing, decompression and copying use streams.
 The release accepts its documented OCI layout, gzip or uncompressed
 tar layers and supported SLSA provenance formats; unexpected formats fail the
@@ -136,14 +139,18 @@ imports and 131-test container suites passed, but the
 Trivy accepts an OCI directory rather than this OCI tar archive. Candidate
 `v0.1.2` provides the verified directory input, waits for actual lock availability
 and adds deterministic regressions for these boundaries.
-It requires fresh full acceptance. A candidate tag is not evidence of a
-successful release.
+Candidate `v0.1.2` passed all native, container and prerequisite gates, then
+[failed scanner reference resolution](../evidence/readiness-ci-scanner-reference.json).
+Candidate `v0.1.3` derives the scanner's direct root reference as described above
+and includes its regression. It requires fresh full acceptance. A candidate
+tag is not evidence of a successful release.
 
 The implementation follows Docker's [OCI exporter options](https://docs.docker.com/build/exporters/oci-docker/)
 and [attestation storage format](https://docs.docker.com/build/metadata/attestations/attestation-storage/),
 the [OCI image layout](https://github.com/opencontainers/image-spec/blob/main/image-layout.md),
 Skopeo's [copy interface](https://github.com/containers/skopeo/blob/main/docs/skopeo-copy.1.md),
-and Trivy's [OCI directory and digest selection](https://trivy.dev/docs/dev/guide/target/container_image/#oci-layout).
+and Trivy's [OCI directory and digest selection](https://trivy.dev/docs/dev/guide/target/container_image/#oci-layout)
+and [pinned 0.75.0 reference resolver](https://github.com/aquasecurity/trivy/blob/v0.75.0/pkg/fanal/image/oci.go).
 
 ## Upgrade and rollback
 

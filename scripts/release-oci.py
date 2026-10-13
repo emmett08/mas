@@ -212,7 +212,20 @@ def materialise_layout(path: Path, binding: dict, directory: Path) -> dict:
             hashes[name] = identity
     if file_digest(path) != binding["archive_sha256"]:
         raise ValueError("OCI archive changed during scanner layout creation")
+    original_index = hashes["index.json"]
+    # Trivy 0.75 resolves an explicit reference only among root descriptors.
+    # BuildKit's root references a nested index, so expose the already verified
+    # runtime manifest directly in this scanner-only index. All content-addressed
+    # blobs and the original archive/index/provenance remain unchanged.
+    manifest_path = directory / "blobs" / "sha256" / binding["manifest_digest"].split(":")[1]
+    scanner_index = {"schemaVersion": 2, "mediaType": INDEX, "manifests": [
+        {"mediaType": MANIFEST, "digest": binding["manifest_digest"],
+         "size": manifest_path.stat().st_size,
+         "platform": {"os": binding["os"], "architecture": binding["architecture"]}}]}
+    (directory / "index.json").write_text(json.dumps(scanner_index, sort_keys=True) + "\n")
+    hashes["index.json"] = file_digest(directory / "index.json")
     return {**binding, "scanner_layout_verified": True,
+            "scanner_original_index_sha256": original_index,
             "scanner_directory": str(directory), "scanner_layout_files": hashes,
             "scanner_input": str(directory) + "@" + binding["manifest_digest"]}
 

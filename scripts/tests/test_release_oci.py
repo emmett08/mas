@@ -144,10 +144,35 @@ class ReleaseOciTests(unittest.TestCase):
                 self.assertEqual(result["scanner_input"], str(directory) + "@" + binding["manifest_digest"])
                 with tarfile.open(self.archive) as archive:
                     for member in archive.getmembers():
-                        self.assertEqual((directory / member.name).read_bytes(), archive.extractfile(member).read())
+                        source_bytes = archive.extractfile(member).read()
+                        if member.name == "index.json":
+                            self.assertEqual(result["scanner_original_index_sha256"], "sha256:" + hashlib.sha256(source_bytes).hexdigest())
+                        else:
+                            self.assertEqual((directory / member.name).read_bytes(), source_bytes)
                 manifest = json.loads((directory / "blobs" / "sha256" / binding["manifest_digest"].split(":")[1]).read_text())
                 self.assertEqual(manifest["config"]["digest"], image["Id"])
                 self.assertEqual(self.archive.read_bytes(), before)
+
+    def test_scanner_digest_reference_resolves_at_root_for_pinned_trivy(self):
+        image = archive_fixture(self.archive)
+        binding = oci.verify_import(self.archive, oci.inspect_archive(self.archive, "amd64"), image)
+        with tarfile.open(self.archive) as archive:
+            original = json.load(archive.extractfile("index.json"))
+        # Reproduce the rejected reference: Trivy 0.75 compares the supplied
+        # digest only with root descriptors before descending into child indexes.
+        self.assertNotIn(binding["manifest_digest"], [item["digest"] for item in original["manifests"]])
+        directory = self.archive.parent / "scanner"
+        result = oci.materialise_layout(self.archive, binding, directory)
+        root = json.loads((directory / "index.json").read_text())
+        reference = result["scanner_input"].split("@", 1)[1]
+        matches = [item for item in root["manifests"] if item["digest"] == reference]
+        self.assertEqual(len(root["manifests"]), 1)
+        self.assertEqual(len(matches), 1)
+        self.assertEqual(matches[0]["mediaType"], oci.MANIFEST)
+        selected = directory / "blobs" / "sha256" / reference.split(":")[1]
+        self.assertEqual(matches[0]["size"], selected.stat().st_size)
+        self.assertEqual(json.loads(selected.read_text())["config"]["digest"], image["Id"])
+        self.assertEqual(result["scanner_layout_files"]["index.json"], oci.file_digest(directory / "index.json"))
 
     def test_scanner_directory_refuses_existing_destination_unverified_or_changed_archive(self):
         image = archive_fixture(self.archive)
