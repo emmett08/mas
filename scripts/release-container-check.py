@@ -8,6 +8,7 @@ are removed before running tests; the container should also use --network none.
 from __future__ import annotations
 
 import json
+import importlib.util
 import ctypes
 import os
 from pathlib import Path
@@ -19,8 +20,18 @@ import sys
 import tempfile
 
 
+def runtime_package_identity() -> dict:
+    """The deployed runtime must not retain installer code or bootstrap wheels."""
+    present = [name for name in ("pip", "ensurepip")
+               if importlib.util.find_spec(name) is not None]
+    if present:
+        raise RuntimeError("Runtime image retains package installers: " + ", ".join(present))
+    return {"package_installers": "absent"}
+
+
 def runtime_identity(binaries: dict[str, Path]) -> dict:
     """Require the actual Alpine release to use its patched shared SQLite."""
+    package_identity = runtime_package_identity()
     linkage = {}
     for name, binary in binaries.items():
         result = subprocess.run(["ldd", str(binary)], text=True, stdout=subprocess.PIPE,
@@ -39,7 +50,7 @@ def runtime_identity(binaries: dict[str, Path]) -> dict:
     if sqlite3.sqlite_version != native_version:
         raise RuntimeError("Python and the shared native SQLite runtime must have identical versions")
     return {"native_sqlite": native_version, "python_sqlite": sqlite3.sqlite_version,
-            "rust_dynamic_linkage": linkage}
+            "rust_dynamic_linkage": linkage, **package_identity}
 
 
 def main() -> int:

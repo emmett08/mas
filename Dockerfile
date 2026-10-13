@@ -46,6 +46,8 @@ COPY host/requirements-openai.txt /wheels/requirements-openai.txt
 RUN --network=none python -m pip install --no-cache-dir --no-index --find-links=/wheels --require-hashes -r /wheels/requirements-openai.txt \
     && python -m pip install --no-cache-dir --no-index --no-deps --require-hashes -r /wheels/host-wheel.txt \
     && python -m pip check \
+    && python -m pip uninstall --yes pip \
+    && python -c 'import ensurepip, shutil; shutil.rmtree(ensurepip.__path__[0])' \
     && rm -rf /wheels
 COPY examples/host/mesh.json /app/examples/host/mesh.json
 COPY LICENSE THIRD_PARTY_LICENSE.txt /usr/share/doc/mas/

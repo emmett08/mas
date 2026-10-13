@@ -4,7 +4,12 @@ The container build fixes Rust 1.99.0, Cargo.lock, both base-image manifests,
 Alpine package archives, Python build tools and the complete OpenAI SDK dependency set. Python downloads
 accept only the committed wheel hashes. The application wheel is built without
 network access; the final image installs from the local wheel directory with
-hash verification and no network. Build inputs are repeatable. Bit-for-bit image
+hash verification and no network. After installation and dependency checks, the
+final image removes pip and the ensurepip bootstrap bundle. Runtime agents do
+not need package installers; their vendored dependencies would otherwise add
+unnecessary vulnerable code. Extend dependencies at image-build time through
+the reviewed locks. Container acceptance checks that both installers are absent.
+Build inputs are repeatable. Bit-for-bit image
 reproducibility has not been established: build timestamps and the CI/build
 infrastructure can still differ.
 
