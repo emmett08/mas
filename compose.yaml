@@ -6,6 +6,16 @@ services:
       dockerfile: Dockerfile
     init: true
     restart: "no"
+    cpus: "1.0"
+    mem_limit: 512m
+    memswap_limit: 512m
+    pids_limit: 64
+    stop_grace_period: 15s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     user: "10001:10001"
     read_only: true
     cap_drop: [ALL]

@@ -37,6 +37,18 @@ mesh over the central Rust/SQLite transport. See the [quickstart and adapter
 guide](docs/host-runner.md) for credentials, model selection, persistence and a
 complete custom adapter.
 
+## Deployment scope
+
+The supported host target is a bounded, single-host Linux deployment with trusted
+Python adapters. It provides durable workflow checkpoints, supervised local
+execution, shared call and spending reservations, independent reconciliation,
+retention and audit-only backup restore. Uncertain provider outcomes require
+explicit reconciliation; remote effects and actual billing remain outside the
+protocol guarantee. See [operations](docs/operations.md),
+[deployment acceptance](docs/deployment-acceptance.md) and
+[release controls](docs/releases.md). Live-provider acceptance needs your own
+credentials and is not implied by the offline tests.
+
 ## Build and run
 
 Requirements: Rust 1.85.1 (pinned), a C compiler for bundled SQLite and SPIN's

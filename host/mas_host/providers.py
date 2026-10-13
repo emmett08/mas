@@ -51,7 +51,8 @@ def validate_total(output: Any) -> dict[str, int]:
 class TotalProvider(Protocol):
     """Inference contract; call through Context.invoke to record durable evidence."""
 
-    def total(self, invoice: list[dict[str, Any]], *, proposal: dict[str, int] | None = None) -> Invocation: ...
+    def total(self, invoice: list[dict[str, Any]], *, proposal: dict[str, int] | None = None,
+              request_id: str | None = None) -> Invocation: ...
 
 
 class MockProvider:
@@ -59,8 +60,14 @@ class MockProvider:
 
     def __init__(self, role: str):
         self.role = role
+        self.reservation_microusd = 0
 
-    def total(self, invoice: list[dict[str, Any]], *, proposal: dict[str, int] | None = None) -> Invocation:
+    def descriptor(self) -> dict:
+        return {"provider": "mock", "model": "deterministic-invoice", "role": self.role,
+                "contract": "invoice-total/2"}
+
+    def total(self, invoice: list[dict[str, Any]], *, proposal: dict[str, int] | None = None,
+              request_id: str | None = None) -> Invocation:
         if proposal is not None:
             validate_total(proposal)
         return Invocation(
@@ -89,10 +96,14 @@ class OpenAIProvider:
     Model names are configuration, not part of the communication protocol.
     """
 
-    def __init__(self, model: str, role: str, *, api_key: str | None = None, client: Any = None):
+    def __init__(self, model: str, role: str, *, api_key: str | None = None, client: Any = None,
+                 reservation_microusd: int = 100_000):
         if not isinstance(model, str) or not re.fullmatch(r"[A-Za-z0-9_.:/-]{1,200}", model):
             raise ValueError("model must be a valid short model identifier")
         self.model, self.role = model, role
+        if type(reservation_microusd) is not int or not 1 <= reservation_microusd <= 100_000_000:
+            raise ValueError("OpenAI calls require a positive bounded spending reservation")
+        self.reservation_microusd = reservation_microusd
         if client is None:
             if not api_key:
                 raise ProviderError("OpenAI mode requires OPENAI_API_KEY_FILE or OPENAI_API_KEY")
@@ -106,8 +117,17 @@ class OpenAIProvider:
                 raise ProviderError("could not initialise the OpenAI client") from None
         self._client = client
 
-    def total(self, invoice: list[dict[str, Any]], *, proposal: dict[str, int] | None = None) -> Invocation:
+    def descriptor(self) -> dict:
+        return {"provider": "openai", "model": self.model, "role": self.role,
+                "contract": "invoice-total/2", "max_output_tokens": 512,
+                "reservation_microusd": self.reservation_microusd}
+
+    def total(self, invoice: list[dict[str, Any]], *, proposal: dict[str, int] | None = None,
+              request_id: str | None = None) -> Invocation:
         invoice = validate_invoice(invoice)
+        if request_id is not None and (not isinstance(request_id, str)
+                or not re.fullmatch(r"[A-Za-z0-9_.:/-]{1,128}", request_id)):
+            raise ProviderError("invalid provider request trace identifier")
         supplied: dict[str, Any] = {"invoice": invoice}
         if proposal is not None:
             supplied["proposal"] = validate_total(proposal)
@@ -130,6 +150,7 @@ class OpenAIProvider:
                                "required": ["total_cents"], "additionalProperties": False}}},
                 store=False,
                 max_output_tokens=512,
+                extra_headers={"X-Client-Request-Id": request_id} if request_id else {},
             )
         except Exception:
             # Timeout may follow provider-side work. The runner records an unknown
@@ -154,6 +175,13 @@ class OpenAIProvider:
         except (ValueError, TypeError, ProviderError, RecursionError):
             raise ProviderError("OpenAI returned an invalid invoice total") from None
         evidence: dict[str, Any] = {"provider": "openai", "model": self.model, "role": self.role}
+        evidence["reserved_microusd"] = self.reservation_microusd
+        evidence["spending_basis"] = "configured_reservation_not_provider_invoice"
+        if request_id:
+            evidence["client_request_id"] = request_id
+        server_request_id = getattr(response, "_request_id", None)
+        if isinstance(server_request_id, str) and re.fullmatch(r"[A-Za-z0-9_-]{1,200}", server_request_id):
+            evidence["server_request_id"] = server_request_id
         response_id = getattr(response, "id", None)
         if isinstance(response_id, str) and re.fullmatch(r"resp_[A-Za-z0-9_-]{1,200}", response_id):
             evidence["response_id"] = response_id

@@ -17,8 +17,8 @@ docker compose up --build --abort-on-container-exit --exit-code-from mesh
 This builds the Rust binaries and Python host and runs a **mock** mesh. It makes
 no provider requests. The mock adapters use the same Rust gateway, task flow and
 call-accounting path as the live adapters. The final report labels the mode and
-shows the checked result and communication events. Repeating the command creates
-a new run; it does not resume an interrupted provider call.
+shows the checked result and communication events. Repeating this command creates
+a new job. Use the explicit resume command below to recover an existing job.
 
 ## Run two GPT agents and a Python checker
 
@@ -86,7 +86,7 @@ plugins from one another. There are no published ports and no new HTTP protocol.
 
 ## Write an adapter
 
-Install Python 3.10 or newer and the Rust binaries, then install the host:
+Install Python 3.10 or newer on Linux and the Rust binaries, then install the host:
 
 ```sh
 cargo build --release --locked --manifest-path rust-protocol/Cargo.toml
@@ -97,7 +97,7 @@ export PATH="$PWD/rust-protocol/target/release:$PATH"
 For native OpenAI execution, also install the pinned SDK dependencies:
 
 ```sh
-python -m pip install -r host/requirements-openai.txt
+python -m pip install --require-hashes -r host/requirements-openai.txt
 ```
 
 An adapter implements one method. The host provides the addressed request and an
@@ -125,7 +125,7 @@ topology = {
 }
 
 with Runner(topology, {"client": Uppercase(), "worker": Uppercase()},
-            state_dir=Path(".mas-state")) as runner:
+            state_dir=Path(".mas-state"), workflow_version="uppercase/1") as runner:
     result = runner.request("client", "worker", "uppercase", {"text": "hello"})
     print(result.output)
 ```
@@ -135,18 +135,36 @@ It sends and consumes a real Request/Result exchange. A peer reply needs the
 reverse directed edge as well as the request edge. All requests and replies go
 through the Rust encoder and authenticated gateway.
 
-Wrap external invocations with `context.invoke(callable)`. The callable returns
-`Invocation(output={...}, evidence={...})`. The runner reserves a durable call
-before invoking it and records evidence afterwards. The OpenAI adapter supplies
-the response ID, selected model and available token counts; it disables automatic
-SDK retries. Custom adapters must provide their own provider timeout and evidence
-policy. Calls made outside this interface are outside its accounting.
+Wrap every external effect with `context.invoke(callable, input=effect_descriptor,
+reservation_microusd=100000)`. The zero-argument callable returns
+`Invocation(output={...}, evidence={...})`. Include every effect-relevant input,
+provider/model binding and adapter version in the descriptor. The parent records
+a durable intent, deployment allocation and Rust call reservation before giving
+the adapter permission to execute. Record a conservative allocation in micro-US
+dollars (100000 = $0.10); it is an admission allowance, not a provider invoice or
+a guarantee about eventual billing. Mock adapters use zero money allocation but
+still consume the shared call count. Custom adapters are trusted to declare
+appropriate allowances and to keep all effects inside this interface.
 
-The adapter interface is ordinary trusted Python code. It can wrap another model
-provider, a deterministic tool or an application-specific human input service.
-Do not load untrusted code into this process. Context objects are an API boundary,
-not a Python sandbox. Model output is data: the example never evaluates generated
-Python, shell commands or model-selected tools.
+During the callable, `context.invocation_id` supplies a stable diagnostic ID and
+`context.remaining_seconds` exposes the remaining run deadline. The OpenAI
+adapter sends the ID as `X-Client-Request-Id`, records safe response/request IDs
+and token counts, and disables SDK retries. This diagnostic header is not a
+provider idempotency guarantee.
+
+Adapters run in supervised child processes by default. The parent retains the
+gateway, checkpoints and accounting. Its watchdog uses the original run deadline to stop and reap local work,
+including nested delegation. Blocked host/storage calls and OS scheduling can
+delay enforcement; this is not a hard real-time guarantee. Linux
+parent-death signalling also terminates a direct adapter child if its supervisor
+is killed. Local termination cannot establish that remote provider work stopped.
+This requires a single-threaded Linux host; Docker supplies Linux on other hosts.
+
+The interface accepts trusted Python code, not hostile plugins. Processes share
+the container's filesystem and trust boundary; this is not a security sandbox.
+Ordinary background descendants are cleaned up, but adapters must not daemonise
+or escape their process group. Model output is data: the example never executes
+generated Python, shell commands or model-selected tools.
 
 ## Reuse across topologies
 
@@ -163,33 +181,59 @@ budgets are frozen for each run. This runner schedules requests synchronously;
 it supports bounded nested delegation, not concurrent fan-out or a distributed
 worker pool. The existing Rust fixtures demonstrate additional workflow patterns.
 
-## Persistence, failures and scope
+## Persistence and explicit recovery
 
-Compose keeps each private run directory in a named state volume. Each contains
-the SQLite database, capability configuration and report. Treat the volume as
-sensitive application state. Deleting a container does not delete the volume.
-Do not use `docker compose down --volumes` when you need to retain it.
+Compose retains private run directories and a deployment ledger in its named
+state volume. A run contains Rust `state.sqlite`, host `host.sqlite`, capability
+configuration and the report. This is sensitive application state. Removing a
+container preserves it; `docker compose down --volumes` deletes it.
 
-The runner acknowledges a Request after a terminal outcome is committed, then
-receives and acknowledges the correlated reply. On an adapter exception it tries
-to record a sanitised Failure. Exhausted budgets or expiry can prevent a reply;
-status inspection reconciles expiry and the host exits unsuccessfully. A protocol
-Failure says that the adapter could not complete its work; it cannot establish
-that an external provider or tool had no effect.
+To resume the default mock mesh, substitute the run directory printed by the previous
+report. Keep the original mode, invoice, topology, provider models and allocation:
 
-There is deliberately no automatic recovery that repeats provider execution.
-After a crash or ambiguous timeout, inspect the retained call reservation and
-provider execution evidence. A fresh Compose run starts a fresh job and can
-incur fresh charges. Production side effects require provider-specific
-idempotency and reconciliation. Protocol deadlines reject late completion; they
-do not forcibly interrupt arbitrary Python handlers or cancel remote work.
+```sh
+docker compose run --rm mesh --mode mock --state-dir /state --topology /app/examples/host/mesh.json --resume /state/RUN_DIRECTORY
+```
 
-Tests exercise the host against the actual Rust binaries, plus simulated OpenAI
-responses for refusal, incomplete output and invalid data. The Compose CI job
-builds the image and runs the mock mesh. These checks do not establish live model
-quality, account availability, billing or exactly-once external execution.
-The existing SPIN evidence covers its documented finite protocol models; it
-does not verify Python, the OpenAI SDK or Docker isolation.
+For a library workflow use `Runner.resume(run_dir, adapters,
+workflow_version="uppercase/1")`, then repeat the original `runner.request(...)`
+calls in their original order. Use an explicit workflow version and change it
+when application behaviour changes. Resume rejects changed versions, depth limits
+and checkpoint inputs. The demo also binds recovery to its provider configuration.
+Completed root requests return their stored results. Incomplete adapters rerun
+deterministic orchestration code, receiving cached invocation outputs instead of
+repeating those effects. Randomness, mutable external state and effects outside
+`context.invoke` break that recovery contract.
+
+An invocation that may have reached a provider is retained as **unknown** and
+blocks automatic re-execution. Inspect the journal and provider records, then use
+an evidence-backed administrative resolution: supply an independently established
+completed output, or confirm that no effect occurred before authorising a new,
+separately charged attempt. The software cannot prove the truth of that operator
+evidence. See the exact commands in [operations](operations.md). A new Runner or
+fresh Compose job is a new business operation and may repeat the same real-world
+effect; equal JSON is not a global business idempotency key.
+
+Acknowledgements follow durable terminal outcomes. Sanitised local adapter
+failures may close a task; uncertain invocation failures leave it recoverable
+until resolution or the original deadline. Expiry never extends on restart and
+cannot be undone by resolution. A protocol failure or expiry cannot prove absence
+of external effects.
+
+## Deployment controls and evidence
+
+The [operations guide](operations.md) covers shared quotas, health, independent
+reconciliation, retention and consistent backups. Restores are admission-disabled
+audit copies: they cannot spend from a stale budget snapshot. The optional
+`compose.production.yaml` adds an independent reconciler; CPU, memory and PID caps
+are applied by Compose. This is a bounded single-host service, not high availability.
+
+[Deployment acceptance](deployment-acceptance.md) provides actual crash, storage
+failure, bounded load/soak and opt-in live-provider checks. [Release controls](releases.md)
+cover hash-locked dependencies, image digests, security scans and release artefacts.
+Offline SDK and Compose checks do not establish live account availability, billing,
+model quality or external exactly-once execution. SPIN checks the documented finite
+protocol and recovery models; it does not verify Python, Docker or the OpenAI SDK.
 
 ## API and packaging references
 

@@ -7,6 +7,7 @@ services:
     read_only: false
     environment:
       MAS_MODE: openai
+      MAS_CALL_RESERVATION_MICROUSD: ${MAS_CALL_RESERVATION_MICROUSD:-100000}
       OPENAI_API_KEY_FILE: /run/secrets/openai_api_key
     secrets:
       - source: openai_api_key

@@ -137,6 +137,19 @@ fn run_case(source: &Path, dest: &Path, opt: &Options, case: CaseOptions) -> Res
     if unbounded_faults {defs.push("-DUNBOUNDED_FAULTS".into());}
     let mut commands = Vec::new(); let mut checks = Vec::new();
     let mut simulations_ok = true;
+    if task && source.file_name().is_some_and(|name| name == "host-recovery.pml") && defect.is_none() {
+        for seed in [17, 29, 53] {
+            let command = strings(&["spin", &format!("-n{seed}"), "-u10000", "-p", "-g", "-l", model_name]);
+            let mut record = run(&command, dest, &format!("simulation-{seed}"), opt)?;
+            let text = fs::read_to_string(dest.join(record["log"].as_str().unwrap()))?;
+            let complete = record["returncode"] == 0 && record["timeout"] == false
+                && !text.contains("depth-limit") && !text.contains("assertion violated");
+            record["seed"] = json!(seed);
+            record["status"] = json!(if complete {"SAMPLED_COMPLETE"} else {"SAMPLED_INCOMPLETE"});
+            simulations_ok &= complete;
+            commands.push(record);
+        }
+    }
     if defect.is_none() && !no_reduce && !task && !unbounded_faults {
         for seed in [17,29] {
             let mut cmd = strings(&["spin"]); cmd.extend(defs.clone());
@@ -294,7 +307,12 @@ fn main() -> Result<()> {
         ("transaction-recovery.pml","negative-partial-commit",Some("BUG_PARTIAL_COMMIT")),
         ("transaction-recovery.pml","negative-duplicate-insert",Some("BUG_DUPLICATE_INSERT")),
         ("task-expiry.pml","task-expiry",None),
-        ("task-expiry.pml","negative-expiry-overwrite",Some("BUG_EXPIRY_OVERWRITE"))] {
+        ("task-expiry.pml","negative-expiry-overwrite",Some("BUG_EXPIRY_OVERWRITE")),
+        ("host-recovery.pml","host-recovery",None),
+        ("host-recovery.pml","negative-host-uncharged",Some("BUG_HOST_UNCHARGED")),
+        ("host-recovery.pml","negative-host-replay",Some("BUG_HOST_REPLAY_UNKNOWN")),
+        ("host-recovery.pml","negative-host-stale-owner",Some("BUG_HOST_STALE_OWNER")),
+        ("host-recovery.pml","negative-host-mutable-result",Some("BUG_HOST_MUTABLE_RESULT"))] {
         let case=run_case(&opt.root.join("formal").join(model),&opt.out.join(name),&opt,
             CaseOptions{standalone:true,defect,..Default::default()})?;
         println!("{name} {}",case["status"]);cases.push(case);
@@ -302,16 +320,19 @@ fn main() -> Result<()> {
     let ok=cases.iter().all(|c|c["status"]=="PASS");
     let summary=json!({"status":if ok{"PASS"}else{"FAIL_OR_INCONCLUSIVE"},"versions":versions,"cases":cases,
         "bounds":{"messages":2,"durable_slots":2,"bounded_transport":{"lost_ack_per_message":1,"restart_per_message":1,"redelivery_per_message":1},
-            "unbounded_fault_safety":"no bound on repeated lost acknowledgement, restart or redelivery transitions"},
+            "unbounded_fault_safety":"no bound on repeated lost acknowledgement, restart or redelivery transitions",
+            "host_recovery":{"logical_calls":1,"attempts":2,"crashes":1,"owners":2}},
         "limits":{"seconds_per_command":opt.seconds,"memory_mb":opt.memory,"depth":opt.depth},
         "assumptions":["fixed membership and directed ACL","no scheduling fairness required by bounded transport model",
             "bounded faults for positive transport liveness only","SQLite transaction isolation and atomic recovery boundary",
-            "host expiry is an explicit event, with no wall-clock or eventual host-execution guarantee","transport acknowledgement differs from task outcome"],
+            "host expiry is an explicit event, with no wall-clock or eventual host-execution guarantee","transport acknowledgement differs from task outcome",
+            "host recovery administrative no-effect evidence is trusted; no remote exactly-once or implementation refinement claim"],
         "runner_sha256":sha(&opt.root.join("rust-protocol/src/bin/verify.rs"))?,
         "template_sha256":sha(&opt.root.join("formal/protocol.pml.in"))?,
         "actions_sha256":sha(&opt.root.join("formal/actions.pml.in"))?,
         "transaction_model_sha256":sha(&opt.root.join("formal/transaction-recovery.pml"))?,
-        "expiry_model_sha256":sha(&opt.root.join("formal/task-expiry.pml"))?});
+        "expiry_model_sha256":sha(&opt.root.join("formal/task-expiry.pml"))?,
+        "host_recovery_model_sha256":sha(&opt.root.join("formal/host-recovery.pml"))?});
     fs::write(opt.out.join("summary.json"),format!("{}\n",serde_json::to_string_pretty(&summary)?))?;
     if !ok{return Err(io::Error::other("model verification failed or incomplete; inspect summary.json").into());}
     Ok(())

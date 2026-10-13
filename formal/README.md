@@ -32,10 +32,11 @@ instance with one outstanding slot per mailbox exercises capacity rejection.
 Both special cases receive bounded checks and unlimited-fault safety checks.
 
 The suite also checks task lifecycle, transaction recovery and host expiry
-safety. Seven isolated defects must produce replayable counterexamples: early
+safety, plus [host checkpoint recovery](host-recovery-notes.md). Eleven isolated defects must produce replayable counterexamples: early
 acknowledgement, forbidden routing, a permanently disabled acknowledgement,
 duplicate task terminals, partial pre-commit persistence, duplicate insertion
-following a lost commit response, and expiry overwriting an existing terminal.
+following a lost commit response, expiry overwriting an existing terminal, uncharged host dispatch, unknown-attempt
+replay, stale host completion and conflicting result overwrite.
 Two additional cases deliberately ask for eventual acknowledgement with
 unlimited faults, with and without process fairness. These are labelled
 `assumption_counterexample`, distinct from implementation-defect mutations.

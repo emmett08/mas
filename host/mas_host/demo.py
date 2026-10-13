@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -34,6 +35,21 @@ def _invoice_input(request: TaskRequest, operation: str, fields: set[str]) -> li
     return validate_invoice(request.input["invoice"])
 
 
+def _provider_descriptor(provider: TotalProvider) -> dict:
+    describe = getattr(provider, "descriptor", None)
+    if callable(describe):
+        return describe()
+    return {"provider": type(provider).__module__ + "." + type(provider).__qualname__}
+
+
+def _infer(context: Context, provider: TotalProvider, invoice: list,
+           proposal: dict | None = None) -> dict:
+    effect = {"adapter": _provider_descriptor(provider), "invoice": invoice, "proposal": proposal}
+    return validate_total(context.invoke(
+        lambda: provider.total(invoice, proposal=proposal, request_id=context.invocation_id),
+        input=effect, reservation_microusd=getattr(provider, "reservation_microusd", 0)))
+
+
 class PlannerAdapter:
     """Demonstrates one inference call followed by direct peer delegation."""
 
@@ -42,7 +58,7 @@ class PlannerAdapter:
 
     def handle(self, context: Context, request: TaskRequest) -> Outcome:
         invoice = _invoice_input(request, "invoice.plan", {"invoice"})
-        proposal = validate_total(context.invoke(lambda: self.provider.total(invoice)))
+        proposal = _infer(context, self.provider, invoice)
         review = context.request("reviewer", "invoice.review", {
             "invoice": invoice, "planner_total_cents": proposal["total_cents"],
         })
@@ -58,7 +74,7 @@ class ReviewerAdapter:
     def handle(self, context: Context, request: TaskRequest) -> Outcome:
         invoice = _invoice_input(request, "invoice.review", {"invoice", "planner_total_cents"})
         proposal = validate_total({"total_cents": request.input["planner_total_cents"]})
-        reviewed = validate_total(context.invoke(lambda: self.provider.total(invoice, proposal=proposal)))
+        reviewed = _infer(context, self.provider, invoice, proposal)
         checked = context.request("checker", "invoice.check", {
             "invoice": invoice,
             "planner_total_cents": proposal["total_cents"],
@@ -87,11 +103,20 @@ class CheckerAdapter:
 def run_demo(*, topology: dict[str, Any], state_dir: str | Path,
              planner_provider: TotalProvider, reviewer_provider: TotalProvider,
              invoice: Any = None, mode: str = "mock", models: dict[str, str] | None = None,
-             mas_bin: str = "mas", gateway_bin: str = "mas-gateway") -> dict[str, Any]:
+             mas_bin: str = "mas", gateway_bin: str = "mas-gateway",
+             resume_dir: str | Path | None = None, supervised: bool = True) -> dict[str, Any]:
     invoice = validate_invoice(DEFAULT_INVOICE if invoice is None else invoice)
     adapters = {"planner": PlannerAdapter(planner_provider), "reviewer": ReviewerAdapter(reviewer_provider),
                 "checker": CheckerAdapter()}
-    with Runner(topology, adapters, state_dir, mas_bin=mas_bin, gateway_bin=gateway_bin) as runner:
+    binding = {"planner": _provider_descriptor(planner_provider),
+               "reviewer": _provider_descriptor(reviewer_provider), "checker": "exact-invoice/2"}
+    workflow_version = "invoice-mesh/2:" + hashlib.sha256(
+        json.dumps(binding, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+    options = {"mas_bin": mas_bin, "gateway_bin": gateway_bin,
+               "workflow_version": workflow_version, "supervised": supervised}
+    instance = (Runner.resume(Path(resume_dir), adapters, **options) if resume_dir
+                else Runner(topology, adapters, state_dir, **options))
+    with instance as runner:
         outcome = None
         try:
             outcome = runner.request("checker", "planner", "invoice.plan", {"invoice": invoice})
@@ -113,6 +138,7 @@ def run_demo(*, topology: dict[str, Any], state_dir: str | Path,
             "outcome": outcome.status if outcome is not None else "unknown",
             "result": outcome.output if outcome is not None else {},
             "status": status, "events": runner.events, "report_path": str(report_path),
+            "workflow_version": workflow_version, "supervised": supervised,
             "scope": "Logical peer mesh over one Rust/SQLite broker; Python checker validates this invoice only.",
         }
         if outcome is None:
@@ -151,6 +177,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--state-dir", default=os.environ.get("MAS_STATE_DIR", ".mas-state"))
     parser.add_argument("--topology", default=os.environ.get("MAS_TOPOLOGY"), help="topology JSON; default is the bundled three-peer mesh")
     parser.add_argument("--invoice", default=os.environ.get("MAS_INVOICE"), help="JSON array of integer-cent invoice lines")
+    parser.add_argument("--resume", help="resume an existing private run directory with the same inputs and model bindings")
     args = parser.parse_args(argv)
     try:
         if args.mode not in {"mock", "openai"}:
@@ -161,8 +188,9 @@ def main(argv: list[str] | None = None) -> int:
             key = _api_key()
             models = {"planner": os.environ.get("MAS_PLANNER_MODEL", "gpt-4.1-mini"),
                       "reviewer": os.environ.get("MAS_REVIEWER_MODEL", "gpt-4o-mini"), "checker": "python"}
-            planner_provider = OpenAIProvider(models["planner"], "planner", api_key=key)
-            reviewer_provider = OpenAIProvider(models["reviewer"], "reviewer", api_key=key)
+            reservation = int(os.environ.get("MAS_CALL_RESERVATION_MICROUSD", "100000"))
+            planner_provider = OpenAIProvider(models["planner"], "planner", api_key=key, reservation_microusd=reservation)
+            reviewer_provider = OpenAIProvider(models["reviewer"], "reviewer", api_key=key, reservation_microusd=reservation)
         else:
             models = {"planner": "mock", "reviewer": "mock", "checker": "python"}
             planner_provider, reviewer_provider = MockProvider("planner"), MockProvider("reviewer")
@@ -170,7 +198,7 @@ def main(argv: list[str] | None = None) -> int:
         report = run_demo(topology=topology, state_dir=args.state_dir, planner_provider=planner_provider,
                           reviewer_provider=reviewer_provider, invoice=invoice, mode=args.mode, models=models,
                           mas_bin=os.environ.get("MAS_BIN", "mas"),
-                          gateway_bin=os.environ.get("MAS_GATEWAY_BIN", "mas-gateway"))
+                          gateway_bin=os.environ.get("MAS_GATEWAY_BIN", "mas-gateway"), resume_dir=args.resume)
     except ProviderError as error:
         report = {"ok": False, "error": str(error), "mode": args.mode}
     except Exception:

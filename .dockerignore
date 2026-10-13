@@ -11,6 +11,7 @@
 !host/
 !host/pyproject.toml
 !host/requirements-openai.txt
+!host/requirements-build.txt
 !host/mas_host/
 !host/mas_host/**
 !examples/

@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools==80.9.0"]
+requires = ["setuptools==84.0.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -14,7 +14,7 @@ dependencies = []
 openai = ["openai==3.29.0"]
 
 [project.scripts]
-mas-host = "mas_host.demo:main"
+mas-host = "mas_host.__main__:main"
 
 [tool.setuptools.packages.find]
 where = ["."]

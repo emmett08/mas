@@ -1,0 +1,20 @@
+version: 2
+updates:
+  - package-ecosystem: cargo
+    directory: /rust-protocol
+    schedule:
+      interval: weekly
+  - package-ecosystem: pip
+    directory: /host
+    schedule:
+      interval: weekly
+    # Regenerate wheel hashes with scripts/release-locks.py before merging.
+    open-pull-requests-limit: 5
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly

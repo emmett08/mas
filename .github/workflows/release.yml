@@ -1,0 +1,91 @@
+name: Release candidate artefacts
+on:
+  push:
+    tags: ['v0.*']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  protocol:
+    uses: ./.github/workflows/check.yml
+  host:
+    uses: ./.github/workflows/compose.yml
+  security:
+    uses: ./.github/workflows/security.yml
+  package:
+    needs: [protocol, host, security]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            platform: linux/amd64
+            architecture: amd64
+          - runner: ubuntu-24.04-arm
+            platform: linux/arm64
+            architecture: arm64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Require a versioned candidate
+        env:
+          RELEASE_REF: ${{ github.ref }}
+        run: |
+          case "$RELEASE_REF" in
+            refs/tags/v0.*) ;;
+            *) echo 'Select an existing v0.* tag for a release candidate.' >&2; exit 1 ;;
+          esac
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+        with:
+          version: v0.38.0
+          driver-opts: image=moby/buildkit:v0.34.0
+      - name: Build OCI archive with build provenance
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          platforms: ${{ matrix.platform }}
+          push: false
+          tags: mas-mesh:${{ github.ref_name }}
+          provenance: mode=max
+          outputs: |
+            type=oci,dest=mas-${{ matrix.architecture }}.oci.tar
+            type=docker
+      - name: Run the native architecture image
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: docker run --rm --read-only --cap-drop ALL --security-opt no-new-privileges --memory 512m --cpus 1 --pids-limit 64 --tmpfs /state:uid=10001,gid=10001,mode=0700 --tmpfs /tmp mas-mesh:"$RELEASE_TAG"
+      - name: Scan release archive
+        uses: aquasecurity/trivy-action@c03d123cb480c08c69b054af418ea5e69fe6e57e
+        with:
+          version: v0.75.0
+          input: mas-${{ matrix.architecture }}.oci.tar
+          severity: HIGH,CRITICAL
+          ignore-unfixed: 'false'
+          exit-code: '1'
+          scanners: vuln
+          format: json
+          output: release-audit.json
+      - name: Generate release SBOM
+        uses: aquasecurity/trivy-action@c03d123cb480c08c69b054af418ea5e69fe6e57e
+        with:
+          version: v0.75.0
+          input: mas-${{ matrix.architecture }}.oci.tar
+          format: cyclonedx
+          output: release-sbom.cdx.json
+      - name: Record source and artefact identity
+        env:
+          SOURCE_SHA: ${{ github.sha }}
+          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_PLATFORM: ${{ matrix.platform }}
+        run: python scripts/release-manifest.py
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: mas-${{ github.ref_name }}-${{ matrix.architecture }}
+          retention-days: 30
+          path: |
+            mas-*.oci.tar
+            release-audit.json
+            release-sbom.cdx.json
+            release-manifest.json
+            SHA256SUMS

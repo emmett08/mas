@@ -55,7 +55,23 @@ class ProviderContractTests(unittest.TestCase):
         self.assertIs(call["store"], False)
         self.assertEqual(call["max_output_tokens"], 512)
         self.assertEqual(invocation.evidence, {"provider": "openai", "model": "gpt-4.1-mini", "role": "planner",
+            "reserved_microusd": 100000, "spending_basis": "configured_reservation_not_provider_invoice",
             "response_id": "resp_example_1", "usage": {"input_tokens": 42, "output_tokens": 8, "total_tokens": 50}})
+
+    def test_durable_request_id_and_provider_binding(self):
+        provider, client = provider_with(response(_request_id="req_server_123"))
+        invocation = provider.total(INVOICE, request_id="call_123")
+        self.assertEqual(client.calls[0]["extra_headers"], {"X-Client-Request-Id": "call_123"})
+        self.assertEqual(invocation.evidence["client_request_id"], "call_123")
+        self.assertEqual(invocation.evidence["server_request_id"], "req_server_123")
+        self.assertEqual(provider.descriptor()["reservation_microusd"], 100000)
+        for invalid in ["bad\nheader", "", "x" * 513]:
+            with self.assertRaises(ProviderError):
+                provider.total(INVOICE, request_id=invalid)
+        self.assertEqual(len(client.calls), 1)
+        for amount in [0, -1, True]:
+            with self.assertRaises(ValueError):
+                OpenAIProvider("gpt-4.1-mini", "planner", client=object(), reservation_microusd=amount)
 
     def test_invalid_outputs_rejected(self):
         cases = ['{"total_cents":true}', '{"total_cents":2998.0}', '{"total_cents":2e3}',

@@ -21,7 +21,7 @@ TOPOLOGY = ROOT / "examples/host/mesh.json"
 
 
 class WrongProvider:
-    def total(self, invoice):
+    def total(self, invoice, **_kwargs):
         return Invocation(output={"total_cents": 1}, evidence={"provider": "mock", "fault": "wrong-total"})
 
 
@@ -51,11 +51,12 @@ class DemoContractTests(unittest.TestCase):
     def test_reviewer_provider_consumes_delivered_candidate(self):
         seen = []
         class Provider:
-            def total(self, invoice, *, proposal=None):
+            def total(self, invoice, *, proposal=None, request_id=None):
                 seen.append((invoice, proposal))
                 return Invocation(output={"total_cents": 5497}, evidence={"provider": "fake"})
         class Context:
-            def invoke(self, call):
+            invocation_id = "unit-test-call"
+            def invoke(self, call, **_kwargs):
                 return call().output
             def request(self, recipient, operation, inputs):
                 self.submitted = (recipient, operation, inputs)
@@ -114,7 +115,7 @@ class NativeMeshTests(unittest.TestCase):
 
     def test_provider_failure_retains_report_and_unknown_invocation(self):
         class FailedProvider:
-            def total(self, invoice):
+            def total(self, invoice, **_kwargs):
                 raise RuntimeError("private-api-key")
         with tempfile.TemporaryDirectory() as state:
             report = self.run_mesh(state, FailedProvider())
@@ -143,7 +144,7 @@ class NativeMeshTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as state:
             with patch.object(Runner, "_command", lose_final_result_reply):
                 report = self.run_mesh(state)
-            self.assertEqual(len(lost_replies), 1)
+            self.assertEqual(len(lost_replies), 2)
             self.assertFalse(report["ok"])
             self.assertEqual(report["outcome"], "unknown")
             self.assertIn("exchange incomplete", report["error"])

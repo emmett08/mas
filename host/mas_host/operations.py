@@ -1,0 +1,486 @@
+"""Single-host deployment admissions, health, private backup and retention.
+
+Reserved expenditure is an admission allocation in micro-US dollars. It is not
+an invoice, a price estimate, or a substitute for a provider account limit.
+"""
+from __future__ import annotations
+
+from contextlib import contextmanager, ExitStack
+from dataclasses import asdict, dataclass
+import fcntl
+import hashlib
+import json
+import os
+from pathlib import Path
+import shutil
+import sqlite3
+import stat
+import subprocess
+import tempfile
+import time
+import uuid
+
+
+class OperationsError(RuntimeError):
+    """Fixed, credential-free operational diagnostic."""
+
+
+@dataclass(frozen=True)
+class DeploymentPolicy:
+    max_runs: int = 1000
+    max_calls: int = 10000
+    max_reserved_microusd: int = 100_000_000
+    min_free_bytes: int = 64 * 1024 * 1024
+    max_state_bytes: int = 1024 * 1024 * 1024
+    per_call_reservation_microusd: int = 100_000
+
+    def __post_init__(self):
+        if any(type(value) is not int or value <= 0 or value > 2**63 - 1
+               for value in asdict(self).values()):
+            raise OperationsError("deployment policy values must be positive bounded integers")
+        if self.per_call_reservation_microusd > self.max_reserved_microusd:
+            raise OperationsError("call reservation exceeds deployment expenditure allocation")
+
+
+def _private_dir(path: Path, create: bool = False) -> Path:
+    path = Path(path).absolute()
+    # Do not silently follow a symlink supplied as the state directory or any
+    # existing parent; this also applies to backup and restoration paths.
+    for parent in reversed([path, *path.parents]):
+        if parent.is_symlink():
+            raise OperationsError("state and backup paths must not contain symlinks")
+    if create:
+        path.mkdir(mode=0o700, parents=True, exist_ok=True)
+    if not path.is_dir() or stat.S_IMODE(path.stat().st_mode) & 0o077:
+        raise OperationsError("state and backup directories must be private (mode 0700)")
+    return path
+
+
+@contextmanager
+def _file_lock(path: Path, exclusive: bool, nonblocking: bool = False):
+    if path.is_symlink():
+        raise OperationsError("lock path must not be a symlink")
+    flags = os.O_CREAT | os.O_RDWR | getattr(os, "O_NOFOLLOW", 0)
+    descriptor = os.open(path, flags, 0o600)
+    try:
+        fcntl.flock(descriptor, (fcntl.LOCK_EX if exclusive else fcntl.LOCK_SH)
+                    | (fcntl.LOCK_NB if nonblocking else 0))
+        yield
+    except BlockingIOError:
+        raise OperationsError("deployment or run is busy; stop runners before this operation") from None
+    finally:
+        fcntl.flock(descriptor, fcntl.LOCK_UN)
+        os.close(descriptor)
+
+
+def _state_size(path: Path) -> int:
+    total = 0
+    for directory, directories, files in os.walk(path, followlinks=False):
+        for name in [*directories, *files]:
+            entry = Path(directory) / name
+            try:
+                details = entry.lstat()
+            except FileNotFoundError:
+                # SQLite rollback/WAL files can disappear between directory
+                # enumeration and lstat while another admitted host commits.
+                continue
+            if stat.S_ISLNK(details.st_mode):
+                raise OperationsError("state tree must not contain symlinks")
+            if stat.S_ISREG(details.st_mode):
+                total += details.st_size
+            elif not stat.S_ISDIR(details.st_mode):
+                raise OperationsError("state tree must contain regular files only")
+    return total
+
+
+@contextmanager
+def _db(path: Path, readonly: bool = False):
+    if path.is_symlink() or (path.exists() and not path.is_file()):
+        raise OperationsError("database must be a regular file")
+    connection = sqlite3.connect(path.as_uri() + "?mode=ro", uri=True, timeout=10) if readonly else sqlite3.connect(path, timeout=10)
+    connection.row_factory = sqlite3.Row
+    connection.execute("PRAGMA busy_timeout=10000")
+    if not readonly:
+        connection.execute("PRAGMA synchronous=FULL")
+        os.chmod(path, 0o600)
+    try:
+        with connection:
+            yield connection
+    finally:
+        connection.close()
+
+
+class DeploymentLedger:
+    """Atomic lifetime quotas shared by every host using one state directory.
+
+    The initial policy is frozen. Existing policy is loaded when no policy is
+    supplied. Repeated admissions with the same identity are idempotent, and
+    purging run data never returns an admission allocation.
+    """
+    def __init__(self, state_dir: Path, policy: DeploymentPolicy | None = None):
+        self.state_dir = _private_dir(Path(state_dir), create=True)
+        self.path = self.state_dir / "deployment.sqlite"
+        with _file_lock(self.state_dir / ".deployment.lock", True):
+            if not self.path.exists() and (self.state_dir / ".restored-audit-only").exists():
+                raise OperationsError("restored deployment ledger is incomplete; admissions are disabled")
+            if not self.path.exists() and any(self.state_dir.glob("*/state.sqlite")):
+                raise OperationsError("existing run state has no deployment ledger; migrate explicitly into a new deployment")
+            with _db(self.path) as db:
+                db.executescript("""
+                    CREATE TABLE IF NOT EXISTS metadata(key TEXT PRIMARY KEY,value TEXT NOT NULL);
+                    CREATE TABLE IF NOT EXISTS runs(run_id TEXT PRIMARY KEY,directory TEXT UNIQUE NOT NULL,admitted_at INTEGER NOT NULL,purged_at INTEGER);
+                    CREATE TABLE IF NOT EXISTS calls(run_id TEXT NOT NULL,call_id TEXT NOT NULL,reserved_microusd INTEGER NOT NULL,admitted_at INTEGER NOT NULL,PRIMARY KEY(run_id,call_id),FOREIGN KEY(run_id) REFERENCES runs(run_id));
+                    PRAGMA user_version=1;
+                """)
+                saved = db.execute("SELECT value FROM metadata WHERE key='policy'").fetchone()
+                if saved:
+                    self.policy = DeploymentPolicy(**json.loads(saved[0]))
+                    if policy is not None and policy != self.policy:
+                        raise OperationsError("deployment policy is immutable; use its existing policy")
+                else:
+                    self.policy = policy or DeploymentPolicy()
+                    db.executemany("INSERT INTO metadata VALUES(?,?)", [
+                        ("policy", json.dumps(asdict(self.policy), sort_keys=True)),
+                        ("deployment_id", "deployment-" + uuid.uuid4().hex),
+                        ("created_at", str(int(time.time()))),
+                        ("admission_state", "active"),
+                    ])
+
+    @property
+    def admission_enabled(self) -> bool:
+        with _db(self.path, readonly=True) as db:
+            return self._admission_enabled(db)
+
+    def _admission_enabled(self, db: sqlite3.Connection) -> bool:
+        row = db.execute("SELECT value FROM metadata WHERE key='admission_state'").fetchone()
+        return not (self.state_dir / ".restored-audit-only").exists() and row is not None and row[0] == "active"
+
+    def _limits(self, db: sqlite3.Connection) -> dict:
+        return {
+            "runs": db.execute("SELECT count(*) FROM runs").fetchone()[0],
+            "calls": db.execute("SELECT count(*) FROM calls").fetchone()[0],
+            "reserved_microusd": db.execute("SELECT coalesce(sum(reserved_microusd),0) FROM calls").fetchone()[0],
+        }
+
+    def _disk(self):
+        size = _state_size(self.state_dir)
+        free = shutil.disk_usage(self.state_dir).free
+        if free < self.policy.min_free_bytes:
+            raise OperationsError("deployment admission closed: free disk threshold reached")
+        if size >= self.policy.max_state_bytes:
+            raise OperationsError("deployment admission closed: state size limit reached")
+
+    def admit_run(self, run_id: str, run_dir: Path) -> bool:
+        run_dir = Path(run_dir).absolute()
+        if not isinstance(run_id, str) or not run_id or len(run_id) > 128:
+            raise OperationsError("invalid run identity")
+        if run_dir.parent != self.state_dir or run_dir.is_symlink():
+            raise OperationsError("run directory must be a direct private deployment child")
+        with _file_lock(self.state_dir / ".deployment.lock", False), _db(self.path) as db:
+            db.execute("BEGIN IMMEDIATE")
+            existing = db.execute("SELECT directory,purged_at FROM runs WHERE run_id=?", (run_id,)).fetchone()
+            if existing:
+                if existing[0] != run_dir.name or existing[1] is not None:
+                    raise OperationsError("run admission identity is unavailable")
+                return False
+            if not self._admission_enabled(db):
+                raise OperationsError("restored deployment is audit-only; new work admissions are disabled")
+            self._disk()
+            if self._limits(db)["runs"] >= self.policy.max_runs:
+                raise OperationsError("deployment admission closed: lifetime run limit reached")
+            db.execute("INSERT INTO runs VALUES(?,?,?,NULL)", (run_id, run_dir.name, int(time.time())))
+            return True
+
+    def admit_call(self, run_id: str, call_id: str, reservation_microusd: int | None = None) -> bool:
+        allocation = self.policy.per_call_reservation_microusd if reservation_microusd is None else reservation_microusd
+        if type(allocation) is not int or not 0 <= allocation <= self.policy.max_reserved_microusd:
+            raise OperationsError("invalid call expenditure allocation")
+        if not isinstance(call_id, str) or not call_id or len(call_id) > 256:
+            raise OperationsError("invalid call identity")
+        with _file_lock(self.state_dir / ".deployment.lock", False), _db(self.path) as db:
+            db.execute("BEGIN IMMEDIATE")
+            if not self._admission_enabled(db):
+                raise OperationsError("restored deployment is audit-only; all call admissions are disabled")
+            admitted = db.execute("SELECT purged_at FROM runs WHERE run_id=?", (run_id,)).fetchone()
+            if admitted is None or admitted[0] is not None:
+                raise OperationsError("call requires an active deployment run admission")
+            existing = db.execute("SELECT reserved_microusd FROM calls WHERE run_id=? AND call_id=?", (run_id, call_id)).fetchone()
+            if existing:
+                if existing[0] != allocation:
+                    raise OperationsError("call allocation changed for an admitted identity")
+                return False
+            self._disk()
+            usage = self._limits(db)
+            if usage["calls"] >= self.policy.max_calls:
+                raise OperationsError("deployment admission closed: lifetime call limit reached")
+            if allocation > self.policy.max_reserved_microusd - usage["reserved_microusd"]:
+                raise OperationsError("deployment admission closed: expenditure allocation exhausted")
+            db.execute("INSERT INTO calls VALUES(?,?,?,?)", (run_id, call_id, allocation, int(time.time())))
+            return True
+
+    def has_run(self, run_id: str) -> bool:
+        """Check even purged admissions without changing a budget."""
+        with _file_lock(self.state_dir / ".deployment.lock", False), _db(self.path, readonly=True) as db:
+            return db.execute("SELECT 1 FROM runs WHERE run_id=?", (run_id,)).fetchone() is not None
+
+    def health(self) -> dict:
+        with _file_lock(self.state_dir / ".deployment.lock", False), _db(self.path, readonly=True) as db:
+            usage = self._limits(db)
+            identity = db.execute("SELECT value FROM metadata WHERE key='deployment_id'").fetchone()[0]
+            enabled = self._admission_enabled(db)
+            retained = db.execute("SELECT count(*) FROM runs WHERE purged_at IS NULL").fetchone()[0]
+        size, free = _state_size(self.state_dir), shutil.disk_usage(self.state_dir).free
+        return {"deployment_id": identity, "policy": asdict(self.policy), "usage": usage,
+                "admission_state": "active" if enabled else "restored_audit_only",
+                "retained_runs": retained, "state_bytes": size, "free_bytes": free,
+                "admission_open": enabled and usage["runs"] < self.policy.max_runs and usage["calls"] < self.policy.max_calls
+                and usage["reserved_microusd"] < self.policy.max_reserved_microusd
+                and size < self.policy.max_state_bytes and free >= self.policy.min_free_bytes,
+                "expenditure_semantics": "reserved allocation; actual provider invoices require separate account controls"}
+
+
+def retained_runs(state_dir: Path) -> list[dict]:
+    state_dir = _private_dir(Path(state_dir))
+    with _db(state_dir / "deployment.sqlite", readonly=True) as db:
+        return [dict(row) for row in db.execute("SELECT * FROM runs WHERE purged_at IS NULL ORDER BY admitted_at,run_id")]
+
+
+def reconcile_run(run_dir: Path, mas_bin: str = "mas", timeout: float = 10) -> dict:
+    run_dir = _private_dir(Path(run_dir))
+    with _db(run_dir / "state.sqlite", readonly=True) as db:
+        ids = db.execute("SELECT id FROM runs").fetchall()
+    if len(ids) != 1:
+        raise OperationsError("run database must identify exactly one run")
+    binary = shutil.which(str(mas_bin))
+    if not binary:
+        raise OperationsError("Rust mas binary is unavailable")
+    try:
+        with _file_lock(run_dir.parent / ".deployment.lock", False):
+            result = subprocess.run([binary, "reconcile", str(run_dir / "state.sqlite"), ids[0][0]],
+                                check=False, capture_output=True, text=True, timeout=timeout,
+                                env={"PATH": os.environ.get("PATH", os.defpath)})
+        response = json.loads(result.stdout)
+        if result.returncode or response.get("ok") is not True:
+            raise OperationsError("run reconciliation was rejected")
+        return {"run_id": ids[0][0], "result": response["result"]}
+    except (OSError, ValueError, KeyError, subprocess.TimeoutExpired):
+        raise OperationsError("run reconciliation unavailable or interrupted") from None
+
+
+def reconcile_state(state_dir: Path, mas_bin: str = "mas") -> dict:
+    state_dir = _private_dir(Path(state_dir))
+    with _file_lock(state_dir / ".deployment.lock", False):
+        return _reconcile_state(state_dir, mas_bin)
+
+
+def _reconcile_state(state_dir: Path, mas_bin: str = "mas") -> dict:
+    state_dir = _private_dir(Path(state_dir))
+    results = []
+    for run in retained_runs(state_dir):
+        path = state_dir / run["directory"]
+        try:
+            if not (path / "state.sqlite").is_file():
+                raise OperationsError("admitted run initialisation is incomplete")
+            results.append({"ok": True, **reconcile_run(path, mas_bin)})
+        except (OperationsError, sqlite3.Error) as error:
+            results.append({"ok": False, "run_id": run["run_id"], "error": str(error) if isinstance(error, OperationsError) else "run database unavailable"})
+    return {"ok": all(item["ok"] for item in results), "runs": results}
+
+
+def _empty_destination(destination: Path) -> Path:
+    destination = Path(destination).absolute()
+    if destination.exists() and (not destination.is_dir() or any(destination.iterdir())):
+        raise OperationsError("destination must be absent or empty")
+    return _private_dir(destination, create=True)
+
+
+def _hash(path: Path) -> str:
+    result = hashlib.sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            result.update(chunk)
+    return result.hexdigest()
+
+
+def backup_state(state_dir: Path, destination: Path) -> dict:
+    """Take a quiescent deployment snapshot; never copy a live SQLite file."""
+    state_dir = _private_dir(Path(state_dir))
+    destination = Path(destination).absolute()
+    if destination == state_dir or state_dir in destination.parents or destination in state_dir.parents:
+        raise OperationsError("backup destination must be outside the deployment tree")
+    # Nothing creates a destination before the source is known to be quiescent.
+    with ExitStack() as stack:
+        stack.enter_context(_file_lock(state_dir / ".deployment.lock", True, nonblocking=True))
+        runs = retained_runs(state_dir)
+        for run in runs:
+            directory = _private_dir(state_dir / run["directory"])
+            stack.enter_context(_file_lock(directory / ".host.lock", True, nonblocking=True))
+        _state_size(state_dir)  # Reject every symlink and special file first.
+        destination = _empty_destination(destination)
+        files = {}
+        try:
+            for source in sorted(state_dir.rglob("*")):
+                relative = source.relative_to(state_dir)
+                if source.is_dir():
+                    (destination / relative).mkdir(mode=0o700, parents=True, exist_ok=True)
+                    continue
+                if source.name.endswith((".lock", "-wal", "-shm", "-journal")):
+                    continue
+                target = destination / relative
+                if source.suffix == ".sqlite":
+                    with _db(source, readonly=True) as original, _db(target) as copied:
+                        original.backup(copied)
+                        if copied.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
+                            raise OperationsError("backup database integrity check failed")
+                else:
+                    shutil.copyfile(source, target)
+                target.chmod(0o600)
+                files[str(relative)] = {"sha256": _hash(target), "bytes": target.stat().st_size}
+            manifest = {"format": "mas-deployment-backup/1", "created_at": int(time.time()), "quiescent": True, "files": files}
+            manifest_path = destination / "backup-manifest.json"
+            manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+            manifest_path.chmod(0o600)
+            return {"ok": True, "backup": str(destination), "files": len(files), "created_at": manifest["created_at"]}
+        except Exception:
+            # Leave the incomplete private directory for inspection; absence of
+            # its final manifest prevents restoration.
+            raise
+
+
+def restore_state(bundle: Path, destination: Path) -> dict:
+    bundle = _private_dir(Path(bundle))
+    _state_size(bundle)
+    try:
+        manifest = json.loads((bundle / "backup-manifest.json").read_text(encoding="utf-8"))
+        if manifest.get("format") != "mas-deployment-backup/1" or manifest.get("quiescent") is not True or type(manifest.get("files")) is not dict:
+            raise OperationsError("invalid backup manifest")
+        files = manifest["files"]
+        if "deployment.sqlite" not in files:
+            raise OperationsError("backup is missing its deployment ledger")
+        actual = {str(path.relative_to(bundle)) for path in bundle.rglob("*") if path.is_file() and path.name != "backup-manifest.json"}
+        if actual != set(files):
+            raise OperationsError("backup file set differs from manifest")
+        for relative, metadata in files.items():
+            path = Path(relative)
+            if path.is_absolute() or ".." in path.parts or "." in path.parts or str(path) != relative:
+                raise OperationsError("unsafe backup path")
+            source = bundle / relative
+            if source.stat().st_size != metadata["bytes"] or _hash(source) != metadata["sha256"]:
+                raise OperationsError("backup content integrity check failed")
+            if source.suffix == ".sqlite":
+                with _db(source, readonly=True) as db:
+                    if db.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
+                        raise OperationsError("backup database integrity check failed")
+    except (OSError, ValueError, KeyError, TypeError, sqlite3.Error):
+        raise OperationsError("backup verification failed") from None
+    destination = Path(destination).absolute()
+    if destination == bundle or bundle in destination.parents or destination in bundle.parents:
+        raise OperationsError("restore destination must be outside the backup tree")
+    destination = _empty_destination(destination)
+    staging = Path(tempfile.mkdtemp(prefix="." + destination.name + "-restore-", dir=destination.parent))
+    # Quarantine precedes even the first copied database. A crash or another
+    # host examining this staging directory can never acquire spending rights.
+    quarantine = staging / ".restored-audit-only"
+    with quarantine.open("x", encoding="utf-8") as marker:
+        marker.write("Restored evidence; new work admissions disabled.\n")
+        marker.flush()
+        os.fsync(marker.fileno())
+    quarantine.chmod(0o600)
+    descriptor = os.open(staging, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+    try:
+        for relative in files:
+            if relative == ".restored-audit-only":
+                continue
+            target = staging / relative
+            target.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+            shutil.copyfile(bundle / relative, target)
+            target.chmod(0o600)
+        # A snapshot cannot know about charges committed after it was taken,
+        # or whether the original deployment still exists. Never restore its
+        # spending authority, even when all copied files are intact.
+        with _db(staging / "deployment.sqlite") as db:
+            db.execute("INSERT OR REPLACE INTO metadata VALUES('admission_state','restored_audit_only')")
+            db.execute("INSERT OR REPLACE INTO metadata VALUES('restored_at',?)", (str(int(time.time())),))
+        for path in staging.rglob("*"):
+            if path.is_file():
+                with path.open("rb") as stream:
+                    os.fsync(stream.fileno())
+        for path in [*reversed(sorted((p for p in staging.rglob("*") if p.is_dir()))), staging]:
+            descriptor = os.open(path, os.O_RDONLY | os.O_DIRECTORY)
+            try:
+                os.fsync(descriptor)
+            finally:
+                os.close(descriptor)
+        # POSIX rename replaces only an empty destination directory. A host
+        # which populated it concurrently makes this fail instead of overwriting.
+        os.replace(staging, destination)
+        descriptor = os.open(destination.parent, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            os.fsync(descriptor)
+        finally:
+            os.close(descriptor)
+    except Exception:
+        if staging.exists():
+            shutil.rmtree(staging)
+        raise
+    ledger = DeploymentLedger(destination)
+    return {"ok": True, "destination": str(destination), "health": ledger.health(),
+            "restored_at": int(time.time()), "snapshot_created_at": manifest["created_at"]}
+
+
+def prune_runs(state_dir: Path, older_than_seconds: int, apply: bool = False) -> dict:
+    """Remove terminal run files; retain every ledger admission forever."""
+    if type(older_than_seconds) is not int or older_than_seconds < 0:
+        raise OperationsError("retention age must be a nonnegative integer")
+    state_dir = _private_dir(Path(state_dir))
+    results = []
+    with _file_lock(state_dir / ".deployment.lock", True, nonblocking=True):
+        for run in retained_runs(state_dir):
+            directory = _private_dir(state_dir / run["directory"])
+            result = {"run_id": run["run_id"], "eligible": False, "deleted": False}
+            try:
+                with _file_lock(directory / ".host.lock", True, nonblocking=True):
+                    latest_change = max([run["admitted_at"], *[path.stat().st_mtime for path in directory.rglob("*") if path.is_file() and not path.name.endswith(".lock")]])
+                    if latest_change > time.time() - older_than_seconds:
+                        result["reason"] = "retention age not reached"
+                    elif not _terminal_run(directory):
+                        result["reason"] = "open tasks, incomplete journal or unresolved invocations retained"
+                    else:
+                        result["eligible"] = True
+                        if apply:
+                            # Record the tombstone first; failures retain the
+                            # allocation and require manual file cleanup.
+                            with _db(state_dir / "deployment.sqlite") as db:
+                                db.execute("UPDATE runs SET purged_at=? WHERE run_id=?", (int(time.time()), run["run_id"]))
+                            shutil.rmtree(directory)
+                            result["deleted"] = True
+            except (OperationsError, sqlite3.Error):
+                result["reason"] = "run busy or state cannot be verified"
+            results.append(result)
+    return {"ok": True, "dry_run": not apply, "runs": results}
+
+
+def _terminal_run(directory: Path) -> bool:
+    if not (directory / "host.sqlite").is_file() or not (directory / "state.sqlite").is_file():
+        return False
+    with _db(directory / "state.sqlite", readonly=True) as db:
+        if db.execute("SELECT count(*) FROM tasks WHERE state='open'").fetchone()[0]:
+            return False
+        # Recorded unknown evidence still represents an unresolved external
+        # effect, unless the host resolution journal supplies a decision.
+        calls = db.execute("SELECT id,state,result FROM calls").fetchall()
+    with _db(directory / "host.sqlite", readonly=True) as journal:
+        columns = {row[1] for row in journal.execute("PRAGMA table_info(invocations)")}
+        if not {"call_id", "state"}.issubset(columns):
+            return False
+        invocations = {row["call_id"]: row["state"] for row in journal.execute("SELECT call_id,state FROM invocations")}
+        if any(state not in ("completed", "resolved", "retry_allowed", "not_executed") for state in invocations.values()):
+            return False
+        for call in calls:
+            if call[0] not in invocations:
+                return False
+    return True

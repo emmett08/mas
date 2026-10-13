@@ -60,15 +60,14 @@ agent entry points.
 ## Final model evidence
 
 The reviewer independently inspected [`evidence/model-checks.json`](../evidence/model-checks.json)
-and selected negative-control logs. The manifest reports forty cases and
-sixty-eight checks: fifty-nine complete positive checks, seven deliberate-defect
+and selected negative-control logs. The final manifest reports forty-five cases
+and seventy-three checks: sixty complete positive checks, eleven deliberate-defect
 counterexamples and two assumption counterexamples. All counterexamples replayed
-successfully. All twenty-six normal simulations completed with both message
-identities accepted and acknowledged.
+successfully. All twenty-nine normal sampled simulations completed.
 
 The recorded runner hash matches the reviewed source:
 
-`3ab5b43f223490b31d04c6778c763948342ba61b3f703729124b91486160c943`.
+`c387dbe239a46825f38c32d10c1b634988eb67f3281c9d8572cf61a33711caf3`.
 
 The new negative controls detect partial commit, duplicate insertion after a lost
 response, and expiry overwriting an earlier terminal decision. The assumption
@@ -110,7 +109,7 @@ No unresolved material implementation or model defect was found within this
 review's scope. The retained tests and model evidence support the bounded claims
 above, with these operational conditions explicit.
 
-## Python host integration addendum
+## Initial Python host integration review
 
 The independent reviewer inspected the reusable host, provider adapters, mesh
 demo and deployment configuration. Offline integration tests exercised the real
@@ -146,3 +145,65 @@ their success must be assessed from its actual run. Source inspection found that
 Compose environment-backed secret injection requires the live override to allow
 a writable root filesystem. Mock mode retains a read-only root filesystem; both
 modes retain the non-root account, dropped capabilities and protected code paths.
+
+## Deployment hardening review
+
+The subsequent review covered the recovery journal, supervised adapter process,
+deployment admission ledger, backup and retention interfaces, and their coupling
+to the Rust gateway. The earlier host limitation on all recovery is superseded
+by explicit, compatible checkpoint replay. This review does not establish a
+general production certification or extend the transport model to arbitrary
+Python or provider executions.
+
+The reviewer reproduced a failure in which supervised invocation uncertainty
+incorrectly committed a terminal Failure, preventing a later evidenced resolution
+from being used. The correction preserves an open recoverable workflow while
+recording the unknown invocation. Separate review identified that copying a live
+spending ledger into a restored deployment could duplicate spending authority or
+rewind post-snapshot charges. Restores now remain audit-only: they permit
+inspection and replay of already committed terminal results, but no incomplete
+workflow dispatch or new call admission. Quarantine precedes copying and the
+verified restored tree is published atomically. A snapshot does not establish
+whether external effects or charges occurred after it was taken.
+
+Independent execution exercised recovery, operations and deployment fault tests,
+including actual process termination, retained unknown invocations, completed
+output replay without repeating effects, storage-write rejection, shared-budget
+contention, backup restoration and retention. Supervision tests additionally
+exercised parent death, handler timeout, process-group cleanup and malformed IPC.
+These are bounded tests on the test host; they are not a capacity or availability
+guarantee, and they made no paid model calls.
+
+Recovery requires the original explicit workflow version and original request
+order. Invocation inputs and operation order are compared with checkpoints;
+adapters must still honour their declared version and route external effects
+through the invocation interface. An operator's completed or confirmed-no-effect
+resolution is a trusted, evidence-backed assertion. Its truth about a remote
+system is not established by the protocol. A confirmed-no-effect resolution
+authorises a fresh metered attempt; it does not erase the original attempt.
+Creating a fresh business operation is new authorisation, not global duplicate
+suppression across deployments.
+
+The deployment ledger retains charges across run pruning and rejects new work
+when its configured admission limits are reached. Reserved monetary allocations
+are conservative admission units, not measured invoices; provider-account limits
+and billing reconciliation remain external. Supervision bounds local execution
+and retains uncertainty after interruption, but cannot prove cancellation of a
+remote effect. Adapters remain trusted Python code, not sandboxed tenants.
+
+The final host-recovery model search completed with 466 stored states and no
+errors. Four deliberate changes each produced a replayed assertion violation:
+dispatch without a charge, redispatch of an uncertain attempt, acceptance of an
+old owner's response, and replacement of the first recorded result. The reviewer
+checked these logs and traces against their recorded hashes and confirmed the
+model source hash
+`9c0550d66ad0600333664a32cfaef70042a68cf34d537aaa949f29f4ac92a823`.
+The model covers one checkpoint, two attempts and at most one crash. It abstracts
+exclusive ownership and committed storage; it does not prove Python refinement,
+filesystem durability, truthful operator evidence or provider cancellation.
+
+The deployment load exercise exposed a transient filesystem-enumeration race:
+SQLite journal files could disappear between inspection calls. The reviewed
+correction uses one non-following stat result and tolerates only a missing entry,
+while retaining rejection of symlinks and special files. Size remains an
+admission-time observation, not a strict filesystem quota.

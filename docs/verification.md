@@ -1,8 +1,8 @@
 # Verification results
 
-Recorded on 13 October 2026. **45 Rust tests passed; 59 positive SPIN checks
-completed with zero errors; seven deliberate defects and two assumption
-counterexamples were detected and replayed; 26 sampled simulations completed.**
+Recorded on 13 October 2026. **45 Rust tests passed; 60 positive SPIN checks
+completed with zero errors; eleven deliberate defects and two assumption
+counterexamples were detected and replayed; 29 sampled simulations completed.**
 All twelve workflow fixtures, the deadline-recovery example and the authenticated
 gateway example executed successfully.
 
@@ -10,22 +10,32 @@ These results establish the checked finite-model properties and tested runtime
 behaviours. They do not establish unrestricted implementation correctness,
 mathematical truth, live AI-agent performance or remote cryptographic security.
 
-The optional Python host adds **34 passing offline tests**, including integration
+The optional Python host adds **91 passing offline tests**, including integration
 with the real Rust binaries and an HTTP contract test using OpenAI SDK 3.29.0
 with a simulated transport. The mock mesh exercised all six directed edges,
 three completed tasks and two recorded mock calls; its exact Python checker
 verified an invoice total of 5,497 cents. No live model calls were made.
 Host tests include lost replies after durable commit, provider failure, refusal,
 incomplete/malformed outputs, route rejection, depth limits and expiry. These are
-implementation tests; the existing Promela models do not verify the Python host.
+implementation tests; the [host recovery model](../formal/host-recovery-notes.md) checks a finite
+recovery abstraction, not the Python implementation.
 The separate `Host and Compose checks` workflow builds and executes the container
 demo and tests live-mode secret delivery with a dummy key.
+
+Deployment fault checks exercise actual process termination, response loss,
+SQLite write failure and restored-state admission blocking. The smoke workload completed 12/12 jobs; a 60-second soak completed 631/631
+jobs across four concurrent hosts, with 1,262 mock calls and no errors. These are
+measurements of this local workload, not a capacity promise. Concurrent load and
+bounded-soak reports are in `evidence/deployment-*.json`; the initial failed soak
+is retained separately from the corrected run. No live credential was available,
+so `deployment-live.json` records a blocked check rather than a successful live
+provider result. See [acceptance scope](deployment-acceptance.md).
 
 ## Evidence and reproduction
 
 | Evidence | Contents |
 |---|---|
-| [`model-checks.json`](../evidence/model-checks.json) | Forty cases, sixty-eight checks; commands, results, hashes, bounds and tool versions. |
+| [`model-checks.json`](../evidence/model-checks.json) | Forty-five cases, seventy-three checks; commands, results, hashes, bounds and tool versions. |
 | [`model-checks.tar.gz`](../evidence/model-checks.tar.gz) | Generated model instances, raw logs, simulations and replayable counterexamples. |
 | [`initial-incomplete-model.tar.gz`](../evidence/initial-incomplete-model.tar.gz) | Retained initial memory-limited searches; classified as incomplete. |
 | [`rust-tests.log`](../evidence/rust-tests.log) | Parser, storage, workflow, CLI, gateway, independent and verifier regression results. |
@@ -38,7 +48,8 @@ demo and tests live-mode secret delivery with a dummy key.
 Reproduce the host checks after building the Rust release binaries:
 
 ```sh
-python -m pip install './host[openai]'
+python -m pip install --require-hashes -r host/requirements-build.txt -r host/requirements-openai.txt
+python -m pip install --no-deps --no-build-isolation ./host
 python -m unittest discover -s host/tests -v
 docker compose up --build --abort-on-container-exit --exit-code-from mesh
 ```
@@ -66,7 +77,8 @@ the delivered source.
 | Unlimited repeated faults: twelve graphs, capacity one and no reduction | 14 safety | Complete, zero errors. |
 | Transaction rollback/crash/retry model | 1 safety | Complete, zero errors. |
 | Task terminal/expiry race model | 1 safety | Complete, zero errors. |
-| Early ack, forbidden route, missing ack, competing terminals, partial commit, duplicate insertion, expiry overwrite | 7 deliberate defects | Expected violations detected and replayed. |
+| Host checkpoint recovery | 1 safety | Complete, zero errors; no liveness claim. |
+| Early ack, forbidden route, missing ack, competing terminals, partial commit, duplicate insertion, expiry overwrite, uncharged host dispatch, unknown replay, stale owner, result overwrite | 11 deliberate defects | Expected violations detected and replayed. |
 | Unlimited faults, with and without weak process fairness | 2 assumption counterexamples | Eventual acknowledgement fails; cycles replayed. |
 
 A counterexample expectation requires the appropriate violation type and a

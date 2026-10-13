@@ -59,7 +59,7 @@ class RunnerIntegrationTests(unittest.TestCase):
             for actor in spec["agents"]
         }
         value = Runner(spec, adapters, Path(self.temp.name), mas_bin=self.mas,
-                       gateway_bin=self.gateway, **kwargs)
+                       gateway_bin=self.gateway, supervised=False, **kwargs)
         self.addCleanup(value.close)
         return value
 
@@ -140,7 +140,8 @@ class RunnerIntegrationTests(unittest.TestCase):
         self.assertEqual(status["usage"]["calls"], 1)
         self.assertEqual(status["calls"][0]["evidence"]["outcome"], "unknown")
         self.assertNotIn("sk-secret", json.dumps(status))
-        self.assert_drained(runner, ["failed", "failed"])
+        self.assertEqual([task["state"] for task in status["tasks"]], ["open", "failed"])
+        self.assertFalse(status["messages"][0]["acked"])
 
     def test_expiry_rejects_a_late_result_without_claiming_completion(self):
         def expire_during_work(_context, _request):
@@ -216,7 +217,8 @@ class RunnerIntegrationTests(unittest.TestCase):
         runner = self.runner({"b": adapter})
         with self.assertRaises(AdapterError):
             runner.request("a", "b", "solve", {})
-        self.assert_drained(runner, ["failed"])
+        self.assertEqual(runner.status()["tasks"][0]["state"], "open")
+        self.assertEqual(runner.status()["calls"][0]["evidence"]["outcome"], "unknown")
         self.assertEqual(len(runner.status()["calls"]), 1)
 
     def test_interrupted_command_reports_no_secret_input(self):
@@ -247,8 +249,7 @@ class RunnerIntegrationTests(unittest.TestCase):
             return result
 
         with mock.patch.object(runner, "_gateway", side_effect=lose_committed_response):
-            with self.assertRaisesRegex(RunnerError, "could not be confirmed"):
-                runner.request("a", "b", "solve", {})
+            self.assertEqual(runner.request("a", "b", "solve", {}).output, {"answer": 42})
         self.assertEqual(lost, [True])
         self.assertEqual(invocations, [True])
         status = runner.status()
@@ -256,7 +257,7 @@ class RunnerIntegrationTests(unittest.TestCase):
         self.assertEqual(len(status["calls"]), 1)
         self.assertEqual(status["calls"][0]["state"], "recorded")
         self.assertEqual(status["usage"]["messages"], 2)
-        self.assertTrue(all(not message["acked"] for message in status["messages"]))
+        self.assertTrue(all(message["acked"] for message in status["messages"]))
 
 
 if __name__ == "__main__":

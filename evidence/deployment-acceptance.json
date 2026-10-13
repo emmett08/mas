@@ -1,0 +1,194 @@
+{
+  "deployment_after": {
+    "admission_open": true,
+    "admission_state": "active",
+    "deployment_id": "deployment-19e703d5054d460aab184211f3f7eec8",
+    "expenditure_semantics": "reserved allocation; actual provider invoices require separate account controls",
+    "free_bytes": 27415830528,
+    "policy": {
+      "max_calls": 10000,
+      "max_reserved_microusd": 100000000,
+      "max_runs": 1000,
+      "max_state_bytes": 1073741824,
+      "min_free_bytes": 67108864,
+      "per_call_reservation_microusd": 100000
+    },
+    "retained_runs": 12,
+    "state_bytes": 1303098,
+    "usage": {
+      "calls": 24,
+      "reserved_microusd": 0,
+      "runs": 12
+    }
+  },
+  "deployment_before": {
+    "admission_open": true,
+    "admission_state": "active",
+    "deployment_id": "deployment-19e703d5054d460aab184211f3f7eec8",
+    "expenditure_semantics": "reserved allocation; actual provider invoices require separate account controls",
+    "free_bytes": 27418054656,
+    "policy": {
+      "max_calls": 10000,
+      "max_reserved_microusd": 100000000,
+      "max_runs": 1000,
+      "max_state_bytes": 1073741824,
+      "min_free_bytes": 67108864,
+      "per_call_reservation_microusd": 100000
+    },
+    "retained_runs": 0,
+    "state_bytes": 32768,
+    "usage": {
+      "calls": 0,
+      "reserved_microusd": 0,
+      "runs": 0
+    }
+  },
+  "elapsed_ms": 788,
+  "environment": {
+    "cpu_count": 9,
+    "mas": {
+      "available": true,
+      "sha256": "e08d02d9f33d7f92ad0874b3b94df50abe836bb25897c5def63f3fde3a0770a1"
+    },
+    "mas_gateway": {
+      "available": true,
+      "sha256": "6c1ba8d96b0ac6523d808ef70d7c5daca1f599992d4fd2d58d2ba82eba22037a"
+    },
+    "platform": "Linux-6.18.44-x86_64-with-glibc2.39",
+    "python": "3.12.14",
+    "sqlite": "3.53.1"
+  },
+  "error_count": 0,
+  "latency_ms": {
+    "maximum": 226,
+    "minimum": 137,
+    "p50": 141,
+    "p95": 226
+  },
+  "mode": "mock",
+  "ok": true,
+  "paid_provider_calls": 0,
+  "run_count": 12,
+  "runs": [
+    {
+      "calls": 2,
+      "duration_ms": 176,
+      "ok": true,
+      "outcome": "completed",
+      "run_id": "run-bea80935b213441d86218aeaf07132f7",
+      "status_available": true,
+      "unknown_calls": 0
+    },
+    {
+      "calls": 2,
+      "duration_ms": 221,
+      "ok": true,
+      "outcome": "completed",
+      "run_id": "run-b0b3eabcbc9f4980ad1cda4ab631b50a",
+      "status_available": true,
+      "unknown_calls": 0
+    },
+    {
+      "calls": 2,
+      "duration_ms": 226,
+      "ok": true,
+      "outcome": "completed",
+      "run_id": "run-6dc26612d2024ca0936302d366aaf452",
+      "status_available": true,
+      "unknown_calls": 0
+    },
+    {
+      "calls": 2,
+      "duration_ms": 171,
+      "ok": true,
+      "outcome": "completed",
+      "run_id": "run-a8067b73d70a4b53b026b3ba21438c8f",
+      "status_available": true,
+      "unknown_calls": 0
+    },
+    {
+      "calls": 2,
+      "duration_ms": 139,
+      "ok": true,
+      "outcome": "completed",
+      "run_id": "run-73efe033894446aabd2fbc823cd779d1",
+      "status_available": true,
+      "unknown_calls": 0
+    },
+    {
+      "calls": 2,
+      "duration_ms": 142,
+      "ok": true,
+      "outcome": "completed",
+      "run_id": "run-2b55f7e9200241778fe3272193fba726",
+      "status_available": true,
+      "unknown_calls": 0
+    },
+    {
+      "calls": 2,
+      "duration_ms": 138,
+      "ok": true,
+      "outcome": "completed",
+      "run_id": "run-0b909fd5662e41e18d5ea2a932fcd3e9",
+      "status_available": true,
+      "unknown_calls": 0
+    },
+    {
+      "calls": 2,
+      "duration_ms": 137,
+      "ok": true,
+      "outcome": "completed",
+      "run_id": "run-fae9c1ef774f40aa9e3034770b61f257",
+      "status_available": true,
+      "unknown_calls": 0
+    },
+    {
+      "calls": 2,
+      "duration_ms": 141,
+      "ok": true,
+      "outcome": "completed",
+      "run_id": "run-9eb8048fa45b49efb2f2f2a1417eda46",
+      "status_available": true,
+      "unknown_calls": 0
+    },
+    {
+      "calls": 2,
+      "duration_ms": 139,
+      "ok": true,
+      "outcome": "completed",
+      "run_id": "run-8608504d58f24bf783bd1815220b1a44",
+      "status_available": true,
+      "unknown_calls": 0
+    },
+    {
+      "calls": 2,
+      "duration_ms": 141,
+      "ok": true,
+      "outcome": "completed",
+      "run_id": "run-1561bea72d0d498b81eab3d51b10ba78",
+      "status_available": true,
+      "unknown_calls": 0
+    },
+    {
+      "calls": 2,
+      "duration_ms": 146,
+      "ok": true,
+      "outcome": "completed",
+      "run_id": "run-1f397d0f085f4f5a8c72d9b1aa4729b7",
+      "status_available": true,
+      "unknown_calls": 0
+    }
+  ],
+  "schema": "mas-deployment-acceptance/1",
+  "scope": "Measured bounded mock workload only. Fault tests and live-provider acceptance are separate evidence. No production capacity claim.",
+  "started_at": "2026-10-13T19:24:48.410605+00:00",
+  "success_count": 12,
+  "workload": {
+    "agents_per_run": 3,
+    "concurrency": 3,
+    "maximum_runs": 12,
+    "mock_provider_calls_per_successful_run": 2,
+    "name": "invoice-mesh",
+    "soak_seconds": 0
+  }
+}
