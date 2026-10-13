@@ -5,7 +5,7 @@
     ".env.example": "ee4c9691f8fdc7e58799cdd37f7394f28efd21aecac59abdd3b741303b855305",
     ".github/dependabot.yml": "05810ae63acc42bc6cec49f77da9d910677c23e31ccf74db97943e8e96975ad8",
     ".github/workflows/check.yml": "4b3f021d44cef2de2f42b6dfa12e5387cda35d6ef67f4443c3926d62203d26ae",
-    ".github/workflows/compose.yml": "ffcce808ed0f1d323717e06def0e9d4a276d91db2ed1fc0a26cea533baba8716",
+    ".github/workflows/compose.yml": "9ba73f05aa749ddb7635d3a6ef04813561576683454821baf35af1fac794402f",
     ".github/workflows/release.yml": "ece288b6ef1e8daf5d62dd0a5415a0da44b89113b76d72b64265e4f65e368bf4",
     ".github/workflows/security.yml": "b668241e13899b5cd30d9141bfb7d0dfced811fd886f732389d93efa774b8552",
     ".gitignore": "6ed7a42039445d293186797a41e9f2035681e823688cf1d19a01ebcb17813849",
