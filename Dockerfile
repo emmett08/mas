@@ -4,7 +4,7 @@ COPY docker/alpine-packages.json /build/alpine-packages.json
 COPY scripts/release-apk.py /build/release-apk.py
 RUN python /build/release-apk.py --lock /build/alpine-packages.json --arch "$TARGETARCH" --out /packages
 
-FROM rust:1.85.1-alpine@sha256:4333721398de61f53ccbe53b0b855bcc4bb49e55828e8f652d7a8ac33dd0c118 AS rust-build
+FROM rust:1.99.0-alpine@sha256:0cce0a5e0e8ba67b455257a3a02a1d99005f382748789d6464460028810f1627 AS rust-build
 COPY --from=alpine-packages /packages/build /packages
 RUN --network=none apk add --no-network /packages/*.apk && rm -rf /packages
 ENV RUSTFLAGS="-C target-feature=-crt-static" \
