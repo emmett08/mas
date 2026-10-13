@@ -10,6 +10,17 @@ These results establish the checked finite-model properties and tested runtime
 behaviours. They do not establish unrestricted implementation correctness,
 mathematical truth, live AI-agent performance or remote cryptographic security.
 
+The optional Python host adds **34 passing offline tests**, including integration
+with the real Rust binaries and an HTTP contract test using OpenAI SDK 3.29.0
+with a simulated transport. The mock mesh exercised all six directed edges,
+three completed tasks and two recorded mock calls; its exact Python checker
+verified an invoice total of 5,497 cents. No live model calls were made.
+Host tests include lost replies after durable commit, provider failure, refusal,
+incomplete/malformed outputs, route rejection, depth limits and expiry. These are
+implementation tests; the existing Promela models do not verify the Python host.
+The separate `Host and Compose checks` workflow builds and executes the container
+demo and tests live-mode secret delivery with a dummy key.
+
 ## Evidence and reproduction
 
 | Evidence | Contents |
@@ -21,6 +32,16 @@ mathematical truth, live AI-agent performance or remote cryptographic security.
 | [`examples/`](../evidence/examples/) | Fourteen executed Rust/SQLite examples, including expiry and gateway restart. |
 | [`readme-exchange.log`](../evidence/readme-exchange.log) | Execution of the administrative request/result sequence. |
 | [`source-manifest.json`](../evidence/source-manifest.json) | SHA-256 identities for delivered source, configuration and documentation. |
+| [`host-tests.log`](../evidence/host-tests.log) | Offline host, provider contract and Rust-backed integration tests. |
+| [`host-mock.json`](../evidence/host-mock.json) | Six-edge mixed-adapter mesh report; explicitly mock mode. |
+
+Reproduce the host checks after building the Rust release binaries:
+
+```sh
+python -m pip install './host[openai]'
+python -m unittest discover -s host/tests -v
+docker compose up --build --abort-on-container-exit --exit-code-from mesh
+```
 
 ```sh
 cargo test --locked --manifest-path rust-protocol/Cargo.toml

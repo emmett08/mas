@@ -1,0 +1,211 @@
+{
+  "demo": "mixed-agent-mesh",
+  "events": [
+    {
+      "kind": "Request",
+      "message_id": "message-a7ca2e4df1c9458fbbd119e1cc08e79d",
+      "recipient": "planner",
+      "sender": "checker",
+      "task_id": "task-6db8fdbdbdee4c7ca7985102977eedc3"
+    },
+    {
+      "kind": "Request",
+      "message_id": "message-c9bb751417af4d6da01a44809ca5f1f6",
+      "recipient": "reviewer",
+      "sender": "planner",
+      "task_id": "task-dd90851c88dc4f83a410a8d5746d5a1b"
+    },
+    {
+      "kind": "Request",
+      "message_id": "message-154126aed3f44e1fa14103e234e03765",
+      "recipient": "checker",
+      "sender": "reviewer",
+      "task_id": "task-b28623c2bf3f4edebea5d53c4a4fc271"
+    },
+    {
+      "kind": "Result",
+      "message_id": "message-e61e11fd6c9b425885e598138e9792c9",
+      "recipient": "reviewer",
+      "sender": "checker",
+      "task_id": "task-b28623c2bf3f4edebea5d53c4a4fc271"
+    },
+    {
+      "kind": "Result",
+      "message_id": "message-766b0d9feffe48c4bee2f490a133375a",
+      "recipient": "planner",
+      "sender": "reviewer",
+      "task_id": "task-dd90851c88dc4f83a410a8d5746d5a1b"
+    },
+    {
+      "kind": "Result",
+      "message_id": "message-f65ec8cdbe5a47daaa13f6e042f4b60e",
+      "recipient": "checker",
+      "sender": "planner",
+      "task_id": "task-6db8fdbdbdee4c7ca7985102977eedc3"
+    }
+  ],
+  "mode": "mock",
+  "models": {
+    "checker": "python",
+    "planner": "mock",
+    "reviewer": "mock"
+  },
+  "ok": true,
+  "outcome": "completed",
+  "result": {
+    "planner_correct": true,
+    "planner_total_cents": 5497,
+    "reviewer_correct": true,
+    "reviewer_total_cents": 5497,
+    "total_cents": 5497,
+    "verified": true
+  },
+  "run_id": "run-06675dff22c7472b8435cf47c29be925",
+  "scope": "Logical peer mesh over one Rust/SQLite broker; Python checker validates this invoice only.",
+  "status": {
+    "active_protocol": "1",
+    "calls": [
+      {
+        "actor": "planner",
+        "evidence": {
+          "model": "deterministic-invoice",
+          "network": false,
+          "provider": "mock",
+          "role": "planner"
+        },
+        "id": "call-29af3789f60b4cab9ea9a4be7c1b1c56",
+        "state": "recorded"
+      },
+      {
+        "actor": "reviewer",
+        "evidence": {
+          "model": "deterministic-invoice",
+          "network": false,
+          "provider": "mock",
+          "role": "reviewer"
+        },
+        "id": "call-1ae907768f6844498c21ab14c980b137",
+        "state": "recorded"
+      }
+    ],
+    "config": {
+      "agents": [
+        "planner",
+        "reviewer",
+        "checker"
+      ],
+      "application": "agent-task/1",
+      "edges": [
+        [
+          "checker",
+          "planner"
+        ],
+        [
+          "checker",
+          "reviewer"
+        ],
+        [
+          "planner",
+          "checker"
+        ],
+        [
+          "planner",
+          "reviewer"
+        ],
+        [
+          "reviewer",
+          "checker"
+        ],
+        [
+          "reviewer",
+          "planner"
+        ]
+      ],
+      "mailbox_capacity": 8,
+      "max_bytes": 131072,
+      "max_calls": 4,
+      "max_messages": 30,
+      "wall_seconds": 180
+    },
+    "deadline": 1791917061.9983656,
+    "execution_claim": "Host execution requires external agent records; receive and ack alone do not prove cognition.",
+    "expired": false,
+    "messages": [
+      {
+        "acked": true,
+        "id": "message-a7ca2e4df1c9458fbbd119e1cc08e79d",
+        "received": true,
+        "recipient": "planner",
+        "sender": "checker"
+      },
+      {
+        "acked": true,
+        "id": "message-c9bb751417af4d6da01a44809ca5f1f6",
+        "received": true,
+        "recipient": "reviewer",
+        "sender": "planner"
+      },
+      {
+        "acked": true,
+        "id": "message-154126aed3f44e1fa14103e234e03765",
+        "received": true,
+        "recipient": "checker",
+        "sender": "reviewer"
+      },
+      {
+        "acked": true,
+        "id": "message-e61e11fd6c9b425885e598138e9792c9",
+        "received": true,
+        "recipient": "reviewer",
+        "sender": "checker"
+      },
+      {
+        "acked": true,
+        "id": "message-766b0d9feffe48c4bee2f490a133375a",
+        "received": true,
+        "recipient": "planner",
+        "sender": "reviewer"
+      },
+      {
+        "acked": true,
+        "id": "message-f65ec8cdbe5a47daaa13f6e042f4b60e",
+        "received": true,
+        "recipient": "checker",
+        "sender": "planner"
+      }
+    ],
+    "protocols": [],
+    "run_id": "run-06675dff22c7472b8435cf47c29be925",
+    "tasks": [
+      {
+        "closed_at": 1791916882.0513322,
+        "outcome": "completed",
+        "request_id": "message-a7ca2e4df1c9458fbbd119e1cc08e79d",
+        "state": "completed",
+        "task_id": "task-6db8fdbdbdee4c7ca7985102977eedc3",
+        "terminal_message_id": "message-f65ec8cdbe5a47daaa13f6e042f4b60e"
+      },
+      {
+        "closed_at": 1791916882.0413423,
+        "outcome": "completed",
+        "request_id": "message-c9bb751417af4d6da01a44809ca5f1f6",
+        "state": "completed",
+        "task_id": "task-dd90851c88dc4f83a410a8d5746d5a1b",
+        "terminal_message_id": "message-766b0d9feffe48c4bee2f490a133375a"
+      },
+      {
+        "closed_at": 1791916882.0314586,
+        "outcome": "completed",
+        "request_id": "message-154126aed3f44e1fa14103e234e03765",
+        "state": "completed",
+        "task_id": "task-b28623c2bf3f4edebea5d53c4a4fc271",
+        "terminal_message_id": "message-e61e11fd6c9b425885e598138e9792c9"
+      }
+    ],
+    "usage": {
+      "bytes": 2789,
+      "calls": 2,
+      "messages": 6
+    }
+  }
+}

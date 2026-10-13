@@ -1,0 +1,181 @@
+"""A logical mesh: model proposal, peer model review and an exact Python checker."""
+from __future__ import annotations
+
+import argparse
+import json
+import os
+from pathlib import Path
+from typing import Any
+
+from .providers import (MockProvider, OpenAIProvider, ProviderError, TotalProvider,
+                        _reject_number, _unique_object, exact_total, validate_invoice, validate_total)
+from .runner import Context, Outcome, Runner, TaskRequest
+
+DEFAULT_INVOICE = [
+    {"item": "Notebook", "quantity": 2, "unit_cents": 1299},
+    {"item": "Pen set", "quantity": 3, "unit_cents": 499},
+    {"item": "Delivery", "quantity": 1, "unit_cents": 1402},
+]
+DEFAULT_TOPOLOGY = {
+    "name": "compose-mesh",
+    "description": "Two replaceable inference agents and an exact Python checker communicate over all six directed edges of a logical mesh.",
+    "agents": ["planner", "reviewer", "checker"],
+    "edges": [["checker", "planner"], ["planner", "checker"],
+              ["planner", "reviewer"], ["reviewer", "planner"],
+              ["reviewer", "checker"], ["checker", "reviewer"]],
+    "application": "agent-task/1", "mailbox_capacity": 8,
+    "max_messages": 30, "max_bytes": 131072, "max_calls": 4, "wall_seconds": 180,
+}
+
+
+def _invoice_input(request: TaskRequest, operation: str, fields: set[str]) -> list[dict[str, Any]]:
+    if request.operation != operation or set(request.input) != fields:
+        raise ValueError("unsupported demo operation or input fields")
+    return validate_invoice(request.input["invoice"])
+
+
+class PlannerAdapter:
+    """Demonstrates one inference call followed by direct peer delegation."""
+
+    def __init__(self, provider: TotalProvider):
+        self.provider = provider
+
+    def handle(self, context: Context, request: TaskRequest) -> Outcome:
+        invoice = _invoice_input(request, "invoice.plan", {"invoice"})
+        proposal = validate_total(context.invoke(lambda: self.provider.total(invoice)))
+        review = context.request("reviewer", "invoice.review", {
+            "invoice": invoice, "planner_total_cents": proposal["total_cents"],
+        })
+        return Outcome(output=review.output, status=review.status)
+
+
+class ReviewerAdapter:
+    """The reviewer consumes the planner's delivered proposal as untrusted data."""
+
+    def __init__(self, provider: TotalProvider):
+        self.provider = provider
+
+    def handle(self, context: Context, request: TaskRequest) -> Outcome:
+        invoice = _invoice_input(request, "invoice.review", {"invoice", "planner_total_cents"})
+        proposal = validate_total({"total_cents": request.input["planner_total_cents"]})
+        reviewed = validate_total(context.invoke(lambda: self.provider.total(invoice, proposal=proposal)))
+        checked = context.request("checker", "invoice.check", {
+            "invoice": invoice,
+            "planner_total_cents": proposal["total_cents"],
+            "reviewer_total_cents": reviewed["total_cents"],
+        })
+        return Outcome(output=checked.output, status=checked.status)
+
+
+class CheckerAdapter:
+    """No model or generated code: integer multiplication and addition only."""
+
+    def handle(self, context: Context, request: TaskRequest) -> Outcome:
+        invoice = _invoice_input(request, "invoice.check", {
+            "invoice", "planner_total_cents", "reviewer_total_cents",
+        })
+        planner = validate_total({"total_cents": request.input["planner_total_cents"]})["total_cents"]
+        reviewer = validate_total({"total_cents": request.input["reviewer_total_cents"]})["total_cents"]
+        actual = exact_total(invoice)
+        verified = planner == reviewer == actual
+        return Outcome(output={
+            "total_cents": actual, "planner_total_cents": planner, "reviewer_total_cents": reviewer,
+            "planner_correct": planner == actual, "reviewer_correct": reviewer == actual, "verified": verified,
+        }, status="completed" if verified else "unresolved")
+
+
+def run_demo(*, topology: dict[str, Any], state_dir: str | Path,
+             planner_provider: TotalProvider, reviewer_provider: TotalProvider,
+             invoice: Any = None, mode: str = "mock", models: dict[str, str] | None = None,
+             mas_bin: str = "mas", gateway_bin: str = "mas-gateway") -> dict[str, Any]:
+    invoice = validate_invoice(DEFAULT_INVOICE if invoice is None else invoice)
+    adapters = {"planner": PlannerAdapter(planner_provider), "reviewer": ReviewerAdapter(reviewer_provider),
+                "checker": CheckerAdapter()}
+    with Runner(topology, adapters, state_dir, mas_bin=mas_bin, gateway_bin=gateway_bin) as runner:
+        outcome = None
+        try:
+            outcome = runner.request("checker", "planner", "invoice.plan", {"invoice": invoice})
+        except Exception:
+            # Keep the run identity and durable reservations inspectable even
+            # when an adapter fails after an external provider call.
+            pass
+        try:
+            status = runner.status()
+        except Exception:
+            status = {"unavailable": True, "error": "could not inspect run status"}
+        report_path = runner.run_dir / "report.json"
+        report = {
+            "ok": outcome is not None and outcome.status == "completed" and outcome.output.get("verified") is True,
+            "demo": "mixed-agent-mesh", "mode": mode, "run_id": runner.run_id,
+            "models": models or {"planner": "mock", "reviewer": "mock", "checker": "python"},
+            # A lost command reply can follow a committed Result. Only durable
+            # task records can distinguish that case from failure or expiry.
+            "outcome": outcome.status if outcome is not None else "unknown",
+            "result": outcome.output if outcome is not None else {},
+            "status": status, "events": runner.events, "report_path": str(report_path),
+            "scope": "Logical peer mesh over one Rust/SQLite broker; Python checker validates this invoice only.",
+        }
+        if outcome is None:
+            report["error"] = "exchange incomplete; inspect durable task and invocation records before retrying"
+        report_path.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        report_path.chmod(0o600)
+        return report
+
+
+def _api_key() -> str:
+    key_file = os.environ.get("OPENAI_API_KEY_FILE")
+    if key_file:
+        try:
+            key = Path(key_file).read_text(encoding="utf-8").strip()
+        except (OSError, UnicodeError):
+            raise ProviderError("could not read OPENAI_API_KEY_FILE") from None
+    else:
+        key = os.environ.get("OPENAI_API_KEY", "").strip()
+    if not key or len(key) > 4096 or any(character.isspace() for character in key):
+        raise ProviderError("OpenAI mode requires a valid OPENAI_API_KEY_FILE or OPENAI_API_KEY")
+    return key
+
+
+def _load_json(path: str) -> Any:
+    with Path(path).open(encoding="utf-8") as stream:
+        source = stream.read(65_537)
+    if len(source.encode("utf-8")) > 65_536:
+        raise ValueError("JSON file exceeds the input limit")
+    return json.loads(source, object_pairs_hook=_unique_object,
+                      parse_float=_reject_number, parse_constant=_reject_number)
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--mode", choices=("mock", "openai"), default=os.environ.get("MAS_MODE", "mock"))
+    parser.add_argument("--state-dir", default=os.environ.get("MAS_STATE_DIR", ".mas-state"))
+    parser.add_argument("--topology", default=os.environ.get("MAS_TOPOLOGY"), help="topology JSON; default is the bundled three-peer mesh")
+    parser.add_argument("--invoice", default=os.environ.get("MAS_INVOICE"), help="JSON array of integer-cent invoice lines")
+    args = parser.parse_args(argv)
+    try:
+        if args.mode not in {"mock", "openai"}:
+            raise ValueError("MAS_MODE must be mock or openai")
+        topology = _load_json(args.topology) if args.topology else DEFAULT_TOPOLOGY
+        invoice = _load_json(args.invoice) if args.invoice else DEFAULT_INVOICE
+        if args.mode == "openai":
+            key = _api_key()
+            models = {"planner": os.environ.get("MAS_PLANNER_MODEL", "gpt-4.1-mini"),
+                      "reviewer": os.environ.get("MAS_REVIEWER_MODEL", "gpt-4o-mini"), "checker": "python"}
+            planner_provider = OpenAIProvider(models["planner"], "planner", api_key=key)
+            reviewer_provider = OpenAIProvider(models["reviewer"], "reviewer", api_key=key)
+        else:
+            models = {"planner": "mock", "reviewer": "mock", "checker": "python"}
+            planner_provider, reviewer_provider = MockProvider("planner"), MockProvider("reviewer")
+        print(f"MAS mesh: planner={models['planner']}, reviewer={models['reviewer']}, checker=python ({args.mode})")
+        report = run_demo(topology=topology, state_dir=args.state_dir, planner_provider=planner_provider,
+                          reviewer_provider=reviewer_provider, invoice=invoice, mode=args.mode, models=models,
+                          mas_bin=os.environ.get("MAS_BIN", "mas"),
+                          gateway_bin=os.environ.get("MAS_GATEWAY_BIN", "mas-gateway"))
+    except ProviderError as error:
+        report = {"ok": False, "error": str(error), "mode": args.mode}
+    except Exception:
+        # Do not print arbitrary adapter/SDK exceptions or tracebacks to a shared
+        # console: these may include prompts or provider credentials.
+        report = {"ok": False, "error": "mesh run failed; inspect private run state before retrying", "mode": args.mode}
+    print(json.dumps(report, sort_keys=True, separators=(",", ":")))
+    return 0 if report["ok"] else 1

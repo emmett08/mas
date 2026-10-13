@@ -1,5 +1,9 @@
 # Private agent admission
 
+The [reusable Python host runner](host-runner.md) provisions this gateway, keeps
+capabilities private, supervises subprocess calls and dispatches model/tool
+adapters. Its Compose mesh is the quickest complete integration example.
+
 `mas-gateway` authenticates a capability before admitting an agent operation. Each
 capability selects exactly one frozen run and actor. A worker can send only as
 that actor, receive only its mailbox, acknowledge only messages addressed to it,

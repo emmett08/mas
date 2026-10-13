@@ -1,0 +1,2 @@
+# Keep the optional dependency in pyproject.toml aligned with this SDK pin.
+openai==3.29.0

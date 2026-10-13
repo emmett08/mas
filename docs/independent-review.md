@@ -109,3 +109,40 @@ agreement establishes no message truth.
 No unresolved material implementation or model defect was found within this
 review's scope. The retained tests and model evidence support the bounded claims
 above, with these operational conditions explicit.
+
+## Python host integration addendum
+
+The independent reviewer inspected the reusable host, provider adapters, mesh
+demo and deployment configuration. Offline integration tests exercised the real
+Rust binaries. The optional SDK contract test uses a simulated HTTP transport;
+no real model request or paid invocation was part of this review. This is an
+implementation review, not an extension of the SPIN verification claims.
+
+Independent fault injections discarded responses after committed reservation,
+call-evidence recording, Result insertion and Request acknowledgement. Provider
+callbacks ran zero, one, one and one times respectively; none was retried.
+A lost Result response left a completed durable task with unacknowledged messages.
+The resulting diagnostic was corrected to describe an unconfirmed response,
+rather than assert that the terminal write had failed. The corrected demo report
+distinguishes an unknown host exchange outcome from the authoritative task state;
+both response-loss regressions passed independent execution. A durable Failure
+does not establish that a provider had no effect.
+
+Review findings also prompted strict duplicate-key rejection for JSON file inputs
+and sanitisation of invalid Unicode provider output. The reviewer confirmed that
+the peer model receives the delivered proposal as untrusted data. The exact
+Python checker validates this invoice calculation; it supplies no general model
+quality or consensus guarantee.
+
+Adapters remain trusted Python code. Execution is synchronous and nested, with
+no automatic restart, redispatch or provider replay. Credentials are omitted from
+Rust child environments, while host-owned private state retains capabilities and
+application data. The mesh is a logical routing graph over one durable broker,
+not a distributed transport or an isolation boundary between adapters.
+
+Docker was unavailable in the review environment. Container build, mock execution
+and dummy-secret readability checks are delegated to the Compose CI workflow;
+their success must be assessed from its actual run. Source inspection found that
+Compose environment-backed secret injection requires the live override to allow
+a writable root filesystem. Mock mode retains a read-only root filesystem; both
+modes retain the non-root account, dropped capabilities and protected code paths.

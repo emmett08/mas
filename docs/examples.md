@@ -1,5 +1,11 @@
 # Topologies and workflow examples
 
+For a runnable mix of OpenAI GPT agents and a Python checker, start with the
+[Compose mesh and reusable host runner](host-runner.md). Its configuration is
+`examples/compose-mesh.json`; run it with `python -m mas_host` or Compose, not
+`mas demo`. It provides explicit mock and live modes. The fixtures below remain
+deterministic Rust exercises.
+
 Run an example with `mas demo examples/star.json`. Every fixture uses the real
 Rust codec and durable mailbox. Participants are deterministic functions: no
 LLM, human approval, provider call or external effect is performed. Each receives

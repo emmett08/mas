@@ -10,11 +10,17 @@ rustc-ice-*.txt
 *.sqlite-*
 *.db
 .env
+.env.*
+!.env.example
+secrets/
+.mas-state/
 .mas-private/
 .venv/
 __pycache__/
 .pytest_cache/
 *.egg-info/
+/host/build/
+/host/dist/
 # Generated verifier source/binaries are reproduced from retained models
 pan
 pan-*

@@ -1,9 +1,10 @@
 # MAS: AI agent communication in Rust
 
 A Rust/nom protocol and durable SQLite mailbox for agent, tool and human-adapter
-messages, with SPIN/Promela models and executable workflow examples. The runtime,
-CLI and examples are native Rust. The formal verification runner is Rust;
-SPIN generates the C model checker.
+messages, with SPIN/Promela models and executable workflow examples. The protocol
+runtime and CLI are native Rust. A reusable Python host connects model and tool
+adapters to the Rust gateway. The formal verification runner is Rust; SPIN
+generates the C model checker.
 
 The design separates **who may communicate**, **delivery state**, **task state**
 and **whether a result is correct**. A capability gateway binds agent requests to
@@ -13,6 +14,28 @@ It supports star, mesh and tree graphs plus
 review loops, peer handoffs, pipelines, routing and parallel work. See the
 [design comparison and protocol specification](docs/design.md) and
 [pattern examples](docs/examples.md).
+
+## Start with Docker Compose
+
+Run the mixed-agent mesh locally, with no API key required:
+
+```sh
+docker compose up --build --abort-on-container-exit --exit-code-from mesh
+```
+
+The default uses mock model responses, real protocol exchanges and a Python
+checker. To use two separate OpenAI GPT agents, supply `OPENAI_API_KEY` in your
+host shell and run:
+
+```sh
+docker compose -f compose.yaml -f compose.openai.yaml up --build --abort-on-container-exit --exit-code-from mesh
+```
+
+Live mode makes paid API calls and checks model outputs deterministically. The
+host supports custom adapters and graph configurations; this example is a logical
+mesh over the central Rust/SQLite transport. See the [quickstart and adapter
+guide](docs/host-runner.md) for credentials, model selection, persistence and a
+complete custom adapter.
 
 ## Build and run
 
@@ -79,7 +102,8 @@ CLI outside agent access. The host privately routes each gateway response to its
 caller. Reserve a call before execution, honour `actionable: false` on closed
 requests, and record actual execution evidence with `finish`. Payloads never grant
 tools or permissions. The gateway uses local standard input/output; it is not a
-remote connector or model launcher.
+remote connector. The optional [Python host](docs/host-runner.md) supplies model
+launching and application scheduling through this interface.
 
 Run `mas reconcile DB RUN` to record expired open tasks as
 `expired_outcome_unknown`. Ordinary run operations and status inspection also
@@ -115,4 +139,5 @@ This repository retains its GPL-3.0 licence. The nom codec and initial protocol
 semantics derive from MAS Protocol Lab; the original MIT notice is retained in
 [THIRD_PARTY_LICENSE.txt](THIRD_PARTY_LICENSE.txt). The native runtime and models
 apply Holzmann's design method; sources and scope are recorded in the design
-specification. There is one production implementation, in Rust.
+specification. There is one protocol implementation, in Rust; the Python host
+uses it rather than reimplementing its state machine or storage.

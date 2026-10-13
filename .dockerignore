@@ -1,0 +1,22 @@
+# Allow only the runtime sources into the build context.
+**
+!Dockerfile
+!LICENSE
+!THIRD_PARTY_LICENSE.txt
+!rust-protocol/
+!rust-protocol/Cargo.toml
+!rust-protocol/Cargo.lock
+!rust-protocol/src/
+!rust-protocol/src/**
+!host/
+!host/pyproject.toml
+!host/requirements-openai.txt
+!host/mas_host/
+!host/mas_host/**
+!examples/
+!examples/compose-mesh.json
+**/__pycache__/
+**/*.pyc
+**/.env
+**/.env.*
+**/secrets/

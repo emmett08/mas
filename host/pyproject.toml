@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools==80.9.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mas-host"
+version = "0.1.0"
+description = "Reusable Python adapter host for the MAS Rust capability gateway"
+requires-python = ">=3.10"
+license = "GPL-3.0-only"
+dependencies = []
+
+[project.optional-dependencies]
+openai = ["openai==3.29.0"]
+
+[project.scripts]
+mas-host = "mas_host.demo:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["mas_host*"]

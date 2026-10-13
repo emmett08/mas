@@ -10,7 +10,7 @@
 
 All three designs can be extended to support the requested workflows. The third is selected because one reusable core supports every supplied example without imposing a supervisor on application semantics. It separates message representation, delivery, task transitions and substantive result checking. This is an engineering judgement about the declared use cases, not a benchmark proving universal superiority. A pairwise streaming protocol remains preferable where stream latency or independent remote ownership dominates; a fixed broker can be simpler for a homogeneous queue of jobs.
 
-The executable implementation is Rust throughout: nom recognition, exact JSON values, SQLite transactions, application validation, CLI, fixtures and verification orchestration. Promela specifies the abstract systems; SPIN generates C verifiers. No Python service or model API is required. No provider, framework or remotely authenticated service is implemented implicitly.
+The protocol implementation is Rust throughout: nom recognition, exact JSON values, SQLite transactions, application validation, CLI, fixtures and verification orchestration. Promela specifies the abstract systems; SPIN generates C verifiers. The core requires no Python service or model API. An optional [reusable Python host](host-runner.md) connects trusted application adapters and OpenAI model calls to the existing Rust gateway; it does not duplicate protocol validation or storage. The gateway remains a local stdio interface.
 
 ## Reapplying Holzmann
 
@@ -92,7 +92,7 @@ protocol does not claim exactly-once execution of arbitrary external actions.
 
 ## Extension boundaries
 
-This protocol can carry model calls, structured telemetry, proposed proofs, critiques, human decisions and tool results. Their content schemas and acceptance checkers belong to explicit profiles or adapters. A proposed theorem requires its independent designated proof checker; a vote or `completed` message cannot replace one. The examples execute deterministic functions to test communication. Neither language-model quality nor comparative productivity is measured.
+This protocol can carry model calls, structured telemetry, proposed proofs, critiques, human decisions and tool results. Their content schemas and acceptance checkers belong to explicit profiles or adapters. A proposed theorem requires its independent designated proof checker; a vote or `completed` message cannot replace one. The Rust fixtures execute deterministic functions to test communication. The Python mesh adds explicitly selected mock or live OpenAI execution. Neither language-model quality nor comparative productivity is measured by protocol tests.
 
 Frozen membership supports bounded input-dependent allocation to a registered pool. Truly dynamic agent spawning requires host execution and either a pre-registered bounded pool or a separately versioned membership protocol. The latter is not claimed here. Streaming, distributed consensus, globally exclusive handoff ownership, multi-database transactions and remote transport are not supplied by the local mailbox.
 
