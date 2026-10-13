@@ -20,7 +20,7 @@ manifest = {
     "format": "mas-release/1", "source_commit": sha, "tag": tag,
     "platform": os.environ["RELEASE_PLATFORM"],
     "files": {str(path): digest(path) for path in files},
-    "inputs": {str(path): digest(path) for path in [Path("Dockerfile"), Path("rust-protocol/Cargo.lock"), *sorted(Path("host").glob("requirements-*.txt"))]},
+    "inputs": {str(path): digest(path) for path in [Path("Dockerfile"), Path("docker/alpine-packages.json"), Path("rust-protocol/Cargo.lock"), *sorted(Path("host").glob("requirements-*.txt"))]},
     "provenance": "BuildKit provenance is embedded in the OCI archive; this JSON is an unsigned source and checksum record.",
 }
 Path("release-manifest.json").write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n")

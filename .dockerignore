@@ -1,6 +1,10 @@
 # Allow only the runtime sources into the build context.
 **
 !Dockerfile
+!docker/
+!docker/alpine-packages.json
+!scripts/
+!scripts/release-apk.py
 !LICENSE
 !THIRD_PARTY_LICENSE.txt
 !rust-protocol/

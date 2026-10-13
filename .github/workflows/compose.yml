@@ -28,6 +28,7 @@ jobs:
       - name: Check arm64 locked wheels
         run: |
           python -m pip download --require-hashes --only-binary=:all: --platform manylinux2014_aarch64 --python-version 3.12 --implementation cp --abi cp312 --dest /tmp/arm64-wheels -r host/requirements-openai.txt
+          python -m pip download --require-hashes --only-binary=:all: --platform musllinux_1_2_aarch64 --platform musllinux_1_1_aarch64 --python-version 3.12 --implementation cp --abi cp312 --dest /tmp/musl-arm64-wheels -r host/requirements-openai.txt
       - name: Bounded deployment acceptance
         env:
           MAS_BIN: ${{ github.workspace }}/rust-protocol/target/release/mas
@@ -41,6 +42,16 @@ jobs:
           docker compose -f compose.yaml -f compose.production.yaml config --quiet
       - name: Build and run mock mesh in Docker
         run: docker compose up --build --abort-on-container-exit --exit-code-from mesh
+      - name: Test installed musl runtime and shared libraries
+        run: |
+          docker run --rm --init --network none --user 10001:10001 --read-only \
+            --cap-drop ALL --security-opt no-new-privileges --cpus 1 \
+            --memory 512m --memory-swap 512m --pids-limit 64 \
+            --tmpfs /tmp:mode=1777,size=256m \
+            --mount type=bind,src="$PWD/host/tests",dst=/mounted-tests,readonly \
+            --mount type=bind,src="$PWD/examples",dst=/mounted-examples,readonly \
+            --mount type=bind,src="$PWD/scripts/release-container-check.py",dst=/release-container-check.py,readonly \
+            --entrypoint python mas-mesh:local -I /release-container-check.py
       - name: Check container report
         run: |
           docker compose logs --no-color --no-log-prefix mesh > compose-mesh.log

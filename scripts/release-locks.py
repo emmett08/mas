@@ -18,7 +18,7 @@ import tomllib
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
-PLATFORMS = ("manylinux2014_x86_64", "manylinux2014_aarch64")
+PLATFORMS = ("manylinux2014_x86_64", "manylinux2014_aarch64", "musllinux_1_1_x86_64", "musllinux_1_1_aarch64")
 
 
 def normalise(name: str) -> str:
@@ -49,7 +49,7 @@ def refresh(filename: str, requirements: list[str], platforms: tuple[str, ...]) 
                 "--abi", "cp312", "--dest", str(directory / platform), *requirements,
             ], check=True)
         packages = collect(directory)
-    scope = "CPython 3.12 Linux amd64/arm64" if len(platforms) == 2 else "CPython 3.12 Linux amd64 (CI tooling only)"
+    scope = "CPython 3.12 Linux amd64/arm64, glibc/musl" if len(platforms) > 1 else "CPython 3.12 Linux amd64 (CI tooling only)"
     lines = [f"# Generated from downloaded wheels; {scope}.",
              "# Refresh: python scripts/release-locks.py; review changes before committing.",
              "--only-binary=:all:", ""]

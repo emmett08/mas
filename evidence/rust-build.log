@@ -1,10 +1,7 @@
-   Compiling generic-array v0.14.7
-   Compiling typenum v1.20.1
-   Compiling cpufeatures v0.2.17
-   Compiling subtle v2.6.1
-   Compiling block-buffer v0.10.4
-   Compiling crypto-common v0.1.7
-   Compiling digest v0.10.7
-   Compiling sha2 v0.10.9
+   Compiling foldhash v0.2.0
+   Compiling libsqlite3-sys v0.38.2
+   Compiling hashbrown v0.17.1
+   Compiling hashlink v0.12.2
+   Compiling rusqlite v0.40.2
    Compiling mas-protocol-codec v0.1.0 (/workspace/scratch/137d32550efd/mas/rust-protocol)
-    Finished `release` profile [optimized] target(s) in 4.82s
+    Finished `release` profile [optimized] target(s) in 43.92s

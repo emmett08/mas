@@ -37,7 +37,7 @@
             "-w20"
           ],
           "counterexample_kind": "none_or_other",
-          "elapsed_seconds": 0.010246911,
+          "elapsed_seconds": 0.01035796,
           "log": "check-safety.log",
           "log_sha256": "28c6a4ddab59e76b22949538fda892df248378acff3c4c67a9df9a6d25c0685d",
           "property": "safety",
@@ -56,9 +56,9 @@
             "message_0_progress"
           ],
           "counterexample_kind": "none_or_other",
-          "elapsed_seconds": 0.020975734,
+          "elapsed_seconds": 0.01039225,
           "log": "check-message_0_progress.log",
-          "log_sha256": "f91671beb5649c8cde567c2cb656eacbb10ecc0e502b65ac9a5dd67878222237",
+          "log_sha256": "b66b5100c5927994a3d46180ad37cffdfe2386b5b021981306472683a4a73e46",
           "property": "message_0_progress",
           "returncode": 0,
           "status": "COMPLETE_NO_ERRORS",
@@ -75,7 +75,7 @@
             "message_1_progress"
           ],
           "counterexample_kind": "none_or_other",
-          "elapsed_seconds": 0.020374703,
+          "elapsed_seconds": 0.020409155,
           "log": "check-message_1_progress.log",
           "log_sha256": "0fe228aba94cf626cf99c0c784adf7059429a758c3988f04785032fa021ba39a",
           "property": "message_1_progress",
@@ -97,7 +97,7 @@
             "-l",
             "protocol.pml"
           ],
-          "elapsed_seconds": 0.020314874,
+          "elapsed_seconds": 0.010229356,
           "log": "simulation-17.log",
           "log_sha256": "cd0748f9985a3a1490037a83732238bd7efad7d4636a23f10c4e2902f22f55b3",
           "returncode": 0,
@@ -117,7 +117,7 @@
             "-l",
             "protocol.pml"
           ],
-          "elapsed_seconds": 0.010249805,
+          "elapsed_seconds": 0.021520533,
           "log": "simulation-29.log",
           "log_sha256": "c31a87d97bf437b1ba0e1a68e32be93947ef8e2d318b5757cd231afb138cbdc5",
           "returncode": 0,
@@ -131,7 +131,7 @@
             "-a",
             "protocol.pml"
           ],
-          "elapsed_seconds": 0.020317106,
+          "elapsed_seconds": 0.020326774,
           "log": "generate.log",
           "log_sha256": "c89d38a8c7106665a5daded94e0758fe82f7a0d5307ec3b4b634fb86110b5b3e",
           "returncode": 0,
@@ -148,7 +148,7 @@
             "pan-safety",
             "pan.c"
           ],
-          "elapsed_seconds": 1.307436047,
+          "elapsed_seconds": 1.316330867,
           "log": "compile-safety.log",
           "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
           "returncode": 0,
@@ -161,7 +161,7 @@
             "-m100000",
             "-w20"
           ],
-          "elapsed_seconds": 0.010246911,
+          "elapsed_seconds": 0.01035796,
           "log": "check-safety.log",
           "log_sha256": "28c6a4ddab59e76b22949538fda892df248378acff3c4c67a9df9a6d25c0685d",
           "returncode": 0,
@@ -176,7 +176,7 @@
             "pan-ltl",
             "pan.c"
           ],
-          "elapsed_seconds": 1.918024663,
+          "elapsed_seconds": 1.6528320189999999,
           "log": "compile-ltl.log",
           "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
           "returncode": 0,
@@ -192,9 +192,9 @@
             "-N",
             "message_0_progress"
           ],
-          "elapsed_seconds": 0.020975734,
+          "elapsed_seconds": 0.01039225,
           "log": "check-message_0_progress.log",
-          "log_sha256": "f91671beb5649c8cde567c2cb656eacbb10ecc0e502b65ac9a5dd67878222237",
+          "log_sha256": "b66b5100c5927994a3d46180ad37cffdfe2386b5b021981306472683a4a73e46",
           "returncode": 0,
           "timeout": false
         },
@@ -208,7 +208,7 @@
             "-N",
             "message_1_progress"
           ],
-          "elapsed_seconds": 0.020374703,
+          "elapsed_seconds": 0.020409155,
           "log": "check-message_1_progress.log",
           "log_sha256": "0fe228aba94cf626cf99c0c784adf7059429a758c3988f04785032fa021ba39a",
           "returncode": 0,
@@ -238,7 +238,7 @@
             "-w20"
           ],
           "counterexample_kind": "none_or_other",
-          "elapsed_seconds": 0.020424463,
+          "elapsed_seconds": 0.020894178,
           "log": "check-safety.log",
           "log_sha256": "6e8cbf7718dcb6322a02b06f8b8b84577c15b9b3ba22082320ba4ae0cd3a1a91",
           "property": "safety",
@@ -257,9 +257,9 @@
             "message_0_progress"
           ],
           "counterexample_kind": "none_or_other",
-          "elapsed_seconds": 0.050668038,
+          "elapsed_seconds": 0.034064592,
           "log": "check-message_0_progress.log",
-          "log_sha256": "5c2635f90c2a8cdbc77f1fb229d604151aea67b1c94feb9c8783ce26600dce0c",
+          "log_sha256": "5c8a14d045c5ebd838ae7960bf9dec63c531964464b81cbff834a8637a96f9b8",
           "property": "message_0_progress",
           "returncode": 0,
           "status": "COMPLETE_NO_ERRORS",
@@ -276,7 +276,7 @@
             "message_1_progress"
           ],
           "counterexample_kind": "none_or_other",
-          "elapsed_seconds": 0.020466697,
+          "elapsed_seconds": 0.032114409,
           "log": "check-message_1_progress.log",
           "log_sha256": "d84fab08ff0bc90ca96619bbe6f4a96b1cc9cdceda406548e1f6f7a99f842eac",
           "property": "message_1_progress",
@@ -298,7 +298,7 @@
             "-l",
             "protocol.pml"
           ],
-          "elapsed_seconds": 0.020418268,
+          "elapsed_seconds": 0.020439962,
           "log": "simulation-17.log",
           "log_sha256": "2d6498231b38456f32bb8054a843547f8b90db5b34e422fcc821b0f702ef9b0a",
           "returncode": 0,
@@ -318,7 +318,7 @@
             "-l",
             "protocol.pml"
           ],
-          "elapsed_seconds": 0.020457659,
+          "elapsed_seconds": 0.020449706,
           "log": "simulation-29.log",
           "log_sha256": "1db98d005b29e088b8ad3692311629e055b6a75ff59e95b5f03a419ba4859083",
           "returncode": 0,
@@ -332,7 +332,7 @@
             "-a",
             "protocol.pml"
           ],
-          "elapsed_seconds": 0.020909089,
+          "elapsed_seconds": 0.020437879,
           "log": "generate.log",
           "log_sha256": "c89d38a8c7106665a5daded94e0758fe82f7a0d5307ec3b4b634fb86110b5b3e",
           "returncode": 0,
@@ -349,7 +349,7 @@
             "pan-safety",
             "pan.c"
           ],
-          "elapsed_seconds": 1.507886111,
+          "elapsed_seconds": 1.6340060090000001,
           "log": "compile-safety.log",
           "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
           "returncode": 0,
@@ -362,7 +362,7 @@
             "-m100000",
             "-w20"
           ],
-          "elapsed_seconds": 0.020424463,
+          "elapsed_seconds": 0.020894178,
           "log": "check-safety.log",
           "log_sha256": "6e8cbf7718dcb6322a02b06f8b8b84577c15b9b3ba22082320ba4ae0cd3a1a91",
           "returncode": 0,
@@ -377,7 +377,7 @@
             "pan-ltl",
             "pan.c"
           ],
-          "elapsed_seconds": 1.588869568,
+          "elapsed_seconds": 1.801628994,
           "log": "compile-ltl.log",
           "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
           "returncode": 0,
@@ -393,9 +393,9 @@
             "-N",
             "message_0_progress"
           ],
-          "elapsed_seconds": 0.050668038,
+          "elapsed_seconds": 0.034064592,
           "log": "check-message_0_progress.log",
-          "log_sha256": "5c2635f90c2a8cdbc77f1fb229d604151aea67b1c94feb9c8783ce26600dce0c",
+          "log_sha256": "5c8a14d045c5ebd838ae7960bf9dec63c531964464b81cbff834a8637a96f9b8",
           "returncode": 0,
           "timeout": false
         },
@@ -409,7 +409,7 @@
             "-N",
             "message_1_progress"
           ],
-          "elapsed_seconds": 0.020466697,
+          "elapsed_seconds": 0.032114409,
           "log": "check-message_1_progress.log",
           "log_sha256": "d84fab08ff0bc90ca96619bbe6f4a96b1cc9cdceda406548e1f6f7a99f842eac",
           "returncode": 0,
@@ -439,7 +439,7 @@
             "-w20"
           ],
           "counterexample_kind": "none_or_other",
-          "elapsed_seconds": 0.03043632,
+          "elapsed_seconds": 0.030958166,
           "log": "check-safety.log",
           "log_sha256": "4ed69f94a6552cb669d09a3179b5ca049d7d6ca472917eb47f9190e7a9248e69",
           "property": "safety",
@@ -458,9 +458,9 @@
             "message_0_progress"
           ],
           "counterexample_kind": "none_or_other",
-          "elapsed_seconds": 0.050644802,
+          "elapsed_seconds": 0.041791305,
           "log": "check-message_0_progress.log",
-          "log_sha256": "e1669d612239bd3d39f4f2f83ec2fe8bdae44885342e3ebff3a01ad6b9968bb7",
+          "log_sha256": "11b6ced508b2d88df69698a93c6e2bf1d881017563710e21f8e203cd99edf0ad",
           "property": "message_0_progress",
           "returncode": 0,
           "status": "COMPLETE_NO_ERRORS",
@@ -477,7 +477,7 @@
             "message_1_progress"
           ],
           "counterexample_kind": "none_or_other",
-          "elapsed_seconds": 0.050767947,
+          "elapsed_seconds": 0.062119369,
           "log": "check-message_1_progress.log",
           "log_sha256": "47821886ceba59f07cbb8887742028e3a77236632d64cf546105b5992659f012",
           "property": "message_1_progress",
@@ -499,7 +499,7 @@
             "-l",
             "protocol.pml"
           ],
-          "elapsed_seconds": 0.020327382,
+          "elapsed_seconds": 0.010988656,
           "log": "simulation-17.log",
           "log_sha256": "e530cd368d033361ce4f76f0720a688690b940439301dd45e908b404f53fa6ae",
           "returncode": 0,
@@ -519,7 +519,7 @@
             "-l",
             "protocol.pml"
           ],
-          "elapsed_seconds": 0.010316266,
+          "elapsed_seconds": 0.011172768,
           "log": "simulation-29.log",
           "log_sha256": "e9ffa4ee510b4e5579138db32be504f66489119fa367a31ec58564399881e138",
           "returncode": 0,
@@ -533,7 +533,7 @@
             "-a",
             "protocol.pml"
           ],
-          "elapsed_seconds": 0.020437538,
+          "elapsed_seconds": 0.021419986,
           "log": "generate.log",
           "log_sha256": "c89d38a8c7106665a5daded94e0758fe82f7a0d5307ec3b4b634fb86110b5b3e",
           "returncode": 0,
@@ -550,7 +550,7 @@
             "pan-safety",
             "pan.c"
           ],
-          "elapsed_seconds": 1.323196105,
+          "elapsed_seconds": 1.6112112619999999,
           "log": "compile-safety.log",
           "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
           "returncode": 0,
@@ -563,7 +563,7 @@
             "-m100000",
             "-w20"
           ],
-          "elapsed_seconds": 0.03043632,
+          "elapsed_seconds": 0.030958166,
           "log": "check-safety.log",
           "log_sha256": "4ed69f94a6552cb669d09a3179b5ca049d7d6ca472917eb47f9190e7a9248e69",
           "returncode": 0,
@@ -578,7 +578,7 @@
             "pan-ltl",
             "pan.c"
           ],
-          "elapsed_seconds": 1.383361624,
+          "elapsed_seconds": 1.639170424,
           "log": "compile-ltl.log",
           "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
           "returncode": 0,
@@ -594,9 +594,9 @@
             "-N",
             "message_0_progress"
           ],
-          "elapsed_seconds": 0.050644802,
+          "elapsed_seconds": 0.041791305,
           "log": "check-message_0_progress.log",
-          "log_sha256": "e1669d612239bd3d39f4f2f83ec2fe8bdae44885342e3ebff3a01ad6b9968bb7",
+          "log_sha256": "11b6ced508b2d88df69698a93c6e2bf1d881017563710e21f8e203cd99edf0ad",
           "returncode": 0,
           "timeout": false
         },
@@ -610,7 +610,7 @@
             "-N",
             "message_1_progress"
           ],
-          "elapsed_seconds": 0.050767947,
+          "elapsed_seconds": 0.062119369,
           "log": "check-message_1_progress.log",
           "log_sha256": "47821886ceba59f07cbb8887742028e3a77236632d64cf546105b5992659f012",
           "returncode": 0,
@@ -640,7 +640,7 @@
             "-w20"
           ],
           "counterexample_kind": "none_or_other",
-          "elapsed_seconds": 0.020325399,
+          "elapsed_seconds": 0.020440516,
           "log": "check-safety.log",
           "log_sha256": "14fa6364b49876d1a09034e809b8b290f06983e0e834863f070e2ad169ec7baa",
           "property": "safety",
@@ -659,9 +659,9 @@
             "message_0_progress"
           ],
           "counterexample_kind": "none_or_other",
-          "elapsed_seconds": 0.020410158,
+          "elapsed_seconds": 0.030568919,
           "log": "check-message_0_progress.log",
-          "log_sha256": "4f0c9530d3a50a8c92764bbbab912d0d4d44f502090cb321d00fecb8279de14d",
+          "log_sha256": "46f8620f80c9c134784e5dbf692c2a2be909c3f474fe02419fb4cb9dec485c46",
           "property": "message_0_progress",
           "returncode": 0,
           "status": "COMPLETE_NO_ERRORS",
@@ -678,7 +678,7 @@
             "message_1_progress"
           ],
           "counterexample_kind": "none_or_other",
-          "elapsed_seconds": 0.030496458,
+          "elapsed_seconds": 0.030528478,
           "log": "check-message_1_progress.log",
           "log_sha256": "dccb3ca4f3c94da58b47506b49e10c6c1113aea8ef636ef3308e933ad77829c2",
           "property": "message_1_progress",
@@ -700,7 +700,7 @@
             "-l",
             "protocol.pml"
           ],
-          "elapsed_seconds": 0.010309616,
+          "elapsed_seconds": 0.010289515,
           "log": "simulation-17.log",
           "log_sha256": "596159996e3eb43d152484ef02ce5165e0266c4e8f61829fa2624994c6dc657f",
           "returncode": 0,
@@ -720,7 +720,7 @@
             "-l",
             "protocol.pml"
           ],
-          "elapsed_seconds": 0.010419402,
+          "elapsed_seconds": 0.010261684,
           "log": "simulation-29.log",
           "log_sha256": "cf981af1287ce8cfefea7a5ad8c11c81cb5c656f433ca81a488113ceef3f9eee",
           "returncode": 0,
@@ -734,7 +734,7 @@
             "-a",
             "protocol.pml"
           ],
-          "elapsed_seconds": 0.020319892,
+          "elapsed_seconds": 0.020342694,
           "log": "generate.log",
           "log_sha256": "c89d38a8c7106665a5daded94e0758fe82f7a0d5307ec3b4b634fb86110b5b3e",
           "returncode": 0,
@@ -751,7 +751,7 @@
             "pan-safety",
             "pan.c"
           ],
-          "elapsed_seconds": 1.312484484,
+          "elapsed_seconds": 1.553235235,
           "log": "compile-safety.log",
           "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
           "returncode": 0,
@@ -764,7 +764,7 @@
             "-m100000",
             "-w20"
           ],
-          "elapsed_seconds": 0.020325399,
+          "elapsed_seconds": 0.020440516,
           "log": "check-safety.log",
           "log_sha256": "14fa6364b49876d1a09034e809b8b290f06983e0e834863f070e2ad169ec7baa",
           "returncode": 0,
@@ -779,7 +779,7 @@
             "pan-ltl",
             "pan.c"
           ],
-          "elapsed_seconds": 1.408356719,
+          "elapsed_seconds": 1.8135448360000002,
           "log": "compile-ltl.log",
           "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
           "returncode": 0,
@@ -795,9 +795,9 @@
             "-N",
             "message_0_progress"
           ],
-          "elapsed_seconds": 0.020410158,
+          "elapsed_seconds": 0.030568919,
           "log": "check-message_0_progress.log",
-          "log_sha256": "4f0c9530d3a50a8c92764bbbab912d0d4d44f502090cb321d00fecb8279de14d",
+          "log_sha256": "46f8620f80c9c134784e5dbf692c2a2be909c3f474fe02419fb4cb9dec485c46",
           "returncode": 0,
           "timeout": false
         },
@@ -811,7 +811,7 @@
             "-N",
             "message_1_progress"
           ],
-          "elapsed_seconds": 0.030496458,
+          "elapsed_seconds": 0.030528478,
           "log": "check-message_1_progress.log",
           "log_sha256": "dccb3ca4f3c94da58b47506b49e10c6c1113aea8ef636ef3308e933ad77829c2",
           "returncode": 0,
@@ -841,7 +841,7 @@
             "-w20"
           ],
           "counterexample_kind": "none_or_other",
-          "elapsed_seconds": 0.020371765,
+          "elapsed_seconds": 0.024203235,
           "log": "check-safety.log",
           "log_sha256": "14fa6364b49876d1a09034e809b8b290f06983e0e834863f070e2ad169ec7baa",
           "property": "safety",
@@ -860,9 +860,9 @@
             "message_0_progress"
           ],
           "counterexample_kind": "none_or_other",
-          "elapsed_seconds": 0.020401985,
+          "elapsed_seconds": 0.033445082,
           "log": "check-message_0_progress.log",
-          "log_sha256": "4f0c9530d3a50a8c92764bbbab912d0d4d44f502090cb321d00fecb8279de14d",
+          "log_sha256": "46f8620f80c9c134784e5dbf692c2a2be909c3f474fe02419fb4cb9dec485c46",
           "property": "message_0_progress",
           "returncode": 0,
           "status": "COMPLETE_NO_ERRORS",
@@ -879,9 +879,9 @@
             "message_1_progress"
           ],
           "counterexample_kind": "none_or_other",
-          "elapsed_seconds": 0.030452287,
+          "elapsed_seconds": 0.030412877,
           "log": "check-message_1_progress.log",
-          "log_sha256": "dccb3ca4f3c94da58b47506b49e10c6c1113aea8ef636ef3308e933ad77829c2",
+          "log_sha256": "89823d352ba957e3eb24911eb3d59d4bdfc30dcf10cccf8ad65e0c5f4d0ca16d",
           "property": "message_1_progress",
           "returncode": 0,
           "status": "COMPLETE_NO_ERRORS",
@@ -901,7 +901,7 @@
             "-l",
             "protocol.pml"
           ],
-          "elapsed_seconds": 0.020383908,
+          "elapsed_seconds": 0.012876585,
           "log": "simulation-17.log",
           "log_sha256": "596159996e3eb43d152484ef02ce5165e0266c4e8f61829fa2624994c6dc657f",
           "returncode": 0,
@@ -921,7 +921,7 @@
             "-l",
             "protocol.pml"
           ],
-          "elapsed_seconds": 0.02032521,
+          "elapsed_seconds": 0.021673503,
           "log": "simulation-29.log",
           "log_sha256": "cf981af1287ce8cfefea7a5ad8c11c81cb5c656f433ca81a488113ceef3f9eee",
           "returncode": 0,
@@ -935,7 +935,7 @@
             "-a",
             "protocol.pml"
           ],
-          "elapsed_seconds": 0.02031527,
+          "elapsed_seconds": 0.020693791,
           "log": "generate.log",
           "log_sha256": "c89d38a8c7106665a5daded94e0758fe82f7a0d5307ec3b4b634fb86110b5b3e",
           "returncode": 0,
@@ -952,7 +952,7 @@
             "pan-safety",
             "pan.c"
           ],
-          "elapsed_seconds": 1.253767339,
+          "elapsed_seconds": 1.507136037,
           "log": "compile-safety.log",
           "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
           "returncode": 0,
@@ -965,7 +965,7 @@
             "-m100000",
             "-w20"
           ],
-          "elapsed_seconds": 0.020371765,
+          "elapsed_seconds": 0.024203235,
           "log": "check-safety.log",
           "log_sha256": "14fa6364b49876d1a09034e809b8b290f06983e0e834863f070e2ad169ec7baa",
           "returncode": 0,
@@ -980,7 +980,7 @@
             "pan-ltl",
             "pan.c"
           ],
-          "elapsed_seconds": 1.455617672,
+          "elapsed_seconds": 1.815898241,
           "log": "compile-ltl.log",
           "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
           "returncode": 0,
@@ -996,9 +996,9 @@
             "-N",
             "message_0_progress"
           ],
-          "elapsed_seconds": 0.020401985,
+          "elapsed_seconds": 0.033445082,
           "log": "check-message_0_progress.log",
-          "log_sha256": "4f0c9530d3a50a8c92764bbbab912d0d4d44f502090cb321d00fecb8279de14d",
+          "log_sha256": "46f8620f80c9c134784e5dbf692c2a2be909c3f474fe02419fb4cb9dec485c46",
           "returncode": 0,
           "timeout": false
         },
@@ -1012,9 +1012,9 @@
             "-N",
             "message_1_progress"
           ],
-          "elapsed_seconds": 0.030452287,
+          "elapsed_seconds": 0.030412877,
           "log": "check-message_1_progress.log",
-          "log_sha256": "dccb3ca4f3c94da58b47506b49e10c6c1113aea8ef636ef3308e933ad77829c2",
+          "log_sha256": "89823d352ba957e3eb24911eb3d59d4bdfc30dcf10cccf8ad65e0c5f4d0ca16d",
           "returncode": 0,
           "timeout": false
         }
@@ -1042,7 +1042,7 @@
             "-w20"
           ],
           "counterexample_kind": "none_or_other",
-          "elapsed_seconds": 0.040606752,
+          "elapsed_seconds": 0.040608352,
           "log": "check-safety.log",
           "log_sha256": "44eab6fa24e4e74a725aecd0c78295a4f3adbeecdaa8a841268ff56c3ffc0990",
           "property": "safety",
@@ -1061,9 +1061,9 @@
             "message_0_progress"
           ],
           "counterexample_kind": "none_or_other",
-          "elapsed_seconds": 0.060706621,
+          "elapsed_seconds": 0.080945176,
           "log": "check-message_0_progress.log",
-          "log_sha256": "81bf6f08cbbda4fa4f63d1165038be8e3b6237a6d85bc947006f7e17eb1eb69a",
+          "log_sha256": "21be24030b5dc937e57a63c37f6c7450de9dc49ba193255d036ad1a263782659",
           "property": "message_0_progress",
           "returncode": 0,
           "status": "COMPLETE_NO_ERRORS",
@@ -1080,7 +1080,7 @@
             "message_1_progress"
           ],
           "counterexample_kind": "none_or_other",
-          "elapsed_seconds": 0.060738228,
+          "elapsed_seconds": 0.070919658,
           "log": "check-message_1_progress.log",
           "log_sha256": "401a83025f2fb603edb347586b00666b8658bd6e1b9c4f678f7b1968ec2301c2",
           "property": "message_1_progress",
@@ -1102,7 +1102,7 @@
             "-l",
             "protocol.pml"
           ],
-          "elapsed_seconds": 0.010237568,
+          "elapsed_seconds": 0.020477427,
           "log": "simulation-17.log",
           "log_sha256": "1389968f66279f8e9b3730d855b5f1494e90ff503e265352c8728e1a0f55a04f",
           "returncode": 0,
@@ -1122,7 +1122,7 @@
             "-l",
             "protocol.pml"
           ],
-          "elapsed_seconds": 0.010242966,
+          "elapsed_seconds": 0.02038293,
           "log": "simulation-29.log",
           "log_sha256": "2c558ca6c1d8c05c5ce81a1312ebddb6a671366fceda2284e2cd25fc48f418fe",
           "returncode": 0,
@@ -1136,7 +1136,7 @@
             "-a",
             "protocol.pml"
           ],
-          "elapsed_seconds": 0.020446873,
+          "elapsed_seconds": 0.020328253,
           "log": "generate.log",
           "log_sha256": "c89d38a8c7106665a5daded94e0758fe82f7a0d5307ec3b4b634fb86110b5b3e",
           "returncode": 0,
@@ -1153,7 +1153,7 @@
             "pan-safety",
             "pan.c"
           ],
-          "elapsed_seconds": 1.302564896,
+          "elapsed_seconds": 1.422835176,
           "log": "compile-safety.log",
           "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
           "returncode": 0,
@@ -1166,7 +1166,7 @@
             "-m100000",
             "-w20"
           ],
-          "elapsed_seconds": 0.040606752,
+          "elapsed_seconds": 0.040608352,
           "log": "check-safety.log",
           "log_sha256": "44eab6fa24e4e74a725aecd0c78295a4f3adbeecdaa8a841268ff56c3ffc0990",
           "returncode": 0,
@@ -1181,7 +1181,7 @@
             "pan-ltl",
             "pan.c"
           ],
-          "elapsed_seconds": 1.455986426,
+          "elapsed_seconds": 1.606791477,
           "log": "compile-ltl.log",
           "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
           "returncode": 0,
@@ -1197,9 +1197,9 @@
             "-N",
             "message_0_progress"
           ],
-          "elapsed_seconds": 0.060706621,
+          "elapsed_seconds": 0.080945176,
           "log": "check-message_0_progress.log",
-          "log_sha256": "81bf6f08cbbda4fa4f63d1165038be8e3b6237a6d85bc947006f7e17eb1eb69a",
+          "log_sha256": "21be24030b5dc937e57a63c37f6c7450de9dc49ba193255d036ad1a263782659",
           "returncode": 0,
           "timeout": false
         },
@@ -1213,7 +1213,7 @@
             "-N",
             "message_1_progress"
           ],
-          "elapsed_seconds": 0.060738228,
+          "elapsed_seconds": 0.070919658,
           "log": "check-message_1_progress.log",
           "log_sha256": "401a83025f2fb603edb347586b00666b8658bd6e1b9c4f678f7b1968ec2301c2",
           "returncode": 0,
@@ -1243,7 +1243,7 @@
             "-w20"
           ],
           "counterexample_kind": "none_or_other",
-          "elapsed_seconds": 0.020775545,
+          "elapsed_seconds": 0.020341986,
           "log": "check-safety.log",
           "log_sha256": "14fa6364b49876d1a09034e809b8b290f06983e0e834863f070e2ad169ec7baa",
           "property": "safety",
@@ -1262,7 +1262,7 @@
             "message_0_progress"
           ],
           "counterexample_kind": "none_or_other",
-          "elapsed_seconds": 0.030443325,
+          "elapsed_seconds": 0.030745173,
           "log": "check-message_0_progress.log",
           "log_sha256": "46f8620f80c9c134784e5dbf692c2a2be909c3f474fe02419fb4cb9dec485c46",
           "property": "message_0_progress",
@@ -1281,7 +1281,7 @@
             "message_1_progress"
           ],
           "counterexample_kind": "none_or_other",
-          "elapsed_seconds": 0.030402609,
+          "elapsed_seconds": 0.030803281,
           "log": "check-message_1_progress.log",
           "log_sha256": "89823d352ba957e3eb24911eb3d59d4bdfc30dcf10cccf8ad65e0c5f4d0ca16d",
           "property": "message_1_progress",
@@ -1303,7 +1303,7 @@
             "-l",
             "protocol.pml"
           ],
-          "elapsed_seconds": 0.010254094,
+          "elapsed_seconds": 0.020379813,
           "log": "simulation-17.log",
           "log_sha256": "596159996e3eb43d152484ef02ce5165e0266c4e8f61829fa2624994c6dc657f",
           "returncode": 0,
@@ -1323,7 +1323,7 @@
             "-l",
             "protocol.pml"
           ],
-          "elapsed_seconds": 0.010280854,
+          "elapsed_seconds": 0.020840612,
           "log": "simulation-29.log",
           "log_sha256": "cf981af1287ce8cfefea7a5ad8c11c81cb5c656f433ca81a488113ceef3f9eee",
           "returncode": 0,
@@ -1337,7 +1337,7 @@
             "-a",
             "protocol.pml"
           ],
-          "elapsed_seconds": 0.020587903,
+          "elapsed_seconds": 0.020475347,
           "log": "generate.log",
           "log_sha256": "c89d38a8c7106665a5daded94e0758fe82f7a0d5307ec3b4b634fb86110b5b3e",
           "returncode": 0,
@@ -1354,7 +1354,7 @@
             "pan-safety",
             "pan.c"
           ],
-          "elapsed_seconds": 1.222048494,
+          "elapsed_seconds": 1.5242939020000001,
           "log": "compile-safety.log",
           "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
           "returncode": 0,
@@ -1367,7 +1367,7 @@
             "-m100000",
             "-w20"
           ],
-          "elapsed_seconds": 0.020775545,
+          "elapsed_seconds": 0.020341986,
           "log": "check-safety.log",
           "log_sha256": "14fa6364b49876d1a09034e809b8b290f06983e0e834863f070e2ad169ec7baa",
           "returncode": 0,
@@ -1382,7 +1382,7 @@
             "pan-ltl",
             "pan.c"
           ],
-          "elapsed_seconds": 1.447043602,
+          "elapsed_seconds": 1.724651731,
           "log": "compile-ltl.log",
           "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
           "returncode": 0,
@@ -1398,7 +1398,7 @@
             "-N",
             "message_0_progress"
           ],
-          "elapsed_seconds": 0.030443325,
+          "elapsed_seconds": 0.030745173,
           "log": "check-message_0_progress.log",
           "log_sha256": "46f8620f80c9c134784e5dbf692c2a2be909c3f474fe02419fb4cb9dec485c46",
           "returncode": 0,
@@ -1414,7 +1414,7 @@
             "-N",
             "message_1_progress"
           ],
-          "elapsed_seconds": 0.030402609,
+          "elapsed_seconds": 0.030803281,
           "log": "check-message_1_progress.log",
           "log_sha256": "89823d352ba957e3eb24911eb3d59d4bdfc30dcf10cccf8ad65e0c5f4d0ca16d",
           "returncode": 0,
@@ -1444,7 +1444,7 @@
             "-w20"
           ],
           "counterexample_kind": "none_or_other",
-          "elapsed_seconds": 0.020734595,
+          "elapsed_seconds": 0.020371497,
           "log": "check-safety.log",
           "log_sha256": "14fa6364b49876d1a09034e809b8b290f06983e0e834863f070e2ad169ec7baa",
           "property": "safety",
@@ -1463,9 +1463,9 @@
             "message_0_progress"
           ],
           "counterexample_kind": "none_or_other",
-          "elapsed_seconds": 0.03053848,
+          "elapsed_seconds": 0.030492589,
           "log": "check-message_0_progress.log",
-          "log_sha256": "46f8620f80c9c134784e5dbf692c2a2be909c3f474fe02419fb4cb9dec485c46",
+          "log_sha256": "4f0c9530d3a50a8c92764bbbab912d0d4d44f502090cb321d00fecb8279de14d",
           "property": "message_0_progress",
           "returncode": 0,
           "status": "COMPLETE_NO_ERRORS",
@@ -1482,9 +1482,9 @@
             "message_1_progress"
           ],
           "counterexample_kind": "none_or_other",
-          "elapsed_seconds": 0.030413061,
+          "elapsed_seconds": 0.020971341,
           "log": "check-message_1_progress.log",
-          "log_sha256": "dccb3ca4f3c94da58b47506b49e10c6c1113aea8ef636ef3308e933ad77829c2",
+          "log_sha256": "89823d352ba957e3eb24911eb3d59d4bdfc30dcf10cccf8ad65e0c5f4d0ca16d",
           "property": "message_1_progress",
           "returncode": 0,
           "status": "COMPLETE_NO_ERRORS",
@@ -1504,7 +1504,7 @@
             "-l",
             "protocol.pml"
           ],
-          "elapsed_seconds": 0.020358132,
+          "elapsed_seconds": 0.020398937,
           "log": "simulation-17.log",
           "log_sha256": "596159996e3eb43d152484ef02ce5165e0266c4e8f61829fa2624994c6dc657f",
           "returncode": 0,
@@ -1524,7 +1524,7 @@
             "-l",
             "protocol.pml"
           ],
-          "elapsed_seconds": 0.020387115,
+          "elapsed_seconds": 0.010688523,
           "log": "simulation-29.log",
           "log_sha256": "cf981af1287ce8cfefea7a5ad8c11c81cb5c656f433ca81a488113ceef3f9eee",
           "returncode": 0,
@@ -1538,7 +1538,7 @@
             "-a",
             "protocol.pml"
           ],
-          "elapsed_seconds": 0.020380705,
+          "elapsed_seconds": 0.020340844,
           "log": "generate.log",
           "log_sha256": "c89d38a8c7106665a5daded94e0758fe82f7a0d5307ec3b4b634fb86110b5b3e",
           "returncode": 0,
@@ -1555,7 +1555,7 @@
             "pan-safety",
             "pan.c"
           ],
-          "elapsed_seconds": 1.312948512,
+          "elapsed_seconds": 1.457695207,
           "log": "compile-safety.log",
           "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
           "returncode": 0,
@@ -1568,7 +1568,7 @@
             "-m100000",
             "-w20"
           ],
-          "elapsed_seconds": 0.020734595,
+          "elapsed_seconds": 0.020371497,
           "log": "check-safety.log",
           "log_sha256": "14fa6364b49876d1a09034e809b8b290f06983e0e834863f070e2ad169ec7baa",
           "returncode": 0,
@@ -1583,7 +1583,7 @@
             "pan-ltl",
             "pan.c"
           ],
-          "elapsed_seconds": 1.47670536,
+          "elapsed_seconds": 1.72151525,
           "log": "compile-ltl.log",
           "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
           "returncode": 0,
@@ -1599,9 +1599,9 @@
             "-N",
             "message_0_progress"
           ],
-          "elapsed_seconds": 0.03053848,
+          "elapsed_seconds": 0.030492589,
           "log": "check-message_0_progress.log",
-          "log_sha256": "46f8620f80c9c134784e5dbf692c2a2be909c3f474fe02419fb4cb9dec485c46",
+          "log_sha256": "4f0c9530d3a50a8c92764bbbab912d0d4d44f502090cb321d00fecb8279de14d",
           "returncode": 0,
           "timeout": false
         },
@@ -1615,9 +1615,9 @@
             "-N",
             "message_1_progress"
           ],
-          "elapsed_seconds": 0.030413061,
+          "elapsed_seconds": 0.020971341,
           "log": "check-message_1_progress.log",
-          "log_sha256": "dccb3ca4f3c94da58b47506b49e10c6c1113aea8ef636ef3308e933ad77829c2",
+          "log_sha256": "89823d352ba957e3eb24911eb3d59d4bdfc30dcf10cccf8ad65e0c5f4d0ca16d",
           "returncode": 0,
           "timeout": false
         }
@@ -1645,7 +1645,7 @@
             "-w20"
           ],
           "counterexample_kind": "none_or_other",
-          "elapsed_seconds": 0.02040235,
+          "elapsed_seconds": 0.020789788,
           "log": "check-safety.log",
           "log_sha256": "6e8cbf7718dcb6322a02b06f8b8b84577c15b9b3ba22082320ba4ae0cd3a1a91",
           "property": "safety",
@@ -1664,7 +1664,7 @@
             "message_0_progress"
           ],
           "counterexample_kind": "none_or_other",
-          "elapsed_seconds": 0.03047863,
+          "elapsed_seconds": 0.030506218,
           "log": "check-message_0_progress.log",
           "log_sha256": "03d74afcf295e1ee04d367be91917927df0dfbab79127c496d6221f5e1a28f82",
           "property": "message_0_progress",
@@ -1683,7 +1683,7 @@
             "message_1_progress"
           ],
           "counterexample_kind": "none_or_other",
-          "elapsed_seconds": 0.030447413,
+          "elapsed_seconds": 0.030615427,
           "log": "check-message_1_progress.log",
           "log_sha256": "94ad40ba1d1ca16aeb1bb3789e6015f10a256039373f5b8b1f49619a950538ea",
           "property": "message_1_progress",
@@ -1705,7 +1705,7 @@
             "-l",
             "protocol.pml"
           ],
-          "elapsed_seconds": 0.010283536,
+          "elapsed_seconds": 0.020476371,
           "log": "simulation-17.log",
           "log_sha256": "2d6498231b38456f32bb8054a843547f8b90db5b34e422fcc821b0f702ef9b0a",
           "returncode": 0,
@@ -1725,7 +1725,7 @@
             "-l",
             "protocol.pml"
           ],
-          "elapsed_seconds": 0.010270578,
+          "elapsed_seconds": 0.020411547,
           "log": "simulation-29.log",
           "log_sha256": "1db98d005b29e088b8ad3692311629e055b6a75ff59e95b5f03a419ba4859083",
           "returncode": 0,
@@ -1739,7 +1739,7 @@
             "-a",
             "protocol.pml"
           ],
-          "elapsed_seconds": 0.020404765,
+          "elapsed_seconds": 0.020390186,
           "log": "generate.log",
           "log_sha256": "c89d38a8c7106665a5daded94e0758fe82f7a0d5307ec3b4b634fb86110b5b3e",
           "returncode": 0,
@@ -1756,7 +1756,7 @@
             "pan-safety",
             "pan.c"
           ],
-          "elapsed_seconds": 1.297723957,
+          "elapsed_seconds": 1.506074629,
           "log": "compile-safety.log",
           "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
           "returncode": 0,
@@ -1769,7 +1769,7 @@
             "-m100000",
             "-w20"
           ],
-          "elapsed_seconds": 0.02040235,
+          "elapsed_seconds": 0.020789788,
           "log": "check-safety.log",
           "log_sha256": "6e8cbf7718dcb6322a02b06f8b8b84577c15b9b3ba22082320ba4ae0cd3a1a91",
           "returncode": 0,
@@ -1784,7 +1784,7 @@
             "pan-ltl",
             "pan.c"
           ],
-          "elapsed_seconds": 1.415351416,
+          "elapsed_seconds": 1.618202842,
           "log": "compile-ltl.log",
           "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
           "returncode": 0,
@@ -1800,7 +1800,7 @@
             "-N",
             "message_0_progress"
           ],
-          "elapsed_seconds": 0.03047863,
+          "elapsed_seconds": 0.030506218,
           "log": "check-message_0_progress.log",
           "log_sha256": "03d74afcf295e1ee04d367be91917927df0dfbab79127c496d6221f5e1a28f82",
           "returncode": 0,
@@ -1816,7 +1816,7 @@
             "-N",
             "message_1_progress"
           ],
-          "elapsed_seconds": 0.030447413,
+          "elapsed_seconds": 0.030615427,
           "log": "check-message_1_progress.log",
           "log_sha256": "94ad40ba1d1ca16aeb1bb3789e6015f10a256039373f5b8b1f49619a950538ea",
           "returncode": 0,
@@ -1846,7 +1846,7 @@
             "-w20"
           ],
           "counterexample_kind": "none_or_other",
-          "elapsed_seconds": 0.020346081,
+          "elapsed_seconds": 0.030491842,
           "log": "check-safety.log",
           "log_sha256": "14fa6364b49876d1a09034e809b8b290f06983e0e834863f070e2ad169ec7baa",
           "property": "safety",
@@ -1865,7 +1865,7 @@
             "message_0_progress"
           ],
           "counterexample_kind": "none_or_other",
-          "elapsed_seconds": 0.030489897,
+          "elapsed_seconds": 0.03053324,
           "log": "check-message_0_progress.log",
           "log_sha256": "46f8620f80c9c134784e5dbf692c2a2be909c3f474fe02419fb4cb9dec485c46",
           "property": "message_0_progress",
@@ -1884,9 +1884,9 @@
             "message_1_progress"
           ],
           "counterexample_kind": "none_or_other",
-          "elapsed_seconds": 0.030461635,
+          "elapsed_seconds": 0.030526065,
           "log": "check-message_1_progress.log",
-          "log_sha256": "89823d352ba957e3eb24911eb3d59d4bdfc30dcf10cccf8ad65e0c5f4d0ca16d",
+          "log_sha256": "dccb3ca4f3c94da58b47506b49e10c6c1113aea8ef636ef3308e933ad77829c2",
           "property": "message_1_progress",
           "returncode": 0,
           "status": "COMPLETE_NO_ERRORS",
@@ -1906,7 +1906,7 @@
             "-l",
             "protocol.pml"
           ],
-          "elapsed_seconds": 0.010256395,
+          "elapsed_seconds": 0.022332755,
           "log": "simulation-17.log",
           "log_sha256": "596159996e3eb43d152484ef02ce5165e0266c4e8f61829fa2624994c6dc657f",
           "returncode": 0,
@@ -1926,7 +1926,7 @@
             "-l",
             "protocol.pml"
           ],
-          "elapsed_seconds": 0.010229015,
+          "elapsed_seconds": 0.020785385,
           "log": "simulation-29.log",
           "log_sha256": "cf981af1287ce8cfefea7a5ad8c11c81cb5c656f433ca81a488113ceef3f9eee",
           "returncode": 0,
@@ -1940,7 +1940,7 @@
             "-a",
             "protocol.pml"
           ],
-          "elapsed_seconds": 0.020310557,
+          "elapsed_seconds": 0.01193095,
           "log": "generate.log",
           "log_sha256": "c89d38a8c7106665a5daded94e0758fe82f7a0d5307ec3b4b634fb86110b5b3e",
           "returncode": 0,
@@ -1957,7 +1957,7 @@
             "pan-safety",
             "pan.c"
           ],
-          "elapsed_seconds": 1.272054947,
+          "elapsed_seconds": 1.430676223,
           "log": "compile-safety.log",
           "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
           "returncode": 0,
@@ -1970,7 +1970,7 @@
             "-m100000",
             "-w20"
           ],
-          "elapsed_seconds": 0.020346081,
+          "elapsed_seconds": 0.030491842,
           "log": "check-safety.log",
           "log_sha256": "14fa6364b49876d1a09034e809b8b290f06983e0e834863f070e2ad169ec7baa",
           "returncode": 0,
@@ -1985,7 +1985,7 @@
             "pan-ltl",
             "pan.c"
           ],
-          "elapsed_seconds": 1.455099059,
+          "elapsed_seconds": 1.7693564739999998,
           "log": "compile-ltl.log",
           "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
           "returncode": 0,
@@ -2001,7 +2001,7 @@
             "-N",
             "message_0_progress"
           ],
-          "elapsed_seconds": 0.030489897,
+          "elapsed_seconds": 0.03053324,
           "log": "check-message_0_progress.log",
           "log_sha256": "46f8620f80c9c134784e5dbf692c2a2be909c3f474fe02419fb4cb9dec485c46",
           "returncode": 0,
@@ -2017,9 +2017,9 @@
             "-N",
             "message_1_progress"
           ],
-          "elapsed_seconds": 0.030461635,
+          "elapsed_seconds": 0.030526065,
           "log": "check-message_1_progress.log",
-          "log_sha256": "89823d352ba957e3eb24911eb3d59d4bdfc30dcf10cccf8ad65e0c5f4d0ca16d",
+          "log_sha256": "dccb3ca4f3c94da58b47506b49e10c6c1113aea8ef636ef3308e933ad77829c2",
           "returncode": 0,
           "timeout": false
         }
@@ -2047,7 +2047,7 @@
             "-w20"
           ],
           "counterexample_kind": "none_or_other",
-          "elapsed_seconds": 0.030625817,
+          "elapsed_seconds": 0.030430531,
           "log": "check-safety.log",
           "log_sha256": "4ed69f94a6552cb669d09a3179b5ca049d7d6ca472917eb47f9190e7a9248e69",
           "property": "safety",
@@ -2066,7 +2066,7 @@
             "message_0_progress"
           ],
           "counterexample_kind": "none_or_other",
-          "elapsed_seconds": 0.060773073,
+          "elapsed_seconds": 0.064769937,
           "log": "check-message_0_progress.log",
           "log_sha256": "e1669d612239bd3d39f4f2f83ec2fe8bdae44885342e3ebff3a01ad6b9968bb7",
           "property": "message_0_progress",
@@ -2085,7 +2085,7 @@
             "message_1_progress"
           ],
           "counterexample_kind": "none_or_other",
-          "elapsed_seconds": 0.050741646,
+          "elapsed_seconds": 0.053491561,
           "log": "check-message_1_progress.log",
           "log_sha256": "47821886ceba59f07cbb8887742028e3a77236632d64cf546105b5992659f012",
           "property": "message_1_progress",
@@ -2107,7 +2107,7 @@
             "-l",
             "protocol.pml"
           ],
-          "elapsed_seconds": 0.01033173,
+          "elapsed_seconds": 0.020373116,
           "log": "simulation-17.log",
           "log_sha256": "e530cd368d033361ce4f76f0720a688690b940439301dd45e908b404f53fa6ae",
           "returncode": 0,
@@ -2127,7 +2127,7 @@
             "-l",
             "protocol.pml"
           ],
-          "elapsed_seconds": 0.010276396,
+          "elapsed_seconds": 0.021043327,
           "log": "simulation-29.log",
           "log_sha256": "e9ffa4ee510b4e5579138db32be504f66489119fa367a31ec58564399881e138",
           "returncode": 0,
@@ -2141,7 +2141,7 @@
             "-a",
             "protocol.pml"
           ],
-          "elapsed_seconds": 0.020355365,
+          "elapsed_seconds": 0.020749649,
           "log": "generate.log",
           "log_sha256": "c89d38a8c7106665a5daded94e0758fe82f7a0d5307ec3b4b634fb86110b5b3e",
           "returncode": 0,
@@ -2158,7 +2158,7 @@
             "pan-safety",
             "pan.c"
           ],
-          "elapsed_seconds": 1.403412834,
+          "elapsed_seconds": 1.513998612,
           "log": "compile-safety.log",
           "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
           "returncode": 0,
@@ -2171,7 +2171,7 @@
             "-m100000",
             "-w20"
           ],
-          "elapsed_seconds": 0.030625817,
+          "elapsed_seconds": 0.030430531,
           "log": "check-safety.log",
           "log_sha256": "4ed69f94a6552cb669d09a3179b5ca049d7d6ca472917eb47f9190e7a9248e69",
           "returncode": 0,
@@ -2186,7 +2186,7 @@
             "pan-ltl",
             "pan.c"
           ],
-          "elapsed_seconds": 1.627396362,
+          "elapsed_seconds": 1.7618494120000001,
           "log": "compile-ltl.log",
           "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
           "returncode": 0,
@@ -2202,7 +2202,7 @@
             "-N",
             "message_0_progress"
           ],
-          "elapsed_seconds": 0.060773073,
+          "elapsed_seconds": 0.064769937,
           "log": "check-message_0_progress.log",
           "log_sha256": "e1669d612239bd3d39f4f2f83ec2fe8bdae44885342e3ebff3a01ad6b9968bb7",
           "returncode": 0,
@@ -2218,7 +2218,7 @@
             "-N",
             "message_1_progress"
           ],
-          "elapsed_seconds": 0.050741646,
+          "elapsed_seconds": 0.053491561,
           "log": "check-message_1_progress.log",
           "log_sha256": "47821886ceba59f07cbb8887742028e3a77236632d64cf546105b5992659f012",
           "returncode": 0,
@@ -2248,9 +2248,9 @@
             "-w20"
           ],
           "counterexample_kind": "none_or_other",
-          "elapsed_seconds": 0.04058451,
+          "elapsed_seconds": 0.060745743,
           "log": "check-safety.log",
-          "log_sha256": "13bfdbf37ca037807d859259546d4d35abee8c02fd4e8a277738f4ee8ae57392",
+          "log_sha256": "f5110b30f39b3e9ef3f9d07c6d46ce0fcc76530bff5f0d1ab051c22d1b955c8a",
           "property": "safety",
           "returncode": 0,
           "status": "COMPLETE_NO_ERRORS",
@@ -2267,7 +2267,7 @@
             "message_0_progress"
           ],
           "counterexample_kind": "none_or_other",
-          "elapsed_seconds": 0.081856682,
+          "elapsed_seconds": 0.074339902,
           "log": "check-message_0_progress.log",
           "log_sha256": "96608988c44ec97fa32724499bbf055302a2c1a58d9b6d58dbb214aed1c1a13d",
           "property": "message_0_progress",
@@ -2286,7 +2286,7 @@
             "message_1_progress"
           ],
           "counterexample_kind": "none_or_other",
-          "elapsed_seconds": 0.081425777,
+          "elapsed_seconds": 0.071709388,
           "log": "check-message_1_progress.log",
           "log_sha256": "7653e447522c945b8a09df5215c58cf99230b7fc009632c4914ef662c64de7eb",
           "property": "message_1_progress",
@@ -2308,7 +2308,7 @@
             "-l",
             "protocol.pml"
           ],
-          "elapsed_seconds": 0.010384359,
+          "elapsed_seconds": 0.010350458,
           "log": "simulation-17.log",
           "log_sha256": "33456133d591451716f14bb8765127b332a5bd888d0f616acec8e577750fa84d",
           "returncode": 0,
@@ -2328,7 +2328,7 @@
             "-l",
             "protocol.pml"
           ],
-          "elapsed_seconds": 0.010246286,
+          "elapsed_seconds": 0.022360707,
           "log": "simulation-29.log",
           "log_sha256": "4d136e159aee52e3592d5b4c656b2ef36271a2d3e426461ae786fe3e9a8bc295",
           "returncode": 0,
@@ -2342,7 +2342,7 @@
             "-a",
             "protocol.pml"
           ],
-          "elapsed_seconds": 0.020310577,
+          "elapsed_seconds": 0.020387293,
           "log": "generate.log",
           "log_sha256": "c89d38a8c7106665a5daded94e0758fe82f7a0d5307ec3b4b634fb86110b5b3e",
           "returncode": 0,
@@ -2359,7 +2359,7 @@
             "pan-safety",
             "pan.c"
           ],
-          "elapsed_seconds": 1.3344619070000001,
+          "elapsed_seconds": 1.445532683,
           "log": "compile-safety.log",
           "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
           "returncode": 0,
@@ -2372,9 +2372,9 @@
             "-m100000",
             "-w20"
           ],
-          "elapsed_seconds": 0.04058451,
+          "elapsed_seconds": 0.060745743,
           "log": "check-safety.log",
-          "log_sha256": "13bfdbf37ca037807d859259546d4d35abee8c02fd4e8a277738f4ee8ae57392",
+          "log_sha256": "f5110b30f39b3e9ef3f9d07c6d46ce0fcc76530bff5f0d1ab051c22d1b955c8a",
           "returncode": 0,
           "timeout": false
         },
@@ -2387,7 +2387,7 @@
             "pan-ltl",
             "pan.c"
           ],
-          "elapsed_seconds": 1.5608612960000001,
+          "elapsed_seconds": 1.615404997,
           "log": "compile-ltl.log",
           "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
           "returncode": 0,
@@ -2403,7 +2403,7 @@
             "-N",
             "message_0_progress"
           ],
-          "elapsed_seconds": 0.081856682,
+          "elapsed_seconds": 0.074339902,
           "log": "check-message_0_progress.log",
           "log_sha256": "96608988c44ec97fa32724499bbf055302a2c1a58d9b6d58dbb214aed1c1a13d",
           "returncode": 0,
@@ -2419,7 +2419,7 @@
             "-N",
             "message_1_progress"
           ],
-          "elapsed_seconds": 0.081425777,
+          "elapsed_seconds": 0.071709388,
           "log": "check-message_1_progress.log",
           "log_sha256": "7653e447522c945b8a09df5215c58cf99230b7fc009632c4914ef662c64de7eb",
           "returncode": 0,
@@ -2449,7 +2449,7 @@
             "-w20"
           ],
           "counterexample_kind": "assertion",
-          "elapsed_seconds": 0.010432776,
+          "elapsed_seconds": 0.010293281,
           "log": "check-safety.log",
           "log_sha256": "8bdad7e7b01f0ebc3fce256947ec988ff095a278c61ce796e4bc8c2240a43360",
           "property": "safety",
@@ -2465,7 +2465,7 @@
               "-l",
               "protocol.pml"
             ],
-            "elapsed_seconds": 0.020456315,
+            "elapsed_seconds": 0.010247762,
             "log": "replay-safety.log",
             "log_sha256": "c326b98e555d26e454eacbb7892d4df77fb6f412d5d09c0ea3dbe9c36c2eea9c",
             "returncode": 0,
@@ -2486,7 +2486,7 @@
             "-a",
             "protocol.pml"
           ],
-          "elapsed_seconds": 0.020407231,
+          "elapsed_seconds": 0.022714908,
           "log": "generate.log",
           "log_sha256": "c89d38a8c7106665a5daded94e0758fe82f7a0d5307ec3b4b634fb86110b5b3e",
           "returncode": 0,
@@ -2503,7 +2503,7 @@
             "pan-safety",
             "pan.c"
           ],
-          "elapsed_seconds": 1.497460413,
+          "elapsed_seconds": 1.477134651,
           "log": "compile-safety.log",
           "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
           "returncode": 0,
@@ -2516,7 +2516,7 @@
             "-m100000",
             "-w20"
           ],
-          "elapsed_seconds": 0.010432776,
+          "elapsed_seconds": 0.010293281,
           "log": "check-safety.log",
           "log_sha256": "8bdad7e7b01f0ebc3fce256947ec988ff095a278c61ce796e4bc8c2240a43360",
           "returncode": 0,
@@ -2534,7 +2534,7 @@
             "-l",
             "protocol.pml"
           ],
-          "elapsed_seconds": 0.020456315,
+          "elapsed_seconds": 0.010247762,
           "log": "replay-safety.log",
           "log_sha256": "c326b98e555d26e454eacbb7892d4df77fb6f412d5d09c0ea3dbe9c36c2eea9c",
           "returncode": 0,
@@ -2564,7 +2564,7 @@
             "-w20"
           ],
           "counterexample_kind": "assertion",
-          "elapsed_seconds": 0.01030003,
+          "elapsed_seconds": 0.0102458,
           "log": "check-safety.log",
           "log_sha256": "f63f94637475c00f9fcfb39f768c9d3d9b201a0bb525fda513bd32ec1ee53ddd",
           "property": "safety",
@@ -2580,7 +2580,7 @@
               "-l",
               "protocol.pml"
             ],
-            "elapsed_seconds": 0.02043301,
+            "elapsed_seconds": 0.020766884,
             "log": "replay-safety.log",
             "log_sha256": "ac7a564cb51d609ecd4e007cf18d9c9e43837eccb5ce81cdb2c9e00eeed65901",
             "returncode": 0,
@@ -2601,7 +2601,7 @@
             "-a",
             "protocol.pml"
           ],
-          "elapsed_seconds": 0.020416245,
+          "elapsed_seconds": 0.020331537,
           "log": "generate.log",
           "log_sha256": "c89d38a8c7106665a5daded94e0758fe82f7a0d5307ec3b4b634fb86110b5b3e",
           "returncode": 0,
@@ -2618,7 +2618,7 @@
             "pan-safety",
             "pan.c"
           ],
-          "elapsed_seconds": 1.33643723,
+          "elapsed_seconds": 1.497623615,
           "log": "compile-safety.log",
           "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
           "returncode": 0,
@@ -2631,7 +2631,7 @@
             "-m100000",
             "-w20"
           ],
-          "elapsed_seconds": 0.01030003,
+          "elapsed_seconds": 0.0102458,
           "log": "check-safety.log",
           "log_sha256": "f63f94637475c00f9fcfb39f768c9d3d9b201a0bb525fda513bd32ec1ee53ddd",
           "returncode": 0,
@@ -2649,7 +2649,7 @@
             "-l",
             "protocol.pml"
           ],
-          "elapsed_seconds": 0.02043301,
+          "elapsed_seconds": 0.020766884,
           "log": "replay-safety.log",
           "log_sha256": "ac7a564cb51d609ecd4e007cf18d9c9e43837eccb5ce81cdb2c9e00eeed65901",
           "returncode": 0,
@@ -2682,7 +2682,7 @@
             "message_0_progress"
           ],
           "counterexample_kind": "acceptance_cycle",
-          "elapsed_seconds": 0.010262565,
+          "elapsed_seconds": 0.010238879,
           "log": "check-message_0_progress.log",
           "log_sha256": "b88a3122e684440da0721fd4609ee183c09161352998c2f5e2c7e72eb47e9278",
           "property": "message_0_progress",
@@ -2698,7 +2698,7 @@
               "-l",
               "protocol.pml"
             ],
-            "elapsed_seconds": 0.020343376,
+            "elapsed_seconds": 0.010308914,
             "log": "replay-message_0_progress.log",
             "log_sha256": "1c41362f2ca89346d57f94fbcdbadbc97286323df04a532b575900a70296b4ed",
             "returncode": 0,
@@ -2719,7 +2719,7 @@
             "-a",
             "protocol.pml"
           ],
-          "elapsed_seconds": 0.020432809,
+          "elapsed_seconds": 0.020333751,
           "log": "generate.log",
           "log_sha256": "c89d38a8c7106665a5daded94e0758fe82f7a0d5307ec3b4b634fb86110b5b3e",
           "returncode": 0,
@@ -2734,7 +2734,7 @@
             "pan-ltl",
             "pan.c"
           ],
-          "elapsed_seconds": 1.59915009,
+          "elapsed_seconds": 1.581747786,
           "log": "compile-ltl.log",
           "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
           "returncode": 0,
@@ -2750,7 +2750,7 @@
             "-N",
             "message_0_progress"
           ],
-          "elapsed_seconds": 0.010262565,
+          "elapsed_seconds": 0.010238879,
           "log": "check-message_0_progress.log",
           "log_sha256": "b88a3122e684440da0721fd4609ee183c09161352998c2f5e2c7e72eb47e9278",
           "returncode": 0,
@@ -2768,7 +2768,7 @@
             "-l",
             "protocol.pml"
           ],
-          "elapsed_seconds": 0.020343376,
+          "elapsed_seconds": 0.010308914,
           "log": "replay-message_0_progress.log",
           "log_sha256": "1c41362f2ca89346d57f94fbcdbadbc97286323df04a532b575900a70296b4ed",
           "returncode": 0,
@@ -2798,7 +2798,7 @@
             "-w20"
           ],
           "counterexample_kind": "none_or_other",
-          "elapsed_seconds": 0.010451947,
+          "elapsed_seconds": 0.010266781,
           "log": "check-safety.log",
           "log_sha256": "46ca54fea0b9818b6af9fb842367b54d098790f6850f030ba6cd4bd58633bc08",
           "property": "safety",
@@ -2817,7 +2817,7 @@
             "message_0_progress"
           ],
           "counterexample_kind": "none_or_other",
-          "elapsed_seconds": 0.010272717,
+          "elapsed_seconds": 0.010250867,
           "log": "check-message_0_progress.log",
           "log_sha256": "8b3e5399c5d6adddc25f2794665c4d1234132c133c38b0e7ce8b1fe646ebe41d",
           "property": "message_0_progress",
@@ -2836,7 +2836,7 @@
             "message_1_progress"
           ],
           "counterexample_kind": "none_or_other",
-          "elapsed_seconds": 0.01043378,
+          "elapsed_seconds": 0.020378749,
           "log": "check-message_1_progress.log",
           "log_sha256": "bfcf4e2b24154982e4c322d85339cdf3452d5681b367907902f32b1ef991d8b1",
           "property": "message_1_progress",
@@ -2852,7 +2852,7 @@
             "-a",
             "protocol.pml"
           ],
-          "elapsed_seconds": 0.020386896,
+          "elapsed_seconds": 0.020366755,
           "log": "generate.log",
           "log_sha256": "c89d38a8c7106665a5daded94e0758fe82f7a0d5307ec3b4b634fb86110b5b3e",
           "returncode": 0,
@@ -2870,7 +2870,7 @@
             "pan-safety",
             "pan.c"
           ],
-          "elapsed_seconds": 1.162583628,
+          "elapsed_seconds": 1.3345319629999999,
           "log": "compile-safety.log",
           "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
           "returncode": 0,
@@ -2883,7 +2883,7 @@
             "-m100000",
             "-w20"
           ],
-          "elapsed_seconds": 0.010451947,
+          "elapsed_seconds": 0.010266781,
           "log": "check-safety.log",
           "log_sha256": "46ca54fea0b9818b6af9fb842367b54d098790f6850f030ba6cd4bd58633bc08",
           "returncode": 0,
@@ -2899,7 +2899,7 @@
             "pan-ltl",
             "pan.c"
           ],
-          "elapsed_seconds": 1.564667943,
+          "elapsed_seconds": 1.456855442,
           "log": "compile-ltl.log",
           "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
           "returncode": 0,
@@ -2915,7 +2915,7 @@
             "-N",
             "message_0_progress"
           ],
-          "elapsed_seconds": 0.010272717,
+          "elapsed_seconds": 0.010250867,
           "log": "check-message_0_progress.log",
           "log_sha256": "8b3e5399c5d6adddc25f2794665c4d1234132c133c38b0e7ce8b1fe646ebe41d",
           "returncode": 0,
@@ -2931,7 +2931,7 @@
             "-N",
             "message_1_progress"
           ],
-          "elapsed_seconds": 0.01043378,
+          "elapsed_seconds": 0.020378749,
           "log": "check-message_1_progress.log",
           "log_sha256": "bfcf4e2b24154982e4c322d85339cdf3452d5681b367907902f32b1ef991d8b1",
           "returncode": 0,
@@ -2961,7 +2961,7 @@
             "-w20"
           ],
           "counterexample_kind": "none_or_other",
-          "elapsed_seconds": 0.020387806,
+          "elapsed_seconds": 0.020318709,
           "log": "check-safety.log",
           "log_sha256": "4049f14f1d0d825d7a5a4f520a4f2d379f7300aacb6d77396e94a0556c76520b",
           "property": "safety",
@@ -2980,7 +2980,7 @@
             "message_0_progress"
           ],
           "counterexample_kind": "none_or_other",
-          "elapsed_seconds": 0.030426867,
+          "elapsed_seconds": 0.03064534,
           "log": "check-message_0_progress.log",
           "log_sha256": "67b03afd6d45d58b78343eb38ef4c9de0c730fa931663fccf407b60cbca45d4e",
           "property": "message_0_progress",
@@ -2999,9 +2999,9 @@
             "message_1_progress"
           ],
           "counterexample_kind": "none_or_other",
-          "elapsed_seconds": 0.030427002,
+          "elapsed_seconds": 0.030648064,
           "log": "check-message_1_progress.log",
-          "log_sha256": "c19e1f3fc81900107d59f109c2e87eaf4899d840643a8e1a9692bd3848239929",
+          "log_sha256": "5699a1cbd34821b9e48bf9bfbf75d44ac5cc3486236ab4ec8c7ccd50052cccb9",
           "property": "message_1_progress",
           "returncode": 0,
           "status": "COMPLETE_NO_ERRORS",
@@ -3022,7 +3022,7 @@
             "-l",
             "protocol.pml"
           ],
-          "elapsed_seconds": 0.020387126,
+          "elapsed_seconds": 0.020418114,
           "log": "simulation-17.log",
           "log_sha256": "2e7bd4ec85a87cfcf579e37770ddd02e0a62d915a99096b98d5f269287378c22",
           "returncode": 0,
@@ -3043,7 +3043,7 @@
             "-l",
             "protocol.pml"
           ],
-          "elapsed_seconds": 0.020329209,
+          "elapsed_seconds": 0.020362174,
           "log": "simulation-29.log",
           "log_sha256": "2b0e315c91770a6338c0a8f2b69b5c66a85ae2dffeb1a772bd7cf72e9b0ca99d",
           "returncode": 0,
@@ -3058,7 +3058,7 @@
             "-a",
             "protocol.pml"
           ],
-          "elapsed_seconds": 0.020504282,
+          "elapsed_seconds": 0.020428112,
           "log": "generate.log",
           "log_sha256": "c89d38a8c7106665a5daded94e0758fe82f7a0d5307ec3b4b634fb86110b5b3e",
           "returncode": 0,
@@ -3075,7 +3075,7 @@
             "pan-safety",
             "pan.c"
           ],
-          "elapsed_seconds": 1.611278858,
+          "elapsed_seconds": 1.564347448,
           "log": "compile-safety.log",
           "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
           "returncode": 0,
@@ -3088,7 +3088,7 @@
             "-m100000",
             "-w20"
           ],
-          "elapsed_seconds": 0.020387806,
+          "elapsed_seconds": 0.020318709,
           "log": "check-safety.log",
           "log_sha256": "4049f14f1d0d825d7a5a4f520a4f2d379f7300aacb6d77396e94a0556c76520b",
           "returncode": 0,
@@ -3103,7 +3103,7 @@
             "pan-ltl",
             "pan.c"
           ],
-          "elapsed_seconds": 1.4559442009999999,
+          "elapsed_seconds": 1.626080142,
           "log": "compile-ltl.log",
           "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
           "returncode": 0,
@@ -3119,7 +3119,7 @@
             "-N",
             "message_0_progress"
           ],
-          "elapsed_seconds": 0.030426867,
+          "elapsed_seconds": 0.03064534,
           "log": "check-message_0_progress.log",
           "log_sha256": "67b03afd6d45d58b78343eb38ef4c9de0c730fa931663fccf407b60cbca45d4e",
           "returncode": 0,
@@ -3135,9 +3135,9 @@
             "-N",
             "message_1_progress"
           ],
-          "elapsed_seconds": 0.030427002,
+          "elapsed_seconds": 0.030648064,
           "log": "check-message_1_progress.log",
-          "log_sha256": "c19e1f3fc81900107d59f109c2e87eaf4899d840643a8e1a9692bd3848239929",
+          "log_sha256": "5699a1cbd34821b9e48bf9bfbf75d44ac5cc3486236ab4ec8c7ccd50052cccb9",
           "returncode": 0,
           "timeout": false
         }
@@ -3165,7 +3165,7 @@
             "-w20"
           ],
           "counterexample_kind": "none_or_other",
-          "elapsed_seconds": 0.010237858,
+          "elapsed_seconds": 0.01027251,
           "log": "check-safety.log",
           "log_sha256": "2a66731ad977203c0df78025ad3ea584c4deac2f016b7af196730aee15a0faa2",
           "property": "safety",
@@ -3181,7 +3181,7 @@
             "-a",
             "task-lifecycle.pml"
           ],
-          "elapsed_seconds": 0.020535194,
+          "elapsed_seconds": 0.020906003,
           "log": "generate.log",
           "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
           "returncode": 0,
@@ -3198,7 +3198,7 @@
             "pan-safety",
             "pan.c"
           ],
-          "elapsed_seconds": 1.19097565,
+          "elapsed_seconds": 1.175006991,
           "log": "compile-safety.log",
           "log_sha256": "63303d598caa47f708f07ca1f6ab0a2a64fdda2d60562f09296765cfb8dbd355",
           "returncode": 0,
@@ -3211,7 +3211,7 @@
             "-m100000",
             "-w20"
           ],
-          "elapsed_seconds": 0.010237858,
+          "elapsed_seconds": 0.01027251,
           "log": "check-safety.log",
           "log_sha256": "2a66731ad977203c0df78025ad3ea584c4deac2f016b7af196730aee15a0faa2",
           "returncode": 0,
@@ -3241,7 +3241,7 @@
             "-w20"
           ],
           "counterexample_kind": "assertion",
-          "elapsed_seconds": 0.010262925,
+          "elapsed_seconds": 0.010256806,
           "log": "check-safety.log",
           "log_sha256": "b5b56474d5e4d1621cb134bc51618d606f77d54c131378b3abb3639512d66232",
           "property": "safety",
@@ -3257,7 +3257,7 @@
               "-l",
               "task-lifecycle.pml"
             ],
-            "elapsed_seconds": 0.010269927,
+            "elapsed_seconds": 0.010259029,
             "log": "replay-safety.log",
             "log_sha256": "cfd435b4f1853c9edd21ca22bfaa4df95401dd988f00e1d85bc352cb719ca132",
             "returncode": 0,
@@ -3278,7 +3278,7 @@
             "-a",
             "task-lifecycle.pml"
           ],
-          "elapsed_seconds": 0.020316917,
+          "elapsed_seconds": 0.020979354,
           "log": "generate.log",
           "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
           "returncode": 0,
@@ -3295,7 +3295,7 @@
             "pan-safety",
             "pan.c"
           ],
-          "elapsed_seconds": 1.029020107,
+          "elapsed_seconds": 1.243193614,
           "log": "compile-safety.log",
           "log_sha256": "63303d598caa47f708f07ca1f6ab0a2a64fdda2d60562f09296765cfb8dbd355",
           "returncode": 0,
@@ -3308,7 +3308,7 @@
             "-m100000",
             "-w20"
           ],
-          "elapsed_seconds": 0.010262925,
+          "elapsed_seconds": 0.010256806,
           "log": "check-safety.log",
           "log_sha256": "b5b56474d5e4d1621cb134bc51618d606f77d54c131378b3abb3639512d66232",
           "returncode": 0,
@@ -3326,7 +3326,7 @@
             "-l",
             "task-lifecycle.pml"
           ],
-          "elapsed_seconds": 0.010269927,
+          "elapsed_seconds": 0.010259029,
           "log": "replay-safety.log",
           "log_sha256": "cfd435b4f1853c9edd21ca22bfaa4df95401dd988f00e1d85bc352cb719ca132",
           "returncode": 0,
@@ -3356,7 +3356,7 @@
             "-w20"
           ],
           "counterexample_kind": "none_or_other",
-          "elapsed_seconds": 0.010259779,
+          "elapsed_seconds": 0.010391294,
           "log": "check-safety.log",
           "log_sha256": "db68adf20833f621d9a6d1aed8fc86ce3cfbbf0df17473563d39076552da201f",
           "property": "safety",
@@ -3373,7 +3373,7 @@
             "-a",
             "protocol.pml"
           ],
-          "elapsed_seconds": 0.020309089,
+          "elapsed_seconds": 0.02116248,
           "log": "generate.log",
           "log_sha256": "c89d38a8c7106665a5daded94e0758fe82f7a0d5307ec3b4b634fb86110b5b3e",
           "returncode": 0,
@@ -3390,7 +3390,7 @@
             "pan-safety",
             "pan.c"
           ],
-          "elapsed_seconds": 1.302249637,
+          "elapsed_seconds": 1.409595294,
           "log": "compile-safety.log",
           "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
           "returncode": 0,
@@ -3403,7 +3403,7 @@
             "-m100000",
             "-w20"
           ],
-          "elapsed_seconds": 0.010259779,
+          "elapsed_seconds": 0.010391294,
           "log": "check-safety.log",
           "log_sha256": "db68adf20833f621d9a6d1aed8fc86ce3cfbbf0df17473563d39076552da201f",
           "returncode": 0,
@@ -3433,7 +3433,7 @@
             "-w20"
           ],
           "counterexample_kind": "none_or_other",
-          "elapsed_seconds": 0.010242373,
+          "elapsed_seconds": 0.010310948,
           "log": "check-safety.log",
           "log_sha256": "8e3c25757f1328dbe0c1229c7793cba5bc15f4f1c99a9577edb8ed773f13e248",
           "property": "safety",
@@ -3450,7 +3450,7 @@
             "-a",
             "protocol.pml"
           ],
-          "elapsed_seconds": 0.020404019,
+          "elapsed_seconds": 0.02049823,
           "log": "generate.log",
           "log_sha256": "c89d38a8c7106665a5daded94e0758fe82f7a0d5307ec3b4b634fb86110b5b3e",
           "returncode": 0,
@@ -3467,7 +3467,7 @@
             "pan-safety",
             "pan.c"
           ],
-          "elapsed_seconds": 1.251818456,
+          "elapsed_seconds": 1.419172406,
           "log": "compile-safety.log",
           "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
           "returncode": 0,
@@ -3480,7 +3480,7 @@
             "-m100000",
             "-w20"
           ],
-          "elapsed_seconds": 0.010242373,
+          "elapsed_seconds": 0.010310948,
           "log": "check-safety.log",
           "log_sha256": "8e3c25757f1328dbe0c1229c7793cba5bc15f4f1c99a9577edb8ed773f13e248",
           "returncode": 0,
@@ -3510,7 +3510,7 @@
             "-w20"
           ],
           "counterexample_kind": "none_or_other",
-          "elapsed_seconds": 0.012373439,
+          "elapsed_seconds": 0.010279009,
           "log": "check-safety.log",
           "log_sha256": "8ccd6f94ddf061a610fc138f092c965f2c4481e11efef2f28e6e99570820a4f1",
           "property": "safety",
@@ -3527,7 +3527,7 @@
             "-a",
             "protocol.pml"
           ],
-          "elapsed_seconds": 0.020328329,
+          "elapsed_seconds": 0.020655345,
           "log": "generate.log",
           "log_sha256": "c89d38a8c7106665a5daded94e0758fe82f7a0d5307ec3b4b634fb86110b5b3e",
           "returncode": 0,
@@ -3544,7 +3544,7 @@
             "pan-safety",
             "pan.c"
           ],
-          "elapsed_seconds": 1.292758787,
+          "elapsed_seconds": 1.46953073,
           "log": "compile-safety.log",
           "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
           "returncode": 0,
@@ -3557,7 +3557,7 @@
             "-m100000",
             "-w20"
           ],
-          "elapsed_seconds": 0.012373439,
+          "elapsed_seconds": 0.010279009,
           "log": "check-safety.log",
           "log_sha256": "8ccd6f94ddf061a610fc138f092c965f2c4481e11efef2f28e6e99570820a4f1",
           "returncode": 0,
@@ -3587,7 +3587,7 @@
             "-w20"
           ],
           "counterexample_kind": "none_or_other",
-          "elapsed_seconds": 0.010286799,
+          "elapsed_seconds": 0.010288022,
           "log": "check-safety.log",
           "log_sha256": "8e3c25757f1328dbe0c1229c7793cba5bc15f4f1c99a9577edb8ed773f13e248",
           "property": "safety",
@@ -3604,7 +3604,7 @@
             "-a",
             "protocol.pml"
           ],
-          "elapsed_seconds": 0.020366076,
+          "elapsed_seconds": 0.020349494,
           "log": "generate.log",
           "log_sha256": "c89d38a8c7106665a5daded94e0758fe82f7a0d5307ec3b4b634fb86110b5b3e",
           "returncode": 0,
@@ -3621,7 +3621,7 @@
             "pan-safety",
             "pan.c"
           ],
-          "elapsed_seconds": 1.300534868,
+          "elapsed_seconds": 1.439949374,
           "log": "compile-safety.log",
           "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
           "returncode": 0,
@@ -3634,7 +3634,7 @@
             "-m100000",
             "-w20"
           ],
-          "elapsed_seconds": 0.010286799,
+          "elapsed_seconds": 0.010288022,
           "log": "check-safety.log",
           "log_sha256": "8e3c25757f1328dbe0c1229c7793cba5bc15f4f1c99a9577edb8ed773f13e248",
           "returncode": 0,
@@ -3664,7 +3664,7 @@
             "-w20"
           ],
           "counterexample_kind": "none_or_other",
-          "elapsed_seconds": 0.010261732,
+          "elapsed_seconds": 0.020331315,
           "log": "check-safety.log",
           "log_sha256": "8e3c25757f1328dbe0c1229c7793cba5bc15f4f1c99a9577edb8ed773f13e248",
           "property": "safety",
@@ -3681,7 +3681,7 @@
             "-a",
             "protocol.pml"
           ],
-          "elapsed_seconds": 0.020390463,
+          "elapsed_seconds": 0.020421512,
           "log": "generate.log",
           "log_sha256": "c89d38a8c7106665a5daded94e0758fe82f7a0d5307ec3b4b634fb86110b5b3e",
           "returncode": 0,
@@ -3698,7 +3698,7 @@
             "pan-safety",
             "pan.c"
           ],
-          "elapsed_seconds": 1.629051986,
+          "elapsed_seconds": 1.4226913749999999,
           "log": "compile-safety.log",
           "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
           "returncode": 0,
@@ -3711,7 +3711,7 @@
             "-m100000",
             "-w20"
           ],
-          "elapsed_seconds": 0.010261732,
+          "elapsed_seconds": 0.020331315,
           "log": "check-safety.log",
           "log_sha256": "8e3c25757f1328dbe0c1229c7793cba5bc15f4f1c99a9577edb8ed773f13e248",
           "returncode": 0,
@@ -3741,7 +3741,7 @@
             "-w20"
           ],
           "counterexample_kind": "none_or_other",
-          "elapsed_seconds": 0.011055109,
+          "elapsed_seconds": 0.010607387,
           "log": "check-safety.log",
           "log_sha256": "8a4a5dca77cf709f177a615f871149d398f127d39fabe4359b0985976ca2b172",
           "property": "safety",
@@ -3758,7 +3758,7 @@
             "-a",
             "protocol.pml"
           ],
-          "elapsed_seconds": 0.020465787,
+          "elapsed_seconds": 0.020338376,
           "log": "generate.log",
           "log_sha256": "c89d38a8c7106665a5daded94e0758fe82f7a0d5307ec3b4b634fb86110b5b3e",
           "returncode": 0,
@@ -3775,7 +3775,7 @@
             "pan-safety",
             "pan.c"
           ],
-          "elapsed_seconds": 1.695271499,
+          "elapsed_seconds": 1.454030021,
           "log": "compile-safety.log",
           "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
           "returncode": 0,
@@ -3788,7 +3788,7 @@
             "-m100000",
             "-w20"
           ],
-          "elapsed_seconds": 0.011055109,
+          "elapsed_seconds": 0.010607387,
           "log": "check-safety.log",
           "log_sha256": "8a4a5dca77cf709f177a615f871149d398f127d39fabe4359b0985976ca2b172",
           "returncode": 0,
@@ -3818,7 +3818,7 @@
             "-w20"
           ],
           "counterexample_kind": "none_or_other",
-          "elapsed_seconds": 0.010329085,
+          "elapsed_seconds": 0.010251687,
           "log": "check-safety.log",
           "log_sha256": "8e3c25757f1328dbe0c1229c7793cba5bc15f4f1c99a9577edb8ed773f13e248",
           "property": "safety",
@@ -3835,7 +3835,7 @@
             "-a",
             "protocol.pml"
           ],
-          "elapsed_seconds": 0.020351532,
+          "elapsed_seconds": 0.020331791,
           "log": "generate.log",
           "log_sha256": "c89d38a8c7106665a5daded94e0758fe82f7a0d5307ec3b4b634fb86110b5b3e",
           "returncode": 0,
@@ -3852,7 +3852,7 @@
             "pan-safety",
             "pan.c"
           ],
-          "elapsed_seconds": 1.638380162,
+          "elapsed_seconds": 1.4521699639999999,
           "log": "compile-safety.log",
           "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
           "returncode": 0,
@@ -3865,7 +3865,7 @@
             "-m100000",
             "-w20"
           ],
-          "elapsed_seconds": 0.010329085,
+          "elapsed_seconds": 0.010251687,
           "log": "check-safety.log",
           "log_sha256": "8e3c25757f1328dbe0c1229c7793cba5bc15f4f1c99a9577edb8ed773f13e248",
           "returncode": 0,
@@ -3895,7 +3895,7 @@
             "-w20"
           ],
           "counterexample_kind": "none_or_other",
-          "elapsed_seconds": 0.010264547,
+          "elapsed_seconds": 0.010343794,
           "log": "check-safety.log",
           "log_sha256": "8e3c25757f1328dbe0c1229c7793cba5bc15f4f1c99a9577edb8ed773f13e248",
           "property": "safety",
@@ -3912,7 +3912,7 @@
             "-a",
             "protocol.pml"
           ],
-          "elapsed_seconds": 0.020401416,
+          "elapsed_seconds": 0.020389142,
           "log": "generate.log",
           "log_sha256": "c89d38a8c7106665a5daded94e0758fe82f7a0d5307ec3b4b634fb86110b5b3e",
           "returncode": 0,
@@ -3929,7 +3929,7 @@
             "pan-safety",
             "pan.c"
           ],
-          "elapsed_seconds": 1.645234121,
+          "elapsed_seconds": 1.314659154,
           "log": "compile-safety.log",
           "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
           "returncode": 0,
@@ -3942,7 +3942,7 @@
             "-m100000",
             "-w20"
           ],
-          "elapsed_seconds": 0.010264547,
+          "elapsed_seconds": 0.010343794,
           "log": "check-safety.log",
           "log_sha256": "8e3c25757f1328dbe0c1229c7793cba5bc15f4f1c99a9577edb8ed773f13e248",
           "returncode": 0,
@@ -3972,7 +3972,7 @@
             "-w20"
           ],
           "counterexample_kind": "none_or_other",
-          "elapsed_seconds": 0.010298198,
+          "elapsed_seconds": 0.020370661,
           "log": "check-safety.log",
           "log_sha256": "8e3c25757f1328dbe0c1229c7793cba5bc15f4f1c99a9577edb8ed773f13e248",
           "property": "safety",
@@ -3989,7 +3989,7 @@
             "-a",
             "protocol.pml"
           ],
-          "elapsed_seconds": 0.020352368,
+          "elapsed_seconds": 0.020335668,
           "log": "generate.log",
           "log_sha256": "c89d38a8c7106665a5daded94e0758fe82f7a0d5307ec3b4b634fb86110b5b3e",
           "returncode": 0,
@@ -4006,7 +4006,7 @@
             "pan-safety",
             "pan.c"
           ],
-          "elapsed_seconds": 1.535727337,
+          "elapsed_seconds": 1.325434495,
           "log": "compile-safety.log",
           "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
           "returncode": 0,
@@ -4019,7 +4019,7 @@
             "-m100000",
             "-w20"
           ],
-          "elapsed_seconds": 0.010298198,
+          "elapsed_seconds": 0.020370661,
           "log": "check-safety.log",
           "log_sha256": "8e3c25757f1328dbe0c1229c7793cba5bc15f4f1c99a9577edb8ed773f13e248",
           "returncode": 0,
@@ -4049,7 +4049,7 @@
             "-w20"
           ],
           "counterexample_kind": "none_or_other",
-          "elapsed_seconds": 0.012790433,
+          "elapsed_seconds": 0.010300659,
           "log": "check-safety.log",
           "log_sha256": "8e3c25757f1328dbe0c1229c7793cba5bc15f4f1c99a9577edb8ed773f13e248",
           "property": "safety",
@@ -4066,7 +4066,7 @@
             "-a",
             "protocol.pml"
           ],
-          "elapsed_seconds": 0.020363945,
+          "elapsed_seconds": 0.02038,
           "log": "generate.log",
           "log_sha256": "c89d38a8c7106665a5daded94e0758fe82f7a0d5307ec3b4b634fb86110b5b3e",
           "returncode": 0,
@@ -4083,7 +4083,7 @@
             "pan-safety",
             "pan.c"
           ],
-          "elapsed_seconds": 1.599837866,
+          "elapsed_seconds": 1.2927554159999999,
           "log": "compile-safety.log",
           "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
           "returncode": 0,
@@ -4096,7 +4096,7 @@
             "-m100000",
             "-w20"
           ],
-          "elapsed_seconds": 0.012790433,
+          "elapsed_seconds": 0.010300659,
           "log": "check-safety.log",
           "log_sha256": "8e3c25757f1328dbe0c1229c7793cba5bc15f4f1c99a9577edb8ed773f13e248",
           "returncode": 0,
@@ -4126,7 +4126,7 @@
             "-w20"
           ],
           "counterexample_kind": "none_or_other",
-          "elapsed_seconds": 0.021018822,
+          "elapsed_seconds": 0.010349593,
           "log": "check-safety.log",
           "log_sha256": "8ccd6f94ddf061a610fc138f092c965f2c4481e11efef2f28e6e99570820a4f1",
           "property": "safety",
@@ -4143,7 +4143,7 @@
             "-a",
             "protocol.pml"
           ],
-          "elapsed_seconds": 0.020452439,
+          "elapsed_seconds": 0.020351512,
           "log": "generate.log",
           "log_sha256": "c89d38a8c7106665a5daded94e0758fe82f7a0d5307ec3b4b634fb86110b5b3e",
           "returncode": 0,
@@ -4160,7 +4160,7 @@
             "pan-safety",
             "pan.c"
           ],
-          "elapsed_seconds": 1.5389191150000001,
+          "elapsed_seconds": 1.397812406,
           "log": "compile-safety.log",
           "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
           "returncode": 0,
@@ -4173,7 +4173,7 @@
             "-m100000",
             "-w20"
           ],
-          "elapsed_seconds": 0.021018822,
+          "elapsed_seconds": 0.010349593,
           "log": "check-safety.log",
           "log_sha256": "8ccd6f94ddf061a610fc138f092c965f2c4481e11efef2f28e6e99570820a4f1",
           "returncode": 0,
@@ -4203,7 +4203,7 @@
             "-w20"
           ],
           "counterexample_kind": "none_or_other",
-          "elapsed_seconds": 0.010348063,
+          "elapsed_seconds": 0.010378968,
           "log": "check-safety.log",
           "log_sha256": "8a4a5dca77cf709f177a615f871149d398f127d39fabe4359b0985976ca2b172",
           "property": "safety",
@@ -4220,7 +4220,7 @@
             "-a",
             "protocol.pml"
           ],
-          "elapsed_seconds": 0.020352198,
+          "elapsed_seconds": 0.020456891,
           "log": "generate.log",
           "log_sha256": "c89d38a8c7106665a5daded94e0758fe82f7a0d5307ec3b4b634fb86110b5b3e",
           "returncode": 0,
@@ -4237,7 +4237,7 @@
             "pan-safety",
             "pan.c"
           ],
-          "elapsed_seconds": 1.58898148,
+          "elapsed_seconds": 1.333881611,
           "log": "compile-safety.log",
           "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
           "returncode": 0,
@@ -4250,7 +4250,7 @@
             "-m100000",
             "-w20"
           ],
-          "elapsed_seconds": 0.010348063,
+          "elapsed_seconds": 0.010378968,
           "log": "check-safety.log",
           "log_sha256": "8a4a5dca77cf709f177a615f871149d398f127d39fabe4359b0985976ca2b172",
           "returncode": 0,
@@ -4280,7 +4280,7 @@
             "-w20"
           ],
           "counterexample_kind": "none_or_other",
-          "elapsed_seconds": 0.010443227,
+          "elapsed_seconds": 0.010361176,
           "log": "check-safety.log",
           "log_sha256": "dfdab904f3bfe6613b2c577b079a8390a00d3eb26aa3d3596b2744ce482f2b77",
           "property": "safety",
@@ -4298,7 +4298,7 @@
             "-a",
             "protocol.pml"
           ],
-          "elapsed_seconds": 0.020526906,
+          "elapsed_seconds": 0.020401938,
           "log": "generate.log",
           "log_sha256": "c89d38a8c7106665a5daded94e0758fe82f7a0d5307ec3b4b634fb86110b5b3e",
           "returncode": 0,
@@ -4315,7 +4315,7 @@
             "pan-safety",
             "pan.c"
           ],
-          "elapsed_seconds": 1.563727309,
+          "elapsed_seconds": 1.4666458310000001,
           "log": "compile-safety.log",
           "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
           "returncode": 0,
@@ -4328,7 +4328,7 @@
             "-m100000",
             "-w20"
           ],
-          "elapsed_seconds": 0.010443227,
+          "elapsed_seconds": 0.010361176,
           "log": "check-safety.log",
           "log_sha256": "dfdab904f3bfe6613b2c577b079a8390a00d3eb26aa3d3596b2744ce482f2b77",
           "returncode": 0,
@@ -4358,7 +4358,7 @@
             "-w20"
           ],
           "counterexample_kind": "none_or_other",
-          "elapsed_seconds": 0.010365023,
+          "elapsed_seconds": 0.010285657,
           "log": "check-safety.log",
           "log_sha256": "a702cb65423bef629b692ce1cb8425e452e3fae59c7a766af131c7e3301f0f50",
           "property": "safety",
@@ -4375,7 +4375,7 @@
             "-a",
             "protocol.pml"
           ],
-          "elapsed_seconds": 0.020375904,
+          "elapsed_seconds": 0.020607603,
           "log": "generate.log",
           "log_sha256": "c89d38a8c7106665a5daded94e0758fe82f7a0d5307ec3b4b634fb86110b5b3e",
           "returncode": 0,
@@ -4393,7 +4393,7 @@
             "pan-safety",
             "pan.c"
           ],
-          "elapsed_seconds": 1.383396848,
+          "elapsed_seconds": 1.211471964,
           "log": "compile-safety.log",
           "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
           "returncode": 0,
@@ -4406,7 +4406,7 @@
             "-m100000",
             "-w20"
           ],
-          "elapsed_seconds": 0.010365023,
+          "elapsed_seconds": 0.010285657,
           "log": "check-safety.log",
           "log_sha256": "a702cb65423bef629b692ce1cb8425e452e3fae59c7a766af131c7e3301f0f50",
           "returncode": 0,
@@ -4439,7 +4439,7 @@
             "message_0_progress"
           ],
           "counterexample_kind": "acceptance_cycle",
-          "elapsed_seconds": 0.010280495,
+          "elapsed_seconds": 0.010322162,
           "log": "check-message_0_progress.log",
           "log_sha256": "ce3e7ab5afec2bd4228558ec524a13d11aa03b539fe69672ccdb3c14c15697e0",
           "property": "message_0_progress",
@@ -4455,7 +4455,7 @@
               "-l",
               "protocol.pml"
             ],
-            "elapsed_seconds": 0.011245335,
+            "elapsed_seconds": 0.010240619,
             "log": "replay-message_0_progress.log",
             "log_sha256": "dd00f23934dde248f88c720f0c0e18d4b4733d8a87e15675e5c396df0cbbd3e4",
             "returncode": 0,
@@ -4476,7 +4476,7 @@
             "-a",
             "protocol.pml"
           ],
-          "elapsed_seconds": 0.020483666,
+          "elapsed_seconds": 0.020359539,
           "log": "generate.log",
           "log_sha256": "c89d38a8c7106665a5daded94e0758fe82f7a0d5307ec3b4b634fb86110b5b3e",
           "returncode": 0,
@@ -4491,7 +4491,7 @@
             "pan-ltl",
             "pan.c"
           ],
-          "elapsed_seconds": 1.646812306,
+          "elapsed_seconds": 1.47616394,
           "log": "compile-ltl.log",
           "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
           "returncode": 0,
@@ -4507,7 +4507,7 @@
             "-N",
             "message_0_progress"
           ],
-          "elapsed_seconds": 0.010280495,
+          "elapsed_seconds": 0.010322162,
           "log": "check-message_0_progress.log",
           "log_sha256": "ce3e7ab5afec2bd4228558ec524a13d11aa03b539fe69672ccdb3c14c15697e0",
           "returncode": 0,
@@ -4525,7 +4525,7 @@
             "-l",
             "protocol.pml"
           ],
-          "elapsed_seconds": 0.011245335,
+          "elapsed_seconds": 0.010240619,
           "log": "replay-message_0_progress.log",
           "log_sha256": "dd00f23934dde248f88c720f0c0e18d4b4733d8a87e15675e5c396df0cbbd3e4",
           "returncode": 0,
@@ -4559,7 +4559,7 @@
             "-f"
           ],
           "counterexample_kind": "acceptance_cycle",
-          "elapsed_seconds": 0.011800291,
+          "elapsed_seconds": 0.010264745,
           "log": "check-message_0_progress.log",
           "log_sha256": "ab726951ac85bd4a9f230ca0827ae00af2f9b82ff5b6cbc5023b709cf5066ed1",
           "property": "message_0_progress",
@@ -4575,7 +4575,7 @@
               "-l",
               "protocol.pml"
             ],
-            "elapsed_seconds": 0.020357991,
+            "elapsed_seconds": 0.010280815,
             "log": "replay-message_0_progress.log",
             "log_sha256": "ecbc2ec2a57954cd2e40a2d0a6745624160a267512a68558e48fe23a40fb1a41",
             "returncode": 0,
@@ -4596,7 +4596,7 @@
             "-a",
             "protocol.pml"
           ],
-          "elapsed_seconds": 0.020467662,
+          "elapsed_seconds": 0.020314576,
           "log": "generate.log",
           "log_sha256": "c89d38a8c7106665a5daded94e0758fe82f7a0d5307ec3b4b634fb86110b5b3e",
           "returncode": 0,
@@ -4611,7 +4611,7 @@
             "pan-ltl",
             "pan.c"
           ],
-          "elapsed_seconds": 1.7173621620000001,
+          "elapsed_seconds": 1.512579329,
           "log": "compile-ltl.log",
           "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
           "returncode": 0,
@@ -4628,7 +4628,7 @@
             "message_0_progress",
             "-f"
           ],
-          "elapsed_seconds": 0.011800291,
+          "elapsed_seconds": 0.010264745,
           "log": "check-message_0_progress.log",
           "log_sha256": "ab726951ac85bd4a9f230ca0827ae00af2f9b82ff5b6cbc5023b709cf5066ed1",
           "returncode": 0,
@@ -4646,7 +4646,7 @@
             "-l",
             "protocol.pml"
           ],
-          "elapsed_seconds": 0.020357991,
+          "elapsed_seconds": 0.010280815,
           "log": "replay-message_0_progress.log",
           "log_sha256": "ecbc2ec2a57954cd2e40a2d0a6745624160a267512a68558e48fe23a40fb1a41",
           "returncode": 0,
@@ -4676,7 +4676,7 @@
             "-w20"
           ],
           "counterexample_kind": "none_or_other",
-          "elapsed_seconds": 0.010391884,
+          "elapsed_seconds": 0.010374922,
           "log": "check-safety.log",
           "log_sha256": "8498ca6650a47c1d2011a305a0d94cba0b284d68b6e27e955b168ad37f34d44e",
           "property": "safety",
@@ -4692,7 +4692,7 @@
             "-a",
             "transaction-recovery.pml"
           ],
-          "elapsed_seconds": 0.010301994,
+          "elapsed_seconds": 0.03048186,
           "log": "generate.log",
           "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
           "returncode": 0,
@@ -4709,7 +4709,7 @@
             "pan-safety",
             "pan.c"
           ],
-          "elapsed_seconds": 1.056776485,
+          "elapsed_seconds": 1.071513953,
           "log": "compile-safety.log",
           "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
           "returncode": 0,
@@ -4722,7 +4722,7 @@
             "-m100000",
             "-w20"
           ],
-          "elapsed_seconds": 0.010391884,
+          "elapsed_seconds": 0.010374922,
           "log": "check-safety.log",
           "log_sha256": "8498ca6650a47c1d2011a305a0d94cba0b284d68b6e27e955b168ad37f34d44e",
           "returncode": 0,
@@ -4752,7 +4752,7 @@
             "-w20"
           ],
           "counterexample_kind": "assertion",
-          "elapsed_seconds": 0.010284422,
+          "elapsed_seconds": 0.010343894,
           "log": "check-safety.log",
           "log_sha256": "dafc43ea33a9a1901dda864ad5cff6bd10ca69cb16885d5e8818f4b65cf67484",
           "property": "safety",
@@ -4768,7 +4768,7 @@
               "-l",
               "transaction-recovery.pml"
             ],
-            "elapsed_seconds": 0.020714283,
+            "elapsed_seconds": 0.020424839,
             "log": "replay-safety.log",
             "log_sha256": "8f9c3958788033df3c774790a4d965478fbaee855a01a2e1798cf30b93a5f198",
             "returncode": 0,
@@ -4789,7 +4789,7 @@
             "-a",
             "transaction-recovery.pml"
           ],
-          "elapsed_seconds": 0.021769533,
+          "elapsed_seconds": 0.020412834,
           "log": "generate.log",
           "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
           "returncode": 0,
@@ -4806,7 +4806,7 @@
             "pan-safety",
             "pan.c"
           ],
-          "elapsed_seconds": 1.174180696,
+          "elapsed_seconds": 1.094365527,
           "log": "compile-safety.log",
           "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
           "returncode": 0,
@@ -4819,7 +4819,7 @@
             "-m100000",
             "-w20"
           ],
-          "elapsed_seconds": 0.010284422,
+          "elapsed_seconds": 0.010343894,
           "log": "check-safety.log",
           "log_sha256": "dafc43ea33a9a1901dda864ad5cff6bd10ca69cb16885d5e8818f4b65cf67484",
           "returncode": 0,
@@ -4837,7 +4837,7 @@
             "-l",
             "transaction-recovery.pml"
           ],
-          "elapsed_seconds": 0.020714283,
+          "elapsed_seconds": 0.020424839,
           "log": "replay-safety.log",
           "log_sha256": "8f9c3958788033df3c774790a4d965478fbaee855a01a2e1798cf30b93a5f198",
           "returncode": 0,
@@ -4867,7 +4867,7 @@
             "-w20"
           ],
           "counterexample_kind": "assertion",
-          "elapsed_seconds": 0.010555646,
+          "elapsed_seconds": 0.020405465,
           "log": "check-safety.log",
           "log_sha256": "e86201439688b63d6cb58c831a0719eb69998ce717857173b4004e1aa63369bf",
           "property": "safety",
@@ -4883,7 +4883,7 @@
               "-l",
               "transaction-recovery.pml"
             ],
-            "elapsed_seconds": 0.010337267,
+            "elapsed_seconds": 0.010445799,
             "log": "replay-safety.log",
             "log_sha256": "56aeb0dff5b53eb3aab8358ba11b511a8ab2f047d18f216e8eae88ce880b0228",
             "returncode": 0,
@@ -4904,7 +4904,7 @@
             "-a",
             "transaction-recovery.pml"
           ],
-          "elapsed_seconds": 0.021306141,
+          "elapsed_seconds": 0.020517577,
           "log": "generate.log",
           "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
           "returncode": 0,
@@ -4921,7 +4921,7 @@
             "pan-safety",
             "pan.c"
           ],
-          "elapsed_seconds": 1.154616091,
+          "elapsed_seconds": 1.0965675049999999,
           "log": "compile-safety.log",
           "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
           "returncode": 0,
@@ -4934,7 +4934,7 @@
             "-m100000",
             "-w20"
           ],
-          "elapsed_seconds": 0.010555646,
+          "elapsed_seconds": 0.020405465,
           "log": "check-safety.log",
           "log_sha256": "e86201439688b63d6cb58c831a0719eb69998ce717857173b4004e1aa63369bf",
           "returncode": 0,
@@ -4952,7 +4952,7 @@
             "-l",
             "transaction-recovery.pml"
           ],
-          "elapsed_seconds": 0.010337267,
+          "elapsed_seconds": 0.010445799,
           "log": "replay-safety.log",
           "log_sha256": "56aeb0dff5b53eb3aab8358ba11b511a8ab2f047d18f216e8eae88ce880b0228",
           "returncode": 0,
@@ -4982,9 +4982,9 @@
             "-w20"
           ],
           "counterexample_kind": "none_or_other",
-          "elapsed_seconds": 0.241754062,
+          "elapsed_seconds": 0.213218565,
           "log": "check-safety.log",
-          "log_sha256": "33d23f787bda44283fcfbec74e3bf327b665400ad1bb6313774fa568d6c1d7e9",
+          "log_sha256": "e55e1584d4451d9712c537775f2001809ef6e66fb35335c576651df5851198a0",
           "property": "safety",
           "returncode": 0,
           "status": "COMPLETE_NO_ERRORS",
@@ -4998,7 +4998,7 @@
             "-a",
             "task-expiry.pml"
           ],
-          "elapsed_seconds": 0.021683423,
+          "elapsed_seconds": 0.020499167,
           "log": "generate.log",
           "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
           "returncode": 0,
@@ -5015,7 +5015,7 @@
             "pan-safety",
             "pan.c"
           ],
-          "elapsed_seconds": 1.426879371,
+          "elapsed_seconds": 1.448070565,
           "log": "compile-safety.log",
           "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
           "returncode": 0,
@@ -5028,9 +5028,9 @@
             "-m100000",
             "-w20"
           ],
-          "elapsed_seconds": 0.241754062,
+          "elapsed_seconds": 0.213218565,
           "log": "check-safety.log",
-          "log_sha256": "33d23f787bda44283fcfbec74e3bf327b665400ad1bb6313774fa568d6c1d7e9",
+          "log_sha256": "e55e1584d4451d9712c537775f2001809ef6e66fb35335c576651df5851198a0",
           "returncode": 0,
           "timeout": false
         }
@@ -5058,7 +5058,7 @@
             "-w20"
           ],
           "counterexample_kind": "assertion",
-          "elapsed_seconds": 0.010278398,
+          "elapsed_seconds": 0.010299844,
           "log": "check-safety.log",
           "log_sha256": "3da5fec70d134c52d29f0a2faf269ad4e4e26e092c17bc2f3f9b2e75beddfe74",
           "property": "safety",
@@ -5074,7 +5074,7 @@
               "-l",
               "task-expiry.pml"
             ],
-            "elapsed_seconds": 0.020402153,
+            "elapsed_seconds": 0.020353126,
             "log": "replay-safety.log",
             "log_sha256": "cf86e8d2d553c3049b4a1e04b9d0d6906667e914bf2d05db53cd102454943c3d",
             "returncode": 0,
@@ -5095,7 +5095,7 @@
             "-a",
             "task-expiry.pml"
           ],
-          "elapsed_seconds": 0.013228402,
+          "elapsed_seconds": 0.020470393,
           "log": "generate.log",
           "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
           "returncode": 0,
@@ -5112,7 +5112,7 @@
             "pan-safety",
             "pan.c"
           ],
-          "elapsed_seconds": 1.4257712759999999,
+          "elapsed_seconds": 1.450422434,
           "log": "compile-safety.log",
           "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
           "returncode": 0,
@@ -5125,7 +5125,7 @@
             "-m100000",
             "-w20"
           ],
-          "elapsed_seconds": 0.010278398,
+          "elapsed_seconds": 0.010299844,
           "log": "check-safety.log",
           "log_sha256": "3da5fec70d134c52d29f0a2faf269ad4e4e26e092c17bc2f3f9b2e75beddfe74",
           "returncode": 0,
@@ -5143,7 +5143,7 @@
             "-l",
             "task-expiry.pml"
           ],
-          "elapsed_seconds": 0.020402153,
+          "elapsed_seconds": 0.020353126,
           "log": "replay-safety.log",
           "log_sha256": "cf86e8d2d553c3049b4a1e04b9d0d6906667e914bf2d05db53cd102454943c3d",
           "returncode": 0,
@@ -5173,7 +5173,7 @@
             "-w20"
           ],
           "counterexample_kind": "none_or_other",
-          "elapsed_seconds": 0.010311738,
+          "elapsed_seconds": 0.010313965,
           "log": "check-safety.log",
           "log_sha256": "f44d68a65b5d36502353bcf9fff428026cc1fd2c0801816f46faa00352fc9f9c",
           "property": "safety",
@@ -5193,7 +5193,7 @@
             "-l",
             "host-recovery.pml"
           ],
-          "elapsed_seconds": 0.021223265,
+          "elapsed_seconds": 0.020438926,
           "log": "simulation-17.log",
           "log_sha256": "dfa0440b584c478769ac860245e1464f0703c3b2b0fa30caf60fe33235f57f42",
           "returncode": 0,
@@ -5211,7 +5211,7 @@
             "-l",
             "host-recovery.pml"
           ],
-          "elapsed_seconds": 0.010413121,
+          "elapsed_seconds": 0.010408978,
           "log": "simulation-29.log",
           "log_sha256": "25f2ed1959e492ba3f6d4f21a181b345812b4bfa0983c39b3f87d47badc40cda",
           "returncode": 0,
@@ -5229,7 +5229,7 @@
             "-l",
             "host-recovery.pml"
           ],
-          "elapsed_seconds": 0.010264803,
+          "elapsed_seconds": 0.010262819,
           "log": "simulation-53.log",
           "log_sha256": "2cc7c7fe7f6b45327633a2abc900cd4116303149c85b7d30c435a3413199e761",
           "returncode": 0,
@@ -5243,7 +5243,7 @@
             "-a",
             "host-recovery.pml"
           ],
-          "elapsed_seconds": 0.020347941,
+          "elapsed_seconds": 0.02037186,
           "log": "generate.log",
           "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
           "returncode": 0,
@@ -5260,7 +5260,7 @@
             "pan-safety",
             "pan.c"
           ],
-          "elapsed_seconds": 0.967300298,
+          "elapsed_seconds": 1.03261135,
           "log": "compile-safety.log",
           "log_sha256": "976b7800666d16b0f50daaa79e1e6fe070594141d7e2c7c0c27a21b5e297f6eb",
           "returncode": 0,
@@ -5273,7 +5273,7 @@
             "-m100000",
             "-w20"
           ],
-          "elapsed_seconds": 0.010311738,
+          "elapsed_seconds": 0.010313965,
           "log": "check-safety.log",
           "log_sha256": "f44d68a65b5d36502353bcf9fff428026cc1fd2c0801816f46faa00352fc9f9c",
           "returncode": 0,
@@ -5303,7 +5303,7 @@
             "-w20"
           ],
           "counterexample_kind": "assertion",
-          "elapsed_seconds": 0.010784856,
+          "elapsed_seconds": 0.010299308,
           "log": "check-safety.log",
           "log_sha256": "ba07459875ee83c55bb92d860cc21c640d588e15d77ddef01c535f357bfddfee",
           "property": "safety",
@@ -5319,7 +5319,7 @@
               "-l",
               "host-recovery.pml"
             ],
-            "elapsed_seconds": 0.010302845,
+            "elapsed_seconds": 0.010496796,
             "log": "replay-safety.log",
             "log_sha256": "755d23c032c6afcb1544c2fcf6b5668bcf0414413979cea3872dd8f7482c09a7",
             "returncode": 0,
@@ -5340,7 +5340,7 @@
             "-a",
             "host-recovery.pml"
           ],
-          "elapsed_seconds": 0.02274913,
+          "elapsed_seconds": 0.020397744,
           "log": "generate.log",
           "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
           "returncode": 0,
@@ -5357,7 +5357,7 @@
             "pan-safety",
             "pan.c"
           ],
-          "elapsed_seconds": 1.053415173,
+          "elapsed_seconds": 1.107305747,
           "log": "compile-safety.log",
           "log_sha256": "2ea0846696b982a6bb336557721970aafc45d53a9b4cf032f2e0773181285c0c",
           "returncode": 0,
@@ -5370,7 +5370,7 @@
             "-m100000",
             "-w20"
           ],
-          "elapsed_seconds": 0.010784856,
+          "elapsed_seconds": 0.010299308,
           "log": "check-safety.log",
           "log_sha256": "ba07459875ee83c55bb92d860cc21c640d588e15d77ddef01c535f357bfddfee",
           "returncode": 0,
@@ -5388,7 +5388,7 @@
             "-l",
             "host-recovery.pml"
           ],
-          "elapsed_seconds": 0.010302845,
+          "elapsed_seconds": 0.010496796,
           "log": "replay-safety.log",
           "log_sha256": "755d23c032c6afcb1544c2fcf6b5668bcf0414413979cea3872dd8f7482c09a7",
           "returncode": 0,
@@ -5418,7 +5418,7 @@
             "-w20"
           ],
           "counterexample_kind": "assertion",
-          "elapsed_seconds": 0.012905111,
+          "elapsed_seconds": 0.010265497,
           "log": "check-safety.log",
           "log_sha256": "c684a0d9d2909a3bfc8aaef73b93d98840f6d8d81087e386d18bd12b54757e0d",
           "property": "safety",
@@ -5434,7 +5434,7 @@
               "-l",
               "host-recovery.pml"
             ],
-            "elapsed_seconds": 0.020408188,
+            "elapsed_seconds": 0.010236523,
             "log": "replay-safety.log",
             "log_sha256": "1cda4b301bf05e19a363416086b6233574cde804c256a0d2325eff09836ebffa",
             "returncode": 0,
@@ -5455,7 +5455,7 @@
             "-a",
             "host-recovery.pml"
           ],
-          "elapsed_seconds": 0.020538399,
+          "elapsed_seconds": 0.020478671,
           "log": "generate.log",
           "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
           "returncode": 0,
@@ -5472,7 +5472,7 @@
             "pan-safety",
             "pan.c"
           ],
-          "elapsed_seconds": 1.131697699,
+          "elapsed_seconds": 1.002152724,
           "log": "compile-safety.log",
           "log_sha256": "976b7800666d16b0f50daaa79e1e6fe070594141d7e2c7c0c27a21b5e297f6eb",
           "returncode": 0,
@@ -5485,7 +5485,7 @@
             "-m100000",
             "-w20"
           ],
-          "elapsed_seconds": 0.012905111,
+          "elapsed_seconds": 0.010265497,
           "log": "check-safety.log",
           "log_sha256": "c684a0d9d2909a3bfc8aaef73b93d98840f6d8d81087e386d18bd12b54757e0d",
           "returncode": 0,
@@ -5503,7 +5503,7 @@
             "-l",
             "host-recovery.pml"
           ],
-          "elapsed_seconds": 0.020408188,
+          "elapsed_seconds": 0.010236523,
           "log": "replay-safety.log",
           "log_sha256": "1cda4b301bf05e19a363416086b6233574cde804c256a0d2325eff09836ebffa",
           "returncode": 0,
@@ -5533,7 +5533,7 @@
             "-w20"
           ],
           "counterexample_kind": "assertion",
-          "elapsed_seconds": 0.010517859,
+          "elapsed_seconds": 0.01027673,
           "log": "check-safety.log",
           "log_sha256": "6348e5aa51e01b3d0caf5a01fd005aebec93763c75eb3e778e9b6d5a92a14b38",
           "property": "safety",
@@ -5549,7 +5549,7 @@
               "-l",
               "host-recovery.pml"
             ],
-            "elapsed_seconds": 0.010708136,
+            "elapsed_seconds": 0.020380988,
             "log": "replay-safety.log",
             "log_sha256": "6479aa84bd631faea4db3c8f71e77ed4f269fb6f963592ac8130f9bcdc5ca27c",
             "returncode": 0,
@@ -5570,7 +5570,7 @@
             "-a",
             "host-recovery.pml"
           ],
-          "elapsed_seconds": 0.020471653,
+          "elapsed_seconds": 0.010338247,
           "log": "generate.log",
           "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
           "returncode": 0,
@@ -5587,7 +5587,7 @@
             "pan-safety",
             "pan.c"
           ],
-          "elapsed_seconds": 1.092675444,
+          "elapsed_seconds": 1.022258263,
           "log": "compile-safety.log",
           "log_sha256": "976b7800666d16b0f50daaa79e1e6fe070594141d7e2c7c0c27a21b5e297f6eb",
           "returncode": 0,
@@ -5600,7 +5600,7 @@
             "-m100000",
             "-w20"
           ],
-          "elapsed_seconds": 0.010517859,
+          "elapsed_seconds": 0.01027673,
           "log": "check-safety.log",
           "log_sha256": "6348e5aa51e01b3d0caf5a01fd005aebec93763c75eb3e778e9b6d5a92a14b38",
           "returncode": 0,
@@ -5618,7 +5618,7 @@
             "-l",
             "host-recovery.pml"
           ],
-          "elapsed_seconds": 0.010708136,
+          "elapsed_seconds": 0.020380988,
           "log": "replay-safety.log",
           "log_sha256": "6479aa84bd631faea4db3c8f71e77ed4f269fb6f963592ac8130f9bcdc5ca27c",
           "returncode": 0,
@@ -5648,7 +5648,7 @@
             "-w20"
           ],
           "counterexample_kind": "assertion",
-          "elapsed_seconds": 0.011309361,
+          "elapsed_seconds": 0.010266922,
           "log": "check-safety.log",
           "log_sha256": "0d8fbdf202741e08c1a512036f327a7acfc875778a209fab61925160e4b92fc4",
           "property": "safety",
@@ -5664,7 +5664,7 @@
               "-l",
               "host-recovery.pml"
             ],
-            "elapsed_seconds": 0.011198575,
+            "elapsed_seconds": 0.010251498,
             "log": "replay-safety.log",
             "log_sha256": "217f2519076397427d89cb955aa18aa4783005bd9a988686a7205af40cac4fca",
             "returncode": 0,
@@ -5685,7 +5685,7 @@
             "-a",
             "host-recovery.pml"
           ],
-          "elapsed_seconds": 0.020475449,
+          "elapsed_seconds": 0.020718037,
           "log": "generate.log",
           "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
           "returncode": 0,
@@ -5702,7 +5702,7 @@
             "pan-safety",
             "pan.c"
           ],
-          "elapsed_seconds": 1.027328704,
+          "elapsed_seconds": 0.98249041,
           "log": "compile-safety.log",
           "log_sha256": "3b17899b001cfeb5b7e351ffc859737510fa9957e38038030b9747a974196879",
           "returncode": 0,
@@ -5715,7 +5715,7 @@
             "-m100000",
             "-w20"
           ],
-          "elapsed_seconds": 0.011309361,
+          "elapsed_seconds": 0.010266922,
           "log": "check-safety.log",
           "log_sha256": "0d8fbdf202741e08c1a512036f327a7acfc875778a209fab61925160e4b92fc4",
           "returncode": 0,
@@ -5733,7 +5733,7 @@
             "-l",
             "host-recovery.pml"
           ],
-          "elapsed_seconds": 0.011198575,
+          "elapsed_seconds": 0.010251498,
           "log": "replay-safety.log",
           "log_sha256": "217f2519076397427d89cb955aa18aa4783005bd9a988686a7205af40cac4fca",
           "returncode": 0,
@@ -5760,7 +5760,7 @@
     "memory_mb": 512,
     "seconds_per_command": 30
   },
-  "runner_sha256": "c387dbe239a46825f38c32d10c1b634988eb67f3281c9d8572cf61a33711caf3",
+  "runner_sha256": "f2373dba5e462521f07906de0e8163f793a65674626c456b9f2cf561f8c2aaa0",
   "status": "PASS",
   "template_sha256": "801ffbc791783817254c19e9a51f2fe7fd0d60c767a852148880e1ad6eaf25f8",
   "transaction_model_sha256": "08d5f10dc4151f9b8ed0d67f86f68f11c0c0f85ead3ae0b9a3a5c3a20ba5ba52",
@@ -5770,7 +5770,7 @@
         "spin",
         "-V"
       ],
-      "elapsed_seconds": 0.010279892,
+      "elapsed_seconds": 0.010259275,
       "log": "spin-version.log",
       "log_sha256": "0e33568f71b5f96e47174d7f84b266a24c7f1b692cd6ecb654c65a158db28b26",
       "returncode": 0,
@@ -5781,7 +5781,7 @@
         "cc",
         "--version"
       ],
-      "elapsed_seconds": 0.0102524,
+      "elapsed_seconds": 0.010273853,
       "log": "compiler-version.log",
       "log_sha256": "e412d6c932acaaea35c743bc158d4ba2400ca0e3df66df406a872b2ce0f8601b",
       "returncode": 0,

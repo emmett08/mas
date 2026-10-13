@@ -67,7 +67,7 @@ successfully. All twenty-nine normal sampled simulations completed.
 
 The recorded runner hash matches the reviewed source:
 
-`c387dbe239a46825f38c32d10c1b634988eb67f3281c9d8572cf61a33711caf3`.
+`f2373dba5e462521f07906de0e8163f793a65674626c456b9f2cf561f8c2aaa0`.
 
 The new negative controls detect partial commit, duplicate insertion after a lost
 response, and expiry overwriting an earlier terminal decision. The assumption
@@ -207,3 +207,18 @@ SQLite journal files could disappear between inspection calls. The reviewed
 correction uses one non-following stat result and tolerates only a missing entry,
 while retaining rejection of symlinks and special files. Size remains an
 admission-time observation, not a strict filesystem quota.
+
+The native dependency review confirmed that the previous SQLite amalgamation
+was version 3.46.0. The independently tested upgrade to rusqlite 0.40.2 and
+libsqlite3-sys 0.38.2 supplies patched SQLite 3.53.2 and compiles with the pinned
+Rust 1.85.1 toolchain without application changes. All forty-five native tests
+passed in the isolated serial probe, followed by the final parallel suite after
+integration. This closes the identified outdated bundled-library gap; a clean
+Cargo audit alone is not evidence that embedded C dependencies are current.
+
+The parallel probe also exposed a verifier test-fixture naming race. Temporary
+directory names now include a process-local atomic counter, and exclusive
+directory creation rejects a collision instead of sharing a fixture. The final
+formal rerun completed all forty-five cases and seventy-three checks. The
+reviewer rechecked the final verifier source hash and the host model's source,
+check logs, replay logs and counterexample trail hashes against that manifest.

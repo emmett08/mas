@@ -6,7 +6,7 @@ execute application code with the host account's authority. Process supervision
 controls duration; it does not isolate hostile code. Use separate operating-system
 sandboxes before admitting adapters from another trust domain.
 
-Supported container targets are CPython 3.12 on Linux amd64 and arm64. The
+Supported container targets are CPython 3.12 on Alpine Linux amd64 and arm64. The
 current development line receives fixes. A tagged candidate becomes a supported
 release only after its CI, deployment acceptance and application-specific live
 acceptance have passed. A successful scan describes the advisory databases and
@@ -24,7 +24,9 @@ currently offered.
 ## Release gates
 
 - Committed Cargo and Python locks identify dependency versions; Python installs
-  require wheel hashes. Container base images use manifest digests.
+  require wheel hashes. Container base images use manifest digests. Alpine
+  package archives use fixed versions/hashes and signed offline installation.
+  Container libc and SQLite are dynamically linked, inventoried runtime packages.
 - CI audits all locked Python runtime/build/scanner dependencies and Cargo.lock.
   Image scanning fails on HIGH or CRITICAL advisories, including unfixed ones.
 - Scheduled weekly scanning checks for advisories discovered after a commit.

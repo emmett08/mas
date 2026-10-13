@@ -342,9 +342,11 @@ fn main() -> Result<()> {
 mod tests {
     use super::*;
     fn scratch() -> PathBuf {
-        let path=env::temp_dir().join(format!("mas-verify-test-{}-{}",std::process::id(),
-            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
-        fs::create_dir_all(&path).unwrap();path
+        static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let path=env::temp_dir().join(format!("mas-verify-test-{}-{}-{}",std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos(),
+            NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)));
+        fs::create_dir(&path).unwrap();path
     }
     #[test]
     fn incomplete_logs_never_become_success() {
