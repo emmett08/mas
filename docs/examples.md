@@ -2,7 +2,7 @@
 
 For a runnable mix of OpenAI GPT agents and a Python checker, start with the
 [Compose mesh and reusable host runner](host-runner.md). Its configuration is
-`examples/compose-mesh.json`; run it with `python -m mas_host` or Compose, not
+`examples/host/mesh.json`; run it with `python -m mas_host` or Compose, not
 `mas demo`. It provides explicit mock and live modes. The fixtures below remain
 deterministic Rust exercises.
 

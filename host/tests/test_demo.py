@@ -17,7 +17,7 @@ from mas_host.runner import Invocation, Outcome, Runner, RunnerError, TaskReques
 ROOT = Path(__file__).resolve().parents[2]
 MAS = ROOT / "rust-protocol/target/release/mas"
 GATEWAY = ROOT / "rust-protocol/target/release/mas-gateway"
-TOPOLOGY = ROOT / "examples/compose-mesh.json"
+TOPOLOGY = ROOT / "examples/host/mesh.json"
 
 
 class WrongProvider:

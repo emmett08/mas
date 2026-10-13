@@ -18,7 +18,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     MAS_GATEWAY_BIN=/usr/local/bin/mas-gateway \
     MAS_MODE=mock \
     MAS_STATE_DIR=/state \
-    MAS_TOPOLOGY=/app/examples/compose-mesh.json
+    MAS_TOPOLOGY=/app/examples/host/mesh.json
 RUN groupadd --gid 10001 mas \
     && useradd --uid 10001 --gid 10001 --no-create-home --home-dir /state mas \
     && mkdir -p /state /app/examples \
@@ -29,7 +29,7 @@ COPY --from=rust-build /build/rust-protocol/target/release/mas-gateway /usr/loca
 COPY --from=python-build /wheels /wheels
 RUN python -m pip install --no-cache-dir --no-index --find-links=/wheels 'mas-host[openai]==0.1.0' \
     && rm -rf /wheels
-COPY examples/compose-mesh.json /app/examples/compose-mesh.json
+COPY examples/host/mesh.json /app/examples/host/mesh.json
 COPY LICENSE THIRD_PARTY_LICENSE.txt /usr/share/doc/mas/
 WORKDIR /app
 USER 10001:10001

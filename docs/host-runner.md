@@ -73,7 +73,7 @@ flowchart TD
     P -->|"Final result"| C
 ```
 
-All six directed edges in `examples/compose-mesh.json` carry messages. Every
+All six directed edges in `examples/host/mesh.json` carry messages. Every
 delegation creates its own task and request identity. Results correlate with
 the original request, and the Rust gateway admits each operation under the
 appropriate actor capability. There is no shared conversation history between

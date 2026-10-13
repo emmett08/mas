@@ -14,7 +14,8 @@
 !host/mas_host/
 !host/mas_host/**
 !examples/
-!examples/compose-mesh.json
+!examples/host/
+!examples/host/mesh.json
 **/__pycache__/
 **/*.pyc
 **/.env

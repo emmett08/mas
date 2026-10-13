@@ -34,6 +34,6 @@ test_provider_reservation_commits_before_invocation_and_records_evidence (test_r
 test_public_reentry_and_stale_context_are_rejected (test_runner.RunnerIntegrationTests.test_public_reentry_and_stale_context_are_rejected) ... ok
 
 ----------------------------------------------------------------------
-Ran 34 tests in 1.155s
+Ran 34 tests in 1.260s
 
 OK
