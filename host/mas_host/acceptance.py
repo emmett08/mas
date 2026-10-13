@@ -179,9 +179,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--concurrency", type=int, default=3)
     parser.add_argument("--soak-seconds", type=int, default=0)
     parser.add_argument("--live", action="store_true", help="explicitly permit one live OpenAI mesh smoke test")
-    parser.add_argument("--state-dir", help="shared deployment directory; default is an isolated temporary directory")
+    parser.add_argument("--state-dir", help="persistent deployment directory; required for live mode, optional for mock mode")
     parser.add_argument("--report", type=Path, help="write the public JSON evidence report")
     args = parser.parse_args(argv)
+    if args.live and not args.state_dir:
+        parser.error("live acceptance requires an explicit persistent --state-dir for recovery and reconciliation")
     scratch = None
     try:
         if args.live and (args.runs != 1 or args.concurrency != 1 or args.soak_seconds):

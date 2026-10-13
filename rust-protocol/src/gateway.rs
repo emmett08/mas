@@ -6,7 +6,7 @@
 use crate::{parse_json, parse_message, store::Store, MAX_BYTES, MAX_DEPTH};
 use serde_json::{json, Map, Value};
 use sha2::{Digest, Sha256};
-use std::{collections::BTreeSet, io::{BufRead, Write}};
+use std::{collections::{BTreeMap, BTreeSet}, io::{BufRead, Write}};
 use subtle::ConstantTimeEq;
 
 type Result<T> = std::result::Result<T, String>;
@@ -121,11 +121,17 @@ impl Gateway {
         let scope = format!("gateway/{}", normal["gateway_id"].as_str().unwrap());
         let limit = normal["max_attempts"].as_i64().unwrap();
         let mut credentials = Vec::new();
+        let mut memberships = BTreeMap::new();
         for record in normal["credentials"].as_array().unwrap() {
             let run_id = record["run_id"].as_str().unwrap();
             let actor = record["actor"].as_str().unwrap();
-            let snapshot = store.inspect(run_id).map_err(|_| "gateway binding references an unavailable run")?;
-            if !snapshot["config"]["agents"].as_array().is_some_and(|agents| agents.iter().any(|a| a.as_str() == Some(actor))) {
+            // Several credentials commonly share one run. Read its bounded
+            // identity projection once, independently of retained audit history.
+            if !memberships.contains_key(run_id) {
+                memberships.insert(run_id, store.run_membership(run_id)
+                    .map_err(|_| "gateway binding references an unavailable run")?);
+            }
+            if !memberships[run_id].contains(actor) {
                 return Err("gateway binding references an unregistered actor".into());
             }
             credentials.push(Credential {

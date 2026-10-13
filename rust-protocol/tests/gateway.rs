@@ -122,6 +122,35 @@ fn call_reservations_remain_bound_to_the_authenticated_actor() {
 }
 
 #[test]
+fn maximum_actor_bindings_remain_valid_with_large_retained_call_history() {
+    let db=path();let mut store=Store::open(&db).unwrap();
+    let actors=(0..32).map(|i|format!("actor-{i}")).collect::<Vec<_>>();
+    store.create_run("r",&json!({"agents":actors,"edges":[],"max_calls":100})).unwrap();
+    let evidence=json!({"retained":"x".repeat(50_000)});
+    for index in 0..100 {
+        let call=format!("call-{index}");
+        store.reserve_call("r","actor-0",&call).unwrap();
+        store.finish_call("r","actor-0",&call,&evidence).unwrap();
+    }
+    let credentials=actors.iter().enumerate().map(|(i,actor)|json!({
+        "credential_id":format!("credential-{i}"),"token":format!("{i:064x}"),
+        "run_id":"r","actor":actor,"max_attempts":2
+    })).collect::<Vec<_>>();
+    let configuration=json!({"gateway_id":"large-history","max_attempts":64,"credentials":credentials});
+    let mut gateway=Gateway::open(store,&configuration).unwrap();
+    for i in 0..32 {
+        let frame=json!({"token":format!("{i:064x}"),"command":"receive"}).to_string();
+        assert_eq!(gateway.handle_frame(frame.as_bytes()).response,json!({"ok":true,"result":[]}));
+    }
+    drop(gateway);
+    let mut invalid_actor=configuration.clone();invalid_actor["credentials"][0]["actor"]=json!("outsider");
+    assert!(Gateway::open(Store::open(&db).unwrap(),&invalid_actor).is_err());
+    let mut invalid_run=configuration;invalid_run["credentials"][0]["run_id"]=json!("missing");
+    assert!(Gateway::open(Store::open(&db).unwrap(),&invalid_run).is_err());
+    std::fs::remove_file(db).unwrap();
+}
+
+#[test]
 fn stdin_stream_flushes_one_reply_per_frame_then_stops_at_global_cap() {
     let db = path();
     let mut gateway = Gateway::open(setup(&db), &config(2,10)).unwrap();

@@ -1,0 +1,133 @@
+"""Versioned SQLite repositories shared by host-side persistence adapters.
+
+Opening a known old format is an explicit transactional migration. Read-only
+inspection recognises that format without migrating it. Unknown identities,
+versions or layouts are rejected before any database write.
+"""
+from __future__ import annotations
+
+from contextlib import closing
+from dataclasses import dataclass
+from functools import cached_property
+from pathlib import Path
+import re
+import sqlite3
+from typing import Callable
+
+
+class SchemaError(RuntimeError):
+    pass
+
+
+@dataclass(frozen=True)
+class Schema:
+    name: str
+    application_id: int
+    version: int
+    legacy: tuple[tuple[int, int], ...]
+    statements: tuple[str, ...]
+
+    @cached_property
+    def layout(self):
+        with closing(sqlite3.connect(":memory:")) as db:
+            for statement in self.statements:
+                db.execute(statement)
+            return _layout(db)
+
+
+def _layout(db: sqlite3.Connection):
+    # The exact declared layout includes constraints, indices, views and triggers.
+    # Whitespace/case and IF NOT EXISTS are immaterial to these fixed schemas.
+    return tuple((kind, name, table, re.sub(r"\s+", "", re.sub(
+        r"\bIF\s+NOT\s+EXISTS\s+", "", sql or "", flags=re.I)).lower())
+        for kind, name, table, sql in db.execute(
+            "SELECT type,name,tbl_name,sql FROM sqlite_master ORDER BY type,name"))
+
+
+LEDGER = Schema("deployment ledger", 0x4D415344, 2, ((0, 1),), (
+    "CREATE TABLE metadata(key TEXT PRIMARY KEY,value TEXT NOT NULL)",
+    "CREATE TABLE runs(run_id TEXT PRIMARY KEY,directory TEXT UNIQUE NOT NULL,admitted_at INTEGER NOT NULL,purged_at INTEGER)",
+    "CREATE TABLE calls(run_id TEXT NOT NULL,call_id TEXT NOT NULL,reserved_microusd INTEGER NOT NULL,admitted_at INTEGER NOT NULL,PRIMARY KEY(run_id,call_id),FOREIGN KEY(run_id) REFERENCES runs(run_id))",
+))
+JOURNAL = Schema("host journal", 0x4D41534A, 1, ((0, 0),), (
+    "CREATE TABLE metadata(key TEXT PRIMARY KEY,value TEXT NOT NULL)",
+    "CREATE TABLE steps(key TEXT PRIMARY KEY,kind TEXT NOT NULL,input TEXT NOT NULL,data TEXT NOT NULL)",
+    "CREATE TABLE invocations(call_id TEXT PRIMARY KEY,step_key TEXT NOT NULL,actor TEXT NOT NULL,state TEXT NOT NULL,output TEXT,evidence TEXT,reservation_microusd INTEGER)",
+    "CREATE TABLE resolutions(id INTEGER PRIMARY KEY,call_id TEXT NOT NULL,decision TEXT NOT NULL,evidence TEXT NOT NULL,created INTEGER NOT NULL)",
+))
+
+
+def validate(db: sqlite3.Connection, schema: Schema) -> bool:
+    """Return whether migration is needed; never change the database."""
+    identity = (db.execute("PRAGMA application_id").fetchone()[0],
+                db.execute("PRAGMA user_version").fetchone()[0])
+    if identity != (schema.application_id, schema.version) and identity not in schema.legacy:
+        raise SchemaError(f"unsupported {schema.name} identity or version")
+    if _layout(db) != schema.layout:
+        raise SchemaError(f"unsupported {schema.name} layout")
+    return identity != (schema.application_id, schema.version)
+
+
+def connect(path: Path, schema: Schema, *, readonly: bool = False,
+            initialise: Callable[[sqlite3.Connection], None] | None = None,
+            validate_content: Callable[[sqlite3.Connection], None] | None = None) -> sqlite3.Connection:
+    """Open an identified repository; only a new file can be initialised.
+
+    The caller serialises initial creation. On an existing file, both preflight
+    inspection and transaction-local validation precede the first mutation.
+    """
+    path = Path(path).absolute()
+    if path.is_symlink() or (path.exists() and not path.is_file()):
+        raise SchemaError("database must be a regular file")
+    exists = path.exists()
+    if not exists and (readonly or initialise is None):
+        raise SchemaError(f"missing {schema.name}")
+    fresh = not exists
+    if exists:
+        with closing(sqlite3.connect(path.as_uri() + "?mode=ro", uri=True, timeout=10)) as check:
+            fresh = (initialise is not None and not _layout(check)
+                     and check.execute("PRAGMA application_id").fetchone()[0] == 0
+                     and check.execute("PRAGMA user_version").fetchone()[0] == 0)
+            if not fresh:
+                validate(check, schema)
+                if validate_content:
+                    validate_content(check)
+    if readonly:
+        db = sqlite3.connect(path.as_uri() + "?mode=ro", uri=True, timeout=10)
+        try:
+            validate(db, schema)
+            if validate_content:
+                validate_content(db)
+        except Exception:
+            db.close()
+            raise
+    else:
+        db = sqlite3.connect(path, timeout=10)
+        try:
+            db.execute("PRAGMA synchronous=FULL")
+            db.execute("BEGIN IMMEDIATE")
+            if not fresh:
+                migrate = validate(db, schema)
+                if validate_content:
+                    validate_content(db)
+            else:
+                # Do not initialise over a file populated after preflight.
+                if _layout(db) or any(db.execute(f"PRAGMA {key}").fetchone()[0]
+                                      for key in ("application_id", "user_version")):
+                    raise SchemaError(f"{schema.name} appeared during initialisation")
+                for statement in schema.statements:
+                    db.execute(statement)
+                initialise(db)
+                migrate = True
+            if migrate:
+                db.execute(f"PRAGMA application_id={schema.application_id}")
+                db.execute(f"PRAGMA user_version={schema.version}")
+            db.commit()
+            path.chmod(0o600)
+        except Exception:
+            db.rollback()
+            db.close()
+            raise
+    db.row_factory = sqlite3.Row
+    db.execute("PRAGMA busy_timeout=10000")
+    return db

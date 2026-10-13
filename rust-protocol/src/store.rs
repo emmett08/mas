@@ -12,6 +12,14 @@ fn now() -> Result<f64> { Ok(SystemTime::now().duration_since(UNIX_EPOCH).map_er
 /// One SQLite connection. Independent processes/connections serialize writes via
 /// BEGIN IMMEDIATE; a successful return means COMMIT completed.
 pub struct Store { db: Connection }
+/// Operational identity projection. Audit history is intentionally absent so
+/// opening an actor session does not decode every retained message and result.
+pub(crate) struct RunMembership { actors: std::collections::BTreeSet<String> }
+
+impl RunMembership {
+    pub(crate) fn contains(&self, actor: &str) -> bool { self.actors.contains(actor) }
+}
+
 struct Run { config: Value, deadline: f64, messages: i64, bytes: i64, calls: i64, active: String, expired: bool }
 fn run(db: &Connection, id: &str, actor: Option<&str>, deadline: bool) -> Result<Run> {
     let row = db.query_row("SELECT config,deadline,message_count,byte_count,call_count,active,expired FROM runs WHERE id=?",[id],|r| {
@@ -156,6 +164,26 @@ impl Store {
         let (expired,closed,_)=reconcile_transaction(&tx,id)?;
         tx.commit().map_err(err)?;
         Ok(json!({"run_id":id,"expired":expired,"closed_tasks":closed}))
+    }
+    /// Validate an actor binding using frozen run configuration, without loading
+    /// audit records. Preserve the expiry observation made when sessions open;
+    /// individual operations still reconcile again at their admission boundary.
+    pub(crate) fn run_membership(&self, id: &str) -> Result<RunMembership> {
+        self.reconcile(id)?;
+        let configuration: String = self.db.query_row(
+            "SELECT config FROM runs WHERE id=?", [id], |row| row.get(0)
+        ).map_err(err)?;
+        let configuration: Value = serde_json::from_str(&configuration).map_err(err)?;
+        let agents = configuration["agents"].as_array()
+            .filter(|agents| (1..=32).contains(&agents.len()))
+            .ok_or("invalid registered workers")?;
+        let mut actors = std::collections::BTreeSet::new();
+        for agent in agents {
+            let actor = agent.as_str().filter(|actor| crate::identity(actor))
+                .ok_or("invalid registered worker")?;
+            if !actors.insert(actor.to_owned()) { return Err("duplicate registered worker".into()); }
+        }
+        Ok(RunMembership { actors })
     }
     pub fn create_run(&mut self, id: &str, supplied: &Value) -> Result<Value> {
         if !crate::identity(id) { return Err("invalid run id".into()); }
@@ -605,6 +633,37 @@ mod tests {
         assert!(s.reserve_admission("gateway/global").is_err());
         assert!(s.register_admission("other","plaintext-secret",10).is_err());
         drop(s);std::fs::remove_file(p).unwrap();
+    }
+
+    #[test]
+    fn gateway_membership_does_not_read_audit_projection_and_still_reconciles() {
+        let p=path();let mut s=setup(&p,true);
+        s.send(&request("q","t"),"a").unwrap();
+        s.reserve_call("r","a","call").unwrap();
+        s.finish_call("r","a","call",&json!({"large":"x".repeat(50_000)})).unwrap();
+        expire(&s);
+        // Trap accidental evidence reads using a connection-local audit view.
+        // Persistent records remain intact; identity lookup must not depend on
+        // evaluating an audit projection. SQLite permits the view definition
+        // but rejects any query that tries to evaluate its missing function.
+        s.db.execute_batch("CREATE TEMP VIEW calls AS SELECT run,id,actor,state,unavailable_audit_projection(result) AS result FROM main.calls;").unwrap();
+        assert!(s.inspect("r").is_err());
+        let membership=s.run_membership("r").unwrap();
+        assert!(membership.contains("a"));assert!(membership.contains("b"));
+        assert!(!membership.contains("outsider"));assert!(s.run_membership("missing").is_err());
+        let configuration=json!({"gateway_id":"projection","max_attempts":2,"credentials":[
+            {"credential_id":"a","token":"aa".repeat(32),"run_id":"r","actor":"a","max_attempts":2},
+            {"credential_id":"b","token":"bb".repeat(32),"run_id":"r","actor":"b","max_attempts":2}
+        ]});
+        let mut gateway=crate::gateway::Gateway::open(s,&configuration).unwrap();
+        let frame=json!({"token":"bb".repeat(32),"command":"receive"}).to_string();
+        let delivery=gateway.handle_frame(frame.as_bytes());
+        assert_eq!(delivery.response["result"][0]["actionable"],false);
+        assert_eq!(delivery.response["result"][0]["task_state"],"expired_outcome_unknown");
+        assert!(!delivery.close);
+        assert!(gateway.handle_frame(frame.as_bytes()).close);
+        assert_eq!(gateway.handle_frame(frame.as_bytes()).response["error"]["code"],"admission_closed");
+        drop(gateway);std::fs::remove_file(p).unwrap();
     }
 
 }

@@ -1,6 +1,6 @@
 # Verification results
 
-Recorded on 13 October 2026. **45 Rust tests passed; 60 positive SPIN checks
+Recorded on 13 October 2026. **47 Rust tests passed; 60 positive SPIN checks
 completed with zero errors; eleven deliberate defects and two assumption
 counterexamples were detected and replayed; 29 sampled simulations completed.**
 All twelve workflow fixtures, the deadline-recovery example and the authenticated
@@ -10,7 +10,7 @@ These results establish the checked finite-model properties and tested runtime
 behaviours. They do not establish unrestricted implementation correctness,
 mathematical truth, live AI-agent performance or remote cryptographic security.
 
-The optional Python host adds **92 passing offline tests**, including integration
+The optional Python host adds **131 passing offline tests**, including integration
 with the real Rust binaries and an HTTP contract test using OpenAI SDK 3.29.0
 with a simulated transport. The mock mesh exercised all six directed edges,
 three completed tasks and two recorded mock calls; its exact Python checker
@@ -19,12 +19,17 @@ Host tests include lost replies after durable commit, provider failure, refusal,
 incomplete/malformed outputs, route rejection, depth limits and expiry. These are
 implementation tests; the [host recovery model](../formal/host-recovery-notes.md) checks a finite
 recovery abstraction, not the Python implementation.
-The separate `Host and Compose checks` workflow builds and executes the container
-demo and tests live-mode secret delivery with a dummy key.
+The separate `Host and Compose checks` workflow runs the full installed-container
+suite on native amd64 and arm64, checks reconciler readiness and tests live-mode
+secret delivery with a dummy key. Seven offline tests additionally check immutable
+release-tag source binding. Workflow success is recorded separately in Actions.
 
 Deployment fault checks exercise actual process termination, response loss,
-SQLite write failure and restored-state admission blocking. The smoke workload completed 12/12 jobs; a 60-second soak completed 631/631
-jobs across four concurrent hosts, with 1,262 mock calls and no errors. These are
+SQLite write failure and restored-state admission blocking. New regressions cover
+bootstrap interruption, guardian ownership during descendant cleanup, schema
+rejection without mutation, adapter error substitution and persistent live state.
+The smoke workload completed 12/12 jobs; a 60-second soak completed 601/601
+jobs across four concurrent hosts, with 1,202 mock calls and no errors. These are
 measurements of this local workload, not a capacity promise. Concurrent load and
 bounded-soak reports are in `evidence/deployment-*.json`; the initial failed soak
 is retained separately from the corrected run. No live credential was available,

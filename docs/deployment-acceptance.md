@@ -17,7 +17,12 @@ export MAS_GATEWAY_BIN="$PWD/rust-protocol/target/release/mas-gateway"
 python -m unittest discover -s host/tests -p test_deployment.py -v
 ```
 
-The Linux CI environment executes these checks:
+Native amd64 and arm64 Linux CI jobs execute these checks, both with the native
+Rust binaries and inside the installed Alpine container. The tagged release
+workflow repeats the complete host suite against each final architecture image
+and checks its actual dynamic musl/SQLite linkage. These are required gates;
+support for a particular release requires the jobs to have passed for that
+release's commit.
 
 | Injected condition | Required observation |
 |---|---|
@@ -56,8 +61,8 @@ The command stops submitting work at the first applicable limit and drains
 already admitted jobs under their run deadlines. An existing deployment retains
 its cumulative limits across repeated executions. Use `admin health` to inspect
 those limits before a soak; budget exhaustion is a reported admission failure.
-Omitting `--state-dir` uses a temporary deployment and removes its private state
-after the public report has been produced.
+In mock mode, omitting `--state-dir` uses a temporary deployment and removes its
+private state after the public report has been produced.
 
 Reports use schema `mas-deployment-acceptance/1` and contain:
 
@@ -100,6 +105,15 @@ adapter reserves 100,000 micro-US-dollars per call. These are conservative local
 allocations, not a measurement of the provider's invoice. Provider account
 controls and currently applicable pricing determine the actual financial limit.
 `MAS_CALL_RESERVATION_MICROUSD` configures the positive allocation per call.
+
+Live mode also requires an explicit `--state-dir` before providers are created
+or any work is admitted. Use persistent private storage and retain it after both
+successful and unsuccessful exercises. In particular, an unknown outcome needs
+its original journal and spending reservations for reconciliation; the command
+never removes the supplied state directory. Do not run live acceptance on an
+ephemeral CI runner unless a separate durable recovery mechanism retains this
+private state. Ordinary CI artefacts must not contain journals, capabilities or
+credentials.
 
 An unavailable credential, provider refusal, deadline, malformed output or
 incorrect model answer prevents a passing report. A lost response can leave an

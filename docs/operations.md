@@ -45,7 +45,7 @@ These are also the default limits. Each new run and each provider invocation mus
 
 Policy values are immutable after initialisation. Changing an environment variable or restarting a container cannot replenish the ledger. An exhausted deployment stops admitting work. A new deployment is an explicit new lifetime budget, so create one only after reconciling the old deployment and approving its replacement budget. Removing a ledger while retaining run databases fails closed. Deleting the entire deployment is an administrative destruction of its audit and cannot be detected by an independent replacement directory.
 
-Disk thresholds are checked before admissions. They close admission when free space falls below `min_free_bytes` or retained state reaches `max_state_bytes`. Writes already admitted can cross the threshold; use a filesystem quota for a strict storage ceiling. Watch `free_bytes`, `state_bytes`, usage and admission state through the health command. Backups occupy separate storage and need their own retention policy.
+Disk thresholds are checked before admissions. They close admission when free space falls below `min_free_bytes` or retained state reaches `max_state_bytes`. Writes already admitted can cross the threshold; use a filesystem quota for a strict storage ceiling. Watch `free_bytes`, `state_bytes`, usage and admission state through the read-only `health` command. It never creates a deployment or migrates its database. Backups occupy separate storage and need their own retention policy.
 
 ## Reconcile expiry independently
 
@@ -56,9 +56,17 @@ python -m mas_host admin --state-dir /absolute/private/state reconcile
 python -m mas_host admin --state-dir /absolute/private/state watch --interval 5
 ```
 
-A single run can be reconciled with `reconcile --run-dir /absolute/private/state/RUN_DIRECTORY`. The watcher prints one JSON record per scan, including disk/quota health, handles SIGINT/SIGTERM, and bounds each Rust command to ten seconds. `--iterations 3` performs a finite acceptance check. Reconciliation closes expired protocol tasks; it does not establish that a remote provider stopped or that an external effect was absent.
+A single run can be reconciled with `reconcile --run-dir /absolute/private/state/RUN_DIRECTORY`. The watcher prints one JSON record per scan, including disk/quota health, handles SIGINT/SIGTERM, and bounds each Rust command to ten seconds. `--iterations 3` performs a finite acceptance check and returns a nonzero exit code if any scan fails. Only one watcher may own a state directory at a time.
 
-The production Compose overlay supplies a separate reconciler service. Its process can continue reconciling retained runs after a host exits. Stop this service as well as hosts for predictable operator maintenance; snapshot locking rejects a busy deployment rather than copying inconsistent databases.
+A separate readiness command checks that the continuous watcher has recently completed a successful scan and that the same process remains alive:
+
+```sh
+python -m mas_host admin --state-dir /absolute/private/state reconciler-health --max-age-seconds 30
+```
+
+Readiness fails for missing, failed, stale or stopped watchers. The status records the Linux boot identity, process start ticks and the state directory identity, so a reused PID or copied heartbeat cannot establish readiness. It uses monotonic elapsed time. Admission quotas remain a separate health dimension: an exhausted deployment can still have a healthy reconciler. A finite watcher stops after its checks and therefore is not subsequently ready as a continuous service. A scan of many slow run databases can exceed the freshness threshold; choose that threshold according to the required reconciliation latency. Reconciliation closes expired protocol tasks; it does not establish that a remote provider stopped or that an external effect was absent.
+
+The production Compose overlay supplies a separate reconciler service. Its process can continue reconciling retained runs after a host exits. Its Docker health check uses `reconciler-health`, with a 30-second freshness threshold, rather than treating a running process as proof of successful reconciliation. Docker marks a failed service unhealthy; configure operational alerting for that status (the restart policy alone does not restart unhealthy but running processes). Stop this service as well as hosts for predictable operator maintenance; snapshot locking rejects a busy deployment rather than copying inconsistent databases.
 
 ## Recover an interrupted workflow
 
@@ -100,11 +108,24 @@ python -m mas_host admin --state-dir /absolute/private/state backup /absolute/pr
 python -m mas_host admin --state-dir /absolute/private/restored restore /absolute/private/backup-2026-10-13
 ```
 
-Restoration verifies the complete file set, content hashes and SQLite integrity before writing into an empty destination. Symlinks and unsafe paths are rejected. Hashes detect corruption; authenticate the backup's origin separately. The snapshot preserves the deployment identity, quotas, private capabilities, workflow checkpoints and unresolved calls.
+Restoration verifies the complete file set, content hashes and SQLite integrity before writing into an empty destination. Symlinks and unsafe paths are rejected. Hashes detect corruption; authenticate the backup's origin separately. The snapshot preserves the deployment identity, quotas, private capabilities, workflow checkpoints and unresolved calls. Ephemeral reconciler status is excluded.
 
 **Restored deployments are audit-only.** Their persistent ledger blocks every new call admission and every new run. Inspection, expiry reconciliation and replay of already completed root results remain available. This prevents an old snapshot from regaining budget consumed after the backup or becoming a second active copy of the same spending authority. This release deliberately has no command to reactivate a restored spending ledger. Reconcile external effects and account usage, stop the original deployment, and initialise a separately budgeted deployment for any authorised new work. Unknown work is never automatically replayed from a backup.
 
 The original deployment remains unchanged by backup or restore. Treat backups as private operational evidence and periodically run the restoration acceptance check on separate storage.
+
+## Repository formats and upgrades
+
+The host-side repositories have independent application identities and versions:
+
+| Repository | Application identity | Current version | Compatible previous format |
+| --- | --- | --- | --- |
+| Deployment ledger | `MASD` (`0x4d415344`) | 2 | Unidentified version 1 ledger from the preceding release |
+| Workflow journal | `MASJ` (`0x4d41534a`) | 1 | Unidentified version 0 journal from the preceding release |
+
+A writable open validates the exact declared tables, constraints and indices, and the saved metadata, before transactionally migrating a recognised previous format. Migration preserves deployment identity, policy, charges, checkpoints and resolutions. Unknown application identities, versions, extra objects or changed layouts are rejected before database mutation. Read-only health and inspection recognise supported previous formats without migrating them. Neither operation creates missing state. The Rust protocol repository retains its own format and migration rules.
+
+Take a quiescent backup before an upgrade. A newer host-side format must never be opened for writing by an older release. Follow [the release procedure](releases.md); an audit-only restore cannot regain spending authority.
 
 ## Retain evidence and remove completed runs
 

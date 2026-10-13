@@ -20,12 +20,26 @@ GATEWAY = ROOT / "rust-protocol/target/release/mas-gateway"
 TOPOLOGY = ROOT / "examples/host/mesh.json"
 
 
-class WrongProvider:
+class WrongProvider(MockProvider):
+    def __init__(self):
+        super().__init__("wrong-total-fixture")
+
     def total(self, invoice, **_kwargs):
         return Invocation(output={"total_cents": 1}, evidence={"provider": "mock", "fault": "wrong-total"})
 
 
 class DemoContractTests(unittest.TestCase):
+    def test_incomplete_provider_contract_rejected_before_run_admission(self):
+        class Provider:
+            def total(self, invoice, *, proposal=None, request_id=None):
+                raise AssertionError("invalid bindings must never dispatch")
+
+        with tempfile.TemporaryDirectory() as state:
+            with self.assertRaises(ProviderError):
+                run_demo(topology=DEFAULT_TOPOLOGY, state_dir=state,
+                         planner_provider=Provider(), reviewer_provider=MockProvider("reviewer"))
+            self.assertEqual(list(Path(state).iterdir()), [])
+
     def test_installed_default_matches_compose_topology(self):
         self.assertEqual(DEFAULT_TOPOLOGY, json.loads(TOPOLOGY.read_text()))
 
@@ -50,7 +64,10 @@ class DemoContractTests(unittest.TestCase):
 
     def test_reviewer_provider_consumes_delivered_candidate(self):
         seen = []
-        class Provider:
+        class Provider(MockProvider):
+            def __init__(self):
+                super().__init__("reviewer-fixture")
+
             def total(self, invoice, *, proposal=None, request_id=None):
                 seen.append((invoice, proposal))
                 return Invocation(output={"total_cents": 5497}, evidence={"provider": "fake"})
@@ -131,7 +148,10 @@ class NativeMeshTests(unittest.TestCase):
                 run_demo(**options)
 
     def test_provider_failure_retains_report_and_unknown_invocation(self):
-        class FailedProvider:
+        class FailedProvider(MockProvider):
+            def __init__(self):
+                super().__init__("failed-provider-fixture")
+
             def total(self, invoice, **_kwargs):
                 raise RuntimeError("private-api-key")
         with tempfile.TemporaryDirectory() as state:

@@ -10,6 +10,7 @@ import sqlite3
 import threading
 import time
 
+from .monitor import ReconcilerMonitor, reconciler_health
 from .operations import (DeploymentLedger, DeploymentPolicy, OperationsError,
                          backup_state, prune_runs, reconcile_run, reconcile_state,
                          restore_state, retained_runs)
@@ -31,7 +32,9 @@ def parser() -> argparse.ArgumentParser:
     commands = root.add_subparsers(dest="command", required=True)
     init = commands.add_parser("init", help="create an immutable deployment policy before the first run")
     init.add_argument("--policy", help="JSON object of DeploymentPolicy integer limits")
-    commands.add_parser("health", help="show lifetime quotas and current disk thresholds")
+    commands.add_parser("health", help="read lifetime quotas and disk thresholds without migration")
+    ready = commands.add_parser("reconciler-health", help="check the live reconciler independently of admission quotas")
+    ready.add_argument("--max-age-seconds", type=float, default=30)
     commands.add_parser("runs", help="list retained run identities and directories")
     inspect = commands.add_parser("inspect", help="inspect durable workflow and invocation checkpoints")
     inspect.add_argument("run_dir")
@@ -60,24 +63,36 @@ def _watch(state_dir: Path, interval: float, iterations: int) -> dict:
     if not 0.1 <= interval <= 60 or iterations < 0:
         raise OperationsError("watch interval must be 0.1 to 60 seconds; iterations must be nonnegative")
     ledger = DeploymentLedger(state_dir)
+    monitor = ReconcilerMonitor(state_dir)
     stopping = threading.Event()
     previous = {}
     if threading.current_thread() is threading.main_thread():
         for sig in (signal.SIGTERM, signal.SIGINT):
             previous[sig] = signal.signal(sig, lambda *_: stopping.set())
-    count = 0
+    count = failures = 0
     try:
-        while not stopping.is_set():
-            report = reconcile_state(state_dir, os.environ.get("MAS_BIN", "mas"))
-            print(json.dumps({"event": "reconciliation", "timestamp": int(time.time()), "health": ledger.health(), **report}, sort_keys=True), flush=True)
-            count += 1
-            if iterations and count >= iterations:
-                break
-            stopping.wait(interval)
+        with monitor.ownership():
+            monitor.write("starting", scans=0, failures=0)
+            try:
+                while not stopping.is_set():
+                    report = reconcile_state(state_dir, os.environ.get("MAS_BIN", "mas"))
+                    count += 1
+                    failures += int(report.get("ok") is not True)
+                    monitor.write("healthy" if report.get("ok") is True else "degraded",
+                                  scans=count, failures=failures)
+                    print(json.dumps({"event": "reconciliation", "timestamp": int(time.time()),
+                                      "health": ledger.health(), **report}, sort_keys=True), flush=True)
+                    if iterations and count >= iterations:
+                        break
+                    stopping.wait(interval)
+            finally:
+                monitor.write("stopped", scans=count, failures=failures)
     finally:
         for sig, handler in previous.items():
             signal.signal(sig, handler)
-    return {"ok": True, "scans": count, "stopped": stopping.is_set()}
+    return {"ok": failures == 0, "scans": count, "failed_scans": failures,
+            "stopped": stopping.is_set()}
+
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -88,7 +103,9 @@ def main(argv: list[str] | None = None) -> int:
             policy = DeploymentPolicy(**_object_file(args.policy)) if args.policy else None
             result = {"ok": True, "health": DeploymentLedger(state_dir, policy).health()}
         elif args.command == "health":
-            result = {"ok": True, "health": DeploymentLedger(state_dir).health()}
+            result = {"ok": True, "health": DeploymentLedger(state_dir, readonly=True).health()}
+        elif args.command == "reconciler-health":
+            result = reconciler_health(state_dir, args.max_age_seconds)
         elif args.command == "runs":
             result = {"ok": True, "runs": retained_runs(state_dir)}
         elif args.command == "inspect":

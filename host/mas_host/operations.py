@@ -20,6 +20,8 @@ import tempfile
 import time
 import uuid
 
+from .schema import JOURNAL, LEDGER, SchemaError, connect, validate
+
 
 class OperationsError(RuntimeError):
     """Fixed, credential-free operational diagnostic."""
@@ -97,8 +99,19 @@ def _state_size(path: Path) -> int:
 def _db(path: Path, readonly: bool = False):
     if path.is_symlink() or (path.exists() and not path.is_file()):
         raise OperationsError("database must be a regular file")
+    existed = path.exists()
     connection = sqlite3.connect(path.as_uri() + "?mode=ro", uri=True, timeout=10) if readonly else sqlite3.connect(path, timeout=10)
     connection.row_factory = sqlite3.Row
+    try:
+        known = {"deployment.sqlite": LEDGER, "host.sqlite": JOURNAL}.get(path.name)
+        if known and existed:
+            validate(connection, known)
+    except SchemaError as error:
+        connection.close()
+        raise OperationsError(str(error)) from None
+    except Exception:
+        connection.close()
+        raise
     connection.execute("PRAGMA busy_timeout=10000")
     if not readonly:
         connection.execute("PRAGMA synchronous=FULL")
@@ -117,34 +130,57 @@ class DeploymentLedger:
     supplied. Repeated admissions with the same identity are idempotent, and
     purging run data never returns an admission allocation.
     """
-    def __init__(self, state_dir: Path, policy: DeploymentPolicy | None = None):
-        self.state_dir = _private_dir(Path(state_dir), create=True)
+    def __init__(self, state_dir: Path, policy: DeploymentPolicy | None = None,
+                 *, readonly: bool = False):
+        self.state_dir = _private_dir(Path(state_dir), create=not readonly)
         self.path = self.state_dir / "deployment.sqlite"
-        with _file_lock(self.state_dir / ".deployment.lock", True):
+        self._readonly = readonly
+
+        def validate_metadata(db):
+            values = dict(db.execute("SELECT key,value FROM metadata"))
+            required = {"policy", "deployment_id", "created_at", "admission_state"}
+            if not required.issubset(values) or set(values) - required - {"restored_at"}:
+                raise OperationsError("incomplete or unsupported deployment metadata")
+            if values["admission_state"] not in ("active", "restored_audit_only"):
+                raise OperationsError("unsupported deployment admission state")
+            try:
+                saved = DeploymentPolicy(**json.loads(values["policy"]))
+                if policy is not None and saved != policy:
+                    raise OperationsError("deployment policy is immutable; use its existing policy")
+            except (ValueError, TypeError):
+                raise OperationsError("invalid saved deployment policy") from None
+
+        def initialise(db):
+            chosen = policy or DeploymentPolicy()
+            db.executemany("INSERT INTO metadata VALUES(?,?)", [
+                ("policy", json.dumps(asdict(chosen), sort_keys=True)),
+                ("deployment_id", "deployment-" + uuid.uuid4().hex),
+                ("created_at", str(int(time.time()))),
+                ("admission_state", "active"),
+            ])
+
+        def open_ledger():
             if not self.path.exists() and (self.state_dir / ".restored-audit-only").exists():
                 raise OperationsError("restored deployment ledger is incomplete; admissions are disabled")
             if not self.path.exists() and any(self.state_dir.glob("*/state.sqlite")):
                 raise OperationsError("existing run state has no deployment ledger; migrate explicitly into a new deployment")
-            with _db(self.path) as db:
-                db.executescript("""
-                    CREATE TABLE IF NOT EXISTS metadata(key TEXT PRIMARY KEY,value TEXT NOT NULL);
-                    CREATE TABLE IF NOT EXISTS runs(run_id TEXT PRIMARY KEY,directory TEXT UNIQUE NOT NULL,admitted_at INTEGER NOT NULL,purged_at INTEGER);
-                    CREATE TABLE IF NOT EXISTS calls(run_id TEXT NOT NULL,call_id TEXT NOT NULL,reserved_microusd INTEGER NOT NULL,admitted_at INTEGER NOT NULL,PRIMARY KEY(run_id,call_id),FOREIGN KEY(run_id) REFERENCES runs(run_id));
-                    PRAGMA user_version=1;
-                """)
-                saved = db.execute("SELECT value FROM metadata WHERE key='policy'").fetchone()
-                if saved:
-                    self.policy = DeploymentPolicy(**json.loads(saved[0]))
-                    if policy is not None and policy != self.policy:
-                        raise OperationsError("deployment policy is immutable; use its existing policy")
-                else:
-                    self.policy = policy or DeploymentPolicy()
-                    db.executemany("INSERT INTO metadata VALUES(?,?)", [
-                        ("policy", json.dumps(asdict(self.policy), sort_keys=True)),
-                        ("deployment_id", "deployment-" + uuid.uuid4().hex),
-                        ("created_at", str(int(time.time()))),
-                        ("admission_state", "active"),
-                    ])
+            try:
+                connection = connect(self.path, LEDGER, readonly=readonly,
+                                     initialise=None if readonly else initialise,
+                                     validate_content=validate_metadata)
+                try:
+                    self.policy = DeploymentPolicy(**json.loads(connection.execute(
+                        "SELECT value FROM metadata WHERE key='policy'").fetchone()[0]))
+                finally:
+                    connection.close()
+            except SchemaError as error:
+                raise OperationsError(str(error)) from None
+
+        if readonly:
+            open_ledger()
+        else:
+            with _file_lock(self.state_dir / ".deployment.lock", True):
+                open_ledger()
 
     @property
     def admission_enabled(self) -> bool:
@@ -171,6 +207,8 @@ class DeploymentLedger:
             raise OperationsError("deployment admission closed: state size limit reached")
 
     def admit_run(self, run_id: str, run_dir: Path) -> bool:
+        if self._readonly:
+            raise OperationsError("read-only deployment cannot admit work")
         run_dir = Path(run_dir).absolute()
         if not isinstance(run_id, str) or not run_id or len(run_id) > 128:
             raise OperationsError("invalid run identity")
@@ -192,6 +230,8 @@ class DeploymentLedger:
             return True
 
     def admit_call(self, run_id: str, call_id: str, reservation_microusd: int | None = None) -> bool:
+        if self._readonly:
+            raise OperationsError("read-only deployment cannot admit work")
         allocation = self.policy.per_call_reservation_microusd if reservation_microusd is None else reservation_microusd
         if type(allocation) is not int or not 0 <= allocation <= self.policy.max_reserved_microusd:
             raise OperationsError("invalid call expenditure allocation")
@@ -224,7 +264,8 @@ class DeploymentLedger:
             return db.execute("SELECT 1 FROM runs WHERE run_id=?", (run_id,)).fetchone() is not None
 
     def health(self) -> dict:
-        with _file_lock(self.state_dir / ".deployment.lock", False), _db(self.path, readonly=True) as db:
+        with _db(self.path, readonly=True) as db:
+            db.execute("BEGIN")
             usage = self._limits(db)
             identity = db.execute("SELECT value FROM metadata WHERE key='deployment_id'").fetchone()[0]
             enabled = self._admission_enabled(db)
@@ -324,7 +365,8 @@ def backup_state(state_dir: Path, destination: Path) -> dict:
                 if source.is_dir():
                     (destination / relative).mkdir(mode=0o700, parents=True, exist_ok=True)
                     continue
-                if source.name.endswith((".lock", "-wal", "-shm", "-journal")):
+                if (source.name.endswith((".lock", "-wal", "-shm", "-journal"))
+                        or source.name.startswith(".reconciler-health")):
                     continue
                 target = destination / relative
                 if source.suffix == ".sqlite":

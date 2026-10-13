@@ -101,7 +101,9 @@ python -m pip install --require-hashes -r host/requirements-openai.txt
 ```
 
 An adapter implements one method. The host provides the addressed request and an
-actor-bound context. The following complete example needs no model provider:
+actor-bound `AdapterContext` interface: `actor`, `invocation_id`,
+`remaining_seconds`, `request` and `invoke`. Parent-only checkpoint/admission
+methods are outside that interface. The following complete example needs no model provider:
 
 ```python
 from pathlib import Path
@@ -135,6 +137,11 @@ It sends and consumes a real Request/Result exchange. A peer reply needs the
 reverse directed edge as well as the request edge. All requests and replies go
 through the Rust encoder and authenticated gateway.
 
+A handler can catch a delegated `AdapterError` and choose a deterministic
+fallback. Inline and supervised execution preserve that public error contract.
+Unknown invocation outcomes still prevent completing the affected workflow:
+catching an exception cannot turn an uncertain effect into confirmed success.
+
 Wrap every external effect with `context.invoke(callable, input=effect_descriptor,
 reservation_microusd=100000)`. The zero-argument callable returns
 `Invocation(output={...}, evidence={...})`. Include every effect-relevant input,
@@ -146,6 +153,13 @@ a guarantee about eventual billing. Mock adapters use zero money allocation but
 still consume the shared call count. Custom adapters are trusted to declare
 appropriate allowances and to keep all effects inside this interface.
 
+The invoice demo's `TotalProvider` contract requires `total(...)`,
+`descriptor()` and an integer `reservation_microusd`, including an explicit zero
+for offline providers. Descriptors identify provider, model, contract and all
+effect-relevant configuration, without credentials. Binding is validated before
+run admission; missing metadata never implies free execution or a class-name
+identity. Existing built-in provider bindings retain their recovery identity.
+
 During the callable, `context.invocation_id` supplies a stable diagnostic ID and
 `context.remaining_seconds` exposes the remaining run deadline. The OpenAI
 adapter sends the ID as `X-Client-Request-Id`, records safe response/request IDs
@@ -155,9 +169,12 @@ provider idempotency guarantee.
 Adapters run in supervised child processes by default. The parent retains the
 gateway, checkpoints and accounting. Its watchdog uses the original run deadline to stop and reap local work,
 including nested delegation. Blocked host/storage calls and OS scheduling can
-delay enforcement; this is not a hard real-time guarantee. Linux
-parent-death signalling also terminates a direct adapter child if its supervisor
-is killed. Local termination cannot establish that remote provider work stopped.
+delay enforcement; this is not a hard real-time guarantee. A separate Linux
+guardian observes the host's lifetime pipe and the same absolute deadline. It
+retains run ownership until it has killed and reaped the adapter process group,
+including ordinary descendants after host `SIGKILL`. Adapter workers do not
+inherit the host's database or run-lock descriptors. Local termination cannot
+establish that remote provider work stopped.
 This requires a single-threaded Linux host; Docker supplies Linux on other hosts.
 
 The interface accepts trusted Python code, not hostile plugins. Processes share
@@ -165,6 +182,12 @@ the container's filesystem and trust boundary; this is not a security sandbox.
 Ordinary background descendants are cleaned up, but adapters must not daemonise
 or escape their process group. Model output is data: the example never executes
 generated Python, shell commands or model-selected tools.
+
+Acquire process-bound resources, such as open files and network connections,
+inside `handle` or `invoke`; copied host descriptors are deliberately closed in
+adapter workers. Each active delegation level uses a guardian and an adapter
+worker in addition to the host's short-lived protocol subprocesses. Set PID and
+memory limits for the configured maximum delegation depth.
 
 ## Reuse across topologies
 
@@ -205,6 +228,14 @@ deterministic orchestration code, receiving cached invocation outputs instead of
 repeating those effects. Randomness, mutable external state and effects outside
 `context.invoke` break that recovery contract.
 
+New runs publish a durable bootstrap intent before deployment admission.
+`Runner.resume` can finish interrupted initialisation using the original run
+identity, workflow version, topology and any already committed Rust deadline.
+Published gateway credentials are reused. No adapter runs before bootstrap is
+ready. Complete legacy runs remain readable through validated schema migration;
+an incomplete legacy run without its original workflow metadata remains
+unresolved because that missing identity cannot be reconstructed safely.
+
 An invocation that may have reached a provider is retained as **unknown** and
 blocks automatic re-execution. Inspect the journal and provider records, then use
 an evidence-backed administrative resolution: supply an independently established
@@ -227,6 +258,9 @@ reconciliation, retention and consistent backups. Restores are admission-disable
 audit copies: they cannot spend from a stale budget snapshot. The optional
 `compose.production.yaml` adds an independent reconciler; CPU, memory and PID caps
 are applied by Compose. This is a bounded single-host service, not high availability.
+
+See [host architecture](host-architecture.md) for responsibility boundaries,
+interface contracts and the design choices behind these controls.
 
 [Deployment acceptance](deployment-acceptance.md) provides actual crash, storage
 failure, bounded load/soak and opt-in live-provider checks. [Release controls](releases.md)

@@ -48,8 +48,11 @@ sets `RUSTFLAGS=-C target-feature=-crt-static` and
 `LIBSQLITE3_SYS_USE_PKG_CONFIG=1`; the native Cargo build uses its bundled SQLite
 dependency. The Rust builder retains its pinned compiler and matching Alpine
 3.21 development libraries; the deployed library is the newer runtime package.
-CI checks actual dynamic linkage, SQLite version and the complete host test suite
-inside the installed container with networking disabled.
+Native amd64 and arm64 CI jobs check actual dynamic linkage, SQLite version and
+the complete host test suite, including process-termination and storage-failure
+tests, inside the installed container with networking disabled. Each job also
+runs the native host suite and bounded mock workload. Architecture-specific
+artefacts retain the test logs and workload report.
 
 `docker/alpine-packages.json` fixes archive versions and SHA256 hashes separately
 for builder/runtime and amd64/arm64. Downloads verify hashes; offline `apk`
@@ -63,11 +66,29 @@ independently retained copy with the same hash.
 
 ## Candidate artefacts
 
-Creating a `v0.MINOR.PATCH` tag triggers the release workflow. Manual dispatch
-must select an existing tag. Protocol/SPIN, host/Compose/acceptance and security
-jobs all gate packaging. Native amd64 and arm64 jobs produce an OCI archive,
+Creating a `v0.MINOR.PATCH` tag or pushing a `release/v0.MINOR.PATCH` branch
+triggers the release workflow. Manual dispatch must select an existing version
+tag or release branch. Versions must use that exact numeric form, without a
+prerelease suffix or leading zeroes. Protocol/SPIN, host/Compose/acceptance and
+security jobs all gate candidate acceptance.
+
+After those gates pass, a candidate job verifies the exact source commit. For
+a release branch, it creates the corresponding lightweight version tag only if
+absent. An existing lightweight or annotated tag must resolve to the identical
+commit; a mismatch fails and the workflow never rewrites or deletes a tag.
+Only this candidate job has repository write permission. Packaging explicitly
+checks out its verified source SHA and uses its verified version, including
+when the workflow began from a branch. Tag creation with the job token does not
+need to trigger another workflow: the same gated run proceeds to packaging.
+
+Native amd64 and arm64 jobs produce an OCI archive,
 embedded BuildKit provenance, a CycloneDX SBOM, audit results, a source manifest
-and `SHA256SUMS`. The manifest is an unsigned identity record; it is not an
+and `SHA256SUMS`. Before packaging is accepted, each final image must pass the
+complete installed-container host suite and dynamic-library checks. The release
+artefacts include the image identity and test log in the checksum manifest.
+Workflow definitions establish these requirements; only successful executions
+on the tagged commit establish that the candidate passed them.
+The manifest is an unsigned identity record; it is not an
 independent attestation of correctness. Action artefacts expire after 30 days,
 so the maintainer must retain approved releases and checksums in durable release
 storage. The workflow does not publish a package or push an image registry tag.

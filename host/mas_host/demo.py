@@ -9,8 +9,10 @@ from pathlib import Path
 from typing import Any
 
 from .providers import (MockProvider, OpenAIProvider, ProviderError, TotalProvider,
-                        _reject_number, _unique_object, exact_total, validate_invoice, validate_total)
-from .runner import Context, Outcome, Runner, TaskRequest
+                        _reject_number, _unique_object, exact_total, provider_binding,
+                        validate_invoice, validate_total)
+from .contracts import AdapterContext, Outcome, TaskRequest
+from .runner import Runner
 
 DEFAULT_INVOICE = [
     {"item": "Notebook", "quantity": 2, "unit_cents": 1299},
@@ -36,18 +38,16 @@ def _invoice_input(request: TaskRequest, operation: str, fields: set[str]) -> li
 
 
 def _provider_descriptor(provider: TotalProvider) -> dict:
-    describe = getattr(provider, "descriptor", None)
-    if callable(describe):
-        return describe()
-    return {"provider": type(provider).__module__ + "." + type(provider).__qualname__}
+    return provider_binding(provider)[0]
 
 
-def _infer(context: Context, provider: TotalProvider, invoice: list,
+def _infer(context: AdapterContext, provider: TotalProvider, invoice: list,
            proposal: dict | None = None) -> dict:
-    effect = {"adapter": _provider_descriptor(provider), "invoice": invoice, "proposal": proposal}
+    descriptor, reservation = provider_binding(provider)
+    effect = {"adapter": descriptor, "invoice": invoice, "proposal": proposal}
     return validate_total(context.invoke(
         lambda: provider.total(invoice, proposal=proposal, request_id=context.invocation_id),
-        input=effect, reservation_microusd=getattr(provider, "reservation_microusd", 0)))
+        input=effect, reservation_microusd=reservation))
 
 
 class PlannerAdapter:
@@ -56,7 +56,7 @@ class PlannerAdapter:
     def __init__(self, provider: TotalProvider):
         self.provider = provider
 
-    def handle(self, context: Context, request: TaskRequest) -> Outcome:
+    def handle(self, context: AdapterContext, request: TaskRequest) -> Outcome:
         invoice = _invoice_input(request, "invoice.plan", {"invoice"})
         proposal = _infer(context, self.provider, invoice)
         review = context.request("reviewer", "invoice.review", {
@@ -71,7 +71,7 @@ class ReviewerAdapter:
     def __init__(self, provider: TotalProvider):
         self.provider = provider
 
-    def handle(self, context: Context, request: TaskRequest) -> Outcome:
+    def handle(self, context: AdapterContext, request: TaskRequest) -> Outcome:
         invoice = _invoice_input(request, "invoice.review", {"invoice", "planner_total_cents"})
         proposal = validate_total({"total_cents": request.input["planner_total_cents"]})
         reviewed = _infer(context, self.provider, invoice, proposal)
@@ -86,7 +86,7 @@ class ReviewerAdapter:
 class CheckerAdapter:
     """No model or generated code: integer multiplication and addition only."""
 
-    def handle(self, context: Context, request: TaskRequest) -> Outcome:
+    def handle(self, context: AdapterContext, request: TaskRequest) -> Outcome:
         invoice = _invoice_input(request, "invoice.check", {
             "invoice", "planner_total_cents", "reviewer_total_cents",
         })

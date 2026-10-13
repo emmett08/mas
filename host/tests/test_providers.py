@@ -7,7 +7,7 @@ from types import SimpleNamespace
 import unittest
 
 from mas_host.providers import (MAX_TOTAL_CENTS, MockProvider, OpenAIProvider, ProviderError,
-                                exact_total, validate_invoice, validate_total)
+                                exact_total, provider_binding, validate_invoice, validate_total)
 
 INVOICE = [{"item": "Widget", "quantity": 2, "unit_cents": 1499}]
 
@@ -36,6 +36,62 @@ def provider_with(response_object=None, error=None):
 
 
 class ProviderContractTests(unittest.TestCase):
+    def test_binding_rejects_missing_identity_or_allocation(self):
+        class MissingMetadata:
+            def total(self, invoice, *, proposal=None, request_id=None):
+                raise AssertionError("binding must not invoke the provider")
+
+        class MissingAllocation(MissingMetadata):
+            def descriptor(self):
+                return {"provider": "custom", "model": "alpha", "contract": "invoice-total/2"}
+
+        for provider in (MissingMetadata(), MissingAllocation()):
+            with self.subTest(provider=type(provider).__name__), self.assertRaises(ProviderError):
+                provider_binding(provider)
+
+    def test_binding_captures_custom_model_and_declared_allocation(self):
+        class CustomProvider:
+            def __init__(self, model, amount):
+                self.model, self.reservation_microusd = model, amount
+
+            def descriptor(self):
+                return {"provider": "custom", "model": self.model, "contract": "invoice-total/2"}
+
+            def total(self, invoice, *, proposal=None, request_id=None):
+                raise AssertionError("binding must not invoke the provider")
+
+        alpha = provider_binding(CustomProvider("alpha", 123))
+        beta = provider_binding(CustomProvider("beta", 123))
+        changed_amount = provider_binding(CustomProvider("alpha", 124))
+        self.assertEqual(alpha[1], 123)
+        self.assertEqual(alpha[0]["reservation_microusd"], 123)
+        self.assertNotEqual(alpha[0], beta[0])
+        self.assertNotEqual(alpha[0], changed_amount[0])
+        for amount in (None, True, -1, 100_000_001):
+            with self.subTest(amount=amount), self.assertRaises(ProviderError):
+                provider_binding(CustomProvider("alpha", amount))
+
+    def test_binding_rejects_conflicting_or_invalid_descriptor(self):
+        class InvalidProvider(MockProvider):
+            def __init__(self, descriptor):
+                super().__init__("fixture")
+                self.value = descriptor
+
+            def descriptor(self):
+                return self.value
+
+        base = MockProvider("fixture").descriptor()
+        for descriptor in ({}, {**base, "model": ""}, {**base, "reservation_microusd": 2},
+                           {**base, "reservation_microusd": False}, {**base, "temperature": 0.5}):
+            with self.subTest(descriptor=descriptor), self.assertRaises(ProviderError):
+                provider_binding(InvalidProvider(descriptor))
+
+    def test_existing_builtin_bindings_preserve_recovery_identity(self):
+        for provider in (MockProvider("planner"), provider_with()[0]):
+            descriptor, amount = provider_binding(provider)
+            self.assertEqual(descriptor, provider.descriptor())
+            self.assertEqual(amount, provider.reservation_microusd)
+
     def test_mock_matches_schema_and_truthful_evidence(self):
         invocation = MockProvider("planner").total(INVOICE)
         self.assertEqual(invocation.output, {"total_cents": 2998})

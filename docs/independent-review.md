@@ -222,3 +222,37 @@ directory creation rejects a collision instead of sharing a fixture. The final
 formal rerun completed all forty-five cases and seventy-three checks. The
 reviewer rechecked the final verifier source hash and the host model's source,
 check logs, replay logs and counterexample trail hashes against that manifest.
+
+## Readiness recheck and repairs
+
+A later review challenged the five deployment areas and adapter substitutability.
+It reproduced ordinary descendants surviving owner SIGKILL and retaining a run
+lock, different catchable-error behaviour between inline and supervised adapters,
+acceptance of future host schemas, unrecoverable bootstrap interruption, false
+successful watcher reports and deletion of live acceptance state. These findings
+supersede the earlier completion assessment for the affected host paths.
+
+The repairs introduce a process-group guardian that retains ownership until
+cleanup, typed context/error contracts, version-aware repositories, staged
+bootstrap recovery, independent reconciler readiness and persistent live-check
+state. Custom provider descriptors and allocations are explicit contract members.
+The Rust gateway now queries bounded membership metadata once per run instead
+of decoding full retained history for every credential.
+
+Independent follow-up testing found and closed two additional admission-window
+failures: interruption after recording execution but before the supervisor
+received its ticket, and a handler catching that error then admitting another
+effect. Both probes now leave the task open with one uncertain invocation and
+prevent further execution. The reviewer reran sixty focused bootstrap, schema,
+supervision, readiness and recovery tests successfully and found no unresolved
+material defect in those reviewed paths.
+
+The original deadline is established when Rust first commits the run and is
+preserved thereafter. Bootstrap stages before that commit have no earlier Rust
+deadline to restore. Complete legacy runs migrate through recognised layouts;
+legacy partial runs without original workflow metadata remain unresolved. The
+guardian contract requires trusted adapters to remain in their process group
+and functioning Linux/kernel/storage mechanisms. This review establishes the
+tested boundaries, not a formal implementation refinement or universal
+production certification. Live and tagged-release execution remain separate
+acceptance records.

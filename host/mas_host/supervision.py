@@ -8,7 +8,6 @@ Terminating local execution cannot establish cancellation of a remote effect.
 
 from __future__ import annotations
 
-import ctypes
 import json
 import math
 import os
@@ -20,19 +19,14 @@ import threading
 import time
 from typing import Callable
 
-from .runner import AdapterError, Invocation, Outcome, RecoveryRequired, RunnerError, _json
+from .codec import integer_json as _json
+from .contracts import (Adapter, AdapterError, AdapterInterrupted, AdapterTimeout,
+                        HostContext, Invocation, Outcome, RecoveryRequired,
+                        RunnerError, TaskRequest)
+from .process_group import ProcessGroup
 
 
 MAX_FRAME = 65_536
-_CHANNEL_FDS: set[int] = set()
-
-
-class AdapterTimeout(AdapterError):
-    """The local handler exceeded its inherited deadline."""
-
-
-class AdapterInterrupted(AdapterError):
-    """The host received a shutdown signal during adapter execution."""
 
 
 def _invalid() -> None:
@@ -65,6 +59,31 @@ def _decode(data: bytes) -> dict:
 def _fields(frame: dict, names: set[str]) -> None:
     if set(frame) != names:
         _invalid()
+
+
+def _raise_reply_error(frame: dict) -> None:
+    """Only public error categories cross IPC; exception text never does."""
+    if "error" not in frame:
+        return
+    _fields(frame, {"error"})
+    if frame["error"] == "adapter_error":
+        raise AdapterError("delegated adapter failed; inspect run status")
+    if frame["error"] == "runner_error":
+        raise RunnerError("host operation rejected; inspect run status")
+    _invalid()
+
+
+def _operation_reply(channel, operation):
+    """Return recoverable failures to the adapter; uncertainty remains fatal."""
+    try:
+        return True, operation()
+    except (RecoveryRequired, AdapterInterrupted, AdapterTimeout):
+        raise
+    except AdapterError:
+        channel.send({"error": "adapter_error"})
+    except RunnerError:
+        channel.send({"error": "runner_error"})
+    return False, None
 
 
 class _Channel:
@@ -110,6 +129,7 @@ class _Channel:
             except (OSError, TimeoutError):
                 raise AdapterError("adapter IPC interrupted; outcome may be unknown") from None
             if not data:
+                self.remaining()
                 raise AdapterError("adapter exited without a result; outcome may be unknown")
             self.buffer.extend(data)
 
@@ -147,6 +167,7 @@ class _ContextProxy:
         self._channel.send({"op": "request", "recipient": recipient,
                             "operation": operation, "input": input})
         reply = self._channel.receive()
+        _raise_reply_error(reply)
         _fields(reply, {"output", "status"})
         return Outcome(reply["output"], reply["status"])
 
@@ -156,6 +177,7 @@ class _ContextProxy:
         self._channel.send({"op": "prepare", "input": input,
                             "reservation_microusd": reservation_microusd})
         reply = self._channel.receive()
+        _raise_reply_error(reply)
         _fields(reply, {"execute", "output", "call_id"})
         if reply["execute"] is False:
             if type(reply["output"]) is not dict:
@@ -193,18 +215,8 @@ class _ContextProxy:
             self._invocation_id = None
 
 
-def _child(channel: _Channel, adapter, actor: str, request, parent_pid: int) -> None:
+def _child(channel: _Channel, adapter, actor: str, request) -> None:
     try:
-        os.setsid()
-        signal.signal(signal.SIGTERM, signal.SIG_DFL)
-        signal.signal(signal.SIGINT, signal.SIG_DFL)
-        # Linux clears PDEATHSIG in a forked child; set it before any adapter
-        # code and close the race where the parent died before this call.
-        libc = ctypes.CDLL(None, use_errno=True)
-        if libc.prctl(1, signal.SIGKILL, 0, 0, 0) != 0:
-            raise AdapterError("could not supervise adapter lifetime")
-        if os.getppid() != parent_pid:
-            os.kill(os.getpid(), signal.SIGKILL)
         outcome = adapter.handle(_ContextProxy(channel, actor), request)
         if (not isinstance(outcome, Outcome) or type(outcome.output) is not dict
                 or outcome.status not in ("completed", "unresolved")):
@@ -221,33 +233,13 @@ def _child(channel: _Channel, adapter, actor: str, request, parent_pid: int) -> 
         os._exit(0)
 
 
-def _stop(pid: int) -> None:
-    # Kill the process group even after a normal result: an adapter must not
-    # leave background work behind. Descendants which deliberately create a
-    # new session are outside this trusted-adapter contract.
-    try:
-        os.killpg(pid, signal.SIGKILL)
-    except ProcessLookupError:
-        try:
-            os.kill(pid, signal.SIGKILL)
-        except ProcessLookupError:
-            pass
-    while True:
-        try:
-            os.waitpid(pid, 0)
-            return
-        except InterruptedError:
-            continue
-        except ChildProcessError:
-            return
-
-
 def execute(adapter, context, request, *, deadline: float,
             tick: Callable[[], None] | None = None, poll_interval: float = 0.05) -> Outcome:
     """Supervise one handler until an absolute monotonic run deadline.
 
     ``context`` stays in the parent. Its request/prepare/complete/fail methods
-    are authoritative and their exceptions propagate without being rewritten.
+    are authoritative. Recoverable operation errors return a sanitised public
+    category to the adapter; uncertain effects and journal failures abort.
     Nested execution must receive the same or an earlier absolute deadline.
     The caller must bound administrative commands and its reconciliation tick.
     SIGTERM/SIGINT stop local work and leave pending effects uncertain.
@@ -262,11 +254,8 @@ def execute(adapter, context, request, *, deadline: float,
     if deadline <= time.monotonic():
         raise AdapterTimeout("adapter deadline exceeded; outcome may be unknown")
     parent_sock, child_sock = socket.socketpair()
-    inherited_channels = _CHANNEL_FDS.copy()
-    parent_fd = parent_sock.fileno()
-    _CHANNEL_FDS.add(parent_fd)
     channel = _Channel(parent_sock, deadline)
-    pid = None
+    group = None
     ticket = None
     previous = {}
 
@@ -276,13 +265,16 @@ def execute(adapter, context, request, *, deadline: float,
     try:
         for number in (signal.SIGTERM, signal.SIGINT):
             previous[number] = signal.signal(number, interrupt)
-        parent_pid = os.getpid()
-        pid = os.fork()
-        if pid == 0:
-            parent_sock.close()
-            for fd in inherited_channels:
-                os.close(fd)
-            _child(_Channel(child_sock, deadline), adapter, context.actor, request, parent_pid)
+        # Do not let shutdown land between forking the guardian and installing
+        # its owner object: the finally block must always be able to close it.
+        previous_mask = signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGTERM, signal.SIGINT})
+        try:
+            group = ProcessGroup(child_sock.fileno(),
+                                 lambda: _child(_Channel(child_sock, deadline), adapter,
+                                                context.actor, request), deadline,
+                                 getattr(context, "ownership_descriptors", ()))
+        finally:
+            signal.pthread_sigmask(signal.SIG_SETMASK, previous_mask)
         child_sock.close()
         while True:
             frame = channel.receive(tick, poll_interval)
@@ -307,10 +299,20 @@ def execute(adapter, context, request, *, deadline: float,
                 if (frame["input"] is not None and type(frame["input"]) is not dict
                         or amount is not None and (type(amount) is not int or amount < 0)):
                     _invalid()
-                prepared = context.prepare_invocation(input=frame["input"],
-                                                     reservation_microusd=frame["reservation_microusd"])
+                # Install ownership of the ticket before handling shutdown.
+                # Admission may have committed executing intent when it returns.
+                previous_mask = signal.pthread_sigmask(signal.SIG_BLOCK,
+                                                       {signal.SIGTERM, signal.SIGINT})
+                try:
+                    accepted, prepared = _operation_reply(channel, lambda: context.prepare_invocation(
+                        input=frame["input"], reservation_microusd=frame["reservation_microusd"]))
+                    if accepted and prepared.execute:
+                        ticket = prepared
+                finally:
+                    signal.pthread_sigmask(signal.SIG_SETMASK, previous_mask)
+                if not accepted:
+                    continue
                 if prepared.execute:
-                    ticket = prepared
                     channel.send({"execute": True, "output": None, "call_id": prepared.call_id})
                 else:
                     channel.send({"execute": False, "output": prepared.cached_output,
@@ -320,7 +322,10 @@ def execute(adapter, context, request, *, deadline: float,
                 if (type(frame["recipient"]) is not str or type(frame["operation"]) is not str
                         or type(frame["input"]) is not dict):
                     _invalid()
-                outcome = context.request(frame["recipient"], frame["operation"], frame["input"])
+                accepted, outcome = _operation_reply(channel, lambda: context.request(
+                    frame["recipient"], frame["operation"], frame["input"]))
+                if not accepted:
+                    continue
                 channel.send({"output": outcome.output, "status": outcome.status})
             elif operation == "result":
                 _fields(frame, {"op", "output", "status"})
@@ -345,16 +350,31 @@ def execute(adapter, context, request, *, deadline: float,
         for number in previous:
             signal.signal(number, signal.SIG_IGN)
         try:
-            if pid is not None and pid > 0:
-                _stop(pid)
+            if group is not None:
+                group.close()
             if ticket is not None:
                 try:
                     context.fail_invocation(ticket)
                 except Exception:
                     pass  # A durable outstanding reservation is still unknown.
         finally:
-            _CHANNEL_FDS.discard(parent_fd)
             parent_sock.close()
             child_sock.close()
             for number, handler in previous.items():
                 signal.signal(number, handler)
+
+
+class InlineExecutor:
+    """In-process strategy for deterministic testing; no execution isolation."""
+
+    def execute(self, adapter: Adapter, context: HostContext, request: TaskRequest, *,
+                deadline: float, tick: Callable[[], None] | None = None) -> Outcome:
+        return adapter.handle(context, request)
+
+
+class LinuxProcessExecutor:
+    """Trusted adapters in a killable group owned by an independent guardian."""
+
+    def execute(self, adapter: Adapter, context: HostContext, request: TaskRequest, *,
+                deadline: float, tick: Callable[[], None] | None = None) -> Outcome:
+        return execute(adapter, context, request, deadline=deadline, tick=tick)

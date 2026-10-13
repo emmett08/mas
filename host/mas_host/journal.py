@@ -13,6 +13,8 @@ import sqlite3
 import time
 import uuid
 
+from .schema import JOURNAL, SchemaError, connect
+
 
 class JournalError(RuntimeError):
     pass
@@ -28,6 +30,10 @@ class RunLock:
         except OSError:
             self._file.close()
             raise JournalError("run is already in use") from None
+
+    def fileno(self) -> int:
+        """Descriptor retained by the execution guardian until child cleanup."""
+        return self._file.fileno()
 
     def close(self):
         if not self._file.closed:
@@ -48,26 +54,39 @@ def canonical(value):
 class Journal:
     def __init__(self, run_dir: Path, metadata: dict | None = None):
         path = Path(run_dir) / "host.sqlite"
+        if metadata is not None and set(metadata) != {"run_id", "workflow_version", "topology", "max_depth"}:
+            raise JournalError("incomplete or unsupported recovery journal metadata")
         if metadata is None and not path.is_file():
             raise JournalError("run has no recovery journal")
-        self.db = sqlite3.connect(path)
-        self.db.row_factory = sqlite3.Row
-        self.db.execute("PRAGMA synchronous=FULL")
-        self.db.executescript("""
-            CREATE TABLE IF NOT EXISTS metadata(key TEXT PRIMARY KEY,value TEXT NOT NULL);
-            CREATE TABLE IF NOT EXISTS steps(key TEXT PRIMARY KEY,kind TEXT NOT NULL,
-                input TEXT NOT NULL,data TEXT NOT NULL);
-            CREATE TABLE IF NOT EXISTS invocations(call_id TEXT PRIMARY KEY,step_key TEXT NOT NULL,
-                actor TEXT NOT NULL,state TEXT NOT NULL,output TEXT,evidence TEXT,
-                reservation_microusd INTEGER);
-            CREATE TABLE IF NOT EXISTS resolutions(id INTEGER PRIMARY KEY,call_id TEXT NOT NULL,
-                decision TEXT NOT NULL,evidence TEXT NOT NULL,created INTEGER NOT NULL);
-        """)
-        if metadata is not None:
-            with self.db:
-                for key, value in metadata.items():
-                    self.db.execute("INSERT INTO metadata VALUES(?,?)", (key, canonical(value)))
-        path.chmod(0o600)
+        def validate_metadata(db):
+            values = {row[0]: row[1] for row in db.execute("SELECT key,value FROM metadata")}
+            if not values and metadata is not None:
+                return  # Known bootstrap can finish a legacy partial initialisation.
+            required = {"run_id", "workflow_version", "topology", "max_depth"}
+            if set(values) != required:
+                raise JournalError("incomplete or unsupported recovery journal metadata")
+            try:
+                decoded = {key: json.loads(value) for key, value in values.items()}
+            except (TypeError, ValueError):
+                raise JournalError("invalid recovery journal metadata") from None
+            if metadata is not None and decoded != metadata:
+                raise JournalError("bootstrap metadata differs from recovery journal")
+
+        def initialise(db):
+            for key, value in metadata.items():
+                db.execute("INSERT INTO metadata VALUES(?,?)", (key, canonical(value)))
+
+        try:
+            self.db = connect(path, JOURNAL,
+                              initialise=initialise if metadata is not None else None,
+                              validate_content=validate_metadata)
+            if metadata is not None:
+                with self.db:
+                    if not self.db.execute("SELECT 1 FROM metadata LIMIT 1").fetchone():
+                        initialise(self.db)
+                validate_metadata(self.db)
+        except SchemaError as error:
+            raise JournalError(str(error)) from None
 
     def metadata(self):
         return {row["key"]: json.loads(row["value"]) for row in self.db.execute("SELECT * FROM metadata")}
@@ -127,8 +146,12 @@ def inspect_run(run_dir: Path) -> dict:
     path = Path(run_dir).resolve() / "host.sqlite"
     if not path.is_file():
         raise JournalError("run has no recovery journal")
-    with sqlite3.connect(path.as_uri() + "?mode=ro", uri=True) as db:
-        db.row_factory = sqlite3.Row
+    try:
+        connection = connect(path, JOURNAL, readonly=True)
+    except SchemaError as error:
+        raise JournalError(str(error)) from None
+    from contextlib import closing
+    with closing(connection) as db:
         metadata = {row["key"]: json.loads(row["value"]) for row in db.execute("SELECT * FROM metadata")}
         calls = []
         for row in db.execute("SELECT * FROM invocations ORDER BY rowid"):

@@ -2,9 +2,9 @@
   "deployment_after": {
     "admission_open": true,
     "admission_state": "active",
-    "deployment_id": "deployment-d79bb947dfc344a6b70d63df450c6fd1",
+    "deployment_id": "deployment-7c5ec8599cdb4c9ab75ba9c082a0c49c",
     "expenditure_semantics": "reserved allocation; actual provider invoices require separate account controls",
-    "free_bytes": 26534055936,
+    "free_bytes": 27072815104,
     "policy": {
       "max_calls": 10000,
       "max_reserved_microusd": 100000000,
@@ -14,7 +14,7 @@
       "per_call_reservation_microusd": 100000
     },
     "retained_runs": 12,
-    "state_bytes": 1303101,
+    "state_bytes": 1312305,
     "usage": {
       "calls": 24,
       "reserved_microusd": 0,
@@ -24,9 +24,9 @@
   "deployment_before": {
     "admission_open": true,
     "admission_state": "active",
-    "deployment_id": "deployment-d79bb947dfc344a6b70d63df450c6fd1",
+    "deployment_id": "deployment-7c5ec8599cdb4c9ab75ba9c082a0c49c",
     "expenditure_semantics": "reserved allocation; actual provider invoices require separate account controls",
-    "free_bytes": 26535735296,
+    "free_bytes": 27077304320,
     "policy": {
       "max_calls": 10000,
       "max_reserved_microusd": 100000000,
@@ -43,16 +43,16 @@
       "runs": 0
     }
   },
-  "elapsed_ms": 659,
+  "elapsed_ms": 823,
   "environment": {
     "cpu_count": 9,
     "mas": {
       "available": true,
-      "sha256": "f2693c30bb3f81a08624f30d20bf81205be10f9d0a4c67d11b0994b9ad6343fc"
+      "sha256": "b3794c90c969e5742791a1900b5ced53a1365fbd10dcd27a41781ae1612b4dfd"
     },
     "mas_gateway": {
       "available": true,
-      "sha256": "04e634c9436662f40da2ff02894c0bce2b215fe4d1d67515b76b7383a9e66b24"
+      "sha256": "b1b85c5b7a067f16d58bf2de3e684a3342f12bf395d223b398e54290c7422613"
     },
     "platform": "Linux-6.18.44-x86_64-with-glibc2.39",
     "python": "3.12.14",
@@ -60,10 +60,10 @@
   },
   "error_count": 0,
   "latency_ms": {
-    "maximum": 143,
-    "minimum": 115,
-    "p50": 128,
-    "p95": 143
+    "maximum": 187,
+    "minimum": 154,
+    "p50": 161,
+    "p95": 187
   },
   "mode": "mock",
   "ok": true,
@@ -72,116 +72,116 @@
   "runs": [
     {
       "calls": 2,
-      "duration_ms": 131,
+      "duration_ms": 165,
       "ok": true,
       "outcome": "completed",
-      "run_id": "run-b970922b966144aea9a9fd644f2fdd07",
+      "run_id": "run-15417d354fd74b5c8d05184a7e5daed6",
       "status_available": true,
       "unknown_calls": 0
     },
     {
       "calls": 2,
-      "duration_ms": 125,
+      "duration_ms": 155,
       "ok": true,
       "outcome": "completed",
-      "run_id": "run-a9bb6cfa8c144afb8c951e417cbb1f5c",
+      "run_id": "run-26d3abae597849868049857fe1483040",
       "status_available": true,
       "unknown_calls": 0
     },
     {
       "calls": 2,
-      "duration_ms": 132,
+      "duration_ms": 165,
       "ok": true,
       "outcome": "completed",
-      "run_id": "run-24f3a3d32e6d4be483791f1bf40ecc0d",
+      "run_id": "run-7255a96462504f4787ad41d973a158d5",
       "status_available": true,
       "unknown_calls": 0
     },
     {
       "calls": 2,
-      "duration_ms": 126,
+      "duration_ms": 171,
       "ok": true,
       "outcome": "completed",
-      "run_id": "run-8d084d79cf20406cb07809ceb722907b",
+      "run_id": "run-99de3f1a05c643a2a73c742c1bfbb365",
       "status_available": true,
       "unknown_calls": 0
     },
     {
       "calls": 2,
-      "duration_ms": 124,
+      "duration_ms": 183,
       "ok": true,
       "outcome": "completed",
-      "run_id": "run-c7515ea3082649cf87ed5c3caa952e08",
+      "run_id": "run-626655918cd04b78ad69bc62cecf6f88",
       "status_available": true,
       "unknown_calls": 0
     },
     {
       "calls": 2,
-      "duration_ms": 130,
+      "duration_ms": 187,
       "ok": true,
       "outcome": "completed",
-      "run_id": "run-aa1d23d5694a4e60a4c006e54369b5cd",
+      "run_id": "run-4b02b17c93194c6fa45272551b62ecfd",
       "status_available": true,
       "unknown_calls": 0
     },
     {
       "calls": 2,
-      "duration_ms": 115,
+      "duration_ms": 154,
       "ok": true,
       "outcome": "completed",
-      "run_id": "run-834e7cc0747f43bfa7b5be1be3cedf68",
+      "run_id": "run-d8d02c0d10144a1fa91b1ce983afb925",
       "status_available": true,
       "unknown_calls": 0
     },
     {
       "calls": 2,
-      "duration_ms": 122,
+      "duration_ms": 161,
       "ok": true,
       "outcome": "completed",
-      "run_id": "run-30d59c8199434b63896dfcc478e44980",
+      "run_id": "run-dbbd8fd0989b42c480332f9020104cde",
       "status_available": true,
       "unknown_calls": 0
     },
     {
       "calls": 2,
-      "duration_ms": 128,
+      "duration_ms": 155,
       "ok": true,
       "outcome": "completed",
-      "run_id": "run-c4d9744146d24e349678c7fe54bea869",
+      "run_id": "run-606c5cbd518144078f3e69a90b589bdc",
       "status_available": true,
       "unknown_calls": 0
     },
     {
       "calls": 2,
-      "duration_ms": 136,
+      "duration_ms": 154,
       "ok": true,
       "outcome": "completed",
-      "run_id": "run-77fdb74f375c4b11aefbecb671ca5f7b",
+      "run_id": "run-ee50785b4adc44fa80963c89d6ce1f05",
       "status_available": true,
       "unknown_calls": 0
     },
     {
       "calls": 2,
-      "duration_ms": 134,
+      "duration_ms": 154,
       "ok": true,
       "outcome": "completed",
-      "run_id": "run-ee147d2b1523458f8cb8ba70eb812ba8",
+      "run_id": "run-b15f847df939489ea7db7a8908578c0e",
       "status_available": true,
       "unknown_calls": 0
     },
     {
       "calls": 2,
-      "duration_ms": 143,
+      "duration_ms": 165,
       "ok": true,
       "outcome": "completed",
-      "run_id": "run-1efc0b2a8f2e4cc499e25db10ad667e2",
+      "run_id": "run-554ccde2efac455ba0adba40c6773a41",
       "status_available": true,
       "unknown_calls": 0
     }
   ],
   "schema": "mas-deployment-acceptance/1",
   "scope": "Measured bounded mock workload only. Fault tests and live-provider acceptance are separate evidence. No production capacity claim.",
-  "started_at": "2026-10-13T19:45:21.418142+00:00",
+  "started_at": "2026-10-13T20:46:56.262769+00:00",
   "success_count": 12,
   "workload": {
     "agents_per_run": 3,

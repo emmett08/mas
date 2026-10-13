@@ -2,9 +2,20 @@ name: Host and Compose checks
 on: [push, pull_request, workflow_dispatch, workflow_call]
 permissions:
   contents: read
+defaults:
+  run:
+    shell: bash
 jobs:
   host-and-compose:
-    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            architecture: amd64
+          - runner: ubuntu-24.04-arm
+            architecture: arm64
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -24,8 +35,10 @@ jobs:
           python -m pip install --require-hashes -r host/requirements-build.txt -r host/requirements-openai.txt
           python -m pip install --no-deps --no-build-isolation ./host
           python -m pip check
-          python -m unittest discover -s host/tests -v
+          python -m unittest discover -s host/tests -v 2>&1 | tee native-host-tests.log
+          python -m unittest discover -s scripts/tests -v
       - name: Check arm64 locked wheels
+        if: matrix.architecture == 'amd64'
         run: |
           python -m pip download --require-hashes --only-binary=:all: --platform manylinux2014_aarch64 --python-version 3.12 --implementation cp --abi cp312 --dest /tmp/arm64-wheels -r host/requirements-openai.txt
           python -m pip download --require-hashes --only-binary=:all: --platform musllinux_1_2_aarch64 --platform musllinux_1_1_aarch64 --python-version 3.12 --implementation cp --abi cp312 --dest /tmp/musl-arm64-wheels -r host/requirements-openai.txt
@@ -51,7 +64,7 @@ jobs:
             --mount type=bind,src="$PWD/host/tests",dst=/mounted-tests,readonly \
             --mount type=bind,src="$PWD/examples",dst=/mounted-examples,readonly \
             --mount type=bind,src="$PWD/scripts/release-container-check.py",dst=/release-container-check.py,readonly \
-            --entrypoint python mas-mesh:local -I /release-container-check.py
+            --entrypoint python mas-mesh:local -I /release-container-check.py 2>&1 | tee installed-container-tests.log
       - name: Check container report
         run: |
           docker compose logs --no-color --no-log-prefix mesh > compose-mesh.log
@@ -75,8 +88,10 @@ jobs:
       - name: Independent reconciliation watcher
         run: |
           docker compose -f compose.yaml -f compose.production.yaml up -d reconciler
-          timeout 20 sh -c 'until docker compose -f compose.yaml -f compose.production.yaml logs --no-color reconciler | grep -q .; do sleep 1; done'
-          test "$(docker inspect --format '{{.State.Running}}' "$(docker compose -f compose.yaml -f compose.production.yaml ps -q reconciler)")" = true
+          reconciler_id=$(docker compose -f compose.yaml -f compose.production.yaml ps -q reconciler)
+          export reconciler_id
+          timeout 45 sh -c 'until [ "$(docker inspect --format "{{.State.Health.Status}}" "$reconciler_id")" = healthy ]; do sleep 1; done'
+          docker inspect --format '{{json .State.Health}}' "$reconciler_id" > reconciler-health.json
       - name: Check live secret injection without calling the API
         env:
           OPENAI_API_KEY: compose-mount-test-not-a-real-key
@@ -101,8 +116,11 @@ jobs:
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
         with:
-          name: compose-mock-report
+          name: compose-mock-report-${{ matrix.architecture }}
           path: |
             compose-mesh.log
             compose-container.json
             acceptance.json
+            native-host-tests.log
+            installed-container-tests.log
+            reconciler-health.json

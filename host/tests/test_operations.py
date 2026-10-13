@@ -10,6 +10,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
+from mas_host.journal import Journal
 from mas_host.operations import (DeploymentLedger, DeploymentPolicy, OperationsError,
     _file_lock, backup_state, prune_runs, restore_state)
 
@@ -41,10 +42,13 @@ class OperationsTests(unittest.TestCase):
         self.ledger.admit_run(identity, directory)
         with sqlite3.connect(directory / "state.sqlite") as db:
             db.executescript("CREATE TABLE tasks(state TEXT); INSERT INTO tasks VALUES('completed'); CREATE TABLE calls(id TEXT,state TEXT,result TEXT);")
-        with sqlite3.connect(directory / "host.sqlite") as db:
-            db.executescript("CREATE TABLE invocations(call_id TEXT,state TEXT);")
-            if unknown:
-                db.execute("INSERT INTO invocations VALUES('unknown-call','unknown')")
+        journal = Journal(directory, {"run_id": identity, "workflow_version": "operations-fixture/1",
+                                      "topology": {}, "max_depth": 8})
+        if unknown:
+            journal.step("request:1", "invoke", {}, {})
+            call = journal.create_invocation("request:1", "worker", 0)
+            journal.update_invocation(call["call_id"], "unknown")
+        journal.close()
         (directory / "gateway.json").write_text('{"private":"credential-value"}')
         return directory
 

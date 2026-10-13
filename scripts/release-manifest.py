@@ -10,7 +10,9 @@ sha = os.environ["SOURCE_SHA"]
 tag = os.environ["RELEASE_TAG"]
 if not re.fullmatch(r"[0-9a-f]{40}", sha) or not re.fullmatch(r"v0\.[0-9]+\.[0-9]+(?:-[A-Za-z0-9.-]+)?", tag):
     raise SystemExit("Expected a full commit SHA and a v0.MINOR.PATCH release tag")
-files = sorted([*Path(".").glob("mas-*.oci.tar"), Path("release-audit.json"), Path("release-sbom.cdx.json")])
+files = sorted([*Path(".").glob("mas-*.oci.tar"), Path("release-audit.json"),
+                Path("release-sbom.cdx.json"), Path("release-image-identity.json"),
+                Path("release-container-tests.log")])
 if not any(path.name.endswith(".oci.tar") for path in files):
     raise SystemExit("The OCI archive is missing")
 def digest(path):

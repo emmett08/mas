@@ -1,5 +1,7 @@
 """Real process lifetime and bounded IPC tests; no provider API is called."""
 
+import ctypes
+import json
 import os
 from pathlib import Path
 import signal
@@ -10,8 +12,10 @@ from types import SimpleNamespace
 import unittest
 
 from mas_host.runner import AdapterError, Invocation, Outcome, RecoveryRequired, RunnerError, TaskRequest
-from mas_host.supervision import (AdapterInterrupted, AdapterTimeout, _CHANNEL_FDS,
-                                  _decode, execute)
+from mas_host.contracts import AdapterContext
+from mas_host.journal import JournalError, RunLock
+from mas_host.supervision import (AdapterInterrupted, AdapterTimeout,
+                                  InlineExecutor, LinuxProcessExecutor, _decode, execute)
 
 
 REQUEST = TaskRequest("a", "b", "test", {}, "task", "message")
@@ -58,6 +62,7 @@ class SupervisionTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.context = ParentContext()
+        self.original_descriptors = set(os.listdir("/proc/self/fd"))
 
     def run_adapter(self, function, timeout=2, context=None, tick=None):
         return execute(FunctionAdapter(function), context or self.context, REQUEST,
@@ -104,7 +109,7 @@ class SupervisionTests(unittest.TestCase):
         self.assertTrue(all(event[1] == os.getpid() for event in self.context.events))
         self.assertEqual(self.context.events[0][2],
                          {"input": {"model": "stub"}, "reservation_microusd": 100})
-        self.assertEqual(_CHANNEL_FDS, set())
+        self.assertEqual(set(os.listdir("/proc/self/fd")), self.original_descriptors)
 
     def test_cached_invocation_never_calls_provider(self):
         path = Path(self.temp.name) / "must-not-run"
@@ -181,15 +186,16 @@ class SupervisionTests(unittest.TestCase):
                     context, REQUEST, deadline=deadline)
         self.assertLess(time.monotonic() - deadline, 0.5)
         self.assert_reaped(path)
-        self.assertEqual(_CHANNEL_FDS, set())
+        self.assertEqual(set(os.listdir("/proc/self/fd")), self.original_descriptors)
 
     def test_sigterm_cleans_child_and_restores_host_handler(self):
         path = Path(self.temp.name) / "pid"
         previous = signal.getsignal(signal.SIGTERM)
+        host_pid = os.getpid()
 
         def provider():
             path.write_text(str(os.getpid()))
-            os.kill(os.getppid(), signal.SIGTERM)
+            os.kill(host_pid, signal.SIGTERM)
             while True:
                 time.sleep(0.01)
 
@@ -198,6 +204,26 @@ class SupervisionTests(unittest.TestCase):
         self.assertIs(signal.getsignal(signal.SIGTERM), previous)
         self.assertEqual([event[0] for event in self.context.events], ["prepare", "unknown"])
         self.assert_reaped(path)
+
+    def test_shutdown_during_admission_keeps_ticket_recoverable(self):
+        effect = Path(self.temp.name) / "effect"
+
+        class InterruptAfterAdmission(ParentContext):
+            def prepare_invocation(self, **kwargs):
+                ticket = super().prepare_invocation(**kwargs)
+                os.kill(os.getpid(), signal.SIGTERM)
+                return ticket
+
+        context = InterruptAfterAdmission()
+
+        def provider():
+            effect.write_text("must not dispatch")
+            return Invocation({}, {})
+
+        with self.assertRaises(RecoveryRequired):
+            self.run_adapter(lambda ctx, _request: Outcome(ctx.invoke(provider)), context=context)
+        self.assertFalse(effect.exists())
+        self.assertEqual([event[0] for event in context.events], ["prepare", "unknown"])
 
     def test_sigkill_owner_terminates_direct_adapter_child(self):
         path = Path(self.temp.name) / "pid"
@@ -249,6 +275,183 @@ class SupervisionTests(unittest.TestCase):
             time.sleep(0.01)
         else:
             self.fail("adapter left background work alive")
+
+    def test_owner_sigkill_keeps_lock_until_guardian_reaps_descendants(self):
+        """No escaping/daemonising: a normal fork must not outlive run ownership."""
+        directory = Path(self.temp.name)
+        marker = directory / "group.json"
+        heartbeat = directory / "heartbeat"
+        libc = ctypes.CDLL(None, use_errno=True)
+        original = ctypes.c_int()
+        self.assertEqual(libc.prctl(37, ctypes.byref(original), 0, 0, 0), 0)
+        self.assertEqual(libc.prctl(36, 1, 0, 0, 0), 0)
+        owner = None
+        guardian = None
+        group = None
+
+        def handler(_context, _request):
+            descendant = os.fork()
+            if descendant == 0:
+                while True:
+                    heartbeat.write_text(str(time.monotonic()))
+                    time.sleep(0.01)
+            marker.write_text(json.dumps({"worker": os.getpid(), "descendant": descendant,
+                                          "guardian": os.getppid()}))
+            while True:
+                time.sleep(0.01)
+
+        try:
+            owner = os.fork()
+            if owner == 0:
+                try:
+                    lock = RunLock(directory)
+                    context = ParentContext()
+                    context.ownership_descriptors = (lock.fileno(),)
+                    self.run_adapter(handler, timeout=10, context=context)
+                finally:
+                    os._exit(0)
+            until = time.monotonic() + 3
+            while time.monotonic() < until:
+                try:
+                    group = json.loads(marker.read_text())
+                    if heartbeat.exists():
+                        break
+                except (FileNotFoundError, json.JSONDecodeError):
+                    pass
+                time.sleep(0.01)
+            self.assertIsNotNone(group)
+            guardian = group["guardian"]
+            self.assertEqual(os.getpgid(group["descendant"]), group["worker"])
+            # Pause cleanup deliberately: ownership must remain unavailable
+            # throughout this interval, not just until the original host dies.
+            os.kill(guardian, signal.SIGSTOP)
+            os.kill(owner, signal.SIGKILL)
+            os.waitpid(owner, 0)
+            owner = None
+            with self.assertRaises(JournalError):
+                RunLock(directory)
+            os.kill(guardian, signal.SIGCONT)
+            until = time.monotonic() + 3
+            while time.monotonic() < until:
+                pid, _status = os.waitpid(guardian, os.WNOHANG)
+                if pid:
+                    guardian = None
+                    break
+                time.sleep(0.01)
+            self.assertIsNone(guardian, "guardian did not finish cleanup")
+            for pid in (group["worker"], group["descendant"]):
+                with self.assertRaises(ProcessLookupError):
+                    os.kill(pid, 0)
+            with RunLock(directory):
+                pass
+        finally:
+            if owner is not None:
+                os.kill(owner, signal.SIGKILL)
+                os.waitpid(owner, 0)
+            if guardian is not None:
+                os.kill(guardian, signal.SIGCONT)
+                os.kill(guardian, signal.SIGTERM)
+                os.waitpid(guardian, 0)
+            if group:
+                try:
+                    os.killpg(group["worker"], signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+            libc.prctl(36, original.value, 0, 0, 0)
+
+    def test_guardian_stops_group_while_host_reconciliation_is_blocked(self):
+        path = Path(self.temp.name) / "pid"
+        observed = []
+
+        def tick():
+            if not path.exists():
+                return
+            time.sleep(0.2)
+            try:
+                os.kill(int(path.read_text()), 0)
+                observed.append("alive")
+            except ProcessLookupError:
+                observed.append("stopped")
+
+        with self.assertRaises(AdapterTimeout):
+            self.run_adapter(self.record_and_hang(path), timeout=0.1, tick=tick)
+        self.assertEqual(observed, ["stopped"])
+
+    def test_adapter_context_contract_is_shared_by_both_execution_strategies(self):
+        from mas_host.runner import Context
+        direct = Context(SimpleNamespace(_deadline=time.monotonic() + 3), "b", "message")
+        self.assertIsInstance(direct, AdapterContext)
+
+        def adapter(context, _request):
+            return Outcome({"contract": isinstance(context, AdapterContext),
+                            "actor": context.actor})
+
+        inline = InlineExecutor().execute(FunctionAdapter(adapter), direct, REQUEST,
+                                          deadline=time.monotonic() + 2)
+        isolated = self.run_adapter(adapter)
+        self.assertEqual(inline, isolated)
+        self.assertEqual(isolated.output, {"contract": True, "actor": "b"})
+
+    def test_recoverable_delegation_errors_are_catchable_in_both_strategies(self):
+        for error_type in (AdapterError, RunnerError):
+            with self.subTest(error=error_type.__name__):
+                def reject(*_args):
+                    raise error_type("secret-provider-detail")
+
+                def adapter(context, _request):
+                    try:
+                        context.request("c", "check", {})
+                    except error_type as error:
+                        return Outcome({"caught": type(error).__name__})
+                    self.fail("delegated error was not raised")
+
+                for executor in (InlineExecutor(), LinuxProcessExecutor()):
+                    result = executor.execute(FunctionAdapter(adapter), ParentContext(request=reject),
+                                              REQUEST, deadline=time.monotonic() + 2)
+                    self.assertEqual(result.output, {"caught": error_type.__name__})
+
+    def test_recoverable_parent_error_text_never_crosses_ipc(self):
+        def reject(*_args):
+            raise AdapterError("secret-provider-detail")
+
+        def adapter(context, _request):
+            try:
+                context.request("c", "check", {})
+            except AdapterError as error:
+                return Outcome({"detail": str(error)})
+
+        result = self.run_adapter(adapter, context=ParentContext(request=reject))
+        self.assertNotIn("secret-provider-detail", result.output["detail"])
+
+    def test_uncertain_delegation_cannot_be_caught_as_a_recoverable_failure(self):
+        def unknown(*_args):
+            raise RecoveryRequired("uncertain effect")
+
+        def adapter(context, _request):
+            try:
+                context.request("c", "check", {})
+            except AdapterError:
+                return Outcome({"should_not_complete": True})
+
+        with self.assertRaises(RecoveryRequired):
+            self.run_adapter(adapter, context=ParentContext(request=unknown))
+
+    def test_cancellation_during_delegation_aborts_instead_of_returning_a_catchable_error(self):
+        effect = Path(self.temp.name) / "continued-after-shutdown"
+
+        def interrupted(*_args):
+            raise AdapterInterrupted("host shutdown")
+
+        def adapter(context, _request):
+            try:
+                context.request("c", "check", {})
+            except AdapterError:
+                effect.write_text("must not continue")
+            return Outcome({})
+
+        with self.assertRaises(AdapterInterrupted):
+            self.run_adapter(adapter, context=ParentContext(request=interrupted))
+        self.assertFalse(effect.exists())
 
     def test_invalid_and_oversize_provider_outputs_preserve_unknown(self):
         for output in ({"floating": 0.5}, {"large": "x" * 65_536}):

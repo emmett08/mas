@@ -6,7 +6,7 @@ import tempfile
 import unittest
 from unittest import mock
 
-from mas_host import Invocation, Outcome, RecoveryRequired, Runner, RunnerError
+from mas_host import AdapterError, Invocation, Outcome, RecoveryRequired, Runner, RunnerError
 from mas_host.journal import JournalError, inspect_run, resolve_invocation
 from test_runner import FunctionAdapter, topology
 import test_runner as runner_tests
@@ -310,6 +310,111 @@ class RecoveryTests(unittest.TestCase):
         self.assertEqual(resumed.request("a", "b", "solve", {}).output, {"answer": 42})
         self.assertEqual(effects, [True])
         self.assertEqual(len(resumed.status()["calls"]), 1)
+
+    def test_catching_unknown_effect_cannot_authorise_more_work_or_commit_a_result(self):
+        for supervised in (False, True):
+            with self.subTest(supervised=supervised):
+                self.options["supervised"] = supervised
+                effect_file = Path(self.temp.name) / f"effects-{supervised}"
+
+                def provider():
+                    with effect_file.open("a", encoding="utf-8") as stream:
+                        stream.write("effect\n")
+                    raise RuntimeError("unknown external outcome")
+
+                def handle(context, _request):
+                    try:
+                        context.invoke(provider, input={"effect": "one"})
+                    except RecoveryRequired:
+                        # Application exception handling cannot turn uncertainty
+                        # into permission to retry or an authoritative result.
+                        try:
+                            context.invoke(provider, input={"effect": "one"})
+                        except RecoveryRequired:
+                            pass
+                    return Outcome({"fallback": True})
+
+                runner = self.create(handle)
+                with self.assertRaises(RecoveryRequired):
+                    runner.request("a", "b", "solve", {})
+                self.assertEqual(effect_file.read_text().splitlines(), ["effect"])
+                self.assertEqual(runner.status()["tasks"][0]["state"], "open")
+                self.assertEqual(len(runner.status()["calls"]), 1)
+
+    def test_interruption_after_executing_commit_before_ticket_assignment_stays_recoverable(self):
+        from mas_host.journal import Journal
+        from mas_host.supervision import AdapterInterrupted
+        self.options["supervised"] = True
+        effect_file = Path(self.temp.name) / "released-effects"
+
+        def provider():
+            effect_file.write_text("effect", encoding="utf-8")
+            return Invocation({"answer": 42}, {"receipt": "once"})
+
+        runner = self.create(lambda context, _request: Outcome(context.invoke(provider, input={"effect": "one"})))
+        original = Journal.update_invocation
+
+        def interrupt(journal, call_id, state, **kwargs):
+            original(journal, call_id, state, **kwargs)
+            if state == "executing":
+                raise AdapterInterrupted("shutdown between checkpoint and ticket handover")
+
+        with mock.patch.object(Journal, "update_invocation", interrupt):
+            with self.assertRaises(RecoveryRequired):
+                runner.request("a", "b", "solve", {})
+        self.assertFalse(effect_file.exists())
+        self.assertEqual(runner.status()["tasks"][0]["state"], "open")
+        uncertain = inspect_run(runner.run_dir)["invocations"][0]
+        self.assertEqual(uncertain["state"], "executing")
+        runner.close()
+        resolve_invocation(runner.run_dir, uncertain["call_id"], decision="confirmed_no_effect",
+                           evidence={"test": "interrupted before provider permission"})
+        resumed = self.resume(runner)
+        self.assertEqual(resumed.request("a", "b", "solve", {}).output, {"answer": 42})
+        self.assertEqual(effect_file.read_text(), "effect")
+        self.assertEqual(len(resumed.status()["calls"]), 2)
+
+    def test_caught_prepare_error_cannot_replace_pending_invocation_or_clear_uncertainty(self):
+        from mas_host.journal import Journal
+        original = Journal.update_invocation
+        for supervised in (False, True):
+            with self.subTest(supervised=supervised):
+                self.options["supervised"] = supervised
+                effect_file = Path(self.temp.name) / f"late-effect-{supervised}"
+                interrupted = [False]
+
+                def after_commit(journal, call_id, state, **kwargs):
+                    original(journal, call_id, state, **kwargs)
+                    if state == "executing" and not interrupted[0]:
+                        interrupted[0] = True
+                        # A recoverable IPC category deliberately exercises an
+                        # adapter that catches the first error and tries again.
+                        raise AdapterError("interrupted after durable admission")
+
+                def provider():
+                    effect_file.write_text("unexpected effect", encoding="utf-8")
+                    return Invocation({}, {})
+
+                def handle(context, _request):
+                    try:
+                        context.invoke(provider, input={"effect": "first"})
+                    except AdapterError:
+                        pass
+                    try:
+                        context.invoke(provider, input={"effect": "second"})
+                    except AdapterError:
+                        pass
+                    return Outcome({"fallback": True})
+
+                runner = self.create(handle)
+                with mock.patch.object(Journal, "update_invocation", after_commit):
+                    with self.assertRaises(RecoveryRequired):
+                        runner.request("a", "b", "solve", {})
+                self.assertFalse(effect_file.exists())
+                self.assertEqual(runner.status()["tasks"][0]["state"], "open")
+                self.assertEqual(len(runner.status()["calls"]), 1)
+                calls = inspect_run(runner.run_dir)["invocations"]
+                self.assertEqual([call["state"] for call in calls], ["executing"])
 
 
 if __name__ == "__main__":

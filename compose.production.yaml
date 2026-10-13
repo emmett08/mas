@@ -27,5 +27,11 @@ services:
     tmpfs:
       - /tmp:mode=1777,size=16m
     command: ["admin", "--state-dir", "/state", "watch", "--interval", "5"]
+    healthcheck:
+      test: ["CMD", "python", "-m", "mas_host", "admin", "--state-dir", "/state", "reconciler-health", "--max-age-seconds", "30"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
     volumes:
       - mesh-state:/state

@@ -2,9 +2,13 @@ name: Release candidate artefacts
 on:
   push:
     tags: ['v0.*']
+    branches: ['release/v0.*']
   workflow_dispatch:
 permissions:
   contents: read
+defaults:
+  run:
+    shell: bash
 jobs:
   protocol:
     uses: ./.github/workflows/check.yml
@@ -12,8 +16,31 @@ jobs:
     uses: ./.github/workflows/compose.yml
   security:
     uses: ./.github/workflows/security.yml
-  package:
+  candidate:
     needs: [protocol, host, security]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    outputs:
+      version: ${{ steps.candidate.outputs.version }}
+      source: ${{ steps.candidate.outputs.source }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Test candidate source binding
+        run: python -m unittest discover -s scripts/tests -p test_release_candidate.py -v
+      - name: Verify or create the immutable candidate tag
+        id: candidate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_REF: ${{ github.ref }}
+          SOURCE_SHA: ${{ github.sha }}
+        run: python scripts/release-candidate.py
+  package:
+    needs: candidate
     strategy:
       fail-fast: false
       matrix:
@@ -28,14 +55,9 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-      - name: Require a versioned candidate
-        env:
-          RELEASE_REF: ${{ github.ref }}
-        run: |
-          case "$RELEASE_REF" in
-            refs/tags/v0.*) ;;
-            *) echo 'Select an existing v0.* tag for a release candidate.' >&2; exit 1 ;;
-          esac
+        with:
+          ref: ${{ needs.candidate.outputs.source }}
+          persist-credentials: false
       - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
         with:
           version: v0.38.0
@@ -46,15 +68,28 @@ jobs:
           context: .
           platforms: ${{ matrix.platform }}
           push: false
-          tags: mas-mesh:${{ github.ref_name }}
+          tags: mas-mesh:${{ needs.candidate.outputs.version }}
           provenance: mode=max
           outputs: |
             type=oci,dest=mas-${{ matrix.architecture }}.oci.tar
             type=docker
       - name: Run the native architecture image
         env:
-          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_TAG: ${{ needs.candidate.outputs.version }}
         run: docker run --rm --read-only --cap-drop ALL --security-opt no-new-privileges --memory 512m --cpus 1 --pids-limit 64 --tmpfs /state:uid=10001,gid=10001,mode=0700 --tmpfs /tmp mas-mesh:"$RELEASE_TAG"
+      - name: Verify the final image runtime and complete host fault suite
+        env:
+          RELEASE_TAG: ${{ needs.candidate.outputs.version }}
+        run: |
+          docker image inspect mas-mesh:"$RELEASE_TAG" > release-image-identity.json
+          docker run --rm --init --network none --user 10001:10001 --read-only \
+            --cap-drop ALL --security-opt no-new-privileges --cpus 1 \
+            --memory 512m --memory-swap 512m --pids-limit 64 \
+            --tmpfs /tmp:mode=1777,size=256m \
+            --mount type=bind,src="$PWD/host/tests",dst=/mounted-tests,readonly \
+            --mount type=bind,src="$PWD/examples",dst=/mounted-examples,readonly \
+            --mount type=bind,src="$PWD/scripts/release-container-check.py",dst=/release-container-check.py,readonly \
+            --entrypoint python mas-mesh:"$RELEASE_TAG" -I /release-container-check.py 2>&1 | tee release-container-tests.log
       - name: Scan release archive
         uses: aquasecurity/trivy-action@c03d123cb480c08c69b054af418ea5e69fe6e57e
         with:
@@ -75,17 +110,19 @@ jobs:
           output: release-sbom.cdx.json
       - name: Record source and artefact identity
         env:
-          SOURCE_SHA: ${{ github.sha }}
-          RELEASE_TAG: ${{ github.ref_name }}
+          SOURCE_SHA: ${{ needs.candidate.outputs.source }}
+          RELEASE_TAG: ${{ needs.candidate.outputs.version }}
           RELEASE_PLATFORM: ${{ matrix.platform }}
         run: python scripts/release-manifest.py
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: mas-${{ github.ref_name }}-${{ matrix.architecture }}
+          name: mas-${{ needs.candidate.outputs.version }}-${{ matrix.architecture }}
           retention-days: 30
           path: |
             mas-*.oci.tar
             release-audit.json
             release-sbom.cdx.json
             release-manifest.json
+            release-image-identity.json
+            release-container-tests.log
             SHA256SUMS

@@ -5,7 +5,7 @@
   "run_count": 0,
   "schema": "mas-deployment-acceptance/1",
   "scope": "One live invoice check; no capacity, general accuracy or cancellation claim.",
-  "started_at": "2026-10-13T19:20:55.364048+00:00",
+  "started_at": "2026-10-13T20:44:49.040545+00:00",
   "status": "blocked_missing_credential",
   "workload": {
     "concurrency": 1,

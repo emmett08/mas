@@ -200,7 +200,7 @@ class RunnerIntegrationTests(unittest.TestCase):
             return original(*args, **kwargs)
 
         with mock.patch.dict(os.environ, {"OPENAI_API_KEY": "sk-not-a-real-key"}):
-            with mock.patch("mas_host.runner.subprocess.run", side_effect=capture):
+            with mock.patch("mas_host.protocol_client.subprocess.run", side_effect=capture):
                 runner = self.runner()
                 text = 'quoted "value"\nmessage "not-an-envelope";'
                 self.assertEqual(runner.request("a", "b", "echo", {"text": text}).output, {"text": text})
@@ -224,7 +224,7 @@ class RunnerIntegrationTests(unittest.TestCase):
     def test_interrupted_command_reports_no_secret_input(self):
         runner = self.runner()
         exception = subprocess.TimeoutExpired("hidden-command", 10, output="secret stdout", stderr="secret stderr")
-        with mock.patch("mas_host.runner.subprocess.run", side_effect=exception):
+        with mock.patch("mas_host.protocol_client.subprocess.run", side_effect=exception):
             with self.assertRaises(RunnerError) as failure:
                 runner.status()
         self.assertNotIn("secret", str(failure.exception))

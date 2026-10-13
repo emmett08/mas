@@ -7,101 +7,21 @@ require an evidenced operator decision before any invocation can be repeated.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import json
-import os
 from pathlib import Path
-import shutil
-import subprocess
-import tempfile
 import threading
 import time
-from typing import Callable, Mapping, Protocol
+from typing import Callable, Mapping
 import uuid
 
-from .journal import Journal, JournalError, RunLock
-
-
-class RunnerError(RuntimeError):
-    """A fixed diagnostic safe to show without disclosing provider details."""
-
-
-class AdapterError(RunnerError):
-    """An adapter failed; inspect the durable task and invocation records."""
-
-
-class RecoveryRequired(AdapterError):
-    """An invocation may have affected the outside world; operator action required."""
-
-
-@dataclass(frozen=True)
-class InvocationTicket:
-    call_id: str
-    cached_output: dict | None
-    execute: bool
-    step_key: str
-
-
-@dataclass(frozen=True)
-class TaskRequest:
-    sender: str
-    recipient: str
-    operation: str
-    input: dict
-    task_id: str
-    message_id: str
-
-
-@dataclass(frozen=True)
-class Outcome:
-    output: dict
-    status: str = "completed"
-
-
-@dataclass(frozen=True)
-class Invocation:
-    output: dict
-    evidence: dict
-
-
-class Adapter(Protocol):
-    def handle(self, context: Context, request: TaskRequest) -> Outcome:
-        """Handle one request, optionally delegating through its context."""
-        ...
-
-
-def _json(value: object, limit: int = 65_536) -> str:
-    """Reject Python coercions before handing JSON to the authoritative codec."""
-    def check(item: object, depth: int) -> None:
-        if depth > 32:
-            raise RunnerError("JSON nesting limit exceeded")
-        if item is None or type(item) in (str, bool):
-            return
-        if type(item) is int:
-            if len(str(abs(item))) > 1024:
-                raise RunnerError("JSON integer limit exceeded")
-            return
-        if type(item) is list:
-            for child in item:
-                check(child, depth + 1)
-            return
-        if type(item) is dict:
-            for key, child in item.items():
-                if type(key) is not str:
-                    raise RunnerError("JSON object keys must be strings")
-                check(child, depth + 1)
-            return
-        raise RunnerError("protocol data must use integer-only JSON")
-
-    try:
-        check(value, 0)
-        source = json.dumps(value, ensure_ascii=False, allow_nan=False,
-                            separators=(",", ":"))
-        if len(source.encode("utf-8")) > limit:
-            raise RunnerError("JSON byte limit exceeded")
-        return source
-    except (ValueError, TypeError, UnicodeError, RecursionError):
-        raise RunnerError("invalid protocol JSON") from None
+from .bootstrap import RunSession
+from .codec import integer_json as _json
+from .contracts import (
+    Adapter, AdapterContext, AdapterError, AdapterExecutor, AdapterInterrupted, AdapterTimeout, Invocation,
+    InvocationTicket, Outcome, RecoveryRequired, RunnerError, TaskRequest,
+)
+from .journal import JournalError
+from .protocol_client import ProtocolClient, ProtocolTransport
 
 
 class Context:
@@ -119,6 +39,8 @@ class Context:
         self._thread = threading.get_ident()
         self._ordinal = 0
         self._invocation_id = None
+        self._recovery_required = False
+        self._pending_invocation_id = None
 
     @property
     def actor(self) -> str:
@@ -132,13 +54,25 @@ class Context:
     def remaining_seconds(self) -> float:
         return max(0.0, self._runner._deadline - time.monotonic())
 
-    def _check(self) -> None:
+    @property
+    def ownership_descriptors(self) -> tuple[int, ...]:
+        """Host-only lock retained by the guardian until local work is reaped."""
+        return (self._runner._session.lock.fileno(),)
+
+    def _check(self, *, allow_pending: bool = False) -> None:
         runner = self._runner
+        if self._recovery_required:
+            raise RecoveryRequired("invocation outcome unknown; inspect recovery journal")
         if (runner._closed or runner._invoking
                 or self._thread != threading.get_ident()
                 or not runner._active
                 or runner._active[-1] != self._request_id):
             raise RunnerError("adapter context is not active")
+        if self._pending_invocation_id is not None and not allow_pending:
+            # A caller may catch a prepare/IPC failure. That cannot replace the
+            # outstanding attempt with another call or delegation.
+            self._recovery_required = True
+            raise RecoveryRequired("pending invocation requires reconciliation before more work")
 
     def _step_key(self) -> str:
         key = f"{self._request_id}:{self._ordinal}"
@@ -147,7 +81,11 @@ class Context:
 
     def request(self, recipient: str, operation: str, input: dict) -> Outcome:
         self._check()
-        return self._runner._exchange(self.actor, recipient, operation, input, self._step_key())
+        try:
+            return self._runner._exchange(self.actor, recipient, operation, input, self._step_key())
+        except RecoveryRequired:
+            self._recovery_required = True
+            raise
 
     def prepare_invocation(self, *, input: dict | None = None,
                            reservation_microusd: int | None = None) -> InvocationTicket:
@@ -167,11 +105,14 @@ class Context:
         call_id = call["call_id"]
         ticket = InvocationTicket(call_id, call["output"], False, key)
         if call["state"] in ("completed", "resolved"):
+            self._pending_invocation_id = call_id
             runner._finish_recorded(self.actor, call)
+            self._pending_invocation_id = None
             return ticket
         if call["state"] == "not_executed":
             raise RunnerError("invocation was not admitted")
         if call["state"] in ("executing", "unknown"):
+            self._recovery_required = True
             raise RecoveryRequired("invocation outcome unknown; inspect and resolve before resuming")
         if runner.status()["expired"]:
             raise RunnerError("run deadline expired")
@@ -191,22 +132,28 @@ class Context:
                 try:
                     reserved = any(item["id"] == call_id for item in runner.status()["calls"])
                 except RunnerError:
+                    self._recovery_required = True
                     raise RecoveryRequired("reservation could not be reconciled; resume this run") from None
                 if not reserved:
                     runner._journal.update_invocation(call_id, "not_executed", evidence={
                         "outcome": "not_executed", "reason": "protocol_admission_rejected"})
                     raise
+        # This parent-owned marker precedes the durable write. An interrupt
+        # between its commit and the supervisor receiving the returned ticket
+        # must keep the workflow recoverable, not turn it into a Failure.
+        self._pending_invocation_id = call_id
         runner._journal.update_invocation(call_id, "executing")
         return InvocationTicket(call_id, None, True, key)
 
     def complete_invocation(self, ticket: InvocationTicket, invocation: Invocation) -> dict:
-        self._check()
+        self._check(allow_pending=True)
         if (not ticket.execute or not isinstance(invocation, Invocation)
                 or type(invocation.output) is not dict or type(invocation.evidence) is not dict):
             raise AdapterError("adapter invocation requires object output and evidence")
         runner = self._runner
         call = runner._journal.invocation(ticket.call_id)
-        if call is None or call["state"] != "executing" or call["actor"] != self.actor:
+        if (call is None or call["state"] != "executing" or call["actor"] != self.actor
+                or ticket.call_id != self._pending_invocation_id):
             raise RunnerError("invocation ticket is no longer active")
         runner._wire(self.actor, self.actor, "Notice", {
             "output": invocation.output, "evidence": invocation.evidence,
@@ -215,6 +162,7 @@ class Context:
         evidence = json.loads(_json(invocation.evidence))
         runner._journal.update_invocation(ticket.call_id, "completed", output=output, evidence=evidence)
         runner._finish_recorded(self.actor, runner._journal.invocation(ticket.call_id))
+        self._pending_invocation_id = None
         return output
 
     def fail_invocation(self, ticket: InvocationTicket) -> None:
@@ -223,6 +171,7 @@ class Context:
         # A failure to finish after the full result was checkpointed is recoverable
         # from that checkpoint and must not erase it.
         if call and call["state"] == "executing":
+            self._recovery_required = True
             evidence = {"outcome": "unknown", "error": "adapter_invocation_failed"}
             runner._journal.update_invocation(ticket.call_id, "unknown", evidence=evidence)
             try:
@@ -246,7 +195,11 @@ class Context:
                 self._invocation_id = None
             return self.complete_invocation(ticket, invocation)
         except Exception:
-            self.fail_invocation(ticket)
+            self._recovery_required = True
+            try:
+                self.fail_invocation(ticket)
+            except Exception:
+                pass  # The durable executing record still denotes uncertainty.
             raise RecoveryRequired("adapter invocation interrupted; inspect recovery journal") from None
 
 
@@ -267,7 +220,8 @@ class Runner:
                  state_dir: Path, mas_bin: str = "mas",
                  gateway_bin: str = "mas-gateway", max_depth: int = 8,
                  command_timeout: float = 10, *, workflow_version: str = "unversioned",
-                 supervised: bool = True, operations=None, _resume_dir: Path | None = None):
+                 supervised: bool = True, operations=None, executor: AdapterExecutor | None = None,
+                 protocol_client: ProtocolTransport | None = None, _resume_dir: Path | None = None):
         from .operations import DeploymentLedger
         if type(max_depth) is not int or not 1 <= max_depth <= 64:
             raise RunnerError("max_depth must be an integer from 1 to 64")
@@ -275,10 +229,9 @@ class Runner:
             raise RunnerError("command timeout must be positive and at most 120 seconds")
         if type(workflow_version) is not str or not workflow_version or len(workflow_version) > 256:
             raise RunnerError("workflow_version must be a nonempty string of at most 256 characters")
-        self._mas = shutil.which(str(mas_bin))
-        self._gateway_bin = shutil.which(str(gateway_bin))
-        if not self._mas or not self._gateway_bin:
-            raise RunnerError("mas and mas-gateway binaries must be installed")
+        self._client = protocol_client if protocol_client is not None else ProtocolClient(mas_bin, gateway_bin)
+        self._mas = self._client.mas
+        self._gateway_bin = self._client.gateway
         self._timeout = command_timeout
         self._max_depth = max_depth
         self._adapters = dict(adapters)
@@ -287,83 +240,36 @@ class Runner:
         self._closed = False
         self._request_lock = threading.Lock()
         self._root_ordinal = 0
-        self._supervised = supervised
+        from .supervision import InlineExecutor, LinuxProcessExecutor
+        self._executor = executor if executor is not None else (LinuxProcessExecutor() if supervised else InlineExecutor())
         self._deadline = float("inf")
-        self._lock = None
+        self._session = None
         self._journal = None
         self.events: list[dict] = []
-        self.run_id = "run-" + uuid.uuid4().hex
         try:
             state_dir = Path(state_dir).absolute()
             state_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
-            self._operations = operations or DeploymentLedger(state_dir)
-            self.run_dir = (Path(_resume_dir).absolute() if _resume_dir is not None
-                            else Path(tempfile.mkdtemp(prefix=self.run_id + "-", dir=state_dir)))
-            self.run_dir.chmod(0o700)
-            self._lock = RunLock(self.run_dir)
-            self._db = self.run_dir / "state.sqlite"
-            self._config = self.run_dir / "gateway.json"
-            spec = self.run_dir / "topology.json"
-            if _resume_dir is not None:
-                self._journal = Journal(self.run_dir)
-                metadata = self._journal.metadata()
-                if (workflow_version == "unversioned" or metadata["workflow_version"] != workflow_version
-                        or metadata["max_depth"] != max_depth):
-                    raise RunnerError("resume requires the original explicit workflow version and max_depth")
-                self.run_id = metadata["run_id"]
-                self._operations.admit_run(self.run_id, self.run_dir)
-                snapshot = self._command([self._mas, "status", str(self._db), self.run_id])
-                if snapshot["config"] != metadata["topology"]:
-                    raise RunnerError("frozen run configuration differs from recovery journal")
-            else:
-                self._operations.admit_run(self.run_id, self.run_dir)
-                spec.write_text(_json(topology), encoding="utf-8")
-                snapshot = self._command([self._mas, "init", str(self._db), self.run_id, str(spec)])
-                self._journal = Journal(self.run_dir, {"run_id": self.run_id,
-                    "workflow_version": workflow_version, "topology": snapshot["config"],
-                    "max_depth": max_depth})
-            config = snapshot["config"]
-            if set(config["agents"]) != set(self._adapters):
-                raise RunnerError("register exactly one adapter for every topology agent")
+            self._operations = operations if operations is not None else DeploymentLedger(state_dir)
             if any(not callable(getattr(adapter, "handle", None)) for adapter in self._adapters.values()):
                 raise RunnerError("every adapter must implement handle")
-            if _resume_dir is None:
-                attempts = min(2**63 - 1, 100 + 6 * config["max_messages"] + 3 * config["max_calls"])
-                policy = {
-                    "gateway_id": "host-" + uuid.uuid4().hex[:27],
-                    "max_attempts": attempts,
-                    "credentials": [
-                        {"credential_id": f"agent-{index}", "run_id": self.run_id,
-                         "actor": actor, "max_attempts": attempts}
-                        for index, actor in enumerate(config["agents"])
-                    ],
-                }
-                policy_path = self.run_dir / "policy.json"
-                policy_path.write_text(_json(policy), encoding="utf-8")
-                self._command([self._gateway_bin, "provision", str(policy_path), str(self._config)])
-            private = json.loads(self._config.read_text(encoding="utf-8"))
-            self._tokens = {item["actor"]: item["token"] for item in private["credentials"]}
+            self._session = RunSession(state_dir, operations=self._operations,
+                client=self._client, command=self._command, topology=topology,
+                workflow_version=workflow_version, max_depth=max_depth,
+                actors=set(self._adapters), resume_dir=_resume_dir,
+                command_timeout=self._timeout)
+            self.run_id = self._session.run_id
+            self.run_dir = self._session.run_dir
+            self._db = self._session.database
+            self._config = self._session.configuration
+            self._journal = self._session.journal
+            self._tokens = self._session.tokens
+            snapshot = self._session.snapshot
             # Rust's persisted wall deadline is never renewed by restart. A
             # monotonic deadline additionally bounds this host process.
             self._deadline = time.monotonic() + max(0, snapshot["deadline"] - time.time())
         except Exception as error:
-            remove_unadmitted = False
-            if _resume_dir is None and hasattr(self, "run_dir") and self._journal is None:
-                try:
-                    remove_unadmitted = (not self._operations.has_run(self.run_id)
-                        and all(path.name == ".host.lock" for path in self.run_dir.iterdir()))
-                except Exception:
-                    pass  # Ambiguous admissions are retained for inspection.
-            if self._journal is not None:
-                self._journal.close()
-            if self._lock is not None:
-                self._lock.close()
-            if remove_unadmitted:
-                try:
-                    (self.run_dir / ".host.lock").unlink(missing_ok=True)
-                    self.run_dir.rmdir()
-                except OSError:
-                    pass
+            if self._session is not None:
+                self._session.close()
             self._closed = True
             if isinstance(error, RunnerError):
                 raise
@@ -392,21 +298,9 @@ class Runner:
         self._gateway(actor, command="finish", call_id=call["call_id"], evidence=call["evidence"])
 
     def _command(self, args: list[str], source: str | None = None):
-        try:
-            # Provider credentials belong in this host, not in Rust children.
-            result = subprocess.run(args, input=source, encoding="utf-8",
-                                    stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                                    timeout=(self._timeout if not self._active
-                                             else max(0.01, min(self._timeout, self._deadline - time.monotonic()))), check=False,
-                                    env={"PATH": os.environ.get("PATH", os.defpath)})
-            response = json.loads(result.stdout)
-            if result.returncode or response.get("ok") is not True:
-                raise RunnerError("protocol operation rejected; inspect run status")
-            return response["result"]
-        except (OSError, subprocess.TimeoutExpired, UnicodeError, ValueError, KeyError, AttributeError):
-            # Never propagate subprocess diagnostics (or an input-bearing
-            # TimeoutExpired object) to an adapter/report.
-            raise RunnerError("protocol command unavailable or interrupted") from None
+        timeout = (self._timeout if not self._active else
+                   max(0.01, min(self._timeout, self._deadline - time.monotonic())))
+        return self._client.command(args, source, timeout=timeout)
 
     def _gateway(self, actor: str, **command):
         if actor not in self._tokens:
@@ -512,12 +406,10 @@ class Runner:
         self._active.append(request_id)
         try:
             try:
-                if self._supervised:
-                    from .supervision import execute
-                    outcome = execute(self._adapters[actor], context, request,
-                                      deadline=self._deadline, tick=self.status)
-                else:
-                    outcome = self._adapters[actor].handle(context, request)
+                outcome = self._executor.execute(self._adapters[actor], context, request,
+                                                 deadline=self._deadline, tick=self.status)
+                if context._recovery_required or context._pending_invocation_id is not None:
+                    raise RecoveryRequired("invocation outcome unknown; inspect recovery journal")
                 if (not isinstance(outcome, Outcome) or type(outcome.output) is not dict
                         or outcome.status not in ("completed", "unresolved")):
                     raise AdapterError("adapter returned an invalid outcome")
@@ -529,7 +421,13 @@ class Runner:
                 kind = "Result"
             except (RecoveryRequired, JournalError):
                 raise
+            except (AdapterInterrupted, AdapterTimeout):
+                if context._recovery_required or context._pending_invocation_id is not None:
+                    raise RecoveryRequired("adapter invocation interrupted; inspect recovery journal") from None
+                raise
             except Exception:
+                if context._recovery_required or context._pending_invocation_id is not None:
+                    raise RecoveryRequired("adapter invocation interrupted; inspect recovery journal") from None
                 terminal_payload = {"task_id": request.task_id, "reply_to": request_id,
                                     "reason": "adapter_execution_failed"}
                 kind = "Failure"
@@ -553,8 +451,7 @@ class Runner:
             raise RunnerError("cannot close a runner during adapter execution")
         if not self._closed:
             self._closed = True
-            self._journal.close()
-            self._lock.close()
+            self._session.close()
 
     def __enter__(self) -> Runner:
         return self
