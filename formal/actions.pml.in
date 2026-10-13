@@ -23,14 +23,26 @@
     :: atomic { actor == recipient[@M@] && accepted[@M@] && !received[@M@] ->
          received[@M@] = true; local_receipt[@M@] = true;
          printf("EVENT receive @M@ %d\n", actor); invariant(@M@) }
-    :: atomic { actor == recipient[@M@] && received[@M@] && !acknowledged[@M@] && !redelivered[@M@] ->
+    :: atomic { (actor == recipient[@M@] && received[@M@] && !acknowledged[@M@]
+#ifndef UNBOUNDED_FAULTS
+         && !redelivered[@M@]
+#endif
+         ) ->
          redelivered[@M@] = true; local_receipt[@M@] = true;
          printf("EVENT redeliver @M@\n"); invariant(@M@) }
-    :: atomic { actor == recipient[@M@] && received[@M@] && !acknowledged[@M@] && !lost_ack[@M@] ->
+    :: atomic { (actor == recipient[@M@] && received[@M@] && !acknowledged[@M@]
+#ifndef UNBOUNDED_FAULTS
+         && !lost_ack[@M@]
+#endif
+         ) ->
          lost_ack[@M@] = true;
          /* One ack invocation is lost BEFORE its database transaction. */
          printf("EVENT lost_ack @M@\n"); invariant(@M@) }
-    :: atomic { actor == recipient[@M@] && received[@M@] && !acknowledged[@M@] && !restarted[@M@] ->
+    :: atomic { (actor == recipient[@M@] && received[@M@] && !acknowledged[@M@]
+#ifndef UNBOUNDED_FAULTS
+         && !restarted[@M@]
+#endif
+         ) ->
          restarted[@M@] = true; local_receipt[@M@] = false;
          /* Durable received flag survives restart; only caller memory is lost. */
          printf("EVENT restart @M@\n"); invariant(@M@) }

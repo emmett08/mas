@@ -106,7 +106,21 @@ fn generate(path: &Path, root: &Path) -> Result<String> {
 
 fn strings(values: &[&str]) -> Vec<String> { values.iter().map(|s|s.to_string()).collect() }
 
-fn run_case(source: &Path, dest: &Path, opt: &Options, defect: Option<&str>, no_reduce: bool, capacity: Option<u64>, task: bool) -> Result<Value> {
+#[derive(Default)]
+struct CaseOptions {
+    defect: Option<&'static str>, no_reduce: bool, capacity: Option<u64>,
+    standalone: bool, unbounded_faults: bool, assumption_witness: bool,
+    weak_fairness: bool,
+}
+
+fn expected_check_satisfied(check: &Value, counterexample: bool, cycle: bool) -> bool {
+    if !counterexample { return check["status"] == "COMPLETE_NO_ERRORS"; }
+    check["status"] == "COUNTEREXAMPLE" && check["counterexample_kind"] == if cycle {"acceptance_cycle"} else {"assertion"}
+        && check["replay"]["returncode"] == 0 && check["replay"]["timeout"] == false
+}
+
+fn run_case(source: &Path, dest: &Path, opt: &Options, case: CaseOptions) -> Result<Value> {
+    let CaseOptions {defect,no_reduce,capacity,standalone:task,unbounded_faults,assumption_witness,weak_fairness}=case;
     fs::create_dir_all(dest)?;
     // Reject stale verifier/trail output from a previous interrupted invocation.
     for entry in fs::read_dir(dest)? {
@@ -114,15 +128,16 @@ fn run_case(source: &Path, dest: &Path, opt: &Options, defect: Option<&str>, no_
         let name = path.file_name().unwrap().to_string_lossy();
         if path.is_file() && (name.starts_with("pan") || name.ends_with(".trail")) { fs::remove_file(path)?; }
     }
-    let model_name = if task { "task-lifecycle.pml" } else { "protocol.pml" };
+    let model_name = if task { source.file_name().and_then(|s|s.to_str()).ok_or("invalid standalone model filename")? } else { "protocol.pml" };
     let model = dest.join(model_name);
     fs::write(&model, if task {fs::read_to_string(source)?} else {generate(source, &opt.root)?})?;
     let mut defs = Vec::new();
     if let Some(bug) = defect { defs.push(format!("-D{bug}")); }
     if let Some(size) = capacity { defs.push(format!("-DCAPACITY={size}")); }
+    if unbounded_faults {defs.push("-DUNBOUNDED_FAULTS".into());}
     let mut commands = Vec::new(); let mut checks = Vec::new();
     let mut simulations_ok = true;
-    if defect.is_none() && !no_reduce && !task {
+    if defect.is_none() && !no_reduce && !task && !unbounded_faults {
         for seed in [17,29] {
             let mut cmd = strings(&["spin"]); cmd.extend(defs.clone());
             cmd.extend(strings(&[&format!("-n{seed}"),"-u10000","-p","-g","-l",model_name]));
@@ -143,8 +158,8 @@ fn run_case(source: &Path, dest: &Path, opt: &Options, defect: Option<&str>, no_
     if generated["returncode"] != 0 {
         return Ok(json!({"topology":source.file_name().unwrap().to_string_lossy(),"status":"GENERATION_FAILED","commands":commands}));
     }
-    let modes = if task || matches!(defect,Some("BUG_EARLY_ACK"|"BUG_ALLOW_FORBIDDEN")) {vec!["safety"]}
-        else if defect==Some("BUG_NO_ACK") {vec!["ltl"]} else {vec!["safety","ltl"]};
+    let modes = if assumption_witness || defect==Some("BUG_NO_ACK") {vec!["ltl"]}
+        else if task || unbounded_faults || defect.is_some() {vec!["safety"]} else {vec!["safety","ltl"]};
     for mode in modes {
         let mut cmd=strings(&["cc","-O2",&format!("-DMEMLIM={}",opt.memory-32)]);
         if no_reduce { cmd.push("-DNOREDUCE".into()); }
@@ -152,12 +167,18 @@ fn run_case(source: &Path, dest: &Path, opt: &Options, defect: Option<&str>, no_
         cmd.extend(strings(&["-o",&format!("pan-{mode}"),"pan.c"]));
         let compiled=invoke(&mut commands,cmd,dest,&format!("compile-{mode}"),opt)?;
         if compiled["returncode"]!=0 {checks.push(json!({"property":mode,"status":"COMPILATION_FAILED"}));continue;}
-        let properties=if mode=="safety" {vec!["safety"]} else if defect.is_some() {vec![PROPERTIES[0]]} else {PROPERTIES.to_vec()};
+        let properties=if mode=="safety" {vec!["safety"]} else if defect.is_some() || assumption_witness {vec![PROPERTIES[0]]} else {PROPERTIES.to_vec()};
         for property in properties {
             let mut cmd=strings(&[&format!("./pan-{mode}"),"-b",&format!("-m{}",opt.depth),"-w20"]);
-            if mode=="ltl" {cmd.extend(strings(&["-a","-f","-N",property]));}
+            if mode=="ltl" {
+                cmd.extend(strings(&["-a","-N",property]));
+                if weak_fairness {cmd.push("-f".into());}
+            }
             let mut checked=invoke(&mut commands,cmd,dest,&format!("check-{property}"),opt)?;
             checked["status"]=json!(classify(&checked,dest)?); checked["property"]=json!(property);
+            let raw=fs::read_to_string(dest.join(checked["log"].as_str().unwrap()))?;
+            checked["counterexample_kind"]=json!(if raw.contains("acceptance cycle") {"acceptance_cycle"}
+                else if raw.contains("assertion violated") {"assertion"} else {"none_or_other"});
             let trail=dest.join(format!("{model_name}.trail"));
             if trail.exists() {
                 let saved=dest.join(format!("{property}.trail")); fs::rename(trail,&saved)?;
@@ -169,8 +190,10 @@ fn run_case(source: &Path, dest: &Path, opt: &Options, defect: Option<&str>, no_
             checks.push(checked);
         }
     }
-    let expected=if defect.is_some(){"COUNTEREXAMPLE"}else{"COMPLETE_NO_ERRORS"};
-    let ok=simulations_ok && !checks.is_empty() && checks.iter().all(|c|c["status"]==expected && (defect.is_none() || (c["replay"]["returncode"]==0 && c["replay"]["timeout"]==false)));
+    let counterexample=defect.is_some() || assumption_witness;
+    let expected=if counterexample {"COUNTEREXAMPLE"}else{"COMPLETE_NO_ERRORS"};
+    let cycle=assumption_witness || defect==Some("BUG_NO_ACK");
+    let ok=simulations_ok && !checks.is_empty() && checks.iter().all(|c|expected_check_satisfied(c,counterexample,cycle));
     for entry in fs::read_dir(dest)? {
         let path=entry?.path();let name=path.file_name().unwrap().to_string_lossy();
         if path.is_file() && name.starts_with("pan") && !name.ends_with(".log") {fs::remove_file(path)?;}
@@ -179,7 +202,12 @@ fn run_case(source: &Path, dest: &Path, opt: &Options, defect: Option<&str>, no_
         .map_err(|diagnostic|format!("invalid topology JSON: {}",diagnostic.message))?};
     Ok(json!({"topology":source.file_name().unwrap().to_string_lossy(),"source_sha256":sha(source)?,
         "model_sha256":sha(&model)?,"defect":defect,"capacity":capacity.unwrap_or(config["mailbox_capacity"].as_u64().unwrap_or(2)),
-        "partial_order_reduction":!no_reduce,"commands":commands,"checks":checks,"status":if ok{"PASS"}else{"FAIL_OR_INCONCLUSIVE"}}))
+        "partial_order_reduction":!no_reduce,"weak_process_fairness":weak_fairness,
+        "fault_repetition":if unbounded_faults {"unlimited"} else {"bounded_or_not_applicable"},
+        "purpose":if assumption_witness {"assumption_counterexample"} else if defect.is_some() {"deliberate_defect"}
+            else if task {"standalone_safety"} else if unbounded_faults {"unbounded_fault_safety"} else {"bounded_transport"},
+        "expected_result":expected,"expectation_met":ok,
+        "commands":commands,"checks":checks,"status":if ok{"PASS"}else{"FAIL_OR_INCONCLUSIVE"}}))
 }
 
 fn main() -> Result<()> {
@@ -229,30 +257,61 @@ fn main() -> Result<()> {
     let mut cases=Vec::new();
     for source in &sources {
         let name=source.file_stem().unwrap().to_string_lossy();
-        let case=run_case(source,&opt.out.join(name.as_ref()),&opt,None,false,None,false)?;
+        let case=run_case(source,&opt.out.join(name.as_ref()),&opt,CaseOptions::default())?;
         println!("{name} {}",case["status"]);cases.push(case);
     }
     for (defect,name,no_reduce) in [(Some("BUG_EARLY_ACK"),"negative-early-ack",false),
         (Some("BUG_ALLOW_FORBIDDEN"),"negative-forbidden-route",false),
         (Some("BUG_NO_ACK"),"negative-no-ack",false),(None,"no-reduction",true)] {
-        let case=run_case(&sources[0],&opt.out.join(name),&opt,defect,no_reduce,None,false)?;
+        let case=run_case(&sources[0],&opt.out.join(name),&opt,CaseOptions{defect,no_reduce,..Default::default()})?;
         println!("{name} {}",case["status"]);cases.push(case);
     }
     let pressure=sources.iter().find(|p|p.file_stem().is_some_and(|s|s=="star")).unwrap_or(&sources[0]);
-    let case=run_case(pressure,&opt.out.join("capacity-one"),&opt,None,false,Some(1),false)?;
+    let case=run_case(pressure,&opt.out.join("capacity-one"),&opt,CaseOptions{capacity:Some(1),..Default::default()})?;
     println!("capacity-one {}",case["status"]);cases.push(case);
     for (defect,name) in [(None,"task-lifecycle"),(Some("BUG_DOUBLE_TERMINAL"),"negative-task-terminal")] {
-        let case=run_case(&opt.root.join("formal/task-lifecycle.pml"),&opt.out.join(name),&opt,defect,false,None,true)?;
+        let case=run_case(&opt.root.join("formal/task-lifecycle.pml"),&opt.out.join(name),&opt,CaseOptions{defect,standalone:true,..Default::default()})?;
+        println!("{name} {}",case["status"]);cases.push(case);
+    }
+    // Safety does not require any upper bound on these repeatable faults.
+    for source in &sources {
+        let name=format!("unbounded-{}",source.file_stem().unwrap().to_string_lossy());
+        let case=run_case(source,&opt.out.join(&name),&opt,CaseOptions{unbounded_faults:true,..Default::default()})?;
+        println!("{name} {}",case["status"]);cases.push(case);
+    }
+    for (name,source,capacity,no_reduce) in [("unbounded-capacity-one",pressure,Some(1),false),
+        ("unbounded-no-reduction",&sources[0],None,true)] {
+        let case=run_case(source,&opt.out.join(name),&opt,CaseOptions{unbounded_faults:true,capacity,no_reduce,..Default::default()})?;
+        println!("{name} {}",case["status"]);cases.push(case);
+    }
+    let mesh=sources.iter().find(|p|p.file_stem().is_some_and(|s|s=="mesh")).unwrap_or(&sources[0]);
+    for (name,weak_fairness) in [("assumption-unbounded-no-fairness",false),("assumption-unbounded-weak-fairness",true)] {
+        let case=run_case(mesh,&opt.out.join(name),&opt,CaseOptions{unbounded_faults:true,assumption_witness:true,weak_fairness,..Default::default()})?;
+        println!("{name} {}",case["status"]);cases.push(case);
+    }
+    for (model,name,defect) in [
+        ("transaction-recovery.pml","transaction-recovery",None),
+        ("transaction-recovery.pml","negative-partial-commit",Some("BUG_PARTIAL_COMMIT")),
+        ("transaction-recovery.pml","negative-duplicate-insert",Some("BUG_DUPLICATE_INSERT")),
+        ("task-expiry.pml","task-expiry",None),
+        ("task-expiry.pml","negative-expiry-overwrite",Some("BUG_EXPIRY_OVERWRITE"))] {
+        let case=run_case(&opt.root.join("formal").join(model),&opt.out.join(name),&opt,
+            CaseOptions{standalone:true,defect,..Default::default()})?;
         println!("{name} {}",case["status"]);cases.push(case);
     }
     let ok=cases.iter().all(|c|c["status"]=="PASS");
     let summary=json!({"status":if ok{"PASS"}else{"FAIL_OR_INCONCLUSIVE"},"versions":versions,"cases":cases,
-        "bounds":{"messages":2,"durable_slots":2,"lost_ack_per_message":1,"restart_per_message":1,"redelivery_per_message":1},
+        "bounds":{"messages":2,"durable_slots":2,"bounded_transport":{"lost_ack_per_message":1,"restart_per_message":1,"redelivery_per_message":1},
+            "unbounded_fault_safety":"no bound on repeated lost acknowledgement, restart or redelivery transitions"},
         "limits":{"seconds_per_command":opt.seconds,"memory_mb":opt.memory,"depth":opt.depth},
-        "assumptions":["fixed membership and directed ACL","weak process fairness for transport LTL","bounded faults","successful atomic durable SQLite transactions","receive/ack available after deadline"],
+        "assumptions":["fixed membership and directed ACL","no scheduling fairness required by bounded transport model",
+            "bounded faults for positive transport liveness only","SQLite transaction isolation and atomic recovery boundary",
+            "host expiry is an explicit event, with no wall-clock or eventual host-execution guarantee","transport acknowledgement differs from task outcome"],
         "runner_sha256":sha(&opt.root.join("rust-protocol/src/bin/verify.rs"))?,
         "template_sha256":sha(&opt.root.join("formal/protocol.pml.in"))?,
-        "actions_sha256":sha(&opt.root.join("formal/actions.pml.in"))?});
+        "actions_sha256":sha(&opt.root.join("formal/actions.pml.in"))?,
+        "transaction_model_sha256":sha(&opt.root.join("formal/transaction-recovery.pml"))?,
+        "expiry_model_sha256":sha(&opt.root.join("formal/task-expiry.pml"))?});
     fs::write(opt.out.join("summary.json"),format!("{}\n",serde_json::to_string_pretty(&summary)?))?;
     if !ok{return Err(io::Error::other("model verification failed or incomplete; inspect summary.json").into());}
     Ok(())
@@ -295,5 +354,19 @@ mod tests {
         fs::write(&path,r#"{"agents":["a","b"],"edges":[["a","b"]],"mailbox_capacity":1,"mailbox_capacity":2}"#).unwrap();
         assert!(generate(&path,&root).is_err());
         fs::remove_dir_all(dir).unwrap();
+    }
+    #[test]
+    fn expected_failures_need_the_right_counterexample_and_replay() {
+        let mut check=json!({"status":"COUNTEREXAMPLE","counterexample_kind":"acceptance_cycle",
+            "replay":{"returncode":0,"timeout":false}});
+        assert!(expected_check_satisfied(&check,true,true));
+        assert!(!expected_check_satisfied(&check,true,false));
+        assert!(!expected_check_satisfied(&check,false,false));
+        check["counterexample_kind"]=json!("assertion");
+        assert!(expected_check_satisfied(&check,true,false));
+        check["replay"]["timeout"]=json!(true);
+        assert!(!expected_check_satisfied(&check,true,false));
+        check["status"]=json!("INCOMPLETE");
+        assert!(!expected_check_satisfied(&check,true,false));
     }
 }

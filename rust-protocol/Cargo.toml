@@ -10,6 +10,8 @@ description = "Rust nom agent protocol, durable mailbox, workflows and SPIN veri
 nom = "=8.0.0"
 rusqlite = { version = "=0.32.1", features = ["bundled"] }
 serde_json = { version = "=1.0.145", features = ["arbitrary_precision"] }
+sha2 = "=0.10.9"
+subtle = "=2.6.1"
 
 [[bin]]
 name = "mas-protocol-codec"

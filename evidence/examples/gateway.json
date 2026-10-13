@@ -1,0 +1,11 @@
+{
+  "acknowledged": true,
+  "attempts_including_rejection": 4,
+  "authenticated_send": true,
+  "credentials_in_report": false,
+  "example": "private-stdio-gateway",
+  "forged_sender_rejected": true,
+  "received_after_restart": true,
+  "restart_preserves_exhaustion": true,
+  "scope": "Local deterministic fixture; the host provisions tokens and privately routes responses."
+}

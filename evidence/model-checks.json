@@ -1,18 +1,22 @@
 {
-  "actions_sha256": "57e9ea2796c26311ad82740895b4f91e62945cf50ec4fd9f78d593fa16880bad",
+  "actions_sha256": "e7e31f4d68e2ce76fb4a6174da4af0d6a3e296f4780238268a6945a2a227a79b",
   "assumptions": [
     "fixed membership and directed ACL",
-    "weak process fairness for transport LTL",
-    "bounded faults",
-    "successful atomic durable SQLite transactions",
-    "receive/ack available after deadline"
+    "no scheduling fairness required by bounded transport model",
+    "bounded faults for positive transport liveness only",
+    "SQLite transaction isolation and atomic recovery boundary",
+    "host expiry is an explicit event, with no wall-clock or eventual host-execution guarantee",
+    "transport acknowledgement differs from task outcome"
   ],
   "bounds": {
+    "bounded_transport": {
+      "lost_ack_per_message": 1,
+      "redelivery_per_message": 1,
+      "restart_per_message": 1
+    },
     "durable_slots": 2,
-    "lost_ack_per_message": 1,
     "messages": 2,
-    "redelivery_per_message": 1,
-    "restart_per_message": 1
+    "unbounded_fault_safety": "no bound on repeated lost acknowledgement, restart or redelivery transitions"
   },
   "cases": [
     {
@@ -25,9 +29,10 @@
             "-m100000",
             "-w20"
           ],
-          "elapsed_seconds": 0.020574143,
+          "counterexample_kind": "none_or_other",
+          "elapsed_seconds": 0.010222621,
           "log": "check-safety.log",
-          "log_sha256": "5a1d3e25efa98a08f84c41d1acd2b60536cca450872a88b9b8b3305de0bf235d",
+          "log_sha256": "28c6a4ddab59e76b22949538fda892df248378acff3c4c67a9df9a6d25c0685d",
           "property": "safety",
           "returncode": 0,
           "status": "COMPLETE_NO_ERRORS",
@@ -40,13 +45,13 @@
             "-m100000",
             "-w20",
             "-a",
-            "-f",
             "-N",
             "message_0_progress"
           ],
-          "elapsed_seconds": 0.020554188,
+          "counterexample_kind": "none_or_other",
+          "elapsed_seconds": 0.010333396,
           "log": "check-message_0_progress.log",
-          "log_sha256": "6e64c8fb070bf04571648dd69500e6714378df26481b8ae1a829f096bba4b0b9",
+          "log_sha256": "b66b5100c5927994a3d46180ad37cffdfe2386b5b021981306472683a4a73e46",
           "property": "message_0_progress",
           "returncode": 0,
           "status": "COMPLETE_NO_ERRORS",
@@ -59,13 +64,13 @@
             "-m100000",
             "-w20",
             "-a",
-            "-f",
             "-N",
             "message_1_progress"
           ],
-          "elapsed_seconds": 0.020355614,
+          "counterexample_kind": "none_or_other",
+          "elapsed_seconds": 0.020371947,
           "log": "check-message_1_progress.log",
-          "log_sha256": "a9e33727c3b99dccbc50c28f5c2a0b23c925af2878a6e5cc6e2b50e0d003507c",
+          "log_sha256": "2b89382e64153042d9ea825d383bb45ea0a4da65a444e8a4d73d8a9a9247d9f1",
           "property": "message_1_progress",
           "returncode": 0,
           "status": "COMPLETE_NO_ERRORS",
@@ -85,9 +90,9 @@
             "-l",
             "protocol.pml"
           ],
-          "elapsed_seconds": 0.020370501,
+          "elapsed_seconds": 0.010229401,
           "log": "simulation-17.log",
-          "log_sha256": "2d8b3256bcf7bcb1ccfa5f242b406705e06629388f5086a82d9182891f8bf3aa",
+          "log_sha256": "cd0748f9985a3a1490037a83732238bd7efad7d4636a23f10c4e2902f22f55b3",
           "returncode": 0,
           "seed": 17,
           "status": "SAMPLED_COMPLETE",
@@ -105,9 +110,9 @@
             "-l",
             "protocol.pml"
           ],
-          "elapsed_seconds": 0.010286537,
+          "elapsed_seconds": 0.010249521,
           "log": "simulation-29.log",
-          "log_sha256": "d2e4ef55ecfdb494fab6a8c3a8e3eb6db115c1b9deab7c2b4cb006bd51b4ec81",
+          "log_sha256": "c31a87d97bf437b1ba0e1a68e32be93947ef8e2d318b5757cd231afb138cbdc5",
           "returncode": 0,
           "seed": 29,
           "status": "SAMPLED_COMPLETE",
@@ -119,7 +124,7 @@
             "-a",
             "protocol.pml"
           ],
-          "elapsed_seconds": 0.020414397,
+          "elapsed_seconds": 0.020345741,
           "log": "generate.log",
           "log_sha256": "c89d38a8c7106665a5daded94e0758fe82f7a0d5307ec3b4b634fb86110b5b3e",
           "returncode": 0,
@@ -136,7 +141,7 @@
             "pan-safety",
             "pan.c"
           ],
-          "elapsed_seconds": 1.445483954,
+          "elapsed_seconds": 1.286969255,
           "log": "compile-safety.log",
           "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
           "returncode": 0,
@@ -149,9 +154,9 @@
             "-m100000",
             "-w20"
           ],
-          "elapsed_seconds": 0.020574143,
+          "elapsed_seconds": 0.010222621,
           "log": "check-safety.log",
-          "log_sha256": "5a1d3e25efa98a08f84c41d1acd2b60536cca450872a88b9b8b3305de0bf235d",
+          "log_sha256": "28c6a4ddab59e76b22949538fda892df248378acff3c4c67a9df9a6d25c0685d",
           "returncode": 0,
           "timeout": false
         },
@@ -164,7 +169,7 @@
             "pan-ltl",
             "pan.c"
           ],
-          "elapsed_seconds": 1.6557637600000001,
+          "elapsed_seconds": 1.475832111,
           "log": "compile-ltl.log",
           "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
           "returncode": 0,
@@ -177,13 +182,12 @@
             "-m100000",
             "-w20",
             "-a",
-            "-f",
             "-N",
             "message_0_progress"
           ],
-          "elapsed_seconds": 0.020554188,
+          "elapsed_seconds": 0.010333396,
           "log": "check-message_0_progress.log",
-          "log_sha256": "6e64c8fb070bf04571648dd69500e6714378df26481b8ae1a829f096bba4b0b9",
+          "log_sha256": "b66b5100c5927994a3d46180ad37cffdfe2386b5b021981306472683a4a73e46",
           "returncode": 0,
           "timeout": false
         },
@@ -194,23 +198,27 @@
             "-m100000",
             "-w20",
             "-a",
-            "-f",
             "-N",
             "message_1_progress"
           ],
-          "elapsed_seconds": 0.020355614,
+          "elapsed_seconds": 0.020371947,
           "log": "check-message_1_progress.log",
-          "log_sha256": "a9e33727c3b99dccbc50c28f5c2a0b23c925af2878a6e5cc6e2b50e0d003507c",
+          "log_sha256": "2b89382e64153042d9ea825d383bb45ea0a4da65a444e8a4d73d8a9a9247d9f1",
           "returncode": 0,
           "timeout": false
         }
       ],
       "defect": null,
-      "model_sha256": "8e4440b9802304985e488a9ebf69ee9ccae9d507f146d2a9afc5acde38aa014f",
+      "expectation_met": true,
+      "expected_result": "COMPLETE_NO_ERRORS",
+      "fault_repetition": "bounded_or_not_applicable",
+      "model_sha256": "7e7fdb6deea7109c28a0d3e2df27221a4badf092ce408de4f1e63c9b405c83ab",
       "partial_order_reduction": true,
+      "purpose": "bounded_transport",
       "source_sha256": "e0df929804ce9d5784430d465c3ba54b8387a17cc16a039fab66e62ba743d62b",
       "status": "PASS",
-      "topology": "evaluator-optimiser.json"
+      "topology": "evaluator-optimiser.json",
+      "weak_process_fairness": false
     },
     {
       "capacity": 2,
@@ -222,9 +230,10 @@
             "-m100000",
             "-w20"
           ],
-          "elapsed_seconds": 0.020518684,
+          "counterexample_kind": "none_or_other",
+          "elapsed_seconds": 0.020639179,
           "log": "check-safety.log",
-          "log_sha256": "dd595a5b97d9331c4a62453cf10d36f27dac0fdaedadc5148ab0e63686fa584b",
+          "log_sha256": "6e8cbf7718dcb6322a02b06f8b8b84577c15b9b3ba22082320ba4ae0cd3a1a91",
           "property": "safety",
           "returncode": 0,
           "status": "COMPLETE_NO_ERRORS",
@@ -237,13 +246,13 @@
             "-m100000",
             "-w20",
             "-a",
-            "-f",
             "-N",
             "message_0_progress"
           ],
-          "elapsed_seconds": 0.040883537,
+          "counterexample_kind": "none_or_other",
+          "elapsed_seconds": 0.030470388,
           "log": "check-message_0_progress.log",
-          "log_sha256": "3825f3bbff9c40ce1d4f914497118ef56fc99e0e7345df4bde019bcaf3c10e3b",
+          "log_sha256": "03d74afcf295e1ee04d367be91917927df0dfbab79127c496d6221f5e1a28f82",
           "property": "message_0_progress",
           "returncode": 0,
           "status": "COMPLETE_NO_ERRORS",
@@ -256,13 +265,13 @@
             "-m100000",
             "-w20",
             "-a",
-            "-f",
             "-N",
             "message_1_progress"
           ],
-          "elapsed_seconds": 0.04053731,
+          "counterexample_kind": "none_or_other",
+          "elapsed_seconds": 0.030496877,
           "log": "check-message_1_progress.log",
-          "log_sha256": "2830fb038507c09b8eceef6223a12cddc3bbcbb249edf3ce6ab4cb5934af92bf",
+          "log_sha256": "94ad40ba1d1ca16aeb1bb3789e6015f10a256039373f5b8b1f49619a950538ea",
           "property": "message_1_progress",
           "returncode": 0,
           "status": "COMPLETE_NO_ERRORS",
@@ -282,9 +291,9 @@
             "-l",
             "protocol.pml"
           ],
-          "elapsed_seconds": 0.010346864,
+          "elapsed_seconds": 0.020505327,
           "log": "simulation-17.log",
-          "log_sha256": "e8adf629bbd5a46185671bbbe43ab982da783e19070e00a8983b849ae0611128",
+          "log_sha256": "2d6498231b38456f32bb8054a843547f8b90db5b34e422fcc821b0f702ef9b0a",
           "returncode": 0,
           "seed": 17,
           "status": "SAMPLED_COMPLETE",
@@ -302,9 +311,9 @@
             "-l",
             "protocol.pml"
           ],
-          "elapsed_seconds": 0.010267529,
+          "elapsed_seconds": 0.010269534,
           "log": "simulation-29.log",
-          "log_sha256": "5c4006df091b92d439ba58791a2cd5b7ae99bd450c0488e8307dd634172b1c60",
+          "log_sha256": "1db98d005b29e088b8ad3692311629e055b6a75ff59e95b5f03a419ba4859083",
           "returncode": 0,
           "seed": 29,
           "status": "SAMPLED_COMPLETE",
@@ -316,7 +325,7 @@
             "-a",
             "protocol.pml"
           ],
-          "elapsed_seconds": 0.020351693,
+          "elapsed_seconds": 0.020336478,
           "log": "generate.log",
           "log_sha256": "c89d38a8c7106665a5daded94e0758fe82f7a0d5307ec3b4b634fb86110b5b3e",
           "returncode": 0,
@@ -333,7 +342,7 @@
             "pan-safety",
             "pan.c"
           ],
-          "elapsed_seconds": 1.668602644,
+          "elapsed_seconds": 1.435910161,
           "log": "compile-safety.log",
           "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
           "returncode": 0,
@@ -346,9 +355,9 @@
             "-m100000",
             "-w20"
           ],
-          "elapsed_seconds": 0.020518684,
+          "elapsed_seconds": 0.020639179,
           "log": "check-safety.log",
-          "log_sha256": "dd595a5b97d9331c4a62453cf10d36f27dac0fdaedadc5148ab0e63686fa584b",
+          "log_sha256": "6e8cbf7718dcb6322a02b06f8b8b84577c15b9b3ba22082320ba4ae0cd3a1a91",
           "returncode": 0,
           "timeout": false
         },
@@ -361,7 +370,7 @@
             "pan-ltl",
             "pan.c"
           ],
-          "elapsed_seconds": 1.4238858030000001,
+          "elapsed_seconds": 1.64166348,
           "log": "compile-ltl.log",
           "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
           "returncode": 0,
@@ -374,13 +383,12 @@
             "-m100000",
             "-w20",
             "-a",
-            "-f",
             "-N",
             "message_0_progress"
           ],
-          "elapsed_seconds": 0.040883537,
+          "elapsed_seconds": 0.030470388,
           "log": "check-message_0_progress.log",
-          "log_sha256": "3825f3bbff9c40ce1d4f914497118ef56fc99e0e7345df4bde019bcaf3c10e3b",
+          "log_sha256": "03d74afcf295e1ee04d367be91917927df0dfbab79127c496d6221f5e1a28f82",
           "returncode": 0,
           "timeout": false
         },
@@ -391,23 +399,27 @@
             "-m100000",
             "-w20",
             "-a",
-            "-f",
             "-N",
             "message_1_progress"
           ],
-          "elapsed_seconds": 0.04053731,
+          "elapsed_seconds": 0.030496877,
           "log": "check-message_1_progress.log",
-          "log_sha256": "2830fb038507c09b8eceef6223a12cddc3bbcbb249edf3ce6ab4cb5934af92bf",
+          "log_sha256": "94ad40ba1d1ca16aeb1bb3789e6015f10a256039373f5b8b1f49619a950538ea",
           "returncode": 0,
           "timeout": false
         }
       ],
       "defect": null,
-      "model_sha256": "69468f7193aff371d9211b88c8fe2186fd2ee624b682b62e4e6e29a3bb4af3f4",
+      "expectation_met": true,
+      "expected_result": "COMPLETE_NO_ERRORS",
+      "fault_repetition": "bounded_or_not_applicable",
+      "model_sha256": "6261e805399cd9009ecf1c6e9216d56c2e4ca392fa44e3426c3559a0037aed42",
       "partial_order_reduction": true,
+      "purpose": "bounded_transport",
       "source_sha256": "3ef383446a4edb322e4e5c579f0d9dfaf51347cc3a1252a8396b2bfe6c8e531e",
       "status": "PASS",
-      "topology": "human-review.json"
+      "topology": "human-review.json",
+      "weak_process_fairness": false
     },
     {
       "capacity": 2,
@@ -419,9 +431,10 @@
             "-m100000",
             "-w20"
           ],
-          "elapsed_seconds": 0.030511299,
+          "counterexample_kind": "none_or_other",
+          "elapsed_seconds": 0.031591156,
           "log": "check-safety.log",
-          "log_sha256": "9b6a1054074819a7a8f8a2406d7cbb994828b8e0c82e7051832698c6a062f458",
+          "log_sha256": "3d50af5c99d95f2385ce9bc3754431278b520c428aadb9e89a861c5d260781ab",
           "property": "safety",
           "returncode": 0,
           "status": "COMPLETE_NO_ERRORS",
@@ -434,13 +447,13 @@
             "-m100000",
             "-w20",
             "-a",
-            "-f",
             "-N",
             "message_0_progress"
           ],
-          "elapsed_seconds": 0.081095775,
+          "counterexample_kind": "none_or_other",
+          "elapsed_seconds": 0.071035767,
           "log": "check-message_0_progress.log",
-          "log_sha256": "ac9537aa7f0c43364be12f4f19b188cb3429b605c9c8685c1c5631a95edc0320",
+          "log_sha256": "fe35d17c86573ccd9e28e470f353e0f0b56935870c6073d51602394d96f41dbd",
           "property": "message_0_progress",
           "returncode": 0,
           "status": "COMPLETE_NO_ERRORS",
@@ -453,13 +466,13 @@
             "-m100000",
             "-w20",
             "-a",
-            "-f",
             "-N",
             "message_1_progress"
           ],
-          "elapsed_seconds": 0.091367296,
+          "counterexample_kind": "none_or_other",
+          "elapsed_seconds": 0.071284751,
           "log": "check-message_1_progress.log",
-          "log_sha256": "d2371153a3828c49478584d25bc23cc29b31bf5dc24729dcaf1f46897dba86ba",
+          "log_sha256": "a1e17abca9e4fe5eb871d12b45baa5b2cea00f3fb2651eb777fb0b90e2059900",
           "property": "message_1_progress",
           "returncode": 0,
           "status": "COMPLETE_NO_ERRORS",
@@ -479,9 +492,9 @@
             "-l",
             "protocol.pml"
           ],
-          "elapsed_seconds": 0.020481168,
+          "elapsed_seconds": 0.010385003,
           "log": "simulation-17.log",
-          "log_sha256": "03d2b878f65953570291fca645c69a34b631b7fad5860cfb332c3768ee8a3527",
+          "log_sha256": "e530cd368d033361ce4f76f0720a688690b940439301dd45e908b404f53fa6ae",
           "returncode": 0,
           "seed": 17,
           "status": "SAMPLED_COMPLETE",
@@ -499,9 +512,9 @@
             "-l",
             "protocol.pml"
           ],
-          "elapsed_seconds": 0.020431584,
+          "elapsed_seconds": 0.010230019,
           "log": "simulation-29.log",
-          "log_sha256": "70eea7ef6212d2ac037a497fa4a301e41c69540c1edd4c422b9bfb2bb2b0cc82",
+          "log_sha256": "e9ffa4ee510b4e5579138db32be504f66489119fa367a31ec58564399881e138",
           "returncode": 0,
           "seed": 29,
           "status": "SAMPLED_COMPLETE",
@@ -513,7 +526,7 @@
             "-a",
             "protocol.pml"
           ],
-          "elapsed_seconds": 0.020359765,
+          "elapsed_seconds": 0.020395096,
           "log": "generate.log",
           "log_sha256": "c89d38a8c7106665a5daded94e0758fe82f7a0d5307ec3b4b634fb86110b5b3e",
           "returncode": 0,
@@ -530,7 +543,7 @@
             "pan-safety",
             "pan.c"
           ],
-          "elapsed_seconds": 1.4244194079999999,
+          "elapsed_seconds": 1.416497169,
           "log": "compile-safety.log",
           "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
           "returncode": 0,
@@ -543,9 +556,9 @@
             "-m100000",
             "-w20"
           ],
-          "elapsed_seconds": 0.030511299,
+          "elapsed_seconds": 0.031591156,
           "log": "check-safety.log",
-          "log_sha256": "9b6a1054074819a7a8f8a2406d7cbb994828b8e0c82e7051832698c6a062f458",
+          "log_sha256": "3d50af5c99d95f2385ce9bc3754431278b520c428aadb9e89a861c5d260781ab",
           "returncode": 0,
           "timeout": false
         },
@@ -558,7 +571,7 @@
             "pan-ltl",
             "pan.c"
           ],
-          "elapsed_seconds": 1.546267216,
+          "elapsed_seconds": 1.629153579,
           "log": "compile-ltl.log",
           "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
           "returncode": 0,
@@ -571,13 +584,12 @@
             "-m100000",
             "-w20",
             "-a",
-            "-f",
             "-N",
             "message_0_progress"
           ],
-          "elapsed_seconds": 0.081095775,
+          "elapsed_seconds": 0.071035767,
           "log": "check-message_0_progress.log",
-          "log_sha256": "ac9537aa7f0c43364be12f4f19b188cb3429b605c9c8685c1c5631a95edc0320",
+          "log_sha256": "fe35d17c86573ccd9e28e470f353e0f0b56935870c6073d51602394d96f41dbd",
           "returncode": 0,
           "timeout": false
         },
@@ -588,23 +600,27 @@
             "-m100000",
             "-w20",
             "-a",
-            "-f",
             "-N",
             "message_1_progress"
           ],
-          "elapsed_seconds": 0.091367296,
+          "elapsed_seconds": 0.071284751,
           "log": "check-message_1_progress.log",
-          "log_sha256": "d2371153a3828c49478584d25bc23cc29b31bf5dc24729dcaf1f46897dba86ba",
+          "log_sha256": "a1e17abca9e4fe5eb871d12b45baa5b2cea00f3fb2651eb777fb0b90e2059900",
           "returncode": 0,
           "timeout": false
         }
       ],
       "defect": null,
-      "model_sha256": "42d03909269f0ec3bed3840f32aa9b2c2d1302c1ff9d735f3e78228c872f27a5",
+      "expectation_met": true,
+      "expected_result": "COMPLETE_NO_ERRORS",
+      "fault_repetition": "bounded_or_not_applicable",
+      "model_sha256": "ff38c11d6cec8bcf4d26ef6d5905703b87a6308053917d7fe77f99cdff57fcd6",
       "partial_order_reduction": true,
+      "purpose": "bounded_transport",
       "source_sha256": "0fe3d35646a1b6e594634f09c4ac290ea2432b5768fdf635549f13357a29668c",
       "status": "PASS",
-      "topology": "mesh.json"
+      "topology": "mesh.json",
+      "weak_process_fairness": false
     },
     {
       "capacity": 2,
@@ -616,9 +632,10 @@
             "-m100000",
             "-w20"
           ],
-          "elapsed_seconds": 0.020353527,
+          "counterexample_kind": "none_or_other",
+          "elapsed_seconds": 0.020384373,
           "log": "check-safety.log",
-          "log_sha256": "4f78fceb6a8afdb294ca9eddaf844d0bd6d5ba230df1301241883cb90e8a9350",
+          "log_sha256": "b88d995a7aa65d589c32beeb831b7cdfa03dfd61c58ec5a71dd2d1a28c5f4108",
           "property": "safety",
           "returncode": 0,
           "status": "COMPLETE_NO_ERRORS",
@@ -631,13 +648,13 @@
             "-m100000",
             "-w20",
             "-a",
-            "-f",
             "-N",
             "message_0_progress"
           ],
-          "elapsed_seconds": 0.040910912,
+          "counterexample_kind": "none_or_other",
+          "elapsed_seconds": 0.030794156,
           "log": "check-message_0_progress.log",
-          "log_sha256": "a87d1d61aed4403e9e8c18bef00ffee2a4f5d2a0d9fd7e1974fb5d81d032525e",
+          "log_sha256": "46f8620f80c9c134784e5dbf692c2a2be909c3f474fe02419fb4cb9dec485c46",
           "property": "message_0_progress",
           "returncode": 0,
           "status": "COMPLETE_NO_ERRORS",
@@ -650,13 +667,13 @@
             "-m100000",
             "-w20",
             "-a",
-            "-f",
             "-N",
             "message_1_progress"
           ],
-          "elapsed_seconds": 0.040556868,
+          "counterexample_kind": "none_or_other",
+          "elapsed_seconds": 0.030496132,
           "log": "check-message_1_progress.log",
-          "log_sha256": "7e80e5d18d50cda86d16b3d443398821b40805f62ae3c330359c8bc735492132",
+          "log_sha256": "89823d352ba957e3eb24911eb3d59d4bdfc30dcf10cccf8ad65e0c5f4d0ca16d",
           "property": "message_1_progress",
           "returncode": 0,
           "status": "COMPLETE_NO_ERRORS",
@@ -676,9 +693,9 @@
             "-l",
             "protocol.pml"
           ],
-          "elapsed_seconds": 0.02043496,
+          "elapsed_seconds": 0.020531833,
           "log": "simulation-17.log",
-          "log_sha256": "527df53722708bca68584e1f826782a30c295e3ea2911ba6ccc45fa52c4533b6",
+          "log_sha256": "596159996e3eb43d152484ef02ce5165e0266c4e8f61829fa2624994c6dc657f",
           "returncode": 0,
           "seed": 17,
           "status": "SAMPLED_COMPLETE",
@@ -696,9 +713,9 @@
             "-l",
             "protocol.pml"
           ],
-          "elapsed_seconds": 0.020370193,
+          "elapsed_seconds": 0.020539709,
           "log": "simulation-29.log",
-          "log_sha256": "bad3c97c6ca6d26fee74653a2d32e35765b13649180501fd49239acf04a63d9a",
+          "log_sha256": "cf981af1287ce8cfefea7a5ad8c11c81cb5c656f433ca81a488113ceef3f9eee",
           "returncode": 0,
           "seed": 29,
           "status": "SAMPLED_COMPLETE",
@@ -710,7 +727,7 @@
             "-a",
             "protocol.pml"
           ],
-          "elapsed_seconds": 0.020427068,
+          "elapsed_seconds": 0.020495363,
           "log": "generate.log",
           "log_sha256": "c89d38a8c7106665a5daded94e0758fe82f7a0d5307ec3b4b634fb86110b5b3e",
           "returncode": 0,
@@ -727,7 +744,7 @@
             "pan-safety",
             "pan.c"
           ],
-          "elapsed_seconds": 1.262386743,
+          "elapsed_seconds": 1.283340509,
           "log": "compile-safety.log",
           "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
           "returncode": 0,
@@ -740,9 +757,9 @@
             "-m100000",
             "-w20"
           ],
-          "elapsed_seconds": 0.020353527,
+          "elapsed_seconds": 0.020384373,
           "log": "check-safety.log",
-          "log_sha256": "4f78fceb6a8afdb294ca9eddaf844d0bd6d5ba230df1301241883cb90e8a9350",
+          "log_sha256": "b88d995a7aa65d589c32beeb831b7cdfa03dfd61c58ec5a71dd2d1a28c5f4108",
           "returncode": 0,
           "timeout": false
         },
@@ -755,7 +772,7 @@
             "pan-ltl",
             "pan.c"
           ],
-          "elapsed_seconds": 1.488410346,
+          "elapsed_seconds": 1.518212428,
           "log": "compile-ltl.log",
           "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
           "returncode": 0,
@@ -768,13 +785,12 @@
             "-m100000",
             "-w20",
             "-a",
-            "-f",
             "-N",
             "message_0_progress"
           ],
-          "elapsed_seconds": 0.040910912,
+          "elapsed_seconds": 0.030794156,
           "log": "check-message_0_progress.log",
-          "log_sha256": "a87d1d61aed4403e9e8c18bef00ffee2a4f5d2a0d9fd7e1974fb5d81d032525e",
+          "log_sha256": "46f8620f80c9c134784e5dbf692c2a2be909c3f474fe02419fb4cb9dec485c46",
           "returncode": 0,
           "timeout": false
         },
@@ -785,23 +801,27 @@
             "-m100000",
             "-w20",
             "-a",
-            "-f",
             "-N",
             "message_1_progress"
           ],
-          "elapsed_seconds": 0.040556868,
+          "elapsed_seconds": 0.030496132,
           "log": "check-message_1_progress.log",
-          "log_sha256": "7e80e5d18d50cda86d16b3d443398821b40805f62ae3c330359c8bc735492132",
+          "log_sha256": "89823d352ba957e3eb24911eb3d59d4bdfc30dcf10cccf8ad65e0c5f4d0ca16d",
           "returncode": 0,
           "timeout": false
         }
       ],
       "defect": null,
-      "model_sha256": "eb966ccd24716f7209c177bc81b59ed98308da1b4567db465c354c1f5f9a93ad",
+      "expectation_met": true,
+      "expected_result": "COMPLETE_NO_ERRORS",
+      "fault_repetition": "bounded_or_not_applicable",
+      "model_sha256": "917f47b5d4179fbd74a63fb0d98aa392436e92df223f5c3754cd22697409473f",
       "partial_order_reduction": true,
+      "purpose": "bounded_transport",
       "source_sha256": "62521449557fcf2e447c515b624fcfca8c06d15e74cbdffe54cc9c1f3ce80894",
       "status": "PASS",
-      "topology": "orchestrator-workers.json"
+      "topology": "orchestrator-workers.json",
+      "weak_process_fairness": false
     },
     {
       "capacity": 2,
@@ -813,9 +833,10 @@
             "-m100000",
             "-w20"
           ],
-          "elapsed_seconds": 0.020414199,
+          "counterexample_kind": "none_or_other",
+          "elapsed_seconds": 0.020524363,
           "log": "check-safety.log",
-          "log_sha256": "78a37e84835b75bdffa0194685113978cdbbb595f95b3a9a0548cdf640632f01",
+          "log_sha256": "14fa6364b49876d1a09034e809b8b290f06983e0e834863f070e2ad169ec7baa",
           "property": "safety",
           "returncode": 0,
           "status": "COMPLETE_NO_ERRORS",
@@ -828,13 +849,13 @@
             "-m100000",
             "-w20",
             "-a",
-            "-f",
             "-N",
             "message_0_progress"
           ],
-          "elapsed_seconds": 0.040733955,
+          "counterexample_kind": "none_or_other",
+          "elapsed_seconds": 0.03054751,
           "log": "check-message_0_progress.log",
-          "log_sha256": "a87d1d61aed4403e9e8c18bef00ffee2a4f5d2a0d9fd7e1974fb5d81d032525e",
+          "log_sha256": "46f8620f80c9c134784e5dbf692c2a2be909c3f474fe02419fb4cb9dec485c46",
           "property": "message_0_progress",
           "returncode": 0,
           "status": "COMPLETE_NO_ERRORS",
@@ -847,13 +868,13 @@
             "-m100000",
             "-w20",
             "-a",
-            "-f",
             "-N",
             "message_1_progress"
           ],
-          "elapsed_seconds": 0.040701046,
+          "counterexample_kind": "none_or_other",
+          "elapsed_seconds": 0.040589536,
           "log": "check-message_1_progress.log",
-          "log_sha256": "1c83e9d79757bc986666780702374d3bca7a57c5a9b40d10108a866590c66fcd",
+          "log_sha256": "dccb3ca4f3c94da58b47506b49e10c6c1113aea8ef636ef3308e933ad77829c2",
           "property": "message_1_progress",
           "returncode": 0,
           "status": "COMPLETE_NO_ERRORS",
@@ -873,9 +894,9 @@
             "-l",
             "protocol.pml"
           ],
-          "elapsed_seconds": 0.010290886,
+          "elapsed_seconds": 0.020374382,
           "log": "simulation-17.log",
-          "log_sha256": "527df53722708bca68584e1f826782a30c295e3ea2911ba6ccc45fa52c4533b6",
+          "log_sha256": "596159996e3eb43d152484ef02ce5165e0266c4e8f61829fa2624994c6dc657f",
           "returncode": 0,
           "seed": 17,
           "status": "SAMPLED_COMPLETE",
@@ -893,9 +914,9 @@
             "-l",
             "protocol.pml"
           ],
-          "elapsed_seconds": 0.010302353,
+          "elapsed_seconds": 0.02066419,
           "log": "simulation-29.log",
-          "log_sha256": "bad3c97c6ca6d26fee74653a2d32e35765b13649180501fd49239acf04a63d9a",
+          "log_sha256": "cf981af1287ce8cfefea7a5ad8c11c81cb5c656f433ca81a488113ceef3f9eee",
           "returncode": 0,
           "seed": 29,
           "status": "SAMPLED_COMPLETE",
@@ -907,7 +928,7 @@
             "-a",
             "protocol.pml"
           ],
-          "elapsed_seconds": 0.020379192,
+          "elapsed_seconds": 0.020437302,
           "log": "generate.log",
           "log_sha256": "c89d38a8c7106665a5daded94e0758fe82f7a0d5307ec3b4b634fb86110b5b3e",
           "returncode": 0,
@@ -924,7 +945,7 @@
             "pan-safety",
             "pan.c"
           ],
-          "elapsed_seconds": 1.355112892,
+          "elapsed_seconds": 1.658618332,
           "log": "compile-safety.log",
           "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
           "returncode": 0,
@@ -937,9 +958,9 @@
             "-m100000",
             "-w20"
           ],
-          "elapsed_seconds": 0.020414199,
+          "elapsed_seconds": 0.020524363,
           "log": "check-safety.log",
-          "log_sha256": "78a37e84835b75bdffa0194685113978cdbbb595f95b3a9a0548cdf640632f01",
+          "log_sha256": "14fa6364b49876d1a09034e809b8b290f06983e0e834863f070e2ad169ec7baa",
           "returncode": 0,
           "timeout": false
         },
@@ -952,7 +973,7 @@
             "pan-ltl",
             "pan.c"
           ],
-          "elapsed_seconds": 1.487248811,
+          "elapsed_seconds": 1.885229992,
           "log": "compile-ltl.log",
           "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
           "returncode": 0,
@@ -965,13 +986,12 @@
             "-m100000",
             "-w20",
             "-a",
-            "-f",
             "-N",
             "message_0_progress"
           ],
-          "elapsed_seconds": 0.040733955,
+          "elapsed_seconds": 0.03054751,
           "log": "check-message_0_progress.log",
-          "log_sha256": "a87d1d61aed4403e9e8c18bef00ffee2a4f5d2a0d9fd7e1974fb5d81d032525e",
+          "log_sha256": "46f8620f80c9c134784e5dbf692c2a2be909c3f474fe02419fb4cb9dec485c46",
           "returncode": 0,
           "timeout": false
         },
@@ -982,23 +1002,27 @@
             "-m100000",
             "-w20",
             "-a",
-            "-f",
             "-N",
             "message_1_progress"
           ],
-          "elapsed_seconds": 0.040701046,
+          "elapsed_seconds": 0.040589536,
           "log": "check-message_1_progress.log",
-          "log_sha256": "1c83e9d79757bc986666780702374d3bca7a57c5a9b40d10108a866590c66fcd",
+          "log_sha256": "dccb3ca4f3c94da58b47506b49e10c6c1113aea8ef636ef3308e933ad77829c2",
           "returncode": 0,
           "timeout": false
         }
       ],
       "defect": null,
-      "model_sha256": "eb966ccd24716f7209c177bc81b59ed98308da1b4567db465c354c1f5f9a93ad",
+      "expectation_met": true,
+      "expected_result": "COMPLETE_NO_ERRORS",
+      "fault_repetition": "bounded_or_not_applicable",
+      "model_sha256": "917f47b5d4179fbd74a63fb0d98aa392436e92df223f5c3754cd22697409473f",
       "partial_order_reduction": true,
+      "purpose": "bounded_transport",
       "source_sha256": "d94a14ef86eb5ba6972f5652d2d08adcdd749f5b31b9ecac91de9cfec3cad782",
       "status": "PASS",
-      "topology": "parallel-sectioning.json"
+      "topology": "parallel-sectioning.json",
+      "weak_process_fairness": false
     },
     {
       "capacity": 3,
@@ -1010,9 +1034,10 @@
             "-m100000",
             "-w20"
           ],
-          "elapsed_seconds": 0.060792526,
+          "counterexample_kind": "none_or_other",
+          "elapsed_seconds": 0.08872978,
           "log": "check-safety.log",
-          "log_sha256": "c3da1b9b69d1df23b0e85f01f677b11fbdab21138dc4d38de4f7f3207404e748",
+          "log_sha256": "57716af97d762c9491dc2fb655921d50aeeb9b1292269b30ae664538e94b6f18",
           "property": "safety",
           "returncode": 0,
           "status": "COMPLETE_NO_ERRORS",
@@ -1025,13 +1050,13 @@
             "-m100000",
             "-w20",
             "-a",
-            "-f",
             "-N",
             "message_0_progress"
           ],
-          "elapsed_seconds": 0.121488787,
+          "counterexample_kind": "none_or_other",
+          "elapsed_seconds": 0.081061394,
           "log": "check-message_0_progress.log",
-          "log_sha256": "a532dfa612959a8a907d35944758af146e9f73c56afadb7f751fe61a295d5bb8",
+          "log_sha256": "aed9098ecaff2e83a7312909de9bfcd450065024bf8f4eca97b3460f7e05d166",
           "property": "message_0_progress",
           "returncode": 0,
           "status": "COMPLETE_NO_ERRORS",
@@ -1044,13 +1069,13 @@
             "-m100000",
             "-w20",
             "-a",
-            "-f",
             "-N",
             "message_1_progress"
           ],
-          "elapsed_seconds": 0.101556238,
+          "counterexample_kind": "none_or_other",
+          "elapsed_seconds": 0.081143196,
           "log": "check-message_1_progress.log",
-          "log_sha256": "254968b04e99b59bb321387a06e632724e9bee0634dfa3d6711dc0d76b6ddd9f",
+          "log_sha256": "f0a3f223ad9fdb629430a6f6409fe9e5ab1accb6eaf550e5bca91d329f9f5cc0",
           "property": "message_1_progress",
           "returncode": 0,
           "status": "COMPLETE_NO_ERRORS",
@@ -1070,9 +1095,9 @@
             "-l",
             "protocol.pml"
           ],
-          "elapsed_seconds": 0.010274551,
+          "elapsed_seconds": 0.020388333,
           "log": "simulation-17.log",
-          "log_sha256": "33ffb2049147aca262f12bf86ff2b541041e847948cbe3c6675476e5c7463a3e",
+          "log_sha256": "1389968f66279f8e9b3730d855b5f1494e90ff503e265352c8728e1a0f55a04f",
           "returncode": 0,
           "seed": 17,
           "status": "SAMPLED_COMPLETE",
@@ -1090,9 +1115,9 @@
             "-l",
             "protocol.pml"
           ],
-          "elapsed_seconds": 0.010283134,
+          "elapsed_seconds": 0.020523472,
           "log": "simulation-29.log",
-          "log_sha256": "68c0bce5f85df487ee079b5d05a69bfe351f624011ea7cb9e09046e04e6d20aa",
+          "log_sha256": "2c558ca6c1d8c05c5ce81a1312ebddb6a671366fceda2284e2cd25fc48f418fe",
           "returncode": 0,
           "seed": 29,
           "status": "SAMPLED_COMPLETE",
@@ -1104,7 +1129,7 @@
             "-a",
             "protocol.pml"
           ],
-          "elapsed_seconds": 0.020365586,
+          "elapsed_seconds": 0.020553072,
           "log": "generate.log",
           "log_sha256": "c89d38a8c7106665a5daded94e0758fe82f7a0d5307ec3b4b634fb86110b5b3e",
           "returncode": 0,
@@ -1121,7 +1146,7 @@
             "pan-safety",
             "pan.c"
           ],
-          "elapsed_seconds": 1.384469739,
+          "elapsed_seconds": 1.781873652,
           "log": "compile-safety.log",
           "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
           "returncode": 0,
@@ -1134,9 +1159,9 @@
             "-m100000",
             "-w20"
           ],
-          "elapsed_seconds": 0.060792526,
+          "elapsed_seconds": 0.08872978,
           "log": "check-safety.log",
-          "log_sha256": "c3da1b9b69d1df23b0e85f01f677b11fbdab21138dc4d38de4f7f3207404e748",
+          "log_sha256": "57716af97d762c9491dc2fb655921d50aeeb9b1292269b30ae664538e94b6f18",
           "returncode": 0,
           "timeout": false
         },
@@ -1149,7 +1174,7 @@
             "pan-ltl",
             "pan.c"
           ],
-          "elapsed_seconds": 1.608616263,
+          "elapsed_seconds": 1.654089213,
           "log": "compile-ltl.log",
           "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
           "returncode": 0,
@@ -1162,13 +1187,12 @@
             "-m100000",
             "-w20",
             "-a",
-            "-f",
             "-N",
             "message_0_progress"
           ],
-          "elapsed_seconds": 0.121488787,
+          "elapsed_seconds": 0.081061394,
           "log": "check-message_0_progress.log",
-          "log_sha256": "a532dfa612959a8a907d35944758af146e9f73c56afadb7f751fe61a295d5bb8",
+          "log_sha256": "aed9098ecaff2e83a7312909de9bfcd450065024bf8f4eca97b3460f7e05d166",
           "returncode": 0,
           "timeout": false
         },
@@ -1179,23 +1203,27 @@
             "-m100000",
             "-w20",
             "-a",
-            "-f",
             "-N",
             "message_1_progress"
           ],
-          "elapsed_seconds": 0.101556238,
+          "elapsed_seconds": 0.081143196,
           "log": "check-message_1_progress.log",
-          "log_sha256": "254968b04e99b59bb321387a06e632724e9bee0634dfa3d6711dc0d76b6ddd9f",
+          "log_sha256": "f0a3f223ad9fdb629430a6f6409fe9e5ab1accb6eaf550e5bca91d329f9f5cc0",
           "returncode": 0,
           "timeout": false
         }
       ],
       "defect": null,
-      "model_sha256": "d32f2593de444946c7d06f239c729d862536b598dfc97e074924036ab121a66a",
+      "expectation_met": true,
+      "expected_result": "COMPLETE_NO_ERRORS",
+      "fault_repetition": "bounded_or_not_applicable",
+      "model_sha256": "337c93fcfe5af72ffd53413e668d3a73b89325f752f7b27d8f621d13aad9776d",
       "partial_order_reduction": true,
+      "purpose": "bounded_transport",
       "source_sha256": "f595671211508d2822e91bd71bbcadfb10ebf14849d8015616c4b30c1185549b",
       "status": "PASS",
-      "topology": "parallel-voting.json"
+      "topology": "parallel-voting.json",
+      "weak_process_fairness": false
     },
     {
       "capacity": 2,
@@ -1207,9 +1235,10 @@
             "-m100000",
             "-w20"
           ],
-          "elapsed_seconds": 0.020473372,
+          "counterexample_kind": "none_or_other",
+          "elapsed_seconds": 0.020490345,
           "log": "check-safety.log",
-          "log_sha256": "78a37e84835b75bdffa0194685113978cdbbb595f95b3a9a0548cdf640632f01",
+          "log_sha256": "b88d995a7aa65d589c32beeb831b7cdfa03dfd61c58ec5a71dd2d1a28c5f4108",
           "property": "safety",
           "returncode": 0,
           "status": "COMPLETE_NO_ERRORS",
@@ -1222,13 +1251,13 @@
             "-m100000",
             "-w20",
             "-a",
-            "-f",
             "-N",
             "message_0_progress"
           ],
-          "elapsed_seconds": 0.040687147,
+          "counterexample_kind": "none_or_other",
+          "elapsed_seconds": 0.030736619,
           "log": "check-message_0_progress.log",
-          "log_sha256": "a87d1d61aed4403e9e8c18bef00ffee2a4f5d2a0d9fd7e1974fb5d81d032525e",
+          "log_sha256": "46f8620f80c9c134784e5dbf692c2a2be909c3f474fe02419fb4cb9dec485c46",
           "property": "message_0_progress",
           "returncode": 0,
           "status": "COMPLETE_NO_ERRORS",
@@ -1241,13 +1270,13 @@
             "-m100000",
             "-w20",
             "-a",
-            "-f",
             "-N",
             "message_1_progress"
           ],
-          "elapsed_seconds": 0.040648799,
+          "counterexample_kind": "none_or_other",
+          "elapsed_seconds": 0.030384584,
           "log": "check-message_1_progress.log",
-          "log_sha256": "7e80e5d18d50cda86d16b3d443398821b40805f62ae3c330359c8bc735492132",
+          "log_sha256": "dccb3ca4f3c94da58b47506b49e10c6c1113aea8ef636ef3308e933ad77829c2",
           "property": "message_1_progress",
           "returncode": 0,
           "status": "COMPLETE_NO_ERRORS",
@@ -1267,9 +1296,9 @@
             "-l",
             "protocol.pml"
           ],
-          "elapsed_seconds": 0.020425392,
+          "elapsed_seconds": 0.020433079,
           "log": "simulation-17.log",
-          "log_sha256": "527df53722708bca68584e1f826782a30c295e3ea2911ba6ccc45fa52c4533b6",
+          "log_sha256": "596159996e3eb43d152484ef02ce5165e0266c4e8f61829fa2624994c6dc657f",
           "returncode": 0,
           "seed": 17,
           "status": "SAMPLED_COMPLETE",
@@ -1287,9 +1316,9 @@
             "-l",
             "protocol.pml"
           ],
-          "elapsed_seconds": 0.010354865,
+          "elapsed_seconds": 0.020425406,
           "log": "simulation-29.log",
-          "log_sha256": "bad3c97c6ca6d26fee74653a2d32e35765b13649180501fd49239acf04a63d9a",
+          "log_sha256": "cf981af1287ce8cfefea7a5ad8c11c81cb5c656f433ca81a488113ceef3f9eee",
           "returncode": 0,
           "seed": 29,
           "status": "SAMPLED_COMPLETE",
@@ -1301,7 +1330,7 @@
             "-a",
             "protocol.pml"
           ],
-          "elapsed_seconds": 0.020410138,
+          "elapsed_seconds": 0.020335206,
           "log": "generate.log",
           "log_sha256": "c89d38a8c7106665a5daded94e0758fe82f7a0d5307ec3b4b634fb86110b5b3e",
           "returncode": 0,
@@ -1318,7 +1347,7 @@
             "pan-safety",
             "pan.c"
           ],
-          "elapsed_seconds": 1.437111757,
+          "elapsed_seconds": 1.506994365,
           "log": "compile-safety.log",
           "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
           "returncode": 0,
@@ -1331,9 +1360,9 @@
             "-m100000",
             "-w20"
           ],
-          "elapsed_seconds": 0.020473372,
+          "elapsed_seconds": 0.020490345,
           "log": "check-safety.log",
-          "log_sha256": "78a37e84835b75bdffa0194685113978cdbbb595f95b3a9a0548cdf640632f01",
+          "log_sha256": "b88d995a7aa65d589c32beeb831b7cdfa03dfd61c58ec5a71dd2d1a28c5f4108",
           "returncode": 0,
           "timeout": false
         },
@@ -1346,7 +1375,7 @@
             "pan-ltl",
             "pan.c"
           ],
-          "elapsed_seconds": 1.5388490689999998,
+          "elapsed_seconds": 1.780951599,
           "log": "compile-ltl.log",
           "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
           "returncode": 0,
@@ -1359,13 +1388,12 @@
             "-m100000",
             "-w20",
             "-a",
-            "-f",
             "-N",
             "message_0_progress"
           ],
-          "elapsed_seconds": 0.040687147,
+          "elapsed_seconds": 0.030736619,
           "log": "check-message_0_progress.log",
-          "log_sha256": "a87d1d61aed4403e9e8c18bef00ffee2a4f5d2a0d9fd7e1974fb5d81d032525e",
+          "log_sha256": "46f8620f80c9c134784e5dbf692c2a2be909c3f474fe02419fb4cb9dec485c46",
           "returncode": 0,
           "timeout": false
         },
@@ -1376,23 +1404,27 @@
             "-m100000",
             "-w20",
             "-a",
-            "-f",
             "-N",
             "message_1_progress"
           ],
-          "elapsed_seconds": 0.040648799,
+          "elapsed_seconds": 0.030384584,
           "log": "check-message_1_progress.log",
-          "log_sha256": "7e80e5d18d50cda86d16b3d443398821b40805f62ae3c330359c8bc735492132",
+          "log_sha256": "dccb3ca4f3c94da58b47506b49e10c6c1113aea8ef636ef3308e933ad77829c2",
           "returncode": 0,
           "timeout": false
         }
       ],
       "defect": null,
-      "model_sha256": "eb966ccd24716f7209c177bc81b59ed98308da1b4567db465c354c1f5f9a93ad",
+      "expectation_met": true,
+      "expected_result": "COMPLETE_NO_ERRORS",
+      "fault_repetition": "bounded_or_not_applicable",
+      "model_sha256": "917f47b5d4179fbd74a63fb0d98aa392436e92df223f5c3754cd22697409473f",
       "partial_order_reduction": true,
+      "purpose": "bounded_transport",
       "source_sha256": "ace60d44037648e163a066f53039ed2dfe2582140fa5f2f9117459b0aacb55d0",
       "status": "PASS",
-      "topology": "prompt-chaining.json"
+      "topology": "prompt-chaining.json",
+      "weak_process_fairness": false
     },
     {
       "capacity": 2,
@@ -1404,9 +1436,10 @@
             "-m100000",
             "-w20"
           ],
-          "elapsed_seconds": 0.020350581,
+          "counterexample_kind": "none_or_other",
+          "elapsed_seconds": 0.03055806,
           "log": "check-safety.log",
-          "log_sha256": "4f78fceb6a8afdb294ca9eddaf844d0bd6d5ba230df1301241883cb90e8a9350",
+          "log_sha256": "14fa6364b49876d1a09034e809b8b290f06983e0e834863f070e2ad169ec7baa",
           "property": "safety",
           "returncode": 0,
           "status": "COMPLETE_NO_ERRORS",
@@ -1419,13 +1452,13 @@
             "-m100000",
             "-w20",
             "-a",
-            "-f",
             "-N",
             "message_0_progress"
           ],
-          "elapsed_seconds": 0.051016049,
+          "counterexample_kind": "none_or_other",
+          "elapsed_seconds": 0.04229647,
           "log": "check-message_0_progress.log",
-          "log_sha256": "8162f13b7b87d03073c26178c61556c6ffd2fc7159c5d5cafa2a2744c4824011",
+          "log_sha256": "c89c3d8904d3da60809a06abcb8540aedfe9f9896a7a49538833e83bb775bcae",
           "property": "message_0_progress",
           "returncode": 0,
           "status": "COMPLETE_NO_ERRORS",
@@ -1438,13 +1471,13 @@
             "-m100000",
             "-w20",
             "-a",
-            "-f",
             "-N",
             "message_1_progress"
           ],
-          "elapsed_seconds": 0.050918022,
+          "counterexample_kind": "none_or_other",
+          "elapsed_seconds": 0.030634654,
           "log": "check-message_1_progress.log",
-          "log_sha256": "7e80e5d18d50cda86d16b3d443398821b40805f62ae3c330359c8bc735492132",
+          "log_sha256": "89823d352ba957e3eb24911eb3d59d4bdfc30dcf10cccf8ad65e0c5f4d0ca16d",
           "property": "message_1_progress",
           "returncode": 0,
           "status": "COMPLETE_NO_ERRORS",
@@ -1464,9 +1497,9 @@
             "-l",
             "protocol.pml"
           ],
-          "elapsed_seconds": 0.020498374,
+          "elapsed_seconds": 0.020490039,
           "log": "simulation-17.log",
-          "log_sha256": "527df53722708bca68584e1f826782a30c295e3ea2911ba6ccc45fa52c4533b6",
+          "log_sha256": "596159996e3eb43d152484ef02ce5165e0266c4e8f61829fa2624994c6dc657f",
           "returncode": 0,
           "seed": 17,
           "status": "SAMPLED_COMPLETE",
@@ -1484,9 +1517,9 @@
             "-l",
             "protocol.pml"
           ],
-          "elapsed_seconds": 0.020605626,
+          "elapsed_seconds": 0.020321239,
           "log": "simulation-29.log",
-          "log_sha256": "bad3c97c6ca6d26fee74653a2d32e35765b13649180501fd49239acf04a63d9a",
+          "log_sha256": "cf981af1287ce8cfefea7a5ad8c11c81cb5c656f433ca81a488113ceef3f9eee",
           "returncode": 0,
           "seed": 29,
           "status": "SAMPLED_COMPLETE",
@@ -1498,7 +1531,7 @@
             "-a",
             "protocol.pml"
           ],
-          "elapsed_seconds": 0.020414592,
+          "elapsed_seconds": 0.020323013,
           "log": "generate.log",
           "log_sha256": "c89d38a8c7106665a5daded94e0758fe82f7a0d5307ec3b4b634fb86110b5b3e",
           "returncode": 0,
@@ -1515,7 +1548,7 @@
             "pan-safety",
             "pan.c"
           ],
-          "elapsed_seconds": 1.4190903289999999,
+          "elapsed_seconds": 1.678933998,
           "log": "compile-safety.log",
           "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
           "returncode": 0,
@@ -1528,9 +1561,9 @@
             "-m100000",
             "-w20"
           ],
-          "elapsed_seconds": 0.020350581,
+          "elapsed_seconds": 0.03055806,
           "log": "check-safety.log",
-          "log_sha256": "4f78fceb6a8afdb294ca9eddaf844d0bd6d5ba230df1301241883cb90e8a9350",
+          "log_sha256": "14fa6364b49876d1a09034e809b8b290f06983e0e834863f070e2ad169ec7baa",
           "returncode": 0,
           "timeout": false
         },
@@ -1543,7 +1576,7 @@
             "pan-ltl",
             "pan.c"
           ],
-          "elapsed_seconds": 1.648056792,
+          "elapsed_seconds": 1.98480244,
           "log": "compile-ltl.log",
           "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
           "returncode": 0,
@@ -1556,13 +1589,12 @@
             "-m100000",
             "-w20",
             "-a",
-            "-f",
             "-N",
             "message_0_progress"
           ],
-          "elapsed_seconds": 0.051016049,
+          "elapsed_seconds": 0.04229647,
           "log": "check-message_0_progress.log",
-          "log_sha256": "8162f13b7b87d03073c26178c61556c6ffd2fc7159c5d5cafa2a2744c4824011",
+          "log_sha256": "c89c3d8904d3da60809a06abcb8540aedfe9f9896a7a49538833e83bb775bcae",
           "returncode": 0,
           "timeout": false
         },
@@ -1573,23 +1605,27 @@
             "-m100000",
             "-w20",
             "-a",
-            "-f",
             "-N",
             "message_1_progress"
           ],
-          "elapsed_seconds": 0.050918022,
+          "elapsed_seconds": 0.030634654,
           "log": "check-message_1_progress.log",
-          "log_sha256": "7e80e5d18d50cda86d16b3d443398821b40805f62ae3c330359c8bc735492132",
+          "log_sha256": "89823d352ba957e3eb24911eb3d59d4bdfc30dcf10cccf8ad65e0c5f4d0ca16d",
           "returncode": 0,
           "timeout": false
         }
       ],
       "defect": null,
-      "model_sha256": "eb966ccd24716f7209c177bc81b59ed98308da1b4567db465c354c1f5f9a93ad",
+      "expectation_met": true,
+      "expected_result": "COMPLETE_NO_ERRORS",
+      "fault_repetition": "bounded_or_not_applicable",
+      "model_sha256": "917f47b5d4179fbd74a63fb0d98aa392436e92df223f5c3754cd22697409473f",
       "partial_order_reduction": true,
+      "purpose": "bounded_transport",
       "source_sha256": "adaee792705996a91c59aaccd64cf2e89e0b7a5001b313a476d4c9a551bc4b12",
       "status": "PASS",
-      "topology": "routing.json"
+      "topology": "routing.json",
+      "weak_process_fairness": false
     },
     {
       "capacity": 2,
@@ -1601,9 +1637,10 @@
             "-m100000",
             "-w20"
           ],
-          "elapsed_seconds": 0.02041622,
+          "counterexample_kind": "none_or_other",
+          "elapsed_seconds": 0.020592577,
           "log": "check-safety.log",
-          "log_sha256": "dd595a5b97d9331c4a62453cf10d36f27dac0fdaedadc5148ab0e63686fa584b",
+          "log_sha256": "7870463cb8b433d25eea521970c6ec174295f5ab618a1e32e835845b6039d064",
           "property": "safety",
           "returncode": 0,
           "status": "COMPLETE_NO_ERRORS",
@@ -1616,13 +1653,13 @@
             "-m100000",
             "-w20",
             "-a",
-            "-f",
             "-N",
             "message_0_progress"
           ],
-          "elapsed_seconds": 0.040598891,
+          "counterexample_kind": "none_or_other",
+          "elapsed_seconds": 0.030531257,
           "log": "check-message_0_progress.log",
-          "log_sha256": "3825f3bbff9c40ce1d4f914497118ef56fc99e0e7345df4bde019bcaf3c10e3b",
+          "log_sha256": "5c8a14d045c5ebd838ae7960bf9dec63c531964464b81cbff834a8637a96f9b8",
           "property": "message_0_progress",
           "returncode": 0,
           "status": "COMPLETE_NO_ERRORS",
@@ -1635,13 +1672,13 @@
             "-m100000",
             "-w20",
             "-a",
-            "-f",
             "-N",
             "message_1_progress"
           ],
-          "elapsed_seconds": 0.040687589,
+          "counterexample_kind": "none_or_other",
+          "elapsed_seconds": 0.030530091,
           "log": "check-message_1_progress.log",
-          "log_sha256": "2830fb038507c09b8eceef6223a12cddc3bbcbb249edf3ce6ab4cb5934af92bf",
+          "log_sha256": "94ad40ba1d1ca16aeb1bb3789e6015f10a256039373f5b8b1f49619a950538ea",
           "property": "message_1_progress",
           "returncode": 0,
           "status": "COMPLETE_NO_ERRORS",
@@ -1661,9 +1698,9 @@
             "-l",
             "protocol.pml"
           ],
-          "elapsed_seconds": 0.020459146,
+          "elapsed_seconds": 0.020495722,
           "log": "simulation-17.log",
-          "log_sha256": "e8adf629bbd5a46185671bbbe43ab982da783e19070e00a8983b849ae0611128",
+          "log_sha256": "2d6498231b38456f32bb8054a843547f8b90db5b34e422fcc821b0f702ef9b0a",
           "returncode": 0,
           "seed": 17,
           "status": "SAMPLED_COMPLETE",
@@ -1681,9 +1718,9 @@
             "-l",
             "protocol.pml"
           ],
-          "elapsed_seconds": 0.020672387,
+          "elapsed_seconds": 0.020410473,
           "log": "simulation-29.log",
-          "log_sha256": "5c4006df091b92d439ba58791a2cd5b7ae99bd450c0488e8307dd634172b1c60",
+          "log_sha256": "1db98d005b29e088b8ad3692311629e055b6a75ff59e95b5f03a419ba4859083",
           "returncode": 0,
           "seed": 29,
           "status": "SAMPLED_COMPLETE",
@@ -1695,7 +1732,7 @@
             "-a",
             "protocol.pml"
           ],
-          "elapsed_seconds": 0.020582175,
+          "elapsed_seconds": 0.020749223,
           "log": "generate.log",
           "log_sha256": "c89d38a8c7106665a5daded94e0758fe82f7a0d5307ec3b4b634fb86110b5b3e",
           "returncode": 0,
@@ -1712,7 +1749,7 @@
             "pan-safety",
             "pan.c"
           ],
-          "elapsed_seconds": 1.354721649,
+          "elapsed_seconds": 1.526795144,
           "log": "compile-safety.log",
           "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
           "returncode": 0,
@@ -1725,9 +1762,9 @@
             "-m100000",
             "-w20"
           ],
-          "elapsed_seconds": 0.02041622,
+          "elapsed_seconds": 0.020592577,
           "log": "check-safety.log",
-          "log_sha256": "dd595a5b97d9331c4a62453cf10d36f27dac0fdaedadc5148ab0e63686fa584b",
+          "log_sha256": "7870463cb8b433d25eea521970c6ec174295f5ab618a1e32e835845b6039d064",
           "returncode": 0,
           "timeout": false
         },
@@ -1740,7 +1777,7 @@
             "pan-ltl",
             "pan.c"
           ],
-          "elapsed_seconds": 1.495377077,
+          "elapsed_seconds": 1.629146625,
           "log": "compile-ltl.log",
           "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
           "returncode": 0,
@@ -1753,13 +1790,12 @@
             "-m100000",
             "-w20",
             "-a",
-            "-f",
             "-N",
             "message_0_progress"
           ],
-          "elapsed_seconds": 0.040598891,
+          "elapsed_seconds": 0.030531257,
           "log": "check-message_0_progress.log",
-          "log_sha256": "3825f3bbff9c40ce1d4f914497118ef56fc99e0e7345df4bde019bcaf3c10e3b",
+          "log_sha256": "5c8a14d045c5ebd838ae7960bf9dec63c531964464b81cbff834a8637a96f9b8",
           "returncode": 0,
           "timeout": false
         },
@@ -1770,23 +1806,27 @@
             "-m100000",
             "-w20",
             "-a",
-            "-f",
             "-N",
             "message_1_progress"
           ],
-          "elapsed_seconds": 0.040687589,
+          "elapsed_seconds": 0.030530091,
           "log": "check-message_1_progress.log",
-          "log_sha256": "2830fb038507c09b8eceef6223a12cddc3bbcbb249edf3ce6ab4cb5934af92bf",
+          "log_sha256": "94ad40ba1d1ca16aeb1bb3789e6015f10a256039373f5b8b1f49619a950538ea",
           "returncode": 0,
           "timeout": false
         }
       ],
       "defect": null,
-      "model_sha256": "69468f7193aff371d9211b88c8fe2186fd2ee624b682b62e4e6e29a3bb4af3f4",
+      "expectation_met": true,
+      "expected_result": "COMPLETE_NO_ERRORS",
+      "fault_repetition": "bounded_or_not_applicable",
+      "model_sha256": "6261e805399cd9009ecf1c6e9216d56c2e4ca392fa44e3426c3559a0037aed42",
       "partial_order_reduction": true,
+      "purpose": "bounded_transport",
       "source_sha256": "7d0cc084cde54151bf0d09b5e3e33556a7e3b6bdad60a3b44a9f899204822466",
       "status": "PASS",
-      "topology": "sequential-crew.json"
+      "topology": "sequential-crew.json",
+      "weak_process_fairness": false
     },
     {
       "capacity": 2,
@@ -1798,9 +1838,10 @@
             "-m100000",
             "-w20"
           ],
-          "elapsed_seconds": 0.020385015,
+          "counterexample_kind": "none_or_other",
+          "elapsed_seconds": 0.020411886,
           "log": "check-safety.log",
-          "log_sha256": "78a37e84835b75bdffa0194685113978cdbbb595f95b3a9a0548cdf640632f01",
+          "log_sha256": "14fa6364b49876d1a09034e809b8b290f06983e0e834863f070e2ad169ec7baa",
           "property": "safety",
           "returncode": 0,
           "status": "COMPLETE_NO_ERRORS",
@@ -1813,13 +1854,13 @@
             "-m100000",
             "-w20",
             "-a",
-            "-f",
             "-N",
             "message_0_progress"
           ],
-          "elapsed_seconds": 0.040580649,
+          "counterexample_kind": "none_or_other",
+          "elapsed_seconds": 0.030632766,
           "log": "check-message_0_progress.log",
-          "log_sha256": "a87d1d61aed4403e9e8c18bef00ffee2a4f5d2a0d9fd7e1974fb5d81d032525e",
+          "log_sha256": "46f8620f80c9c134784e5dbf692c2a2be909c3f474fe02419fb4cb9dec485c46",
           "property": "message_0_progress",
           "returncode": 0,
           "status": "COMPLETE_NO_ERRORS",
@@ -1832,13 +1873,13 @@
             "-m100000",
             "-w20",
             "-a",
-            "-f",
             "-N",
             "message_1_progress"
           ],
-          "elapsed_seconds": 0.040556932,
+          "counterexample_kind": "none_or_other",
+          "elapsed_seconds": 0.030506545,
           "log": "check-message_1_progress.log",
-          "log_sha256": "1c83e9d79757bc986666780702374d3bca7a57c5a9b40d10108a866590c66fcd",
+          "log_sha256": "dccb3ca4f3c94da58b47506b49e10c6c1113aea8ef636ef3308e933ad77829c2",
           "property": "message_1_progress",
           "returncode": 0,
           "status": "COMPLETE_NO_ERRORS",
@@ -1858,9 +1899,9 @@
             "-l",
             "protocol.pml"
           ],
-          "elapsed_seconds": 0.010252913,
+          "elapsed_seconds": 0.021324721,
           "log": "simulation-17.log",
-          "log_sha256": "527df53722708bca68584e1f826782a30c295e3ea2911ba6ccc45fa52c4533b6",
+          "log_sha256": "596159996e3eb43d152484ef02ce5165e0266c4e8f61829fa2624994c6dc657f",
           "returncode": 0,
           "seed": 17,
           "status": "SAMPLED_COMPLETE",
@@ -1878,9 +1919,9 @@
             "-l",
             "protocol.pml"
           ],
-          "elapsed_seconds": 0.020434775,
+          "elapsed_seconds": 0.030554628,
           "log": "simulation-29.log",
-          "log_sha256": "bad3c97c6ca6d26fee74653a2d32e35765b13649180501fd49239acf04a63d9a",
+          "log_sha256": "cf981af1287ce8cfefea7a5ad8c11c81cb5c656f433ca81a488113ceef3f9eee",
           "returncode": 0,
           "seed": 29,
           "status": "SAMPLED_COMPLETE",
@@ -1892,7 +1933,7 @@
             "-a",
             "protocol.pml"
           ],
-          "elapsed_seconds": 0.020354563,
+          "elapsed_seconds": 0.020595352,
           "log": "generate.log",
           "log_sha256": "c89d38a8c7106665a5daded94e0758fe82f7a0d5307ec3b4b634fb86110b5b3e",
           "returncode": 0,
@@ -1909,7 +1950,7 @@
             "pan-safety",
             "pan.c"
           ],
-          "elapsed_seconds": 1.323621236,
+          "elapsed_seconds": 1.436223487,
           "log": "compile-safety.log",
           "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
           "returncode": 0,
@@ -1922,9 +1963,9 @@
             "-m100000",
             "-w20"
           ],
-          "elapsed_seconds": 0.020385015,
+          "elapsed_seconds": 0.020411886,
           "log": "check-safety.log",
-          "log_sha256": "78a37e84835b75bdffa0194685113978cdbbb595f95b3a9a0548cdf640632f01",
+          "log_sha256": "14fa6364b49876d1a09034e809b8b290f06983e0e834863f070e2ad169ec7baa",
           "returncode": 0,
           "timeout": false
         },
@@ -1937,7 +1978,7 @@
             "pan-ltl",
             "pan.c"
           ],
-          "elapsed_seconds": 1.454919958,
+          "elapsed_seconds": 1.507236169,
           "log": "compile-ltl.log",
           "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
           "returncode": 0,
@@ -1950,13 +1991,12 @@
             "-m100000",
             "-w20",
             "-a",
-            "-f",
             "-N",
             "message_0_progress"
           ],
-          "elapsed_seconds": 0.040580649,
+          "elapsed_seconds": 0.030632766,
           "log": "check-message_0_progress.log",
-          "log_sha256": "a87d1d61aed4403e9e8c18bef00ffee2a4f5d2a0d9fd7e1974fb5d81d032525e",
+          "log_sha256": "46f8620f80c9c134784e5dbf692c2a2be909c3f474fe02419fb4cb9dec485c46",
           "returncode": 0,
           "timeout": false
         },
@@ -1967,23 +2007,27 @@
             "-m100000",
             "-w20",
             "-a",
-            "-f",
             "-N",
             "message_1_progress"
           ],
-          "elapsed_seconds": 0.040556932,
+          "elapsed_seconds": 0.030506545,
           "log": "check-message_1_progress.log",
-          "log_sha256": "1c83e9d79757bc986666780702374d3bca7a57c5a9b40d10108a866590c66fcd",
+          "log_sha256": "dccb3ca4f3c94da58b47506b49e10c6c1113aea8ef636ef3308e933ad77829c2",
           "returncode": 0,
           "timeout": false
         }
       ],
       "defect": null,
-      "model_sha256": "eb966ccd24716f7209c177bc81b59ed98308da1b4567db465c354c1f5f9a93ad",
+      "expectation_met": true,
+      "expected_result": "COMPLETE_NO_ERRORS",
+      "fault_repetition": "bounded_or_not_applicable",
+      "model_sha256": "917f47b5d4179fbd74a63fb0d98aa392436e92df223f5c3754cd22697409473f",
       "partial_order_reduction": true,
+      "purpose": "bounded_transport",
       "source_sha256": "0de3a8aa69db1e84a2dbfe5f61008817fcc533ed07a44b5974e947aa0ad1097a",
       "status": "PASS",
-      "topology": "star.json"
+      "topology": "star.json",
+      "weak_process_fairness": false
     },
     {
       "capacity": 2,
@@ -1995,9 +2039,10 @@
             "-m100000",
             "-w20"
           ],
-          "elapsed_seconds": 0.03049513,
+          "counterexample_kind": "none_or_other",
+          "elapsed_seconds": 0.030493611,
           "log": "check-safety.log",
-          "log_sha256": "9b6a1054074819a7a8f8a2406d7cbb994828b8e0c82e7051832698c6a062f458",
+          "log_sha256": "3d50af5c99d95f2385ce9bc3754431278b520c428aadb9e89a861c5d260781ab",
           "property": "safety",
           "returncode": 0,
           "status": "COMPLETE_NO_ERRORS",
@@ -2010,13 +2055,13 @@
             "-m100000",
             "-w20",
             "-a",
-            "-f",
             "-N",
             "message_0_progress"
           ],
-          "elapsed_seconds": 0.091122017,
+          "counterexample_kind": "none_or_other",
+          "elapsed_seconds": 0.050875971,
           "log": "check-message_0_progress.log",
-          "log_sha256": "ac9537aa7f0c43364be12f4f19b188cb3429b605c9c8685c1c5631a95edc0320",
+          "log_sha256": "e1669d612239bd3d39f4f2f83ec2fe8bdae44885342e3ebff3a01ad6b9968bb7",
           "property": "message_0_progress",
           "returncode": 0,
           "status": "COMPLETE_NO_ERRORS",
@@ -2029,13 +2074,13 @@
             "-m100000",
             "-w20",
             "-a",
-            "-f",
             "-N",
             "message_1_progress"
           ],
-          "elapsed_seconds": 0.080956694,
+          "counterexample_kind": "none_or_other",
+          "elapsed_seconds": 0.050776646,
           "log": "check-message_1_progress.log",
-          "log_sha256": "d2371153a3828c49478584d25bc23cc29b31bf5dc24729dcaf1f46897dba86ba",
+          "log_sha256": "47821886ceba59f07cbb8887742028e3a77236632d64cf546105b5992659f012",
           "property": "message_1_progress",
           "returncode": 0,
           "status": "COMPLETE_NO_ERRORS",
@@ -2055,9 +2100,9 @@
             "-l",
             "protocol.pml"
           ],
-          "elapsed_seconds": 0.01034003,
+          "elapsed_seconds": 0.01024405,
           "log": "simulation-17.log",
-          "log_sha256": "03d2b878f65953570291fca645c69a34b631b7fad5860cfb332c3768ee8a3527",
+          "log_sha256": "e530cd368d033361ce4f76f0720a688690b940439301dd45e908b404f53fa6ae",
           "returncode": 0,
           "seed": 17,
           "status": "SAMPLED_COMPLETE",
@@ -2075,9 +2120,9 @@
             "-l",
             "protocol.pml"
           ],
-          "elapsed_seconds": 0.010265517,
+          "elapsed_seconds": 0.020467348,
           "log": "simulation-29.log",
-          "log_sha256": "70eea7ef6212d2ac037a497fa4a301e41c69540c1edd4c422b9bfb2bb2b0cc82",
+          "log_sha256": "e9ffa4ee510b4e5579138db32be504f66489119fa367a31ec58564399881e138",
           "returncode": 0,
           "seed": 29,
           "status": "SAMPLED_COMPLETE",
@@ -2089,7 +2134,7 @@
             "-a",
             "protocol.pml"
           ],
-          "elapsed_seconds": 0.020352035,
+          "elapsed_seconds": 0.020486258,
           "log": "generate.log",
           "log_sha256": "c89d38a8c7106665a5daded94e0758fe82f7a0d5307ec3b4b634fb86110b5b3e",
           "returncode": 0,
@@ -2106,7 +2151,7 @@
             "pan-safety",
             "pan.c"
           ],
-          "elapsed_seconds": 1.3662175699999999,
+          "elapsed_seconds": 1.440897481,
           "log": "compile-safety.log",
           "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
           "returncode": 0,
@@ -2119,9 +2164,9 @@
             "-m100000",
             "-w20"
           ],
-          "elapsed_seconds": 0.03049513,
+          "elapsed_seconds": 0.030493611,
           "log": "check-safety.log",
-          "log_sha256": "9b6a1054074819a7a8f8a2406d7cbb994828b8e0c82e7051832698c6a062f458",
+          "log_sha256": "3d50af5c99d95f2385ce9bc3754431278b520c428aadb9e89a861c5d260781ab",
           "returncode": 0,
           "timeout": false
         },
@@ -2134,7 +2179,7 @@
             "pan-ltl",
             "pan.c"
           ],
-          "elapsed_seconds": 1.680730745,
+          "elapsed_seconds": 1.668650325,
           "log": "compile-ltl.log",
           "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
           "returncode": 0,
@@ -2147,13 +2192,12 @@
             "-m100000",
             "-w20",
             "-a",
-            "-f",
             "-N",
             "message_0_progress"
           ],
-          "elapsed_seconds": 0.091122017,
+          "elapsed_seconds": 0.050875971,
           "log": "check-message_0_progress.log",
-          "log_sha256": "ac9537aa7f0c43364be12f4f19b188cb3429b605c9c8685c1c5631a95edc0320",
+          "log_sha256": "e1669d612239bd3d39f4f2f83ec2fe8bdae44885342e3ebff3a01ad6b9968bb7",
           "returncode": 0,
           "timeout": false
         },
@@ -2164,23 +2208,27 @@
             "-m100000",
             "-w20",
             "-a",
-            "-f",
             "-N",
             "message_1_progress"
           ],
-          "elapsed_seconds": 0.080956694,
+          "elapsed_seconds": 0.050776646,
           "log": "check-message_1_progress.log",
-          "log_sha256": "d2371153a3828c49478584d25bc23cc29b31bf5dc24729dcaf1f46897dba86ba",
+          "log_sha256": "47821886ceba59f07cbb8887742028e3a77236632d64cf546105b5992659f012",
           "returncode": 0,
           "timeout": false
         }
       ],
       "defect": null,
-      "model_sha256": "42d03909269f0ec3bed3840f32aa9b2c2d1302c1ff9d735f3e78228c872f27a5",
+      "expectation_met": true,
+      "expected_result": "COMPLETE_NO_ERRORS",
+      "fault_repetition": "bounded_or_not_applicable",
+      "model_sha256": "ff38c11d6cec8bcf4d26ef6d5905703b87a6308053917d7fe77f99cdff57fcd6",
       "partial_order_reduction": true,
+      "purpose": "bounded_transport",
       "source_sha256": "d18c21ebcaee588152c876f36c37b10340133da1dcc050135e9f17cd2981157a",
       "status": "PASS",
-      "topology": "swarm-handoff.json"
+      "topology": "swarm-handoff.json",
+      "weak_process_fairness": false
     },
     {
       "capacity": 2,
@@ -2192,9 +2240,10 @@
             "-m100000",
             "-w20"
           ],
-          "elapsed_seconds": 0.061079215,
+          "counterexample_kind": "none_or_other",
+          "elapsed_seconds": 0.050779496,
           "log": "check-safety.log",
-          "log_sha256": "34a5f5d894124595822a2e31fe1d5b94247d97f8f3dc930be5940f2a0172b203",
+          "log_sha256": "f5110b30f39b3e9ef3f9d07c6d46ce0fcc76530bff5f0d1ab051c22d1b955c8a",
           "property": "safety",
           "returncode": 0,
           "status": "COMPLETE_NO_ERRORS",
@@ -2207,13 +2256,13 @@
             "-m100000",
             "-w20",
             "-a",
-            "-f",
             "-N",
             "message_0_progress"
           ],
-          "elapsed_seconds": 0.13179222,
+          "counterexample_kind": "none_or_other",
+          "elapsed_seconds": 0.070869611,
           "log": "check-message_0_progress.log",
-          "log_sha256": "d3b4de667bd6f83fdd2988299736602a4ce390eed04f2b9679669b35fbac8724",
+          "log_sha256": "96608988c44ec97fa32724499bbf055302a2c1a58d9b6d58dbb214aed1c1a13d",
           "property": "message_0_progress",
           "returncode": 0,
           "status": "COMPLETE_NO_ERRORS",
@@ -2226,13 +2275,13 @@
             "-m100000",
             "-w20",
             "-a",
-            "-f",
             "-N",
             "message_1_progress"
           ],
-          "elapsed_seconds": 0.121703569,
+          "counterexample_kind": "none_or_other",
+          "elapsed_seconds": 0.080951301,
           "log": "check-message_1_progress.log",
-          "log_sha256": "528aee929184345c89618dab068c4630864e5c43078710e968e8fd9176975569",
+          "log_sha256": "eda1f35ec821419182feb50206129316f8f1964d146222389315014c11abb563",
           "property": "message_1_progress",
           "returncode": 0,
           "status": "COMPLETE_NO_ERRORS",
@@ -2252,9 +2301,9 @@
             "-l",
             "protocol.pml"
           ],
-          "elapsed_seconds": 0.01152722,
+          "elapsed_seconds": 0.020533158,
           "log": "simulation-17.log",
-          "log_sha256": "3dde0b1b3702d522f64bc708aa1450b8e9b7f47432a944a0659df14c2792918d",
+          "log_sha256": "33456133d591451716f14bb8765127b332a5bd888d0f616acec8e577750fa84d",
           "returncode": 0,
           "seed": 17,
           "status": "SAMPLED_COMPLETE",
@@ -2272,9 +2321,9 @@
             "-l",
             "protocol.pml"
           ],
-          "elapsed_seconds": 0.010249635,
+          "elapsed_seconds": 0.020511535,
           "log": "simulation-29.log",
-          "log_sha256": "5d994d7906e8f29ac5d7285680e30011fb2102b137d9568452081492f4f6ed35",
+          "log_sha256": "4d136e159aee52e3592d5b4c656b2ef36271a2d3e426461ae786fe3e9a8bc295",
           "returncode": 0,
           "seed": 29,
           "status": "SAMPLED_COMPLETE",
@@ -2286,7 +2335,7 @@
             "-a",
             "protocol.pml"
           ],
-          "elapsed_seconds": 0.020346821,
+          "elapsed_seconds": 0.020485771,
           "log": "generate.log",
           "log_sha256": "c89d38a8c7106665a5daded94e0758fe82f7a0d5307ec3b4b634fb86110b5b3e",
           "returncode": 0,
@@ -2303,7 +2352,7 @@
             "pan-safety",
             "pan.c"
           ],
-          "elapsed_seconds": 1.38162238,
+          "elapsed_seconds": 1.541424082,
           "log": "compile-safety.log",
           "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
           "returncode": 0,
@@ -2316,9 +2365,9 @@
             "-m100000",
             "-w20"
           ],
-          "elapsed_seconds": 0.061079215,
+          "elapsed_seconds": 0.050779496,
           "log": "check-safety.log",
-          "log_sha256": "34a5f5d894124595822a2e31fe1d5b94247d97f8f3dc930be5940f2a0172b203",
+          "log_sha256": "f5110b30f39b3e9ef3f9d07c6d46ce0fcc76530bff5f0d1ab051c22d1b955c8a",
           "returncode": 0,
           "timeout": false
         },
@@ -2331,7 +2380,7 @@
             "pan-ltl",
             "pan.c"
           ],
-          "elapsed_seconds": 1.700721084,
+          "elapsed_seconds": 1.6925248480000001,
           "log": "compile-ltl.log",
           "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
           "returncode": 0,
@@ -2344,13 +2393,12 @@
             "-m100000",
             "-w20",
             "-a",
-            "-f",
             "-N",
             "message_0_progress"
           ],
-          "elapsed_seconds": 0.13179222,
+          "elapsed_seconds": 0.070869611,
           "log": "check-message_0_progress.log",
-          "log_sha256": "d3b4de667bd6f83fdd2988299736602a4ce390eed04f2b9679669b35fbac8724",
+          "log_sha256": "96608988c44ec97fa32724499bbf055302a2c1a58d9b6d58dbb214aed1c1a13d",
           "returncode": 0,
           "timeout": false
         },
@@ -2361,23 +2409,27 @@
             "-m100000",
             "-w20",
             "-a",
-            "-f",
             "-N",
             "message_1_progress"
           ],
-          "elapsed_seconds": 0.121703569,
+          "elapsed_seconds": 0.080951301,
           "log": "check-message_1_progress.log",
-          "log_sha256": "528aee929184345c89618dab068c4630864e5c43078710e968e8fd9176975569",
+          "log_sha256": "eda1f35ec821419182feb50206129316f8f1964d146222389315014c11abb563",
           "returncode": 0,
           "timeout": false
         }
       ],
       "defect": null,
-      "model_sha256": "fa890aac917f8eb555c381afb7eec44fb96712558287774ed7fa41b72eec4ac2",
+      "expectation_met": true,
+      "expected_result": "COMPLETE_NO_ERRORS",
+      "fault_repetition": "bounded_or_not_applicable",
+      "model_sha256": "c4edbb3ed0e2abda997793a6b3df2c8e8f7760e86814fe8bfb97337d331aec81",
       "partial_order_reduction": true,
+      "purpose": "bounded_transport",
       "source_sha256": "631ba3ad9d1145f30b395f95ccb0248c605f1a8c96c8a86a03549cf26d474a01",
       "status": "PASS",
-      "topology": "tree.json"
+      "topology": "tree.json",
+      "weak_process_fairness": false
     },
     {
       "capacity": 2,
@@ -2389,7 +2441,8 @@
             "-m100000",
             "-w20"
           ],
-          "elapsed_seconds": 0.022732602,
+          "counterexample_kind": "assertion",
+          "elapsed_seconds": 0.010316864,
           "log": "check-safety.log",
           "log_sha256": "8bdad7e7b01f0ebc3fce256947ec988ff095a278c61ce796e4bc8c2240a43360",
           "property": "safety",
@@ -2405,9 +2458,9 @@
               "-l",
               "protocol.pml"
             ],
-            "elapsed_seconds": 0.020675042,
+            "elapsed_seconds": 0.01034413,
             "log": "replay-safety.log",
-            "log_sha256": "82666cbed0c6c871cd70eb9612b34f7f807bf9e4cf85cac67bca5d34c0a9c6c9",
+            "log_sha256": "c326b98e555d26e454eacbb7892d4df77fb6f412d5d09c0ea3dbe9c36c2eea9c",
             "returncode": 0,
             "timeout": false
           },
@@ -2426,7 +2479,7 @@
             "-a",
             "protocol.pml"
           ],
-          "elapsed_seconds": 0.020506799,
+          "elapsed_seconds": 0.020357393,
           "log": "generate.log",
           "log_sha256": "c89d38a8c7106665a5daded94e0758fe82f7a0d5307ec3b4b634fb86110b5b3e",
           "returncode": 0,
@@ -2443,7 +2496,7 @@
             "pan-safety",
             "pan.c"
           ],
-          "elapsed_seconds": 1.529627936,
+          "elapsed_seconds": 1.2932520730000001,
           "log": "compile-safety.log",
           "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
           "returncode": 0,
@@ -2456,7 +2509,7 @@
             "-m100000",
             "-w20"
           ],
-          "elapsed_seconds": 0.022732602,
+          "elapsed_seconds": 0.010316864,
           "log": "check-safety.log",
           "log_sha256": "8bdad7e7b01f0ebc3fce256947ec988ff095a278c61ce796e4bc8c2240a43360",
           "returncode": 0,
@@ -2474,19 +2527,24 @@
             "-l",
             "protocol.pml"
           ],
-          "elapsed_seconds": 0.020675042,
+          "elapsed_seconds": 0.01034413,
           "log": "replay-safety.log",
-          "log_sha256": "82666cbed0c6c871cd70eb9612b34f7f807bf9e4cf85cac67bca5d34c0a9c6c9",
+          "log_sha256": "c326b98e555d26e454eacbb7892d4df77fb6f412d5d09c0ea3dbe9c36c2eea9c",
           "returncode": 0,
           "timeout": false
         }
       ],
       "defect": "BUG_EARLY_ACK",
-      "model_sha256": "8e4440b9802304985e488a9ebf69ee9ccae9d507f146d2a9afc5acde38aa014f",
+      "expectation_met": true,
+      "expected_result": "COUNTEREXAMPLE",
+      "fault_repetition": "bounded_or_not_applicable",
+      "model_sha256": "7e7fdb6deea7109c28a0d3e2df27221a4badf092ce408de4f1e63c9b405c83ab",
       "partial_order_reduction": true,
+      "purpose": "deliberate_defect",
       "source_sha256": "e0df929804ce9d5784430d465c3ba54b8387a17cc16a039fab66e62ba743d62b",
       "status": "PASS",
-      "topology": "evaluator-optimiser.json"
+      "topology": "evaluator-optimiser.json",
+      "weak_process_fairness": false
     },
     {
       "capacity": 2,
@@ -2498,7 +2556,8 @@
             "-m100000",
             "-w20"
           ],
-          "elapsed_seconds": 0.010327252,
+          "counterexample_kind": "assertion",
+          "elapsed_seconds": 0.010384321,
           "log": "check-safety.log",
           "log_sha256": "f63f94637475c00f9fcfb39f768c9d3d9b201a0bb525fda513bd32ec1ee53ddd",
           "property": "safety",
@@ -2514,9 +2573,9 @@
               "-l",
               "protocol.pml"
             ],
-            "elapsed_seconds": 0.020573543,
+            "elapsed_seconds": 0.010358052,
             "log": "replay-safety.log",
-            "log_sha256": "2f8402a73a357c4481e63455efd066ef7183699983111c0bbf03a989ae4eb858",
+            "log_sha256": "ac7a564cb51d609ecd4e007cf18d9c9e43837eccb5ce81cdb2c9e00eeed65901",
             "returncode": 0,
             "timeout": false
           },
@@ -2535,7 +2594,7 @@
             "-a",
             "protocol.pml"
           ],
-          "elapsed_seconds": 0.020571551,
+          "elapsed_seconds": 0.02041478,
           "log": "generate.log",
           "log_sha256": "c89d38a8c7106665a5daded94e0758fe82f7a0d5307ec3b4b634fb86110b5b3e",
           "returncode": 0,
@@ -2552,7 +2611,7 @@
             "pan-safety",
             "pan.c"
           ],
-          "elapsed_seconds": 1.5621199620000001,
+          "elapsed_seconds": 1.43645903,
           "log": "compile-safety.log",
           "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
           "returncode": 0,
@@ -2565,7 +2624,7 @@
             "-m100000",
             "-w20"
           ],
-          "elapsed_seconds": 0.010327252,
+          "elapsed_seconds": 0.010384321,
           "log": "check-safety.log",
           "log_sha256": "f63f94637475c00f9fcfb39f768c9d3d9b201a0bb525fda513bd32ec1ee53ddd",
           "returncode": 0,
@@ -2583,19 +2642,24 @@
             "-l",
             "protocol.pml"
           ],
-          "elapsed_seconds": 0.020573543,
+          "elapsed_seconds": 0.010358052,
           "log": "replay-safety.log",
-          "log_sha256": "2f8402a73a357c4481e63455efd066ef7183699983111c0bbf03a989ae4eb858",
+          "log_sha256": "ac7a564cb51d609ecd4e007cf18d9c9e43837eccb5ce81cdb2c9e00eeed65901",
           "returncode": 0,
           "timeout": false
         }
       ],
       "defect": "BUG_ALLOW_FORBIDDEN",
-      "model_sha256": "8e4440b9802304985e488a9ebf69ee9ccae9d507f146d2a9afc5acde38aa014f",
+      "expectation_met": true,
+      "expected_result": "COUNTEREXAMPLE",
+      "fault_repetition": "bounded_or_not_applicable",
+      "model_sha256": "7e7fdb6deea7109c28a0d3e2df27221a4badf092ce408de4f1e63c9b405c83ab",
       "partial_order_reduction": true,
+      "purpose": "deliberate_defect",
       "source_sha256": "e0df929804ce9d5784430d465c3ba54b8387a17cc16a039fab66e62ba743d62b",
       "status": "PASS",
-      "topology": "evaluator-optimiser.json"
+      "topology": "evaluator-optimiser.json",
+      "weak_process_fairness": false
     },
     {
       "capacity": 2,
@@ -2607,13 +2671,13 @@
             "-m100000",
             "-w20",
             "-a",
-            "-f",
             "-N",
             "message_0_progress"
           ],
-          "elapsed_seconds": 0.010312841,
+          "counterexample_kind": "acceptance_cycle",
+          "elapsed_seconds": 0.010301987,
           "log": "check-message_0_progress.log",
-          "log_sha256": "50afb683ab94e2ba1a53716491d2fdb02fa78d2ddf9f4f30dd6d45b262dc461c",
+          "log_sha256": "b88a3122e684440da0721fd4609ee183c09161352998c2f5e2c7e72eb47e9278",
           "property": "message_0_progress",
           "replay": {
             "command": [
@@ -2627,9 +2691,9 @@
               "-l",
               "protocol.pml"
             ],
-            "elapsed_seconds": 0.020379441,
+            "elapsed_seconds": 0.020595122,
             "log": "replay-message_0_progress.log",
-            "log_sha256": "3ecb271ad9d763db3cacc475a1e9c05b8d17f8849d2c7b06e4c20bbe77499a65",
+            "log_sha256": "1c41362f2ca89346d57f94fbcdbadbc97286323df04a532b575900a70296b4ed",
             "returncode": 0,
             "timeout": false
           },
@@ -2637,7 +2701,7 @@
           "status": "COUNTEREXAMPLE",
           "timeout": false,
           "trail": "message_0_progress.trail",
-          "trail_sha256": "5f5eb633403d4442531ea2f4df93e22b648ff6865e4b13ed1efd1fa83b853608"
+          "trail_sha256": "2956565af3fb6d040bb7f95927689bd9e328a0a82c7bcbec74a176148c18d520"
         }
       ],
       "commands": [
@@ -2648,7 +2712,7 @@
             "-a",
             "protocol.pml"
           ],
-          "elapsed_seconds": 0.022190139,
+          "elapsed_seconds": 0.020503374,
           "log": "generate.log",
           "log_sha256": "c89d38a8c7106665a5daded94e0758fe82f7a0d5307ec3b4b634fb86110b5b3e",
           "returncode": 0,
@@ -2663,7 +2727,7 @@
             "pan-ltl",
             "pan.c"
           ],
-          "elapsed_seconds": 1.692728963,
+          "elapsed_seconds": 1.6997043459999999,
           "log": "compile-ltl.log",
           "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
           "returncode": 0,
@@ -2676,13 +2740,12 @@
             "-m100000",
             "-w20",
             "-a",
-            "-f",
             "-N",
             "message_0_progress"
           ],
-          "elapsed_seconds": 0.010312841,
+          "elapsed_seconds": 0.010301987,
           "log": "check-message_0_progress.log",
-          "log_sha256": "50afb683ab94e2ba1a53716491d2fdb02fa78d2ddf9f4f30dd6d45b262dc461c",
+          "log_sha256": "b88a3122e684440da0721fd4609ee183c09161352998c2f5e2c7e72eb47e9278",
           "returncode": 0,
           "timeout": false
         },
@@ -2698,19 +2761,24 @@
             "-l",
             "protocol.pml"
           ],
-          "elapsed_seconds": 0.020379441,
+          "elapsed_seconds": 0.020595122,
           "log": "replay-message_0_progress.log",
-          "log_sha256": "3ecb271ad9d763db3cacc475a1e9c05b8d17f8849d2c7b06e4c20bbe77499a65",
+          "log_sha256": "1c41362f2ca89346d57f94fbcdbadbc97286323df04a532b575900a70296b4ed",
           "returncode": 0,
           "timeout": false
         }
       ],
       "defect": "BUG_NO_ACK",
-      "model_sha256": "8e4440b9802304985e488a9ebf69ee9ccae9d507f146d2a9afc5acde38aa014f",
+      "expectation_met": true,
+      "expected_result": "COUNTEREXAMPLE",
+      "fault_repetition": "bounded_or_not_applicable",
+      "model_sha256": "7e7fdb6deea7109c28a0d3e2df27221a4badf092ce408de4f1e63c9b405c83ab",
       "partial_order_reduction": true,
+      "purpose": "deliberate_defect",
       "source_sha256": "e0df929804ce9d5784430d465c3ba54b8387a17cc16a039fab66e62ba743d62b",
       "status": "PASS",
-      "topology": "evaluator-optimiser.json"
+      "topology": "evaluator-optimiser.json",
+      "weak_process_fairness": false
     },
     {
       "capacity": 2,
@@ -2722,9 +2790,10 @@
             "-m100000",
             "-w20"
           ],
-          "elapsed_seconds": 0.010426672,
+          "counterexample_kind": "none_or_other",
+          "elapsed_seconds": 0.010329805,
           "log": "check-safety.log",
-          "log_sha256": "70c4f39cd62b2f1f77d31b2a1104620b244e7924e930a35ea426e5a7c0e6faa8",
+          "log_sha256": "46ca54fea0b9818b6af9fb842367b54d098790f6850f030ba6cd4bd58633bc08",
           "property": "safety",
           "returncode": 0,
           "status": "COMPLETE_NO_ERRORS",
@@ -2737,13 +2806,13 @@
             "-m100000",
             "-w20",
             "-a",
-            "-f",
             "-N",
             "message_0_progress"
           ],
-          "elapsed_seconds": 0.020396923,
+          "counterexample_kind": "none_or_other",
+          "elapsed_seconds": 0.020379727,
           "log": "check-message_0_progress.log",
-          "log_sha256": "712251da1e6a9e867d6baf6d2fa85822ceeb0eab5e6d82d575276dd348c1d100",
+          "log_sha256": "2835fe92d26db0cd32d70a0d3dea2b66d59539c3cf88694b94a4c39a94c1a4e2",
           "property": "message_0_progress",
           "returncode": 0,
           "status": "COMPLETE_NO_ERRORS",
@@ -2756,13 +2825,13 @@
             "-m100000",
             "-w20",
             "-a",
-            "-f",
             "-N",
             "message_1_progress"
           ],
-          "elapsed_seconds": 0.020520168,
+          "counterexample_kind": "none_or_other",
+          "elapsed_seconds": 0.010605745,
           "log": "check-message_1_progress.log",
-          "log_sha256": "045173947ef61cf521e69a9d8571ad2125b1349e20cfa8b35c3d74655035a1d0",
+          "log_sha256": "8301ccb90faf934eb204cd617ad36708022d41a92ea23f1c89bb3fb7ab02f183",
           "property": "message_1_progress",
           "returncode": 0,
           "status": "COMPLETE_NO_ERRORS",
@@ -2776,7 +2845,7 @@
             "-a",
             "protocol.pml"
           ],
-          "elapsed_seconds": 0.020449677,
+          "elapsed_seconds": 0.02053124,
           "log": "generate.log",
           "log_sha256": "c89d38a8c7106665a5daded94e0758fe82f7a0d5307ec3b4b634fb86110b5b3e",
           "returncode": 0,
@@ -2794,7 +2863,7 @@
             "pan-safety",
             "pan.c"
           ],
-          "elapsed_seconds": 1.285541361,
+          "elapsed_seconds": 1.6078088849999999,
           "log": "compile-safety.log",
           "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
           "returncode": 0,
@@ -2807,9 +2876,9 @@
             "-m100000",
             "-w20"
           ],
-          "elapsed_seconds": 0.010426672,
+          "elapsed_seconds": 0.010329805,
           "log": "check-safety.log",
-          "log_sha256": "70c4f39cd62b2f1f77d31b2a1104620b244e7924e930a35ea426e5a7c0e6faa8",
+          "log_sha256": "46ca54fea0b9818b6af9fb842367b54d098790f6850f030ba6cd4bd58633bc08",
           "returncode": 0,
           "timeout": false
         },
@@ -2823,7 +2892,7 @@
             "pan-ltl",
             "pan.c"
           ],
-          "elapsed_seconds": 1.539544048,
+          "elapsed_seconds": 1.580639503,
           "log": "compile-ltl.log",
           "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
           "returncode": 0,
@@ -2836,13 +2905,12 @@
             "-m100000",
             "-w20",
             "-a",
-            "-f",
             "-N",
             "message_0_progress"
           ],
-          "elapsed_seconds": 0.020396923,
+          "elapsed_seconds": 0.020379727,
           "log": "check-message_0_progress.log",
-          "log_sha256": "712251da1e6a9e867d6baf6d2fa85822ceeb0eab5e6d82d575276dd348c1d100",
+          "log_sha256": "2835fe92d26db0cd32d70a0d3dea2b66d59539c3cf88694b94a4c39a94c1a4e2",
           "returncode": 0,
           "timeout": false
         },
@@ -2853,23 +2921,27 @@
             "-m100000",
             "-w20",
             "-a",
-            "-f",
             "-N",
             "message_1_progress"
           ],
-          "elapsed_seconds": 0.020520168,
+          "elapsed_seconds": 0.010605745,
           "log": "check-message_1_progress.log",
-          "log_sha256": "045173947ef61cf521e69a9d8571ad2125b1349e20cfa8b35c3d74655035a1d0",
+          "log_sha256": "8301ccb90faf934eb204cd617ad36708022d41a92ea23f1c89bb3fb7ab02f183",
           "returncode": 0,
           "timeout": false
         }
       ],
       "defect": null,
-      "model_sha256": "8e4440b9802304985e488a9ebf69ee9ccae9d507f146d2a9afc5acde38aa014f",
+      "expectation_met": true,
+      "expected_result": "COMPLETE_NO_ERRORS",
+      "fault_repetition": "bounded_or_not_applicable",
+      "model_sha256": "7e7fdb6deea7109c28a0d3e2df27221a4badf092ce408de4f1e63c9b405c83ab",
       "partial_order_reduction": false,
+      "purpose": "bounded_transport",
       "source_sha256": "e0df929804ce9d5784430d465c3ba54b8387a17cc16a039fab66e62ba743d62b",
       "status": "PASS",
-      "topology": "evaluator-optimiser.json"
+      "topology": "evaluator-optimiser.json",
+      "weak_process_fairness": false
     },
     {
       "capacity": 1,
@@ -2881,9 +2953,10 @@
             "-m100000",
             "-w20"
           ],
-          "elapsed_seconds": 0.030510547,
+          "counterexample_kind": "none_or_other",
+          "elapsed_seconds": 0.020485276,
           "log": "check-safety.log",
-          "log_sha256": "4049f14f1d0d825d7a5a4f520a4f2d379f7300aacb6d77396e94a0556c76520b",
+          "log_sha256": "bd6bc0a3c2280da213da4f7c48922beac334662a4eadee7253b2fff4d066dd68",
           "property": "safety",
           "returncode": 0,
           "status": "COMPLETE_NO_ERRORS",
@@ -2896,13 +2969,13 @@
             "-m100000",
             "-w20",
             "-a",
-            "-f",
             "-N",
             "message_0_progress"
           ],
-          "elapsed_seconds": 0.040627012,
+          "counterexample_kind": "none_or_other",
+          "elapsed_seconds": 0.040839694,
           "log": "check-message_0_progress.log",
-          "log_sha256": "53300c688d7e0e6e1fdeafa55678451869c03eb849610de91218c4672da365d0",
+          "log_sha256": "726ab35ebdfea51dc067dda8f346bc022528c7d3466039f8e19c22510c0ee24e",
           "property": "message_0_progress",
           "returncode": 0,
           "status": "COMPLETE_NO_ERRORS",
@@ -2915,13 +2988,13 @@
             "-m100000",
             "-w20",
             "-a",
-            "-f",
             "-N",
             "message_1_progress"
           ],
-          "elapsed_seconds": 0.040561247,
+          "counterexample_kind": "none_or_other",
+          "elapsed_seconds": 0.030479838,
           "log": "check-message_1_progress.log",
-          "log_sha256": "dea99fbbebe28215673a41fb5f4eb40b56aa01c87df95a86f69430baeda0c2c8",
+          "log_sha256": "5699a1cbd34821b9e48bf9bfbf75d44ac5cc3486236ab4ec8c7ccd50052cccb9",
           "property": "message_1_progress",
           "returncode": 0,
           "status": "COMPLETE_NO_ERRORS",
@@ -2942,9 +3015,9 @@
             "-l",
             "protocol.pml"
           ],
-          "elapsed_seconds": 0.020552868,
+          "elapsed_seconds": 0.020393899,
           "log": "simulation-17.log",
-          "log_sha256": "d64608bcd97d57e7eab9d21ce8b7cc52d6e43647a7d915b3acc975581ca39f8f",
+          "log_sha256": "2e7bd4ec85a87cfcf579e37770ddd02e0a62d915a99096b98d5f269287378c22",
           "returncode": 0,
           "seed": 17,
           "status": "SAMPLED_COMPLETE",
@@ -2963,9 +3036,9 @@
             "-l",
             "protocol.pml"
           ],
-          "elapsed_seconds": 0.021027854,
+          "elapsed_seconds": 0.020932255,
           "log": "simulation-29.log",
-          "log_sha256": "46509d5200ac0ac7826f69e9738f14220bc17c84a8c6ed649d7c9a7a09a5d063",
+          "log_sha256": "2b0e315c91770a6338c0a8f2b69b5c66a85ae2dffeb1a772bd7cf72e9b0ca99d",
           "returncode": 0,
           "seed": 29,
           "status": "SAMPLED_COMPLETE",
@@ -2978,7 +3051,7 @@
             "-a",
             "protocol.pml"
           ],
-          "elapsed_seconds": 0.020900101,
+          "elapsed_seconds": 0.020461786,
           "log": "generate.log",
           "log_sha256": "c89d38a8c7106665a5daded94e0758fe82f7a0d5307ec3b4b634fb86110b5b3e",
           "returncode": 0,
@@ -2995,7 +3068,7 @@
             "pan-safety",
             "pan.c"
           ],
-          "elapsed_seconds": 1.587402579,
+          "elapsed_seconds": 1.520017894,
           "log": "compile-safety.log",
           "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
           "returncode": 0,
@@ -3008,9 +3081,9 @@
             "-m100000",
             "-w20"
           ],
-          "elapsed_seconds": 0.030510547,
+          "elapsed_seconds": 0.020485276,
           "log": "check-safety.log",
-          "log_sha256": "4049f14f1d0d825d7a5a4f520a4f2d379f7300aacb6d77396e94a0556c76520b",
+          "log_sha256": "bd6bc0a3c2280da213da4f7c48922beac334662a4eadee7253b2fff4d066dd68",
           "returncode": 0,
           "timeout": false
         },
@@ -3023,7 +3096,7 @@
             "pan-ltl",
             "pan.c"
           ],
-          "elapsed_seconds": 1.551058609,
+          "elapsed_seconds": 1.68975972,
           "log": "compile-ltl.log",
           "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
           "returncode": 0,
@@ -3036,13 +3109,12 @@
             "-m100000",
             "-w20",
             "-a",
-            "-f",
             "-N",
             "message_0_progress"
           ],
-          "elapsed_seconds": 0.040627012,
+          "elapsed_seconds": 0.040839694,
           "log": "check-message_0_progress.log",
-          "log_sha256": "53300c688d7e0e6e1fdeafa55678451869c03eb849610de91218c4672da365d0",
+          "log_sha256": "726ab35ebdfea51dc067dda8f346bc022528c7d3466039f8e19c22510c0ee24e",
           "returncode": 0,
           "timeout": false
         },
@@ -3053,23 +3125,27 @@
             "-m100000",
             "-w20",
             "-a",
-            "-f",
             "-N",
             "message_1_progress"
           ],
-          "elapsed_seconds": 0.040561247,
+          "elapsed_seconds": 0.030479838,
           "log": "check-message_1_progress.log",
-          "log_sha256": "dea99fbbebe28215673a41fb5f4eb40b56aa01c87df95a86f69430baeda0c2c8",
+          "log_sha256": "5699a1cbd34821b9e48bf9bfbf75d44ac5cc3486236ab4ec8c7ccd50052cccb9",
           "returncode": 0,
           "timeout": false
         }
       ],
       "defect": null,
-      "model_sha256": "eb966ccd24716f7209c177bc81b59ed98308da1b4567db465c354c1f5f9a93ad",
+      "expectation_met": true,
+      "expected_result": "COMPLETE_NO_ERRORS",
+      "fault_repetition": "bounded_or_not_applicable",
+      "model_sha256": "917f47b5d4179fbd74a63fb0d98aa392436e92df223f5c3754cd22697409473f",
       "partial_order_reduction": true,
+      "purpose": "bounded_transport",
       "source_sha256": "0de3a8aa69db1e84a2dbfe5f61008817fcc533ed07a44b5974e947aa0ad1097a",
       "status": "PASS",
-      "topology": "star.json"
+      "topology": "star.json",
+      "weak_process_fairness": false
     },
     {
       "capacity": 2,
@@ -3081,7 +3157,8 @@
             "-m100000",
             "-w20"
           ],
-          "elapsed_seconds": 0.010301454,
+          "counterexample_kind": "none_or_other",
+          "elapsed_seconds": 0.010474213,
           "log": "check-safety.log",
           "log_sha256": "2a66731ad977203c0df78025ad3ea584c4deac2f016b7af196730aee15a0faa2",
           "property": "safety",
@@ -3097,7 +3174,7 @@
             "-a",
             "task-lifecycle.pml"
           ],
-          "elapsed_seconds": 0.020421809,
+          "elapsed_seconds": 0.020538283,
           "log": "generate.log",
           "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
           "returncode": 0,
@@ -3114,7 +3191,7 @@
             "pan-safety",
             "pan.c"
           ],
-          "elapsed_seconds": 1.315390852,
+          "elapsed_seconds": 1.184247891,
           "log": "compile-safety.log",
           "log_sha256": "63303d598caa47f708f07ca1f6ab0a2a64fdda2d60562f09296765cfb8dbd355",
           "returncode": 0,
@@ -3127,7 +3204,7 @@
             "-m100000",
             "-w20"
           ],
-          "elapsed_seconds": 0.010301454,
+          "elapsed_seconds": 0.010474213,
           "log": "check-safety.log",
           "log_sha256": "2a66731ad977203c0df78025ad3ea584c4deac2f016b7af196730aee15a0faa2",
           "returncode": 0,
@@ -3135,11 +3212,16 @@
         }
       ],
       "defect": null,
+      "expectation_met": true,
+      "expected_result": "COMPLETE_NO_ERRORS",
+      "fault_repetition": "bounded_or_not_applicable",
       "model_sha256": "f51a9721faf50b3f54462bb1b5e3d547c2ce923578b3c6f93512cdaedb097491",
       "partial_order_reduction": true,
+      "purpose": "standalone_safety",
       "source_sha256": "f51a9721faf50b3f54462bb1b5e3d547c2ce923578b3c6f93512cdaedb097491",
       "status": "PASS",
-      "topology": "task-lifecycle.pml"
+      "topology": "task-lifecycle.pml",
+      "weak_process_fairness": false
     },
     {
       "capacity": 2,
@@ -3151,7 +3233,8 @@
             "-m100000",
             "-w20"
           ],
-          "elapsed_seconds": 0.010318229,
+          "counterexample_kind": "assertion",
+          "elapsed_seconds": 0.010272824,
           "log": "check-safety.log",
           "log_sha256": "b5b56474d5e4d1621cb134bc51618d606f77d54c131378b3abb3639512d66232",
           "property": "safety",
@@ -3167,7 +3250,7 @@
               "-l",
               "task-lifecycle.pml"
             ],
-            "elapsed_seconds": 0.010295625,
+            "elapsed_seconds": 0.010264287,
             "log": "replay-safety.log",
             "log_sha256": "cfd435b4f1853c9edd21ca22bfaa4df95401dd988f00e1d85bc352cb719ca132",
             "returncode": 0,
@@ -3188,7 +3271,7 @@
             "-a",
             "task-lifecycle.pml"
           ],
-          "elapsed_seconds": 0.020431815,
+          "elapsed_seconds": 0.020691389,
           "log": "generate.log",
           "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
           "returncode": 0,
@@ -3205,7 +3288,7 @@
             "pan-safety",
             "pan.c"
           ],
-          "elapsed_seconds": 1.23598724,
+          "elapsed_seconds": 1.121621607,
           "log": "compile-safety.log",
           "log_sha256": "63303d598caa47f708f07ca1f6ab0a2a64fdda2d60562f09296765cfb8dbd355",
           "returncode": 0,
@@ -3218,7 +3301,7 @@
             "-m100000",
             "-w20"
           ],
-          "elapsed_seconds": 0.010318229,
+          "elapsed_seconds": 0.010272824,
           "log": "check-safety.log",
           "log_sha256": "b5b56474d5e4d1621cb134bc51618d606f77d54c131378b3abb3639512d66232",
           "returncode": 0,
@@ -3236,7 +3319,7 @@
             "-l",
             "task-lifecycle.pml"
           ],
-          "elapsed_seconds": 0.010295625,
+          "elapsed_seconds": 0.010264287,
           "log": "replay-safety.log",
           "log_sha256": "cfd435b4f1853c9edd21ca22bfaa4df95401dd988f00e1d85bc352cb719ca132",
           "returncode": 0,
@@ -3244,28 +3327,1852 @@
         }
       ],
       "defect": "BUG_DOUBLE_TERMINAL",
+      "expectation_met": true,
+      "expected_result": "COUNTEREXAMPLE",
+      "fault_repetition": "bounded_or_not_applicable",
       "model_sha256": "f51a9721faf50b3f54462bb1b5e3d547c2ce923578b3c6f93512cdaedb097491",
       "partial_order_reduction": true,
+      "purpose": "deliberate_defect",
       "source_sha256": "f51a9721faf50b3f54462bb1b5e3d547c2ce923578b3c6f93512cdaedb097491",
       "status": "PASS",
-      "topology": "task-lifecycle.pml"
+      "topology": "task-lifecycle.pml",
+      "weak_process_fairness": false
+    },
+    {
+      "capacity": 2,
+      "checks": [
+        {
+          "command": [
+            "./pan-safety",
+            "-b",
+            "-m100000",
+            "-w20"
+          ],
+          "counterexample_kind": "none_or_other",
+          "elapsed_seconds": 0.010287236,
+          "log": "check-safety.log",
+          "log_sha256": "db68adf20833f621d9a6d1aed8fc86ce3cfbbf0df17473563d39076552da201f",
+          "property": "safety",
+          "returncode": 0,
+          "status": "COMPLETE_NO_ERRORS",
+          "timeout": false
+        }
+      ],
+      "commands": [
+        {
+          "command": [
+            "spin",
+            "-DUNBOUNDED_FAULTS",
+            "-a",
+            "protocol.pml"
+          ],
+          "elapsed_seconds": 0.020364616,
+          "log": "generate.log",
+          "log_sha256": "c89d38a8c7106665a5daded94e0758fe82f7a0d5307ec3b4b634fb86110b5b3e",
+          "returncode": 0,
+          "timeout": false
+        },
+        {
+          "command": [
+            "cc",
+            "-O2",
+            "-DMEMLIM=480",
+            "-DSAFETY",
+            "-DNOCLAIM",
+            "-o",
+            "pan-safety",
+            "pan.c"
+          ],
+          "elapsed_seconds": 1.497014383,
+          "log": "compile-safety.log",
+          "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "returncode": 0,
+          "timeout": false
+        },
+        {
+          "command": [
+            "./pan-safety",
+            "-b",
+            "-m100000",
+            "-w20"
+          ],
+          "elapsed_seconds": 0.010287236,
+          "log": "check-safety.log",
+          "log_sha256": "db68adf20833f621d9a6d1aed8fc86ce3cfbbf0df17473563d39076552da201f",
+          "returncode": 0,
+          "timeout": false
+        }
+      ],
+      "defect": null,
+      "expectation_met": true,
+      "expected_result": "COMPLETE_NO_ERRORS",
+      "fault_repetition": "unlimited",
+      "model_sha256": "7e7fdb6deea7109c28a0d3e2df27221a4badf092ce408de4f1e63c9b405c83ab",
+      "partial_order_reduction": true,
+      "purpose": "unbounded_fault_safety",
+      "source_sha256": "e0df929804ce9d5784430d465c3ba54b8387a17cc16a039fab66e62ba743d62b",
+      "status": "PASS",
+      "topology": "evaluator-optimiser.json",
+      "weak_process_fairness": false
+    },
+    {
+      "capacity": 2,
+      "checks": [
+        {
+          "command": [
+            "./pan-safety",
+            "-b",
+            "-m100000",
+            "-w20"
+          ],
+          "counterexample_kind": "none_or_other",
+          "elapsed_seconds": 0.010603812,
+          "log": "check-safety.log",
+          "log_sha256": "8e3c25757f1328dbe0c1229c7793cba5bc15f4f1c99a9577edb8ed773f13e248",
+          "property": "safety",
+          "returncode": 0,
+          "status": "COMPLETE_NO_ERRORS",
+          "timeout": false
+        }
+      ],
+      "commands": [
+        {
+          "command": [
+            "spin",
+            "-DUNBOUNDED_FAULTS",
+            "-a",
+            "protocol.pml"
+          ],
+          "elapsed_seconds": 0.021254655,
+          "log": "generate.log",
+          "log_sha256": "c89d38a8c7106665a5daded94e0758fe82f7a0d5307ec3b4b634fb86110b5b3e",
+          "returncode": 0,
+          "timeout": false
+        },
+        {
+          "command": [
+            "cc",
+            "-O2",
+            "-DMEMLIM=480",
+            "-DSAFETY",
+            "-DNOCLAIM",
+            "-o",
+            "pan-safety",
+            "pan.c"
+          ],
+          "elapsed_seconds": 1.435815612,
+          "log": "compile-safety.log",
+          "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "returncode": 0,
+          "timeout": false
+        },
+        {
+          "command": [
+            "./pan-safety",
+            "-b",
+            "-m100000",
+            "-w20"
+          ],
+          "elapsed_seconds": 0.010603812,
+          "log": "check-safety.log",
+          "log_sha256": "8e3c25757f1328dbe0c1229c7793cba5bc15f4f1c99a9577edb8ed773f13e248",
+          "returncode": 0,
+          "timeout": false
+        }
+      ],
+      "defect": null,
+      "expectation_met": true,
+      "expected_result": "COMPLETE_NO_ERRORS",
+      "fault_repetition": "unlimited",
+      "model_sha256": "6261e805399cd9009ecf1c6e9216d56c2e4ca392fa44e3426c3559a0037aed42",
+      "partial_order_reduction": true,
+      "purpose": "unbounded_fault_safety",
+      "source_sha256": "3ef383446a4edb322e4e5c579f0d9dfaf51347cc3a1252a8396b2bfe6c8e531e",
+      "status": "PASS",
+      "topology": "human-review.json",
+      "weak_process_fairness": false
+    },
+    {
+      "capacity": 2,
+      "checks": [
+        {
+          "command": [
+            "./pan-safety",
+            "-b",
+            "-m100000",
+            "-w20"
+          ],
+          "counterexample_kind": "none_or_other",
+          "elapsed_seconds": 0.010364461,
+          "log": "check-safety.log",
+          "log_sha256": "8ccd6f94ddf061a610fc138f092c965f2c4481e11efef2f28e6e99570820a4f1",
+          "property": "safety",
+          "returncode": 0,
+          "status": "COMPLETE_NO_ERRORS",
+          "timeout": false
+        }
+      ],
+      "commands": [
+        {
+          "command": [
+            "spin",
+            "-DUNBOUNDED_FAULTS",
+            "-a",
+            "protocol.pml"
+          ],
+          "elapsed_seconds": 0.020407139,
+          "log": "generate.log",
+          "log_sha256": "c89d38a8c7106665a5daded94e0758fe82f7a0d5307ec3b4b634fb86110b5b3e",
+          "returncode": 0,
+          "timeout": false
+        },
+        {
+          "command": [
+            "cc",
+            "-O2",
+            "-DMEMLIM=480",
+            "-DSAFETY",
+            "-DNOCLAIM",
+            "-o",
+            "pan-safety",
+            "pan.c"
+          ],
+          "elapsed_seconds": 1.69628106,
+          "log": "compile-safety.log",
+          "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "returncode": 0,
+          "timeout": false
+        },
+        {
+          "command": [
+            "./pan-safety",
+            "-b",
+            "-m100000",
+            "-w20"
+          ],
+          "elapsed_seconds": 0.010364461,
+          "log": "check-safety.log",
+          "log_sha256": "8ccd6f94ddf061a610fc138f092c965f2c4481e11efef2f28e6e99570820a4f1",
+          "returncode": 0,
+          "timeout": false
+        }
+      ],
+      "defect": null,
+      "expectation_met": true,
+      "expected_result": "COMPLETE_NO_ERRORS",
+      "fault_repetition": "unlimited",
+      "model_sha256": "ff38c11d6cec8bcf4d26ef6d5905703b87a6308053917d7fe77f99cdff57fcd6",
+      "partial_order_reduction": true,
+      "purpose": "unbounded_fault_safety",
+      "source_sha256": "0fe3d35646a1b6e594634f09c4ac290ea2432b5768fdf635549f13357a29668c",
+      "status": "PASS",
+      "topology": "mesh.json",
+      "weak_process_fairness": false
+    },
+    {
+      "capacity": 2,
+      "checks": [
+        {
+          "command": [
+            "./pan-safety",
+            "-b",
+            "-m100000",
+            "-w20"
+          ],
+          "counterexample_kind": "none_or_other",
+          "elapsed_seconds": 0.01031039,
+          "log": "check-safety.log",
+          "log_sha256": "8e3c25757f1328dbe0c1229c7793cba5bc15f4f1c99a9577edb8ed773f13e248",
+          "property": "safety",
+          "returncode": 0,
+          "status": "COMPLETE_NO_ERRORS",
+          "timeout": false
+        }
+      ],
+      "commands": [
+        {
+          "command": [
+            "spin",
+            "-DUNBOUNDED_FAULTS",
+            "-a",
+            "protocol.pml"
+          ],
+          "elapsed_seconds": 0.020821291,
+          "log": "generate.log",
+          "log_sha256": "c89d38a8c7106665a5daded94e0758fe82f7a0d5307ec3b4b634fb86110b5b3e",
+          "returncode": 0,
+          "timeout": false
+        },
+        {
+          "command": [
+            "cc",
+            "-O2",
+            "-DMEMLIM=480",
+            "-DSAFETY",
+            "-DNOCLAIM",
+            "-o",
+            "pan-safety",
+            "pan.c"
+          ],
+          "elapsed_seconds": 1.598651148,
+          "log": "compile-safety.log",
+          "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "returncode": 0,
+          "timeout": false
+        },
+        {
+          "command": [
+            "./pan-safety",
+            "-b",
+            "-m100000",
+            "-w20"
+          ],
+          "elapsed_seconds": 0.01031039,
+          "log": "check-safety.log",
+          "log_sha256": "8e3c25757f1328dbe0c1229c7793cba5bc15f4f1c99a9577edb8ed773f13e248",
+          "returncode": 0,
+          "timeout": false
+        }
+      ],
+      "defect": null,
+      "expectation_met": true,
+      "expected_result": "COMPLETE_NO_ERRORS",
+      "fault_repetition": "unlimited",
+      "model_sha256": "917f47b5d4179fbd74a63fb0d98aa392436e92df223f5c3754cd22697409473f",
+      "partial_order_reduction": true,
+      "purpose": "unbounded_fault_safety",
+      "source_sha256": "62521449557fcf2e447c515b624fcfca8c06d15e74cbdffe54cc9c1f3ce80894",
+      "status": "PASS",
+      "topology": "orchestrator-workers.json",
+      "weak_process_fairness": false
+    },
+    {
+      "capacity": 2,
+      "checks": [
+        {
+          "command": [
+            "./pan-safety",
+            "-b",
+            "-m100000",
+            "-w20"
+          ],
+          "counterexample_kind": "none_or_other",
+          "elapsed_seconds": 0.010838065,
+          "log": "check-safety.log",
+          "log_sha256": "8e3c25757f1328dbe0c1229c7793cba5bc15f4f1c99a9577edb8ed773f13e248",
+          "property": "safety",
+          "returncode": 0,
+          "status": "COMPLETE_NO_ERRORS",
+          "timeout": false
+        }
+      ],
+      "commands": [
+        {
+          "command": [
+            "spin",
+            "-DUNBOUNDED_FAULTS",
+            "-a",
+            "protocol.pml"
+          ],
+          "elapsed_seconds": 0.020449772,
+          "log": "generate.log",
+          "log_sha256": "c89d38a8c7106665a5daded94e0758fe82f7a0d5307ec3b4b634fb86110b5b3e",
+          "returncode": 0,
+          "timeout": false
+        },
+        {
+          "command": [
+            "cc",
+            "-O2",
+            "-DMEMLIM=480",
+            "-DSAFETY",
+            "-DNOCLAIM",
+            "-o",
+            "pan-safety",
+            "pan.c"
+          ],
+          "elapsed_seconds": 1.654637924,
+          "log": "compile-safety.log",
+          "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "returncode": 0,
+          "timeout": false
+        },
+        {
+          "command": [
+            "./pan-safety",
+            "-b",
+            "-m100000",
+            "-w20"
+          ],
+          "elapsed_seconds": 0.010838065,
+          "log": "check-safety.log",
+          "log_sha256": "8e3c25757f1328dbe0c1229c7793cba5bc15f4f1c99a9577edb8ed773f13e248",
+          "returncode": 0,
+          "timeout": false
+        }
+      ],
+      "defect": null,
+      "expectation_met": true,
+      "expected_result": "COMPLETE_NO_ERRORS",
+      "fault_repetition": "unlimited",
+      "model_sha256": "917f47b5d4179fbd74a63fb0d98aa392436e92df223f5c3754cd22697409473f",
+      "partial_order_reduction": true,
+      "purpose": "unbounded_fault_safety",
+      "source_sha256": "d94a14ef86eb5ba6972f5652d2d08adcdd749f5b31b9ecac91de9cfec3cad782",
+      "status": "PASS",
+      "topology": "parallel-sectioning.json",
+      "weak_process_fairness": false
+    },
+    {
+      "capacity": 3,
+      "checks": [
+        {
+          "command": [
+            "./pan-safety",
+            "-b",
+            "-m100000",
+            "-w20"
+          ],
+          "counterexample_kind": "none_or_other",
+          "elapsed_seconds": 0.021081745,
+          "log": "check-safety.log",
+          "log_sha256": "8a4a5dca77cf709f177a615f871149d398f127d39fabe4359b0985976ca2b172",
+          "property": "safety",
+          "returncode": 0,
+          "status": "COMPLETE_NO_ERRORS",
+          "timeout": false
+        }
+      ],
+      "commands": [
+        {
+          "command": [
+            "spin",
+            "-DUNBOUNDED_FAULTS",
+            "-a",
+            "protocol.pml"
+          ],
+          "elapsed_seconds": 0.020856575,
+          "log": "generate.log",
+          "log_sha256": "c89d38a8c7106665a5daded94e0758fe82f7a0d5307ec3b4b634fb86110b5b3e",
+          "returncode": 0,
+          "timeout": false
+        },
+        {
+          "command": [
+            "cc",
+            "-O2",
+            "-DMEMLIM=480",
+            "-DSAFETY",
+            "-DNOCLAIM",
+            "-o",
+            "pan-safety",
+            "pan.c"
+          ],
+          "elapsed_seconds": 1.449925073,
+          "log": "compile-safety.log",
+          "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "returncode": 0,
+          "timeout": false
+        },
+        {
+          "command": [
+            "./pan-safety",
+            "-b",
+            "-m100000",
+            "-w20"
+          ],
+          "elapsed_seconds": 0.021081745,
+          "log": "check-safety.log",
+          "log_sha256": "8a4a5dca77cf709f177a615f871149d398f127d39fabe4359b0985976ca2b172",
+          "returncode": 0,
+          "timeout": false
+        }
+      ],
+      "defect": null,
+      "expectation_met": true,
+      "expected_result": "COMPLETE_NO_ERRORS",
+      "fault_repetition": "unlimited",
+      "model_sha256": "337c93fcfe5af72ffd53413e668d3a73b89325f752f7b27d8f621d13aad9776d",
+      "partial_order_reduction": true,
+      "purpose": "unbounded_fault_safety",
+      "source_sha256": "f595671211508d2822e91bd71bbcadfb10ebf14849d8015616c4b30c1185549b",
+      "status": "PASS",
+      "topology": "parallel-voting.json",
+      "weak_process_fairness": false
+    },
+    {
+      "capacity": 2,
+      "checks": [
+        {
+          "command": [
+            "./pan-safety",
+            "-b",
+            "-m100000",
+            "-w20"
+          ],
+          "counterexample_kind": "none_or_other",
+          "elapsed_seconds": 0.020403382,
+          "log": "check-safety.log",
+          "log_sha256": "8e3c25757f1328dbe0c1229c7793cba5bc15f4f1c99a9577edb8ed773f13e248",
+          "property": "safety",
+          "returncode": 0,
+          "status": "COMPLETE_NO_ERRORS",
+          "timeout": false
+        }
+      ],
+      "commands": [
+        {
+          "command": [
+            "spin",
+            "-DUNBOUNDED_FAULTS",
+            "-a",
+            "protocol.pml"
+          ],
+          "elapsed_seconds": 0.020440598,
+          "log": "generate.log",
+          "log_sha256": "c89d38a8c7106665a5daded94e0758fe82f7a0d5307ec3b4b634fb86110b5b3e",
+          "returncode": 0,
+          "timeout": false
+        },
+        {
+          "command": [
+            "cc",
+            "-O2",
+            "-DMEMLIM=480",
+            "-DSAFETY",
+            "-DNOCLAIM",
+            "-o",
+            "pan-safety",
+            "pan.c"
+          ],
+          "elapsed_seconds": 1.5942498120000002,
+          "log": "compile-safety.log",
+          "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "returncode": 0,
+          "timeout": false
+        },
+        {
+          "command": [
+            "./pan-safety",
+            "-b",
+            "-m100000",
+            "-w20"
+          ],
+          "elapsed_seconds": 0.020403382,
+          "log": "check-safety.log",
+          "log_sha256": "8e3c25757f1328dbe0c1229c7793cba5bc15f4f1c99a9577edb8ed773f13e248",
+          "returncode": 0,
+          "timeout": false
+        }
+      ],
+      "defect": null,
+      "expectation_met": true,
+      "expected_result": "COMPLETE_NO_ERRORS",
+      "fault_repetition": "unlimited",
+      "model_sha256": "917f47b5d4179fbd74a63fb0d98aa392436e92df223f5c3754cd22697409473f",
+      "partial_order_reduction": true,
+      "purpose": "unbounded_fault_safety",
+      "source_sha256": "ace60d44037648e163a066f53039ed2dfe2582140fa5f2f9117459b0aacb55d0",
+      "status": "PASS",
+      "topology": "prompt-chaining.json",
+      "weak_process_fairness": false
+    },
+    {
+      "capacity": 2,
+      "checks": [
+        {
+          "command": [
+            "./pan-safety",
+            "-b",
+            "-m100000",
+            "-w20"
+          ],
+          "counterexample_kind": "none_or_other",
+          "elapsed_seconds": 0.010328341,
+          "log": "check-safety.log",
+          "log_sha256": "8e3c25757f1328dbe0c1229c7793cba5bc15f4f1c99a9577edb8ed773f13e248",
+          "property": "safety",
+          "returncode": 0,
+          "status": "COMPLETE_NO_ERRORS",
+          "timeout": false
+        }
+      ],
+      "commands": [
+        {
+          "command": [
+            "spin",
+            "-DUNBOUNDED_FAULTS",
+            "-a",
+            "protocol.pml"
+          ],
+          "elapsed_seconds": 0.021112119,
+          "log": "generate.log",
+          "log_sha256": "c89d38a8c7106665a5daded94e0758fe82f7a0d5307ec3b4b634fb86110b5b3e",
+          "returncode": 0,
+          "timeout": false
+        },
+        {
+          "command": [
+            "cc",
+            "-O2",
+            "-DMEMLIM=480",
+            "-DSAFETY",
+            "-DNOCLAIM",
+            "-o",
+            "pan-safety",
+            "pan.c"
+          ],
+          "elapsed_seconds": 1.491961518,
+          "log": "compile-safety.log",
+          "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "returncode": 0,
+          "timeout": false
+        },
+        {
+          "command": [
+            "./pan-safety",
+            "-b",
+            "-m100000",
+            "-w20"
+          ],
+          "elapsed_seconds": 0.010328341,
+          "log": "check-safety.log",
+          "log_sha256": "8e3c25757f1328dbe0c1229c7793cba5bc15f4f1c99a9577edb8ed773f13e248",
+          "returncode": 0,
+          "timeout": false
+        }
+      ],
+      "defect": null,
+      "expectation_met": true,
+      "expected_result": "COMPLETE_NO_ERRORS",
+      "fault_repetition": "unlimited",
+      "model_sha256": "917f47b5d4179fbd74a63fb0d98aa392436e92df223f5c3754cd22697409473f",
+      "partial_order_reduction": true,
+      "purpose": "unbounded_fault_safety",
+      "source_sha256": "adaee792705996a91c59aaccd64cf2e89e0b7a5001b313a476d4c9a551bc4b12",
+      "status": "PASS",
+      "topology": "routing.json",
+      "weak_process_fairness": false
+    },
+    {
+      "capacity": 2,
+      "checks": [
+        {
+          "command": [
+            "./pan-safety",
+            "-b",
+            "-m100000",
+            "-w20"
+          ],
+          "counterexample_kind": "none_or_other",
+          "elapsed_seconds": 0.010393564,
+          "log": "check-safety.log",
+          "log_sha256": "8e3c25757f1328dbe0c1229c7793cba5bc15f4f1c99a9577edb8ed773f13e248",
+          "property": "safety",
+          "returncode": 0,
+          "status": "COMPLETE_NO_ERRORS",
+          "timeout": false
+        }
+      ],
+      "commands": [
+        {
+          "command": [
+            "spin",
+            "-DUNBOUNDED_FAULTS",
+            "-a",
+            "protocol.pml"
+          ],
+          "elapsed_seconds": 0.020393676,
+          "log": "generate.log",
+          "log_sha256": "c89d38a8c7106665a5daded94e0758fe82f7a0d5307ec3b4b634fb86110b5b3e",
+          "returncode": 0,
+          "timeout": false
+        },
+        {
+          "command": [
+            "cc",
+            "-O2",
+            "-DMEMLIM=480",
+            "-DSAFETY",
+            "-DNOCLAIM",
+            "-o",
+            "pan-safety",
+            "pan.c"
+          ],
+          "elapsed_seconds": 1.6954672309999999,
+          "log": "compile-safety.log",
+          "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "returncode": 0,
+          "timeout": false
+        },
+        {
+          "command": [
+            "./pan-safety",
+            "-b",
+            "-m100000",
+            "-w20"
+          ],
+          "elapsed_seconds": 0.010393564,
+          "log": "check-safety.log",
+          "log_sha256": "8e3c25757f1328dbe0c1229c7793cba5bc15f4f1c99a9577edb8ed773f13e248",
+          "returncode": 0,
+          "timeout": false
+        }
+      ],
+      "defect": null,
+      "expectation_met": true,
+      "expected_result": "COMPLETE_NO_ERRORS",
+      "fault_repetition": "unlimited",
+      "model_sha256": "6261e805399cd9009ecf1c6e9216d56c2e4ca392fa44e3426c3559a0037aed42",
+      "partial_order_reduction": true,
+      "purpose": "unbounded_fault_safety",
+      "source_sha256": "7d0cc084cde54151bf0d09b5e3e33556a7e3b6bdad60a3b44a9f899204822466",
+      "status": "PASS",
+      "topology": "sequential-crew.json",
+      "weak_process_fairness": false
+    },
+    {
+      "capacity": 2,
+      "checks": [
+        {
+          "command": [
+            "./pan-safety",
+            "-b",
+            "-m100000",
+            "-w20"
+          ],
+          "counterexample_kind": "none_or_other",
+          "elapsed_seconds": 0.010306854,
+          "log": "check-safety.log",
+          "log_sha256": "8e3c25757f1328dbe0c1229c7793cba5bc15f4f1c99a9577edb8ed773f13e248",
+          "property": "safety",
+          "returncode": 0,
+          "status": "COMPLETE_NO_ERRORS",
+          "timeout": false
+        }
+      ],
+      "commands": [
+        {
+          "command": [
+            "spin",
+            "-DUNBOUNDED_FAULTS",
+            "-a",
+            "protocol.pml"
+          ],
+          "elapsed_seconds": 0.020617783,
+          "log": "generate.log",
+          "log_sha256": "c89d38a8c7106665a5daded94e0758fe82f7a0d5307ec3b4b634fb86110b5b3e",
+          "returncode": 0,
+          "timeout": false
+        },
+        {
+          "command": [
+            "cc",
+            "-O2",
+            "-DMEMLIM=480",
+            "-DSAFETY",
+            "-DNOCLAIM",
+            "-o",
+            "pan-safety",
+            "pan.c"
+          ],
+          "elapsed_seconds": 1.53233967,
+          "log": "compile-safety.log",
+          "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "returncode": 0,
+          "timeout": false
+        },
+        {
+          "command": [
+            "./pan-safety",
+            "-b",
+            "-m100000",
+            "-w20"
+          ],
+          "elapsed_seconds": 0.010306854,
+          "log": "check-safety.log",
+          "log_sha256": "8e3c25757f1328dbe0c1229c7793cba5bc15f4f1c99a9577edb8ed773f13e248",
+          "returncode": 0,
+          "timeout": false
+        }
+      ],
+      "defect": null,
+      "expectation_met": true,
+      "expected_result": "COMPLETE_NO_ERRORS",
+      "fault_repetition": "unlimited",
+      "model_sha256": "917f47b5d4179fbd74a63fb0d98aa392436e92df223f5c3754cd22697409473f",
+      "partial_order_reduction": true,
+      "purpose": "unbounded_fault_safety",
+      "source_sha256": "0de3a8aa69db1e84a2dbfe5f61008817fcc533ed07a44b5974e947aa0ad1097a",
+      "status": "PASS",
+      "topology": "star.json",
+      "weak_process_fairness": false
+    },
+    {
+      "capacity": 2,
+      "checks": [
+        {
+          "command": [
+            "./pan-safety",
+            "-b",
+            "-m100000",
+            "-w20"
+          ],
+          "counterexample_kind": "none_or_other",
+          "elapsed_seconds": 0.010678374,
+          "log": "check-safety.log",
+          "log_sha256": "8ccd6f94ddf061a610fc138f092c965f2c4481e11efef2f28e6e99570820a4f1",
+          "property": "safety",
+          "returncode": 0,
+          "status": "COMPLETE_NO_ERRORS",
+          "timeout": false
+        }
+      ],
+      "commands": [
+        {
+          "command": [
+            "spin",
+            "-DUNBOUNDED_FAULTS",
+            "-a",
+            "protocol.pml"
+          ],
+          "elapsed_seconds": 0.020705807,
+          "log": "generate.log",
+          "log_sha256": "c89d38a8c7106665a5daded94e0758fe82f7a0d5307ec3b4b634fb86110b5b3e",
+          "returncode": 0,
+          "timeout": false
+        },
+        {
+          "command": [
+            "cc",
+            "-O2",
+            "-DMEMLIM=480",
+            "-DSAFETY",
+            "-DNOCLAIM",
+            "-o",
+            "pan-safety",
+            "pan.c"
+          ],
+          "elapsed_seconds": 1.575936172,
+          "log": "compile-safety.log",
+          "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "returncode": 0,
+          "timeout": false
+        },
+        {
+          "command": [
+            "./pan-safety",
+            "-b",
+            "-m100000",
+            "-w20"
+          ],
+          "elapsed_seconds": 0.010678374,
+          "log": "check-safety.log",
+          "log_sha256": "8ccd6f94ddf061a610fc138f092c965f2c4481e11efef2f28e6e99570820a4f1",
+          "returncode": 0,
+          "timeout": false
+        }
+      ],
+      "defect": null,
+      "expectation_met": true,
+      "expected_result": "COMPLETE_NO_ERRORS",
+      "fault_repetition": "unlimited",
+      "model_sha256": "ff38c11d6cec8bcf4d26ef6d5905703b87a6308053917d7fe77f99cdff57fcd6",
+      "partial_order_reduction": true,
+      "purpose": "unbounded_fault_safety",
+      "source_sha256": "d18c21ebcaee588152c876f36c37b10340133da1dcc050135e9f17cd2981157a",
+      "status": "PASS",
+      "topology": "swarm-handoff.json",
+      "weak_process_fairness": false
+    },
+    {
+      "capacity": 2,
+      "checks": [
+        {
+          "command": [
+            "./pan-safety",
+            "-b",
+            "-m100000",
+            "-w20"
+          ],
+          "counterexample_kind": "none_or_other",
+          "elapsed_seconds": 0.010284641,
+          "log": "check-safety.log",
+          "log_sha256": "8a4a5dca77cf709f177a615f871149d398f127d39fabe4359b0985976ca2b172",
+          "property": "safety",
+          "returncode": 0,
+          "status": "COMPLETE_NO_ERRORS",
+          "timeout": false
+        }
+      ],
+      "commands": [
+        {
+          "command": [
+            "spin",
+            "-DUNBOUNDED_FAULTS",
+            "-a",
+            "protocol.pml"
+          ],
+          "elapsed_seconds": 0.020367007,
+          "log": "generate.log",
+          "log_sha256": "c89d38a8c7106665a5daded94e0758fe82f7a0d5307ec3b4b634fb86110b5b3e",
+          "returncode": 0,
+          "timeout": false
+        },
+        {
+          "command": [
+            "cc",
+            "-O2",
+            "-DMEMLIM=480",
+            "-DSAFETY",
+            "-DNOCLAIM",
+            "-o",
+            "pan-safety",
+            "pan.c"
+          ],
+          "elapsed_seconds": 1.448127473,
+          "log": "compile-safety.log",
+          "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "returncode": 0,
+          "timeout": false
+        },
+        {
+          "command": [
+            "./pan-safety",
+            "-b",
+            "-m100000",
+            "-w20"
+          ],
+          "elapsed_seconds": 0.010284641,
+          "log": "check-safety.log",
+          "log_sha256": "8a4a5dca77cf709f177a615f871149d398f127d39fabe4359b0985976ca2b172",
+          "returncode": 0,
+          "timeout": false
+        }
+      ],
+      "defect": null,
+      "expectation_met": true,
+      "expected_result": "COMPLETE_NO_ERRORS",
+      "fault_repetition": "unlimited",
+      "model_sha256": "c4edbb3ed0e2abda997793a6b3df2c8e8f7760e86814fe8bfb97337d331aec81",
+      "partial_order_reduction": true,
+      "purpose": "unbounded_fault_safety",
+      "source_sha256": "631ba3ad9d1145f30b395f95ccb0248c605f1a8c96c8a86a03549cf26d474a01",
+      "status": "PASS",
+      "topology": "tree.json",
+      "weak_process_fairness": false
+    },
+    {
+      "capacity": 1,
+      "checks": [
+        {
+          "command": [
+            "./pan-safety",
+            "-b",
+            "-m100000",
+            "-w20"
+          ],
+          "counterexample_kind": "none_or_other",
+          "elapsed_seconds": 0.010479589,
+          "log": "check-safety.log",
+          "log_sha256": "f00ef5d80f62b1fa89d087663431520aa09ba6d0cd5f1a794652337a7c0f5339",
+          "property": "safety",
+          "returncode": 0,
+          "status": "COMPLETE_NO_ERRORS",
+          "timeout": false
+        }
+      ],
+      "commands": [
+        {
+          "command": [
+            "spin",
+            "-DCAPACITY=1",
+            "-DUNBOUNDED_FAULTS",
+            "-a",
+            "protocol.pml"
+          ],
+          "elapsed_seconds": 0.020347392,
+          "log": "generate.log",
+          "log_sha256": "c89d38a8c7106665a5daded94e0758fe82f7a0d5307ec3b4b634fb86110b5b3e",
+          "returncode": 0,
+          "timeout": false
+        },
+        {
+          "command": [
+            "cc",
+            "-O2",
+            "-DMEMLIM=480",
+            "-DSAFETY",
+            "-DNOCLAIM",
+            "-o",
+            "pan-safety",
+            "pan.c"
+          ],
+          "elapsed_seconds": 1.36425514,
+          "log": "compile-safety.log",
+          "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "returncode": 0,
+          "timeout": false
+        },
+        {
+          "command": [
+            "./pan-safety",
+            "-b",
+            "-m100000",
+            "-w20"
+          ],
+          "elapsed_seconds": 0.010479589,
+          "log": "check-safety.log",
+          "log_sha256": "f00ef5d80f62b1fa89d087663431520aa09ba6d0cd5f1a794652337a7c0f5339",
+          "returncode": 0,
+          "timeout": false
+        }
+      ],
+      "defect": null,
+      "expectation_met": true,
+      "expected_result": "COMPLETE_NO_ERRORS",
+      "fault_repetition": "unlimited",
+      "model_sha256": "917f47b5d4179fbd74a63fb0d98aa392436e92df223f5c3754cd22697409473f",
+      "partial_order_reduction": true,
+      "purpose": "unbounded_fault_safety",
+      "source_sha256": "0de3a8aa69db1e84a2dbfe5f61008817fcc533ed07a44b5974e947aa0ad1097a",
+      "status": "PASS",
+      "topology": "star.json",
+      "weak_process_fairness": false
+    },
+    {
+      "capacity": 2,
+      "checks": [
+        {
+          "command": [
+            "./pan-safety",
+            "-b",
+            "-m100000",
+            "-w20"
+          ],
+          "counterexample_kind": "none_or_other",
+          "elapsed_seconds": 0.010249755,
+          "log": "check-safety.log",
+          "log_sha256": "a702cb65423bef629b692ce1cb8425e452e3fae59c7a766af131c7e3301f0f50",
+          "property": "safety",
+          "returncode": 0,
+          "status": "COMPLETE_NO_ERRORS",
+          "timeout": false
+        }
+      ],
+      "commands": [
+        {
+          "command": [
+            "spin",
+            "-DUNBOUNDED_FAULTS",
+            "-a",
+            "protocol.pml"
+          ],
+          "elapsed_seconds": 0.020587208,
+          "log": "generate.log",
+          "log_sha256": "c89d38a8c7106665a5daded94e0758fe82f7a0d5307ec3b4b634fb86110b5b3e",
+          "returncode": 0,
+          "timeout": false
+        },
+        {
+          "command": [
+            "cc",
+            "-O2",
+            "-DMEMLIM=480",
+            "-DNOREDUCE",
+            "-DSAFETY",
+            "-DNOCLAIM",
+            "-o",
+            "pan-safety",
+            "pan.c"
+          ],
+          "elapsed_seconds": 1.243070362,
+          "log": "compile-safety.log",
+          "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "returncode": 0,
+          "timeout": false
+        },
+        {
+          "command": [
+            "./pan-safety",
+            "-b",
+            "-m100000",
+            "-w20"
+          ],
+          "elapsed_seconds": 0.010249755,
+          "log": "check-safety.log",
+          "log_sha256": "a702cb65423bef629b692ce1cb8425e452e3fae59c7a766af131c7e3301f0f50",
+          "returncode": 0,
+          "timeout": false
+        }
+      ],
+      "defect": null,
+      "expectation_met": true,
+      "expected_result": "COMPLETE_NO_ERRORS",
+      "fault_repetition": "unlimited",
+      "model_sha256": "7e7fdb6deea7109c28a0d3e2df27221a4badf092ce408de4f1e63c9b405c83ab",
+      "partial_order_reduction": false,
+      "purpose": "unbounded_fault_safety",
+      "source_sha256": "e0df929804ce9d5784430d465c3ba54b8387a17cc16a039fab66e62ba743d62b",
+      "status": "PASS",
+      "topology": "evaluator-optimiser.json",
+      "weak_process_fairness": false
+    },
+    {
+      "capacity": 2,
+      "checks": [
+        {
+          "command": [
+            "./pan-ltl",
+            "-b",
+            "-m100000",
+            "-w20",
+            "-a",
+            "-N",
+            "message_0_progress"
+          ],
+          "counterexample_kind": "acceptance_cycle",
+          "elapsed_seconds": 0.010277617,
+          "log": "check-message_0_progress.log",
+          "log_sha256": "ce3e7ab5afec2bd4228558ec524a13d11aa03b539fe69672ccdb3c14c15697e0",
+          "property": "message_0_progress",
+          "replay": {
+            "command": [
+              "spin",
+              "-DUNBOUNDED_FAULTS",
+              "-t",
+              "-k",
+              "message_0_progress.trail",
+              "-p",
+              "-g",
+              "-l",
+              "protocol.pml"
+            ],
+            "elapsed_seconds": 0.010347027,
+            "log": "replay-message_0_progress.log",
+            "log_sha256": "dd00f23934dde248f88c720f0c0e18d4b4733d8a87e15675e5c396df0cbbd3e4",
+            "returncode": 0,
+            "timeout": false
+          },
+          "returncode": 0,
+          "status": "COUNTEREXAMPLE",
+          "timeout": false,
+          "trail": "message_0_progress.trail",
+          "trail_sha256": "87f40cbfb53800d2bf76f378bae31f9743de04c6990ea575e96f1524242a71d5"
+        }
+      ],
+      "commands": [
+        {
+          "command": [
+            "spin",
+            "-DUNBOUNDED_FAULTS",
+            "-a",
+            "protocol.pml"
+          ],
+          "elapsed_seconds": 0.020406596,
+          "log": "generate.log",
+          "log_sha256": "c89d38a8c7106665a5daded94e0758fe82f7a0d5307ec3b4b634fb86110b5b3e",
+          "returncode": 0,
+          "timeout": false
+        },
+        {
+          "command": [
+            "cc",
+            "-O2",
+            "-DMEMLIM=480",
+            "-o",
+            "pan-ltl",
+            "pan.c"
+          ],
+          "elapsed_seconds": 1.627635652,
+          "log": "compile-ltl.log",
+          "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "returncode": 0,
+          "timeout": false
+        },
+        {
+          "command": [
+            "./pan-ltl",
+            "-b",
+            "-m100000",
+            "-w20",
+            "-a",
+            "-N",
+            "message_0_progress"
+          ],
+          "elapsed_seconds": 0.010277617,
+          "log": "check-message_0_progress.log",
+          "log_sha256": "ce3e7ab5afec2bd4228558ec524a13d11aa03b539fe69672ccdb3c14c15697e0",
+          "returncode": 0,
+          "timeout": false
+        },
+        {
+          "command": [
+            "spin",
+            "-DUNBOUNDED_FAULTS",
+            "-t",
+            "-k",
+            "message_0_progress.trail",
+            "-p",
+            "-g",
+            "-l",
+            "protocol.pml"
+          ],
+          "elapsed_seconds": 0.010347027,
+          "log": "replay-message_0_progress.log",
+          "log_sha256": "dd00f23934dde248f88c720f0c0e18d4b4733d8a87e15675e5c396df0cbbd3e4",
+          "returncode": 0,
+          "timeout": false
+        }
+      ],
+      "defect": null,
+      "expectation_met": true,
+      "expected_result": "COUNTEREXAMPLE",
+      "fault_repetition": "unlimited",
+      "model_sha256": "ff38c11d6cec8bcf4d26ef6d5905703b87a6308053917d7fe77f99cdff57fcd6",
+      "partial_order_reduction": true,
+      "purpose": "assumption_counterexample",
+      "source_sha256": "0fe3d35646a1b6e594634f09c4ac290ea2432b5768fdf635549f13357a29668c",
+      "status": "PASS",
+      "topology": "mesh.json",
+      "weak_process_fairness": false
+    },
+    {
+      "capacity": 2,
+      "checks": [
+        {
+          "command": [
+            "./pan-ltl",
+            "-b",
+            "-m100000",
+            "-w20",
+            "-a",
+            "-N",
+            "message_0_progress",
+            "-f"
+          ],
+          "counterexample_kind": "acceptance_cycle",
+          "elapsed_seconds": 0.010320302,
+          "log": "check-message_0_progress.log",
+          "log_sha256": "ab726951ac85bd4a9f230ca0827ae00af2f9b82ff5b6cbc5023b709cf5066ed1",
+          "property": "message_0_progress",
+          "replay": {
+            "command": [
+              "spin",
+              "-DUNBOUNDED_FAULTS",
+              "-t",
+              "-k",
+              "message_0_progress.trail",
+              "-p",
+              "-g",
+              "-l",
+              "protocol.pml"
+            ],
+            "elapsed_seconds": 0.020397612,
+            "log": "replay-message_0_progress.log",
+            "log_sha256": "ecbc2ec2a57954cd2e40a2d0a6745624160a267512a68558e48fe23a40fb1a41",
+            "returncode": 0,
+            "timeout": false
+          },
+          "returncode": 0,
+          "status": "COUNTEREXAMPLE",
+          "timeout": false,
+          "trail": "message_0_progress.trail",
+          "trail_sha256": "28ce4aaa522d19e7005402e95bd47de025333741e9fe1c3d4d9e4aa1da170aff"
+        }
+      ],
+      "commands": [
+        {
+          "command": [
+            "spin",
+            "-DUNBOUNDED_FAULTS",
+            "-a",
+            "protocol.pml"
+          ],
+          "elapsed_seconds": 0.020444668,
+          "log": "generate.log",
+          "log_sha256": "c89d38a8c7106665a5daded94e0758fe82f7a0d5307ec3b4b634fb86110b5b3e",
+          "returncode": 0,
+          "timeout": false
+        },
+        {
+          "command": [
+            "cc",
+            "-O2",
+            "-DMEMLIM=480",
+            "-o",
+            "pan-ltl",
+            "pan.c"
+          ],
+          "elapsed_seconds": 1.579301982,
+          "log": "compile-ltl.log",
+          "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "returncode": 0,
+          "timeout": false
+        },
+        {
+          "command": [
+            "./pan-ltl",
+            "-b",
+            "-m100000",
+            "-w20",
+            "-a",
+            "-N",
+            "message_0_progress",
+            "-f"
+          ],
+          "elapsed_seconds": 0.010320302,
+          "log": "check-message_0_progress.log",
+          "log_sha256": "ab726951ac85bd4a9f230ca0827ae00af2f9b82ff5b6cbc5023b709cf5066ed1",
+          "returncode": 0,
+          "timeout": false
+        },
+        {
+          "command": [
+            "spin",
+            "-DUNBOUNDED_FAULTS",
+            "-t",
+            "-k",
+            "message_0_progress.trail",
+            "-p",
+            "-g",
+            "-l",
+            "protocol.pml"
+          ],
+          "elapsed_seconds": 0.020397612,
+          "log": "replay-message_0_progress.log",
+          "log_sha256": "ecbc2ec2a57954cd2e40a2d0a6745624160a267512a68558e48fe23a40fb1a41",
+          "returncode": 0,
+          "timeout": false
+        }
+      ],
+      "defect": null,
+      "expectation_met": true,
+      "expected_result": "COUNTEREXAMPLE",
+      "fault_repetition": "unlimited",
+      "model_sha256": "ff38c11d6cec8bcf4d26ef6d5905703b87a6308053917d7fe77f99cdff57fcd6",
+      "partial_order_reduction": true,
+      "purpose": "assumption_counterexample",
+      "source_sha256": "0fe3d35646a1b6e594634f09c4ac290ea2432b5768fdf635549f13357a29668c",
+      "status": "PASS",
+      "topology": "mesh.json",
+      "weak_process_fairness": true
+    },
+    {
+      "capacity": 2,
+      "checks": [
+        {
+          "command": [
+            "./pan-safety",
+            "-b",
+            "-m100000",
+            "-w20"
+          ],
+          "counterexample_kind": "none_or_other",
+          "elapsed_seconds": 0.010327599,
+          "log": "check-safety.log",
+          "log_sha256": "8498ca6650a47c1d2011a305a0d94cba0b284d68b6e27e955b168ad37f34d44e",
+          "property": "safety",
+          "returncode": 0,
+          "status": "COMPLETE_NO_ERRORS",
+          "timeout": false
+        }
+      ],
+      "commands": [
+        {
+          "command": [
+            "spin",
+            "-a",
+            "transaction-recovery.pml"
+          ],
+          "elapsed_seconds": 0.020350256,
+          "log": "generate.log",
+          "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "returncode": 0,
+          "timeout": false
+        },
+        {
+          "command": [
+            "cc",
+            "-O2",
+            "-DMEMLIM=480",
+            "-DSAFETY",
+            "-DNOCLAIM",
+            "-o",
+            "pan-safety",
+            "pan.c"
+          ],
+          "elapsed_seconds": 1.087901193,
+          "log": "compile-safety.log",
+          "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "returncode": 0,
+          "timeout": false
+        },
+        {
+          "command": [
+            "./pan-safety",
+            "-b",
+            "-m100000",
+            "-w20"
+          ],
+          "elapsed_seconds": 0.010327599,
+          "log": "check-safety.log",
+          "log_sha256": "8498ca6650a47c1d2011a305a0d94cba0b284d68b6e27e955b168ad37f34d44e",
+          "returncode": 0,
+          "timeout": false
+        }
+      ],
+      "defect": null,
+      "expectation_met": true,
+      "expected_result": "COMPLETE_NO_ERRORS",
+      "fault_repetition": "bounded_or_not_applicable",
+      "model_sha256": "08d5f10dc4151f9b8ed0d67f86f68f11c0c0f85ead3ae0b9a3a5c3a20ba5ba52",
+      "partial_order_reduction": true,
+      "purpose": "standalone_safety",
+      "source_sha256": "08d5f10dc4151f9b8ed0d67f86f68f11c0c0f85ead3ae0b9a3a5c3a20ba5ba52",
+      "status": "PASS",
+      "topology": "transaction-recovery.pml",
+      "weak_process_fairness": false
+    },
+    {
+      "capacity": 2,
+      "checks": [
+        {
+          "command": [
+            "./pan-safety",
+            "-b",
+            "-m100000",
+            "-w20"
+          ],
+          "counterexample_kind": "assertion",
+          "elapsed_seconds": 0.010277697,
+          "log": "check-safety.log",
+          "log_sha256": "dafc43ea33a9a1901dda864ad5cff6bd10ca69cb16885d5e8818f4b65cf67484",
+          "property": "safety",
+          "replay": {
+            "command": [
+              "spin",
+              "-DBUG_PARTIAL_COMMIT",
+              "-t",
+              "-k",
+              "safety.trail",
+              "-p",
+              "-g",
+              "-l",
+              "transaction-recovery.pml"
+            ],
+            "elapsed_seconds": 0.010280943,
+            "log": "replay-safety.log",
+            "log_sha256": "8f9c3958788033df3c774790a4d965478fbaee855a01a2e1798cf30b93a5f198",
+            "returncode": 0,
+            "timeout": false
+          },
+          "returncode": 0,
+          "status": "COUNTEREXAMPLE",
+          "timeout": false,
+          "trail": "safety.trail",
+          "trail_sha256": "c7cdabedee8f56bb504bf481442d930c51c0477aa13e3d18d34be9987638e9a7"
+        }
+      ],
+      "commands": [
+        {
+          "command": [
+            "spin",
+            "-DBUG_PARTIAL_COMMIT",
+            "-a",
+            "transaction-recovery.pml"
+          ],
+          "elapsed_seconds": 0.020367702,
+          "log": "generate.log",
+          "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "returncode": 0,
+          "timeout": false
+        },
+        {
+          "command": [
+            "cc",
+            "-O2",
+            "-DMEMLIM=480",
+            "-DSAFETY",
+            "-DNOCLAIM",
+            "-o",
+            "pan-safety",
+            "pan.c"
+          ],
+          "elapsed_seconds": 1.022971074,
+          "log": "compile-safety.log",
+          "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "returncode": 0,
+          "timeout": false
+        },
+        {
+          "command": [
+            "./pan-safety",
+            "-b",
+            "-m100000",
+            "-w20"
+          ],
+          "elapsed_seconds": 0.010277697,
+          "log": "check-safety.log",
+          "log_sha256": "dafc43ea33a9a1901dda864ad5cff6bd10ca69cb16885d5e8818f4b65cf67484",
+          "returncode": 0,
+          "timeout": false
+        },
+        {
+          "command": [
+            "spin",
+            "-DBUG_PARTIAL_COMMIT",
+            "-t",
+            "-k",
+            "safety.trail",
+            "-p",
+            "-g",
+            "-l",
+            "transaction-recovery.pml"
+          ],
+          "elapsed_seconds": 0.010280943,
+          "log": "replay-safety.log",
+          "log_sha256": "8f9c3958788033df3c774790a4d965478fbaee855a01a2e1798cf30b93a5f198",
+          "returncode": 0,
+          "timeout": false
+        }
+      ],
+      "defect": "BUG_PARTIAL_COMMIT",
+      "expectation_met": true,
+      "expected_result": "COUNTEREXAMPLE",
+      "fault_repetition": "bounded_or_not_applicable",
+      "model_sha256": "08d5f10dc4151f9b8ed0d67f86f68f11c0c0f85ead3ae0b9a3a5c3a20ba5ba52",
+      "partial_order_reduction": true,
+      "purpose": "deliberate_defect",
+      "source_sha256": "08d5f10dc4151f9b8ed0d67f86f68f11c0c0f85ead3ae0b9a3a5c3a20ba5ba52",
+      "status": "PASS",
+      "topology": "transaction-recovery.pml",
+      "weak_process_fairness": false
+    },
+    {
+      "capacity": 2,
+      "checks": [
+        {
+          "command": [
+            "./pan-safety",
+            "-b",
+            "-m100000",
+            "-w20"
+          ],
+          "counterexample_kind": "assertion",
+          "elapsed_seconds": 0.010553048,
+          "log": "check-safety.log",
+          "log_sha256": "e86201439688b63d6cb58c831a0719eb69998ce717857173b4004e1aa63369bf",
+          "property": "safety",
+          "replay": {
+            "command": [
+              "spin",
+              "-DBUG_DUPLICATE_INSERT",
+              "-t",
+              "-k",
+              "safety.trail",
+              "-p",
+              "-g",
+              "-l",
+              "transaction-recovery.pml"
+            ],
+            "elapsed_seconds": 0.010310277,
+            "log": "replay-safety.log",
+            "log_sha256": "56aeb0dff5b53eb3aab8358ba11b511a8ab2f047d18f216e8eae88ce880b0228",
+            "returncode": 0,
+            "timeout": false
+          },
+          "returncode": 0,
+          "status": "COUNTEREXAMPLE",
+          "timeout": false,
+          "trail": "safety.trail",
+          "trail_sha256": "ef8507ba96e56e43a646d8d06808751267dd2a1bc3ba4462a4e7467bb4fc4087"
+        }
+      ],
+      "commands": [
+        {
+          "command": [
+            "spin",
+            "-DBUG_DUPLICATE_INSERT",
+            "-a",
+            "transaction-recovery.pml"
+          ],
+          "elapsed_seconds": 0.020338578,
+          "log": "generate.log",
+          "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "returncode": 0,
+          "timeout": false
+        },
+        {
+          "command": [
+            "cc",
+            "-O2",
+            "-DMEMLIM=480",
+            "-DSAFETY",
+            "-DNOCLAIM",
+            "-o",
+            "pan-safety",
+            "pan.c"
+          ],
+          "elapsed_seconds": 1.010707422,
+          "log": "compile-safety.log",
+          "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "returncode": 0,
+          "timeout": false
+        },
+        {
+          "command": [
+            "./pan-safety",
+            "-b",
+            "-m100000",
+            "-w20"
+          ],
+          "elapsed_seconds": 0.010553048,
+          "log": "check-safety.log",
+          "log_sha256": "e86201439688b63d6cb58c831a0719eb69998ce717857173b4004e1aa63369bf",
+          "returncode": 0,
+          "timeout": false
+        },
+        {
+          "command": [
+            "spin",
+            "-DBUG_DUPLICATE_INSERT",
+            "-t",
+            "-k",
+            "safety.trail",
+            "-p",
+            "-g",
+            "-l",
+            "transaction-recovery.pml"
+          ],
+          "elapsed_seconds": 0.010310277,
+          "log": "replay-safety.log",
+          "log_sha256": "56aeb0dff5b53eb3aab8358ba11b511a8ab2f047d18f216e8eae88ce880b0228",
+          "returncode": 0,
+          "timeout": false
+        }
+      ],
+      "defect": "BUG_DUPLICATE_INSERT",
+      "expectation_met": true,
+      "expected_result": "COUNTEREXAMPLE",
+      "fault_repetition": "bounded_or_not_applicable",
+      "model_sha256": "08d5f10dc4151f9b8ed0d67f86f68f11c0c0f85ead3ae0b9a3a5c3a20ba5ba52",
+      "partial_order_reduction": true,
+      "purpose": "deliberate_defect",
+      "source_sha256": "08d5f10dc4151f9b8ed0d67f86f68f11c0c0f85ead3ae0b9a3a5c3a20ba5ba52",
+      "status": "PASS",
+      "topology": "transaction-recovery.pml",
+      "weak_process_fairness": false
+    },
+    {
+      "capacity": 2,
+      "checks": [
+        {
+          "command": [
+            "./pan-safety",
+            "-b",
+            "-m100000",
+            "-w20"
+          ],
+          "counterexample_kind": "none_or_other",
+          "elapsed_seconds": 0.232494202,
+          "log": "check-safety.log",
+          "log_sha256": "35f2d331c7f11a4d1f8a4bac6633d5257d2fba9a68f2e4c3ffaf6e0c4e509df7",
+          "property": "safety",
+          "returncode": 0,
+          "status": "COMPLETE_NO_ERRORS",
+          "timeout": false
+        }
+      ],
+      "commands": [
+        {
+          "command": [
+            "spin",
+            "-a",
+            "task-expiry.pml"
+          ],
+          "elapsed_seconds": 0.020448494,
+          "log": "generate.log",
+          "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "returncode": 0,
+          "timeout": false
+        },
+        {
+          "command": [
+            "cc",
+            "-O2",
+            "-DMEMLIM=480",
+            "-DSAFETY",
+            "-DNOCLAIM",
+            "-o",
+            "pan-safety",
+            "pan.c"
+          ],
+          "elapsed_seconds": 1.2531529,
+          "log": "compile-safety.log",
+          "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "returncode": 0,
+          "timeout": false
+        },
+        {
+          "command": [
+            "./pan-safety",
+            "-b",
+            "-m100000",
+            "-w20"
+          ],
+          "elapsed_seconds": 0.232494202,
+          "log": "check-safety.log",
+          "log_sha256": "35f2d331c7f11a4d1f8a4bac6633d5257d2fba9a68f2e4c3ffaf6e0c4e509df7",
+          "returncode": 0,
+          "timeout": false
+        }
+      ],
+      "defect": null,
+      "expectation_met": true,
+      "expected_result": "COMPLETE_NO_ERRORS",
+      "fault_repetition": "bounded_or_not_applicable",
+      "model_sha256": "1494c6e1f885c72e3e449e80b2a576bce4e0f1510d5627e30007a3f6bd550437",
+      "partial_order_reduction": true,
+      "purpose": "standalone_safety",
+      "source_sha256": "1494c6e1f885c72e3e449e80b2a576bce4e0f1510d5627e30007a3f6bd550437",
+      "status": "PASS",
+      "topology": "task-expiry.pml",
+      "weak_process_fairness": false
+    },
+    {
+      "capacity": 2,
+      "checks": [
+        {
+          "command": [
+            "./pan-safety",
+            "-b",
+            "-m100000",
+            "-w20"
+          ],
+          "counterexample_kind": "assertion",
+          "elapsed_seconds": 0.010292841,
+          "log": "check-safety.log",
+          "log_sha256": "3da5fec70d134c52d29f0a2faf269ad4e4e26e092c17bc2f3f9b2e75beddfe74",
+          "property": "safety",
+          "replay": {
+            "command": [
+              "spin",
+              "-DBUG_EXPIRY_OVERWRITE",
+              "-t",
+              "-k",
+              "safety.trail",
+              "-p",
+              "-g",
+              "-l",
+              "task-expiry.pml"
+            ],
+            "elapsed_seconds": 0.010430051,
+            "log": "replay-safety.log",
+            "log_sha256": "cf86e8d2d553c3049b4a1e04b9d0d6906667e914bf2d05db53cd102454943c3d",
+            "returncode": 0,
+            "timeout": false
+          },
+          "returncode": 0,
+          "status": "COUNTEREXAMPLE",
+          "timeout": false,
+          "trail": "safety.trail",
+          "trail_sha256": "3f458cf4d5e3679996150bb98da2c7c094596eeea35584da5ea532a71df5937c"
+        }
+      ],
+      "commands": [
+        {
+          "command": [
+            "spin",
+            "-DBUG_EXPIRY_OVERWRITE",
+            "-a",
+            "task-expiry.pml"
+          ],
+          "elapsed_seconds": 0.020456607,
+          "log": "generate.log",
+          "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "returncode": 0,
+          "timeout": false
+        },
+        {
+          "command": [
+            "cc",
+            "-O2",
+            "-DMEMLIM=480",
+            "-DSAFETY",
+            "-DNOCLAIM",
+            "-o",
+            "pan-safety",
+            "pan.c"
+          ],
+          "elapsed_seconds": 1.2534055720000001,
+          "log": "compile-safety.log",
+          "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "returncode": 0,
+          "timeout": false
+        },
+        {
+          "command": [
+            "./pan-safety",
+            "-b",
+            "-m100000",
+            "-w20"
+          ],
+          "elapsed_seconds": 0.010292841,
+          "log": "check-safety.log",
+          "log_sha256": "3da5fec70d134c52d29f0a2faf269ad4e4e26e092c17bc2f3f9b2e75beddfe74",
+          "returncode": 0,
+          "timeout": false
+        },
+        {
+          "command": [
+            "spin",
+            "-DBUG_EXPIRY_OVERWRITE",
+            "-t",
+            "-k",
+            "safety.trail",
+            "-p",
+            "-g",
+            "-l",
+            "task-expiry.pml"
+          ],
+          "elapsed_seconds": 0.010430051,
+          "log": "replay-safety.log",
+          "log_sha256": "cf86e8d2d553c3049b4a1e04b9d0d6906667e914bf2d05db53cd102454943c3d",
+          "returncode": 0,
+          "timeout": false
+        }
+      ],
+      "defect": "BUG_EXPIRY_OVERWRITE",
+      "expectation_met": true,
+      "expected_result": "COUNTEREXAMPLE",
+      "fault_repetition": "bounded_or_not_applicable",
+      "model_sha256": "1494c6e1f885c72e3e449e80b2a576bce4e0f1510d5627e30007a3f6bd550437",
+      "partial_order_reduction": true,
+      "purpose": "deliberate_defect",
+      "source_sha256": "1494c6e1f885c72e3e449e80b2a576bce4e0f1510d5627e30007a3f6bd550437",
+      "status": "PASS",
+      "topology": "task-expiry.pml",
+      "weak_process_fairness": false
     }
   ],
+  "expiry_model_sha256": "1494c6e1f885c72e3e449e80b2a576bce4e0f1510d5627e30007a3f6bd550437",
   "limits": {
     "depth": 100000,
     "memory_mb": 512,
     "seconds_per_command": 30
   },
-  "runner_sha256": "0f22cdec9781cec597c26f623fb473689e8cd2277ca7c1b6ce43b9e6af42b561",
+  "runner_sha256": "3ab5b43f223490b31d04c6778c763948342ba61b3f703729124b91486160c943",
   "status": "PASS",
-  "template_sha256": "8bf49c87d6dbaf7d30d8fb061fbb09bacc60dbb741a9f3a6ecdd9254b7627a7b",
+  "template_sha256": "801ffbc791783817254c19e9a51f2fe7fd0d60c767a852148880e1ad6eaf25f8",
+  "transaction_model_sha256": "08d5f10dc4151f9b8ed0d67f86f68f11c0c0f85ead3ae0b9a3a5c3a20ba5ba52",
   "versions": [
     {
       "command": [
         "spin",
         "-V"
       ],
-      "elapsed_seconds": 0.010431081,
+      "elapsed_seconds": 0.010351325,
       "log": "spin-version.log",
       "log_sha256": "0e33568f71b5f96e47174d7f84b266a24c7f1b692cd6ecb654c65a158db28b26",
       "returncode": 0,
@@ -3276,7 +5183,7 @@
         "cc",
         "--version"
       ],
-      "elapsed_seconds": 0.010265496,
+      "elapsed_seconds": 0.010253267,
       "log": "compiler-version.log",
       "log_sha256": "e412d6c932acaaea35c743bc158d4ba2400ca0e3df66df406a872b2ce0f8601b",
       "returncode": 0,

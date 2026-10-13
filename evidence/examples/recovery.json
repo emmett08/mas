@@ -1,0 +1,22 @@
+{
+  "closed_delivery_actionable": false,
+  "deadline_observed_after_restart": true,
+  "identical_retry": {
+    "accepted": true,
+    "duplicate": true,
+    "sequence": 1
+  },
+  "meaning": "Expiry closes protocol work; it does not prove absence of external effects.",
+  "messages_charged": 1,
+  "mode": "deterministic runtime example",
+  "tasks": [
+    {
+      "closed_at": 1791913749.1310868,
+      "outcome": "expired_outcome_unknown",
+      "request_id": "q1",
+      "state": "expired_outcome_unknown",
+      "task_id": "t1",
+      "terminal_message_id": null
+    }
+  ]
+}

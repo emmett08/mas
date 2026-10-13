@@ -1,4 +1,4 @@
-//! Local host adapter. JSON responses; actors are asserted by a trusted caller.
+//! Administrative local adapter. Agent inputs belong at the authenticated gateway.
 use mas_protocol_codec::{encode_message, parse_message, MAX_BYTES, MAX_DEPTH};
 use mas_protocol_codec::store::Store;
 use serde_json::{json, Value};
@@ -26,6 +26,7 @@ fn execute(args: &[String]) -> Result<Value, String> {
             "mas receive DB RUN ACTOR [LIMIT]",
             "mas ack DB RUN MESSAGE_ID ACTOR",
             "mas status DB RUN",
+            "mas reconcile DB RUN",
             "mas reserve DB RUN ACTOR CALL_ID",
             "mas finish DB RUN ACTOR CALL_ID EVIDENCE.json",
             "mas demo TOPOLOGY.json [OUTPUT.json]",
@@ -54,7 +55,7 @@ fn execute(args: &[String]) -> Result<Value, String> {
         }
         return Ok(report);
     }
-    let arity = match command {"init"|"ack"|"reserve"=> if command=="init" {4} else {5},"send"=>4,"status"=>3,"finish"=>6,"receive"=>args.len(),_=>return Err("unknown command; use mas help".into())};
+    let arity = match command {"init"|"ack"|"reserve"=> if command=="init" {4} else {5},"send"=>4,"status"|"reconcile"=>3,"finish"=>6,"receive"=>args.len(),_=>return Err("unknown command; use mas help".into())};
     if args.len()!=arity || (command=="receive" && !(4..=5).contains(&args.len())) { return Err("incorrect arguments; use mas help".into()); }
     let path = PathBuf::from(arg(args,1)?);
     if !path.is_absolute() { return Err("DB must be an absolute path".into()); }
@@ -78,6 +79,7 @@ fn execute(args: &[String]) -> Result<Value, String> {
         "receive" => store.receive(arg(args,2)?,arg(args,3)?,args.get(4).map(|s|s.parse::<usize>()).transpose().map_err(|_|"limit must be an integer")?.unwrap_or(10)),
         "ack" => store.ack(arg(args,2)?,arg(args,3)?,arg(args,4)?),
         "status" => store.inspect(arg(args,2)?),
+        "reconcile" => store.reconcile(arg(args,2)?),
         "reserve" => store.reserve_call(arg(args,2)?,arg(args,3)?,arg(args,4)?),
         "finish" => store.finish_call(arg(args,2)?,arg(args,3)?,arg(args,4)?, &mas_protocol_codec::parse_json(&read(arg(args,5)?)?).map_err(|e|e.message)?),
         _ => unreachable!()

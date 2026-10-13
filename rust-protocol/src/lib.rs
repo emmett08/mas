@@ -5,6 +5,7 @@
 pub mod store;
 pub mod tasks;
 pub mod examples;
+pub mod gateway;
 
 use nom::{
     branch::alt,

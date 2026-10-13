@@ -1,3 +1,5 @@
 /root/.cargo/bin/cargo build --release --locked --manifest-path rust-protocol/Cargo.toml
-    Finished `release` profile [optimized] target(s) in 0.01s
+    Finished `release` profile [optimized] target(s) in 0.02s
 mkdir -p evidence/examples
+/root/.cargo/bin/cargo run --quiet --release --locked --manifest-path rust-protocol/Cargo.toml --example recovery > evidence/examples/recovery.json
+/root/.cargo/bin/cargo run --quiet --release --locked --manifest-path rust-protocol/Cargo.toml --example gateway > evidence/examples/gateway.json

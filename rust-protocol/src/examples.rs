@@ -31,11 +31,17 @@ impl Exchange {
         if first[0]["message"] != expected.to_value() {
             return Err("unexpected FIFO delivery or envelope".into());
         }
+        if expected.kind == "Request" && first[0]["actionable"] != true {
+            return Err("request is closed; fixture must not start work".into());
+        }
         // Reopen after delivery without ack to exercise durable recovery.
         self.store = Store::open(&self.database)?;
         let second = self.store.receive(&self.run, &expected.recipient, 1)?;
         if second[0]["message"] != expected.to_value() || second[0]["redelivered"] != true {
             return Err("restart did not redeliver the same unacknowledged message".into());
+        }
+        if expected.kind == "Request" && second[0]["actionable"] != true {
+            return Err("request closed during restart; fixture must not start work".into());
         }
         self.store.ack(&self.run, &expected.message_id, &expected.recipient)?;
         self.events.push(json!({"wire":expected.format().map_err(|e|e.message)?,

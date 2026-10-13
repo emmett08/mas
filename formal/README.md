@@ -25,15 +25,23 @@ models without claiming execution, use `--generate-only --out /tmp/mas-models`.
 The process exits nonzero for an incomplete search, failed check or unavailable
 tool. Inspect `summary.json`; exit status alone is insufficient evidence.
 
-Each topology receives a safety check and two separately selected LTL checks.
-The smallest topology is also checked with partial-order reduction disabled.
-An additional star instance has one outstanding slot per mailbox to exercise
-capacity rejection. Three isolated mutations must fail: acknowledge before
-receipt, attempt a forbidden self-route, and permanently withhold message 0's
-acknowledgement. Their trails are replayed and retained. The task lifecycle model adds a fourth negative control: two terminal
-outcomes for one task. A negative-control
-`PASS` means the deliberate defect produced a counterexample, not that the
-mutated protocol was correct.
+Each topology receives bounded-fault safety and two separately selected LTL
+checks, plus safety with unlimited repeated loss, restart and redelivery. The
+smallest topology is also checked without partial-order reduction; a star
+instance with one outstanding slot per mailbox exercises capacity rejection.
+Both special cases receive bounded checks and unlimited-fault safety checks.
+
+The suite also checks task lifecycle, transaction recovery and host expiry
+safety. Seven isolated defects must produce replayable counterexamples: early
+acknowledgement, forbidden routing, a permanently disabled acknowledgement,
+duplicate task terminals, partial pre-commit persistence, duplicate insertion
+following a lost commit response, and expiry overwriting an existing terminal.
+Two additional cases deliberately ask for eventual acknowledgement with
+unlimited faults, with and without process fairness. These are labelled
+`assumption_counterexample`, distinct from implementation-defect mutations.
+A `PASS` for either kind means the expected counterexample was found and
+replayed. It does not mean that its violated property holds. `expected_result`,
+`purpose` and each check's observed status make that distinction explicit.
 
 ## Contract and bounds
 
@@ -59,15 +67,19 @@ are collapsed onto the send boundary. The runner is tested on Linux. Its constan
 This verification-host requirement does not constrain the portable Rust
 protocol runtime. The parent Rust process enforces wall-clock timeouts.
 
-SQLite provides serialisation
-for the implementation's send, receive and acknowledgement transitions. Faults
-occur between transactions; torn writes, database corruption, process failure
-during a transaction, permanent disk errors and unauthorised host identity
-assertions are outside this model.
+SQLite provides serialisation for send, receive and acknowledgement. The
+transport model places faults between transactions; `transaction-recovery.pml`
+separately exposes staged writes, rollback, pre-commit crashes and lost commit
+responses. Both models rely on SQLite's isolation and atomic recovery boundary.
+Database corruption, permanent storage loss, broken recovery and unauthorised
+host identity assertions remain outside their verified scope.
 
-The model permits one redelivery, one lost acknowledgement invocation, one
-restart and one full-mailbox rejection per identity. These fault actions are
-optional. Identical resend, changed-content rejection and early-acknowledgement
+The bounded transport model permits one redelivery, one lost acknowledgement
+invocation, one restart and one full-mailbox rejection per identity. These fault
+actions are optional. `UNBOUNDED_FAULTS` removes the repetition guards for
+redelivery, lost acknowledgement and restart. It preserves the finite state
+representation while admitting arbitrarily many repetitions, including infinite
+fault sequences. It retains the same message, participant and capacity bounds. Identical resend, changed-content rejection and early-acknowledgement
 rejection are stipulated stuttering observations at the send boundary: they
 change no persistent state. Their placement abstracts away independently
 scheduled client invocations, which the runtime tests exercise. A forbidden
@@ -83,13 +95,22 @@ covered by runtime tests. A restart clears caller memory while preserving the
 durable received flag, so acknowledgement may legally follow restart without
 another receive.
 
-The finite fault bounds describe the explored scenarios; they are not claims
-that real failures obey these bounds. LTL uses weak process fairness (`-f`): an
-indefinitely enabled worker eventually executes. Each duplicate/fault branch
-can execute only once, so a worker cannot indefinitely choose faults instead
-of acknowledgement. Arbitrarily many restarts, unlimited lost acknowledgements,
-unfair scheduling and permanent non-response can defeat progress. The negative
-liveness control retains that last counterexample rather than hiding it.
+Positive transport LTL checks require no process-fairness option. In the
+bounded model, every service or fault transition makes a previously false
+one-shot flag true; each process eventually exhausts its enabled nonterminal
+transitions. A finite ranking function counts remaining one-shot transitions
+and live processes. Together with the absence of invalid terminal states, this
+rules out infinite non-progress executions without assuming fairness. This
+argument concerns the model: it has no unrelated infinite computation or
+worker that permanently stops calling the service.
+
+Safety checks admit unlimited repeated faults. Successful eventual
+acknowledgement does not follow in that regime. The retained counterexamples
+include a receiver that redelivers one message forever, even under weak process
+fairness. Process fairness schedules the receiver; it does not force that
+receiver to take its acknowledgement branch. The finite message universe and
+SQLite correctness boundary remain explicit; no unrestricted implementation
+proof is inferred.
 
 The model abstracts `receive(limit=1)` as selecting any unacknowledged addressed
 slot. SQLite actually selects by insertion sequence. This adds possible orders
@@ -111,9 +132,9 @@ or substantive task-state transitions.
 | `identity_immutable` | Accepted slot `m` retains abstract content `m`. | Duplicate and collision rejection are specified transitions, supported separately by runtime tests. |
 | `receipt_requires_acceptance` | A received message was accepted. | Durable slots are never erased in the model. |
 | `ack_requires_receipt` | Acknowledged identity `m` has been received as identity `m`. | No cross-identity substitution; the early-ack mutation must fail. |
-| `message_0_progress` | `[] (accepted[0] -> <> acknowledged[0])` | Finite faults and weak process fairness. |
-| `message_1_progress` | `[] (accepted[1] -> <> acknowledged[1])` | Independently checked to expose individual-message starvation. |
-| Valid termination | Every participant stops after both identities are acknowledged. | Safety build checks invalid end states. |
+| `message_0_progress` | `[] (accepted[0] -> <> acknowledged[0])` | Bounded-fault model; no fairness assumption. |
+| `message_1_progress` | `[] (accepted[1] -> <> acknowledged[1])` | Bounded-fault model; independently checked without fairness. |
+| Valid termination | A stopped transport participant has observed both identities acknowledged. | Safety checks invalid end states; unlimited-fault executions may run forever. |
 
 Assertions implement the safety properties at every relevant transition. The
 simulation report checks that both antecedents become true and both identities
@@ -135,6 +156,8 @@ compatible with the declared partial-order reduction.
 | `ack`, `acknowledged` | `Store::ack`, persistent `acked=1` | Reject wrong recipient/unreceived identity; preserve other identity's state. |
 | `restart` | Reopen the same SQLite database | Identity, receive and acknowledgement state survive reopening. |
 | Payload identity abstraction | Rust `nom` codec, canonical envelope | Distinct run/message identity and payload preserved; malformed inputs rejected. |
+| Private staged writes, commit, rollback and recovery | SQLite `BEGIN IMMEDIATE`, commit/drop and reopened connection | Rollback leaves no durable partial write; committed retry preserves one row. |
+| Explicit host expiry event and persisted latch | `Store::reconcile` and reconciliation during service calls | Expiry rejects new work independently of mailbox/budgets; preserves committed outcomes. |
 
 These correspondences and integration tests supply conformance evidence,
 not a proof that every Rust/SQLite execution refines this model. In
@@ -177,3 +200,46 @@ and represents the calls as stuttering observations, while retaining all route
 choices, distinct participants, both message identities and all bounded
 state-changing fault interleavings. This is an explicit abstraction change, not
 an increase of the evidence claim or a silent resource-budget change.
+
+## Transaction recovery safety
+
+`transaction-recovery.pml` has two concurrent writers and a committed-snapshot
+reader. Each writer acquires the serialising transaction lock, stages a row and
+counter in private state, and either commits both atomically or discards its
+staged writes. Rollback and a crash followed by recovery are possible at each
+pre-commit stage. Losing a commit response leaves the durable row intact; a
+retry validates the identity and returns the existing row. Crashes, rollbacks
+and lost responses may repeat without a finite attempt bound. Assertions check
+row/count agreement, identity immutability and the two-record bound. Mutations
+that expose a staged row or increment the count on a duplicate must fail.
+
+This verifies the protocol against an explicit SQLite recovery contract. It
+does not establish that SQLite, its filesystem or storage hardware fulfils that
+contract. Database rollback and reopen tests provide implementation evidence;
+physical persistence failures remain a separate trust boundary. This safety
+model makes no eventual-commit or eventual-response claim.
+
+## Host expiry safety
+
+`task-expiry.pml` starts with two accepted Requests. Result, Failure and Cancel
+race with an explicit host observation that the run deadline is due. A service
+call reconciles that observation before admitting fresh work. Expiry latches
+the run permanently and changes only open tasks to `expired_outcome_unknown`.
+A task already terminal remains unchanged. A later clock rollback cannot reopen
+an expired run. The expiry transition does not require a message insertion,
+available mailbox slot or unused communication budget; those conditions are
+covered by runtime tests rather than hidden prerequisites to expiry.
+
+Receipt and acknowledgement remain possible for closed tasks, without reopening
+them. A received Request's `actionable` annotation is false when closed at that
+transaction. An earlier receipt can still be followed by an external effect:
+expiry does not prove that previously dispatched work never occurred. The model
+therefore permits an effect after expiry while rejecting a new terminal message
+for the closed task. A mutation allowing expiry to replace an existing terminal
+must violate the single-terminal assertion.
+
+The `due` observation is abstract, not a physical clock. No duration, monotonic
+clock behaviour or eventual host invocation is proved. If all host activity
+stops, reconciliation need not occur. Expiry records unresolved external work;
+it is distinct from a successful result, an application failure, a cancellation
+that demonstrably stopped effects, or successful delivery of an acknowledgement.

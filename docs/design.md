@@ -18,13 +18,15 @@ Holzmann's five specification elements guide the protocol contract: service, env
 
 ## Service and environment
 
-A trusted host registers participants and a directed communication graph, then exchanges validated messages in a durable local mailbox. Actors may represent agents, tools or a human-facing adapter. An actor name supplied by an untrusted caller is not authentication. The graph describes logical permission to exchange messages. A mesh configuration still uses this central SQLite transport; it is not a decentralised network. A network service would need authenticated sessions, authorisation, transport framing and a separately modelled failure contract.
+A trusted host registers participants and a directed communication graph, then exchanges validated messages in a durable local mailbox. Actors may represent agents, tools or a human-facing adapter. The capability gateway authenticates an agent's requests and derives its run and actor from host-provisioned credentials. The embedded Store and administrative CLI remain privileged interfaces with host-asserted actors. Agents must not have direct database or credential-file access. The graph describes logical permission to exchange messages. A mesh configuration still uses central SQLite; remote transport and its failure/security contract remain separate implementation obligations.
 
-Each send is accepted atomically, recognised as an identical resend, or rejected without advancing the conversation. Receive marks addressed messages as received and returns unacknowledged messages in insertion order. Acknowledgement records that the recipient received the message. It says nothing about task completion, truth, proof checking or an external side effect.
+Each send is accepted atomically, recognised as an identical resend, or rejected without inserting its proposed message. Independent expiry reconciliation and gateway attempt accounting can still commit when a send is rejected. Receive marks addressed messages as received and returns unacknowledged messages in insertion order. Acknowledgement records that the recipient received the message. It says nothing about task completion, truth, proof checking or an external side effect.
 
-Assumptions are a functioning SQLite database on a local filesystem, successful atomic transactions, a trusted host identity mapping and persistent retention for the run. A process can stop between operations and reopen the database. Accepted records and their identifiers remain. Storage corruption, dishonest host identity, Byzantine participants, network partitions and remote cryptographic security are outside this implementation's assurance claims.
+The runtime rejects malformed, unauthorised and contradictory participant requests. Transactions can fail: failure before the message/task transaction commits preserves its preceding state; independent expiry and attempt-accounting transactions may already have committed. A lost response after message commit can be recovered by an identical retry. The remaining storage premise is atomicity and durability of committed SQLite transactions, including functioning filesystem locks and flushes. Accepted records and identifiers remain for the run. Credential confidentiality, correct host isolation, storage corruption and remote cryptographic security are outside the finite-model guarantees. Truthful or cooperative agent output is not required for admission safety.
 
-Run configuration freezes participants, edges, application profile, per-recipient unacknowledged capacity, total message/byte/call budgets and a wall-clock send/call deadline. Queue pressure rejects a send; it does not drop an accepted message. The caller may retry within budget. Receive and ack remain available after the deadline so accepted messages can drain. A full mailbox can reject a cancellation too. No deadline produces a task result automatically.
+Run configuration freezes participants, edges, application profile, per-recipient unacknowledged capacity, total message/byte/call budgets and a wall-clock send/call deadline. Queue pressure rejects a send without dropping accepted messages. Receive and ack remain available after the deadline so history can drain. A full mailbox can reject a cancellation. Independently, host reconciliation records every still-open task as `expired_outcome_unknown` once expiry is observed, without allocating a message or consuming its budget. The stored closed state survives restart and clock rollback. The send/call cutoff is checked inside the write transaction; its physical commit may complete after that clock observation. Deadline detection still relies on the host clock and execution; it makes no hard real-time promise.
+
+The gateway durably charges attempted operations separately from accepted-message and model-call budgets. Invalid syntax, invalid credentials and rejected operations consume the global attempt allowance. Authenticated attempts also consume their credential allowance. Exhausting the global allowance stops the service; reopening does not reset its counters. This bounds processed requests and parser work per frozen policy, not idle-input delay, all host CPU use, or provider work performed outside the host adapter. See [gateway configuration and usage](gateway.md).
 
 ## Representation
 
@@ -49,7 +51,7 @@ Canonical encoding sorts object keys through `serde_json::Map` and preserves exa
 
 ## Task profile `agent-task/1`
 
-The generic transport accepts any valid kind. The optional task profile constrains each `(run_id,task_id)` to one request and at most one terminal response. All validation and insertion occur in the same database write transaction.
+The generic transport accepts any valid kind. The optional task profile constrains each `(run_id,task_id)` to one request and at most one terminal response. Task-transition validation, message insertion and the task-ledger update share one database write transaction.
 
 | Kind | Required payload fields | Preconditions and meaning |
 |---|---|---|
@@ -58,7 +60,7 @@ The generic transport accepts any valid kind. The optional task profile constrai
 | `Failure` | `task_id`, `reply_to`, `reason` | Same correlation, reverse participants and receipt requirements; non-empty reason. Terminal failure. |
 | `Cancel` | `task_id`, `reply_to`, `reason` | Requester's original direction, exact request ID, task open; non-empty reason. Terminal cancellation when accepted. |
 
-The first accepted terminal message wins a race between result and cancellation. A cancellation cannot undo work or an external effect that already happened. Identical resends retain their original acceptance; conflicting terminal messages fail. Forwarding through a hub or team lead creates a new request with a new identity and explicit context. Workflow dependency mapping belongs to the host; the task profile does not infer a tree of obligations from routing edges.
+The first committed terminal transition wins a race between result, cancellation and runtime-observed expiry. Expiry writes a task record, not a fabricated worker message. An accepted cancellation records protocol closure, not confirmed worker stoppage. Neither cancellation nor expiry undoes external effects. Identical message resends retain their original acceptance; conflicting or late fresh terminal messages fail. Closed queued requests remain available as history with `actionable: false`; a host must check that field before starting work. The value is a snapshot, not an exclusive execution lease. Forwarding through a hub or team lead creates a new request with a new identity and explicit context. Workflow dependencies belong to the host; routing edges do not imply a tree of obligations.
 
 ```mermaid
 stateDiagram-v2
@@ -67,9 +69,26 @@ stateDiagram-v2
     Open --> Unresolved: Result unresolved after receipt
     Open --> Failed: Failure after receipt
     Open --> Cancelled: Cancel accepted
+    Open --> ExpiredOutcomeUnknown: Host observes deadline
 ```
 
 Read receipts and acknowledgements are mailbox state, independent of this task state. A reply may follow receive before ack. Valid termination of a workflow must be specified by its caller. Arbitrary conjectures need an unresolved outcome; no eventual proof or refutation is promised.
+
+## Reducing assumptions
+
+| Option | Benefit | Remaining condition |
+|---|---|---|
+| Add retries or stronger scheduler fairness | Can help delivery when a receiver eventually accepts work. | Endless faults or permanent worker failure still prevent success. |
+| Move identity and quotas into a trusted admission boundary | Enforces actor binding and charges rejected attempts. | Credentials and the host boundary must remain protected. |
+| Add runtime-owned expiry with durable task state | Reconciles unanswered tasks despite exhausted communication resources. | The host must execute reconciliation against available storage; expiry does not resolve external effects. |
+
+The latter two are combined, and verification separates safety from progress.
+Bounded progress no longer declares redundant weak process fairness. Additional
+finite models allow faults to repeat indefinitely when checking safety. Their
+progress counterexamples are retained rather than suppressed by new premises.
+For external effects, an adapter can additionally use an idempotency key and a
+transactional outbox; a downstream system must honour that key. This generic
+protocol does not claim exactly-once execution of arbitrary external actions.
 
 ## Extension boundaries
 
@@ -83,5 +102,6 @@ Accessed 13 October 2026.
 
 - [Holzmann, Design and Validation of Computer Protocols (1991)](https://www.theswissbay.ch/pdf/Gentoomen%20Library/Networking/Design_and_Validation_of_Computer_Protocols_-_Gerard_Holzmann.pdf).
 - [SPIN manual: simulation and verifier generation](https://spinroot.com/spin/Man/Spin.html), [generated verifier](https://spinroot.com/spin/Man/Pan.html), [inline LTL](https://spinroot.com/spin/Man/ltl.html), [atomic operations](https://spinroot.com/spin/Man/atomic.html).
+- [SQLite atomic commit](https://www.sqlite.org/atomiccommit.html): transaction recovery and the operating-system/storage contract.
 - [Requested topology glossary](https://agenticorgchart.com/glossary/): retrieved directly over HTTPS after the web reader failed; source hash and term names retained in `evidence/source-access.json`. Its names guide coverage; the protocol contracts are this project's engineering design.
 - [Requested workflow catalogue](https://buildingeffectiveagents.com/patterns/) and its primary source, [Schluntz and Zhang, Building effective agents (19 December 2024)](https://www.anthropic.com/engineering/building-effective-agents). The five workflows guide examples, not claims about the current state of every agent framework.

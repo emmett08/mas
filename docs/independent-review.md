@@ -1,95 +1,111 @@
 # Independent implementation and model review
 
-Review date: 13 October 2026. Scope: native Rust message transport, task transitions,
-CLI admission, deterministic examples, Promela abstractions and verification evidence.
-The reviewer used a separate agent context from the implementation authors and
-sent findings back to those authors. This is an implementation peer review, not
-evidence that the example application executed a live LLM MAS.
+Review date: 13 October 2026. Scope: the native Rust transport, task ledger,
+expiry reconciliation, capability gateway, examples and revised Promela evidence.
+The reviewer worked in a separate agent context from the implementation authors
+and returned findings directly to them. This review does not claim execution of
+a live application LLM MAS.
 
 ## Findings and repairs
 
 | Finding | Disposition |
 | --- | --- |
-| An explicit malformed topology could omit routing restrictions and task validation. | Native CLI and example entry points now require the explicit topology fields and reject malformed configuration. CLI and example regressions cover these failures. |
-| Nested hierarchical requests could derive the parent's reply identity from a sequence counter advanced by child requests. | Replies derive their identities and correlations from the captured request. The tree regression checks the final parent reply. |
-| A failed or interrupted verifier rerun could leave an earlier successful summary beside partly replaced evidence. | The runner writes `RUNNING_OR_INTERRUPTED` before replacing evidence; a successful summary is written only after checks finish. |
-| The finite-model generator admitted participant/capacity configurations rejected by the runtime. | The generator now uses strict JSON parsing and checks unique valid identities, distinct edge endpoints and explicit integer capacity within 1–100. |
-| Early model claims could imply independent exploration of duplicate, collision and forbidden-route calls. | The formal documentation distinguishes stipulated stuttering observations, runtime rejection tests and deliberate mutation checks. |
+| Malformed explicit topology could omit restrictions; nested tree dispatch could reuse reply identifiers. | Entry points require topology fields; replies derive their identity from their captured request. Retained regressions cover both repairs. |
+| Rejected work could potentially roll back a newly observed expiry. | Reconciliation persists the run latch independently of rejected work; send and receive recheck inside serialised transactions. Expiry consumes no message, mailbox, byte or call capacity. |
+| Native version-1 migration initially applied the payload JSON limit to the larger stored JSON envelope. | Migration now uses the envelope encoder allowance followed by wire validation. The maximal valid wire regression covers this boundary. |
+| A terminal timestamp could describe a later clock reading than its admission decision. | Terminal state records the captured deadline-check observation. Admission linearises at that observation, rather than claiming commit completed before the deadline. |
+| Interrupted verification could leave an earlier successful summary beside partial new evidence. | The runner marks evidence unfinished before replacing it; successful final results require completed checks and replayed counterexamples. |
+| Model generation could accept malformed configurations rejected by the runtime. | Strict JSON parsing, unique identities, distinct endpoints and explicit bounded capacity now apply. |
 
-The Python prototype was superseded during the work. Its earlier test outcomes
-are excluded from the native Rust acceptance claim.
+Native schema version 1 is atomically migrated to version 2 by replaying retained
+task history. Invalid migration rolls back. Existing terminal timestamps remain
+unknown rather than being invented. Schema markers and recognised layouts do
+not certify externally corrupted or maliciously altered databases.
 
-## Independently exercised behaviours
+## Independent implementation checks
 
-The reviewer added and ran `rust-protocol/tests/semantics.rs`; all three tests
-passed. These public-interface regressions cover actor spoofing, wrong-recipient
-and premature acknowledgements, incompatible versions, independent run identities,
-changed contents after acknowledgement and reopening, exact reply correlation,
-cross-run task references, wrong task participants on an otherwise permitted route,
-reused task identities, invalid result fields, second terminal outcomes, byte and
-call limits, and call-owner enforcement. Rejected sends must preserve the recorded
-message, byte and call counters.
+The reviewer added `rust-protocol/tests/assumptions.rs` and ran all four tests
+successfully after the final runtime changes. They establish the tested cases:
 
-An additional transient CLI exercise checked thirteen rejected task transitions;
-all produced structured failures without spending communication budgets. The
-retained Rust tests provide the reproducible coverage rather than depending on
-that transient exercise. The reviewer also ran the malformed example configuration
-regression after the repair; it passed.
+- A rejected late operation durably closes an open task despite exhausted message
+  and mailbox capacity. Restoring a future deadline condition and reopening the
+  database does not reopen the latched run.
+- Closed queued Requests remain drainable but carry `actionable: false` and their
+  task state. Reconciliation preserves the first committed terminal outcome and
+  closes only open tasks.
+- Malformed and forged gateway requests consume durable admission attempts.
+  Reopening the gateway preserves global and credential-specific usage; one
+  exhausted credential does not consume another credential's individual quota.
+- Concurrent gateway instances share the same durable global admission cap.
 
-Reproduce the independent regression suite:
+The deadline-condition test deliberately changes the stored deadline to exercise
+the latch deterministically; it does not claim to test an operating-system clock.
+Earlier independent regressions remain in `tests/semantics.rs`, covering actor
+ownership, versions, cross-run isolation, exact task correlation, terminal
+conflicts, limits and counters after rejected messages.
+
+Reproduce the focused suite:
 
 ```sh
-cargo test --locked --manifest-path rust-protocol/Cargo.toml --test semantics
+cargo test --locked --manifest-path rust-protocol/Cargo.toml --test assumptions
 ```
 
-The implementation serialises send admission and task validation inside one
-SQLite write transaction. The reviewed race test separately covers competing
-Result/Cancel outcomes and concurrent insertion of an identical message. Successful
-acknowledgement releases mailbox capacity while retaining the message identity.
-Database schema markers reject the earlier prototype's database; migration is
-outside this release. Externally altered schemas or database corruption remain
-outside the storage assumptions.
+The gateway derives run and actor from a capability, rejects actor/run overrides,
+meters attempts before parsing, compares fixed-length capabilities and returns
+sanitised errors. It exposes no unfiltered administrative status command. The
+reviewer inspected these paths and the bounded JSONL reader. The direct Store
+API and `mas` CLI remain privileged host interfaces, not alternative untrusted
+agent entry points.
 
-## Formal evidence and limits
+## Final model evidence
 
-The final native evidence in `formal/evidence-native-final/summary.json` contains
-nineteen cases and forty-seven checks: forty-three complete positive checks and
-four replayed counterexamples. It covers twelve topology instances, a run without
-partial-order reduction, a capacity-one instance and task-lifecycle safety. All
-twenty-six recorded normal simulations completed with both messages accepted and
-acknowledged. The reviewer independently checked these counts, replay completion
-and the runner source hash against the actual final files:
+The reviewer independently inspected [`evidence/model-checks.json`](../evidence/model-checks.json)
+and selected negative-control logs. The manifest reports forty cases and
+sixty-eight checks: fifty-nine complete positive checks, seven deliberate-defect
+counterexamples and two assumption counterexamples. All counterexamples replayed
+successfully. All twenty-six normal simulations completed with both message
+identities accepted and acknowledged.
 
-`0f22cdec9781cec597c26f623fb473689e8cd2277ca7c1b6ce43b9e6af42b561`.
+The recorded runner hash matches the reviewed source:
 
-The negative-control logs contain the expected early-acknowledgement assertion,
-forbidden-route assertion, missing-acknowledgement acceptance cycle and repeated
-terminal-state assertion. A negative-control `PASS` means a defect was detected.
-The task mutation's final replay shows a Result followed by a competing Cancel
-for the same task; each requester attempts cancellation at most once. The final
-evidence was generated after the runner repairs and its runner hash matches the
-reviewed source.
+`3ab5b43f223490b31d04c6778c763948342ba61b3f703729124b91486160c943`.
 
-The transport model covers two retained identities. Progress depends on bounded
-faults, successful atomic storage transactions and weak process fairness. Both
-accepted-message antecedents and their acknowledgements occur in the recorded
-normal simulations. The separate task model checks safety and makes no task
-completion claim. Neither model supplies a proof that every Rust/SQLite execution
-refines Promela.
+The new negative controls detect partial commit, duplicate insertion after a lost
+response, and expiry overwriting an earlier terminal decision. The assumption
+counterexamples retain indefinite non-acknowledgement under unlimited faults,
+including a weakly fair process schedule. A successful expected-counterexample
+case means the claimed unconditional progress guarantee was disproved.
 
-Duplicate and changed-content rejection are stipulated state-preserving model
-observations backed by implementation tests. The forbidden-route mutation detects
-an invalid route at its assertion; baseline route selection already ranges over
-allowed edges. Model checking therefore does not independently establish the
-implementation's complete input-validation behaviour.
+Bounded transport progress checks no longer require process fairness. Their
+finite state-changing actions prevent indefinitely choosing another enabled
+normal operation; this is a property of that model, not a guarantee that a real
+worker calls receive or acknowledgement. Separate safety checks permit unlimited
+redelivery, restart and lost-acknowledgement transitions. The two retained message
+identities and other declared finite domains remain verification bounds.
 
-Cancellation becomes terminal only when accepted. Capacity or budget exhaustion
-can prevent acceptance, and terminal state does not undo an external effect.
-Human-review fixtures obtain no human approval. Voting agreement proves no message
-truth. Parallel fixtures demonstrate outstanding requests and different completion
-orders; they do not demonstrate concurrent model execution. These boundaries are
-necessary qualifications of the delivered protocol and examples.
+The transaction model permits aborted invocations and lost commit responses while
+assuming atomic committed storage. It does not prove SQLite or filesystem crash
+recovery. The expiry model checks immutable closure and subsequent delivery
+annotations; it makes no real-time or host-availability guarantee. Stipulated
+rejection observations, implementation tests and model correspondences are not
+a formal refinement proof for every Rust/SQLite execution.
 
-No unresolved native transport or task-transition defect was found within this
-review's scope. Acceptance remains bounded by the recorded tests, models and
-their stated assumptions.
+## Remaining operational conditions
+
+Capabilities reduce reliance on caller-supplied identity but retain trust in
+credential provisioning, private host storage and response routing. Permission
+checks do not isolate mutually untrusted agents sharing the host's operating-system
+account. Blocking stdio has no read-timeout guarantee, and malicious requests can
+exhaust a shared global attempt allowance. Administrative reconciliation remains
+available independently of agent admission limits.
+
+Expiry records `expired_outcome_unknown`; cancellation records protocol closure.
+Neither establishes that external work stopped or that an effect did not occur.
+An actionable delivery is a snapshot, not a lease or revocable authorisation.
+Host activity, a usable clock and functioning storage are needed to observe and
+record expiry. Human-review fixtures obtain no human approval, and voting
+agreement establishes no message truth.
+
+No unresolved material implementation or model defect was found within this
+review's scope. The retained tests and model evidence support the bounded claims
+above, with these operational conditions explicit.

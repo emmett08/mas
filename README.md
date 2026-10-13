@@ -6,7 +6,10 @@ CLI and examples are native Rust. The formal verification runner is Rust;
 SPIN generates the C model checker.
 
 The design separates **who may communicate**, **delivery state**, **task state**
-and **whether a result is correct**. It supports star, mesh and tree graphs plus
+and **whether a result is correct**. A capability gateway binds agent requests to
+registered identities and durably limits attempted operations. Runtime-owned
+expiry closes still-open tasks even when their mailbox or message budget is full.
+It supports star, mesh and tree graphs plus
 review loops, peer handoffs, pipelines, routing and parallel work. See the
 [design comparison and protocol specification](docs/design.md) and
 [pattern examples](docs/examples.md).
@@ -27,16 +30,22 @@ cargo test --locked --manifest-path rust-protocol/Cargo.toml
 ./rust-protocol/target/release/mas demo examples/parallel-voting.json
 ```
 
-`make examples` writes transcripts for all twelve deterministic fixtures. They
+`make examples` writes transcripts for all twelve workflow fixtures, a recovery
+example that observes a real deadline after reopening SQLite, and an authenticated
+gateway exchange that rejects spoofing and retains attempt limits across restart. They
 exercise the codec and actual SQLite runtime, including redelivery after
 restart. They execute no LLMs or humans. A host can replace the fixture functions
 with independently executed participants without changing the envelope.
 
-## A persistent exchange
+## An administrative persistent exchange
 
 Run these commands from the repository root. The database path is real and
 absolute; it is created automatically. Use a fresh database for this native
-runtime rather than an older MAS Protocol Lab Python database.
+runtime rather than an older MAS Protocol Lab Python database. Native schema-1
+databases are migrated transactionally to schema 2. These commands belong to the
+trusted host: agents should use the [capability gateway](docs/gateway.md).
+Keep a database backup if an older binary must remain usable: schema-1 binaries
+cannot open a migrated schema-2 database.
 
 ```sh
 MAS_BIN="$PWD/rust-protocol/target/release/mas"
@@ -63,11 +72,20 @@ contradictory terminal responses are rejected. Receive repeats unacknowledged
 messages. A full mailbox rejects new messages for retry; acknowledgements release
 capacity. Acknowledgement means receipt, not task success or exactly-once effects.
 
-For a live host integration, bind the `actor` argument to the participant the host
-actually executed, reserve a call before execution, deliver only addressed messages,
-then record the real execution identity and outcome with `finish`. Payloads never
-grant tools or permissions. This executable is a local adapter; it is not itself
-a remote ChatGPT connector, authenticated network service or model launcher.
+For agent integration, provision the gateway with a separate capability for each
+participant. It derives the actor and run from that capability; agents cannot
+select another identity. Keep its credential file, database and administrative
+CLI outside agent access. The host privately routes each gateway response to its
+caller. Reserve a call before execution, honour `actionable: false` on closed
+requests, and record actual execution evidence with `finish`. Payloads never grant
+tools or permissions. The gateway uses local standard input/output; it is not a
+remote connector or model launcher.
+
+Run `mas reconcile DB RUN` to record expired open tasks as
+`expired_outcome_unknown`. Ordinary run operations and status inspection also
+reconcile. Expiry needs no worker reply or mailbox slot. It is observed when the
+host executes; it cannot record itself while the host is stopped. Cancellation
+and expiry close protocol work without proving that an external action stopped.
 
 ## Verification
 
@@ -84,11 +102,12 @@ Deliberate defects must be detected. A result that exceeds time, memory or depth
 limits is incomplete. See [model contract](formal/README.md),
 [verification results](docs/verification.md) and [independent review](docs/independent-review.md).
 
-The checked model has finite identities and participants, bounded faults and
-explicit fairness assumptions. Its results do not prove arbitrary-scale delivery,
-truth of agent output, remote security or exactly-once external effects. The
-separate task model checks terminal-response safety, not eventual completion of
-arbitrary tasks.
+The bounded progress checks require no weak scheduler fairness. Separate safety
+checks permit indefinitely repeated modelled faults. Retained counterexamples
+show why endless faults still prevent eventual delivery, even with weak fairness.
+Additional models cover transaction failures and expiry races. All models retain
+finite identities and participants; none proves arbitrary-scale delivery, truth
+of agent output, remote security or exactly-once external effects.
 
 ## Provenance and licence
 

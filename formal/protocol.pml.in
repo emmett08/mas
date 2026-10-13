@@ -1,4 +1,4 @@
-/* Generated from this template by scripts/check_models.py.
+/* Generated from this template by the Rust verify binary.
  * Two durable SQLite-style slots; one proctype for each registered worker.
  * A slot is retained after ack, matching UNIQUE(run,id) retention.
  * Atomic transitions are individual Store BEGIN IMMEDIATE transactions.
@@ -34,8 +34,9 @@ inline invariant(m) {
     assert(!acknowledged[m] || received[m]);
 }
 
-/* The scheduler chooses both participant and enabled transaction. Every
- * fault/duplicate action is bounded, so none can postpone an ack forever.
+/* The scheduler chooses both participant and enabled transaction. Fault actions
+ * are bounded in the default progress model. UNBOUNDED_FAULTS removes those
+ * limits for safety checks and explicit counterexamples to progress.
  */
 proctype Agent(byte actor) {
     do

@@ -82,3 +82,27 @@ quality improvement. Composition uses the same Request/Result semantics: a route
 worker can run a chain, an orchestrator can request review, and a tree lead can
 collect parallel sub-results. Such compositions require their own finite bounds
 and acceptance rules before broader verification claims.
+
+## Failure and recovery
+
+```sh
+cargo run --release --locked --manifest-path rust-protocol/Cargo.toml --example recovery
+```
+
+This additional Rust example fills a one-slot mailbox and spends the entire
+one-message budget, then leaves its request unanswered. After the one-second run
+deadline it reopens the database and reconciles. The task becomes
+`expired_outcome_unknown` without a worker reply or another accepted message.
+Its queued request is returned as non-actionable history, an identical resend
+retains its original sequence, and acknowledgement still drains the mailbox.
+`make examples` records the result in `evidence/examples/recovery.json`.
+
+The twelve workflow fixtures also check that each received Request is actionable
+before computing its output, including after restart. A receipt remains a
+snapshot: concurrent cancellation can still arrive after that check. An external
+effect adapter needs its own idempotency or cancellation contract.
+
+For credential provisioning, authenticated requests, spoofing rejection and
+persistent attempt limits, follow the executable [gateway example](gateway.md).
+That path derives identities from capabilities; the topology fixtures exercise
+the trusted embedded API.
