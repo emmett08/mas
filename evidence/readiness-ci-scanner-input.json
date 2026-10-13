@@ -1,0 +1,26 @@
+{
+  "schema": "mas-ci-acceptance/1",
+  "source_commit": "ed0ca63a76d12500f4944426c0d3d33c3d384f3a",
+  "tag": "v0.1.1",
+  "run_url": "https://github.com/emmett08/mas/actions/runs/38468172311",
+  "status": "release_scanner_input_failed",
+  "passed": [
+    "protocol gate",
+    "both native architecture host and Compose gates",
+    "dependency and image security gates",
+    "immutable candidate tag",
+    "both architecture OCI imports and runtime identity checks",
+    "both final architecture smoke tests and 131-test host suites"
+  ],
+  "failed": {
+    "stage": "Scan release archive",
+    "architectures": [
+      "amd64",
+      "arm64"
+    ],
+    "message": "unable to open OCI tar input: Docker manifest.json not found; OCI archive/index.json is not a directory",
+    "cause": "The pinned Trivy scanner accepts a Docker archive or an OCI layout directory for --input, rather than this provenance-bearing OCI tar archive.",
+    "required_repair": "Provide a verified OCI layout directory to both vulnerability and SBOM scans while retaining the original archive and runtime identity binding."
+  },
+  "scope": "The release packages were not accepted. A separate standalone arm64 crash-test synchronisation failure is recorded in readiness-ci-recovery-race.json."
+}

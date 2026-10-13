@@ -99,11 +99,24 @@ jobs:
             --mount type=bind,src="$PWD/examples",dst=/mounted-examples,readonly \
             --mount type=bind,src="$PWD/scripts/release-container-check.py",dst=/release-container-check.py,readonly \
             --entrypoint python mas-mesh:"$RELEASE_TAG" -I /release-container-check.py 2>&1 | tee release-container-tests.log
-      - name: Scan release archive
+      - name: Materialise the verified OCI layout for scanning
+        id: scanner
+        env:
+          RELEASE_ARCH: ${{ matrix.architecture }}
+        run: |
+          python scripts/release-oci.py "mas-$RELEASE_ARCH.oci.tar" --architecture "$RELEASE_ARCH" --binding release-image-binding.json --layout-directory release-oci-layout
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          binding = json.loads(Path("release-image-binding.json").read_text())
+          with open(os.environ["GITHUB_OUTPUT"], "a") as output:
+              output.write("input=" + binding["scanner_input"] + "\n")
+          PY
+      - name: Scan the release runtime manifest
         uses: aquasecurity/trivy-action@c03d123cb480c08c69b054af418ea5e69fe6e57e
         with:
           version: v0.75.0
-          input: mas-${{ matrix.architecture }}.oci.tar
+          input: ${{ steps.scanner.outputs.input }}
           severity: HIGH,CRITICAL
           ignore-unfixed: 'false'
           exit-code: '1'
@@ -114,7 +127,7 @@ jobs:
         uses: aquasecurity/trivy-action@c03d123cb480c08c69b054af418ea5e69fe6e57e
         with:
           version: v0.75.0
-          input: mas-${{ matrix.architecture }}.oci.tar
+          input: ${{ steps.scanner.outputs.input }}
           format: cyclonedx
           output: release-sbom.cdx.json
       - name: Record source and artefact identity

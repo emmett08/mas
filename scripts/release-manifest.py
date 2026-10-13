@@ -25,6 +25,13 @@ if (binding.get("format") != "mas-release-image-binding/1"
         or binding.get("archive_sha256") != "sha256:" + digest(Path(binding["archive"]))
         or f"{binding.get('os')}/{binding.get('architecture')}" != os.environ["RELEASE_PLATFORM"]):
     raise SystemExit("Release archive and tested image do not have a verified identity binding")
+layout = Path(binding.get("scanner_directory", ""))
+if (binding.get("scanner_layout_verified") is not True
+        or binding.get("scanner_input") != str(layout) + "@" + binding["manifest_digest"]
+        or not binding.get("scanner_layout_files")
+        or any("sha256:" + digest(layout / name) != identity
+               for name, identity in binding["scanner_layout_files"].items())):
+    raise SystemExit("The scanned OCI layout does not match the verified release archive")
 manifest = {
     "format": "mas-release/1", "source_commit": sha, "tag": tag,
     "platform": os.environ["RELEASE_PLATFORM"],

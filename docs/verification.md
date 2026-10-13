@@ -10,7 +10,7 @@ These results establish the checked finite-model properties and tested runtime
 behaviours. They do not establish unrestricted implementation correctness,
 mathematical truth, live AI-agent performance or remote cryptographic security.
 
-The optional Python host adds **131 passing offline tests**, including integration
+The optional Python host adds **132 passing offline tests**, including integration
 with the real Rust binaries and an HTTP contract test using OpenAI SDK 3.29.0
 with a simulated transport. The mock mesh exercised all six directed edges,
 three completed tasks and two recorded mock calls; its exact Python checker
@@ -21,7 +21,7 @@ implementation tests; the [host recovery model](../formal/host-recovery-notes.md
 recovery abstraction, not the Python implementation.
 The separate `Host and Compose checks` workflow runs the full installed-container
 suite on native amd64 and arm64, checks reconciler readiness and tests live-mode
-secret delivery with a dummy key. Thirteen offline release-helper tests check
+secret delivery with a dummy key. Sixteen offline release-helper tests check
 immutable tag binding, OCI integrity, build provenance and imported-image identity.
 Workflow success is recorded separately in Actions.
 
@@ -30,7 +30,15 @@ host tests passing natively and inside each installed container. Its tagged
 packaging failed because Docker's classic exporter rejected the provenance-bearing
 manifest list. The [initial CI report](../evidence/readiness-ci-initial.json)
 retains that result. The repaired workflow exports one OCI archive and imports
-that same image for testing; a later candidate must pass the full release gates.
+that same image for testing. Candidate `v0.1.1` subsequently exposed a
+[test synchronisation race](../evidence/readiness-ci-recovery-race.json) in one
+arm64 container run: a terminated adapter did not imply that guardian cleanup
+had released ownership. The helper now waits for actual lock availability;
+the new deterministic regression proves premature recovery remains rejected.
+Both final architecture image imports and container suites passed, but
+[Trivy rejected the OCI tar input](../evidence/readiness-ci-scanner-input.json).
+The workflow now scans a verified OCI directory with explicit manifest selection.
+Candidate `v0.1.2` must pass the full release gates with these corrections.
 
 Deployment fault checks exercise actual process termination, response loss,
 SQLite write failure and restored-state admission blocking. New regressions cover

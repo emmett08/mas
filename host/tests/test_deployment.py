@@ -4,6 +4,8 @@ Run via unittest discovery after building release binaries. No API calls occur.
 """
 from __future__ import annotations
 
+import errno
+import fcntl
 import json
 import os
 from pathlib import Path
@@ -57,6 +59,25 @@ class Effect:
 
 def crash_worker(root: str, pause: str, mas: str, gateway: str) -> None:
     directory = Path(root)
+    if pause.endswith("-cleanup"):
+        # Test-only gate at the exact boundary the old fixture overlooked:
+        # adapter processes are reaped, but the guardian still owns the lock.
+        from mas_host import process_group
+        original_cleanup = process_group._kill_and_reap
+
+        def gated_cleanup(pid):
+            original_cleanup(pid)
+            (directory / "guardian-reaped").touch()
+            deadline = time.monotonic() + 10
+            while not (directory / "release-guardian").exists():
+                if time.monotonic() >= deadline:
+                    # The adapter group is already fully reaped. Bound a failed
+                    # fixture's guardian lifetime without re-entering host code.
+                    os._exit(3)
+                time.sleep(0.01)
+
+        process_group._kill_and_reap = gated_cleanup
+        pause = pause.removesuffix("-cleanup")
     runner = Runner(SPEC, {"a": Echo(), "b": Effect(directory, pause)}, directory / "state",
                     mas_bin=mas, gateway_bin=gateway, workflow_version=WORKFLOW)
     (directory / "run-dir").write_text(str(runner.run_dir), encoding="utf-8")
@@ -85,11 +106,28 @@ class DeploymentAcceptanceTests(unittest.TestCase):
             time.sleep(0.025)
         self.fail("deployment fault synchronisation timed out")
 
-    def kill_worker(self, pause):
+    def ownership_available(self, run_dir):
+        """Observe the actual cleanup boundary, without retrying Runner.resume."""
+        descriptor = os.open(run_dir / ".host.lock", os.O_RDWR | os.O_NOFOLLOW)
+        try:
+            try:
+                fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError as error:
+                if error.errno not in (errno.EAGAIN, errno.EWOULDBLOCK):
+                    raise
+                return False
+            fcntl.flock(descriptor, fcntl.LOCK_UN)
+            return True
+        finally:
+            os.close(descriptor)
+
+    def kill_worker(self, pause, *, during_cleanup=None):
+        worker_mode = pause + "-cleanup" if during_cleanup is not None else pause
         worker = subprocess.Popen([sys.executable, str(Path(__file__).resolve()), "crash-worker",
-                                   str(self.root), pause, self.mas, self.gateway],
+                                   str(self.root), worker_mode, self.mas, self.gateway],
                                   stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True)
         def cleanup():
+            (self.root / "release-guardian").touch()
             if worker.poll() is None:
                 os.killpg(worker.pid, signal.SIGKILL)
             worker.communicate(timeout=5)
@@ -102,7 +140,7 @@ class DeploymentAcceptanceTests(unittest.TestCase):
         child = int((self.root / "provider-pid").read_text())
         os.kill(worker.pid, signal.SIGKILL)
         worker.wait(timeout=5)
-        # Linux parent-death protection must terminate the supervised adapter.
+        # The independent guardian must terminate the supervised adapter.
         def terminated():
             try:
                 os.kill(child, 0)
@@ -116,6 +154,16 @@ class DeploymentAcceptanceTests(unittest.TestCase):
                 # succeeds, but before procfs opens/reads its status file.
                 return True
         self.wait_until(terminated)
+        if during_cleanup is not None:
+            try:
+                self.wait_until(lambda: (self.root / "guardian-reaped").exists())
+                during_cleanup(run_dir)
+            finally:
+                (self.root / "release-guardian").touch()
+        # Child termination alone is insufficient: the guardian releases run
+        # ownership only after group cleanup and its own process exit. Poll
+        # that exact state; unexpected lock I/O errors remain test failures.
+        self.wait_until(lambda: self.ownership_available(run_dir))
         return run_dir
 
     def resume(self, run_dir):
@@ -135,6 +183,22 @@ class DeploymentAcceptanceTests(unittest.TestCase):
     @unittest.skipUnless(sys.platform == "linux", "Linux parent-death supervision acceptance")
     def test_sigkill_during_effect_blocks_unknown_invocation_on_resume(self):
         run_dir = self.kill_worker("unknown")
+        with self.resume(run_dir) as runner:
+            with self.assertRaises(RunnerError):
+                runner.request("a", "b", "effect", {})
+            self.assertEqual(len(runner.status()["calls"]), 1)
+        self.assertEqual((self.root / "effects.txt").read_text().splitlines(), ["effect"])
+
+    @unittest.skipUnless(sys.platform == "linux", "Linux guardian ownership acceptance")
+    def test_adapter_reaping_does_not_release_ownership_before_guardian_exit(self):
+        def verify_cleanup_boundary(run_dir):
+            self.assertFalse(self.ownership_available(run_dir))
+            # A single premature resume must fail closed, even though the
+            # adapter has already been reaped. This is expected runtime policy.
+            with self.assertRaises(RunnerError):
+                self.resume(run_dir)
+
+        run_dir = self.kill_worker("unknown", during_cleanup=verify_cleanup_boundary)
         with self.resume(run_dir) as runner:
             with self.assertRaises(RunnerError):
                 runner.request("a", "b", "effect", {})

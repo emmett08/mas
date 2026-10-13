@@ -18,6 +18,7 @@ test_lost_reply_after_committed_result_reports_unknown_without_replay (test_demo
 test_mock_mesh_round_trip_with_real_gateway (test_demo.NativeMeshTests.test_mock_mesh_round_trip_with_real_gateway) ... ok
 test_provider_failure_retains_report_and_unknown_invocation (test_demo.NativeMeshTests.test_provider_failure_retains_report_and_unknown_invocation) ... ok
 test_wrong_model_result_is_not_accepted_as_success (test_demo.NativeMeshTests.test_wrong_model_result_is_not_accepted_as_success) ... ok
+test_adapter_reaping_does_not_release_ownership_before_guardian_exit (test_deployment.DeploymentAcceptanceTests.test_adapter_reaping_does_not_release_ownership_before_guardian_exit) ... ok
 test_backup_restore_retains_actual_run_and_global_charges (test_deployment.DeploymentAcceptanceTests.test_backup_restore_retains_actual_run_and_global_charges) ... ok
 test_independent_hosts_respect_shared_call_budget (test_deployment.DeploymentAcceptanceTests.test_independent_hosts_respect_shared_call_budget) ... ok
 test_live_acceptance_without_key_fails_before_any_admission (test_deployment.DeploymentAcceptanceTests.test_live_acceptance_without_key_fails_before_any_admission) ... ok
@@ -132,6 +133,6 @@ test_uncertain_delegation_cannot_be_caught_as_a_recoverable_failure (test_superv
 test_zero_cost_mock_reservation_still_uses_parent_admission (test_supervision.SupervisionTests.test_zero_cost_mock_reservation_still_uses_parent_admission) ... ok
 
 ----------------------------------------------------------------------
-Ran 131 tests in 6.915s
+Ran 132 tests in 6.899s
 
 OK

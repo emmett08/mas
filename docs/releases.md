@@ -95,8 +95,13 @@ identities must match the archive configuration. The original archive checksum
 must remain unchanged. This permits testing with Docker's classic image store
 while retaining attestations in the distributed OCI archive.
 
-The archive is never extracted by the verifier; layer hashing and decompression
-use streams. The release accepts its documented OCI layout, gzip or uncompressed
+For scanning, the verifier copies only validated regular OCI members into a
+fresh directory, without applying tar paths or permissions. Trivy receives that
+directory with the verified runtime manifest digest explicitly selected. Both
+the vulnerability scan and SBOM use this input. Copied file hashes are rechecked
+before packaging; the original archive and provenance remain unchanged.
+Layer hashing, decompression and copying use streams.
+The release accepts its documented OCI layout, gzip or uncompressed
 tar layers and supported SLSA provenance formats; unexpected formats fail the
 gate. The artefacts include the verified archive/image binding, imported image
 identity, Skopeo version and test log in the checksum manifest. Skopeo is a
@@ -114,20 +119,31 @@ the OCI layout, retaining its digest and provenance. Record the tested image
 digest in the deployment configuration. A release tag alone cannot establish
 that an application's live-provider acceptance has passed.
 
-### Initial packaging failure
+### Candidate acceptance history
 
 The [`v0.1.0` acceptance run](../evidence/readiness-ci-initial.json) passed its
 protocol, host, both architecture and security gates, then failed packaging on
 both architectures. The workflow requested both an OCI export with provenance
 and Docker export from the same build; the Docker exporter rejected the
 resulting manifest list. The tag remains attached to that failed candidate and
-must not be rewritten. The corrected single-archive import path will be
-evaluated as `v0.1.1`. A candidate tag is not evidence of a successful release.
+must not be rewritten. Candidate `v0.1.1` introduced the corrected single-archive
+import path. Its separate arm64 container run exposed a
+[crash-test synchronisation error](../evidence/readiness-ci-recovery-race.json):
+provider death did not establish that the guardian had released run ownership.
+The runtime correctly rejected premature recovery. Both final architecture
+imports and 131-test container suites passed, but the
+[scanner input gate failed](../evidence/readiness-ci-scanner-input.json) because
+Trivy accepts an OCI directory rather than this OCI tar archive. Candidate
+`v0.1.2` provides the verified directory input, waits for actual lock availability
+and adds deterministic regressions for these boundaries.
+It requires fresh full acceptance. A candidate tag is not evidence of a
+successful release.
 
 The implementation follows Docker's [OCI exporter options](https://docs.docker.com/build/exporters/oci-docker/)
 and [attestation storage format](https://docs.docker.com/build/metadata/attestations/attestation-storage/),
 the [OCI image layout](https://github.com/opencontainers/image-spec/blob/main/image-layout.md),
-and Skopeo's [copy interface](https://github.com/containers/skopeo/blob/main/docs/skopeo-copy.1.md).
+Skopeo's [copy interface](https://github.com/containers/skopeo/blob/main/docs/skopeo-copy.1.md),
+and Trivy's [OCI directory and digest selection](https://trivy.dev/docs/dev/guide/target/container_image/#oci-layout).
 
 ## Upgrade and rollback
 

@@ -1,0 +1,16 @@
+{
+  "schema": "mas-ci-acceptance/1",
+  "source_commit": "ed0ca63a76d12500f4944426c0d3d33c3d384f3a",
+  "candidate": "v0.1.1",
+  "run_url": "https://github.com/emmett08/mas/actions/runs/38468172182",
+  "job_id": 115540151259,
+  "status": "test_synchronisation_failure",
+  "architecture": "arm64",
+  "stage": "installed-container host tests",
+  "test": "test_sigkill_during_effect_blocks_unknown_invocation_on_resume",
+  "observed_error": "RunnerError: could not initialise or resume private host run",
+  "cause": "The fault helper accepted adapter death or zombie status as permission to resume. The guardian can still hold exclusive run ownership while completing cleanup.",
+  "independent_reproduction": "Pausing the guardian after provider reaping but before guardian exit preserves the run lock. Immediate resume is correctly rejected; after guardian exit and actual lock availability, one resume succeeds without repeating the recorded invocation.",
+  "required_repair": "Synchronise on actual run-lock availability, retrying only the lock's busy condition. Preserve fail-closed runtime ownership and do not catch-and-retry RunnerError.",
+  "scope": "Native arm64 tests and the parallel reusable arm64 gate passed. This recorded standalone container failure still prevents acceptance of the candidate."
+}

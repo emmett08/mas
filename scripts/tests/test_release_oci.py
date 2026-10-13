@@ -132,6 +132,63 @@ class ReleaseOciTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "exactly one matching runtime"):
             oci.inspect_archive(self.archive, "arm64")
 
+    def test_scanner_directory_preserves_archive_bytes_and_selects_exact_runtime_manifest(self):
+        for architecture in ("amd64", "arm64"):
+            with self.subTest(architecture=architecture):
+                image = archive_fixture(self.archive, architecture=architecture)
+                before = self.archive.read_bytes()
+                binding = oci.verify_import(self.archive, oci.inspect_archive(self.archive, architecture), image)
+                directory = self.archive.parent / architecture
+                result = oci.materialise_layout(self.archive, binding, directory)
+                self.assertTrue(result["scanner_layout_verified"])
+                self.assertEqual(result["scanner_input"], str(directory) + "@" + binding["manifest_digest"])
+                with tarfile.open(self.archive) as archive:
+                    for member in archive.getmembers():
+                        self.assertEqual((directory / member.name).read_bytes(), archive.extractfile(member).read())
+                manifest = json.loads((directory / "blobs" / "sha256" / binding["manifest_digest"].split(":")[1]).read_text())
+                self.assertEqual(manifest["config"]["digest"], image["Id"])
+                self.assertEqual(self.archive.read_bytes(), before)
+
+    def test_scanner_directory_refuses_existing_destination_unverified_or_changed_archive(self):
+        image = archive_fixture(self.archive)
+        binding = oci.inspect_archive(self.archive, "amd64")
+        directory = self.archive.parent / "layout"
+        with self.assertRaisesRegex(ValueError, "unchanged, verified"):
+            oci.materialise_layout(self.archive, binding, directory)
+        self.assertFalse(directory.exists())
+        binding = oci.verify_import(self.archive, binding, image)
+        directory.mkdir()
+        sentinel = directory / "keep"
+        sentinel.write_text("original")
+        with self.assertRaises(FileExistsError):
+            oci.materialise_layout(self.archive, binding, directory)
+        self.assertEqual(sentinel.read_text(), "original")
+        with self.archive.open("ab") as stream:
+            stream.write(b"changed")
+        with self.assertRaisesRegex(ValueError, "unchanged, verified"):
+            oci.materialise_layout(self.archive, binding, self.archive.parent / "changed")
+
+    def test_scanner_directory_rejects_unsafe_members_before_writing(self):
+        for index, (name, kind) in enumerate((("../escape", tarfile.REGTYPE),
+                                             ("/absolute", tarfile.REGTYPE),
+                                             ("blobs/linked", tarfile.SYMTYPE),
+                                             ("blobs/hardlinked", tarfile.LNKTYPE),
+                                             ("blobs//alias", tarfile.REGTYPE),
+                                             ("./index.json", tarfile.REGTYPE))):
+            with self.subTest(name=name):
+                image = archive_fixture(self.archive)
+                binding = oci.verify_import(self.archive, oci.inspect_archive(self.archive, "amd64"), image)
+                with tarfile.open(self.archive, "a") as archive:
+                    member = tarfile.TarInfo(name)
+                    member.type = kind
+                    member.linkname = "../../escape" if kind != tarfile.REGTYPE else ""
+                    archive.addfile(member, io.BytesIO())
+                binding["archive_sha256"] = oci.file_digest(self.archive)
+                directory = self.archive.parent / f"unsafe-{index}"
+                with self.assertRaises(ValueError):
+                    oci.materialise_layout(self.archive, binding, directory)
+                self.assertFalse(directory.exists())
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -256,3 +256,14 @@ and functioning Linux/kernel/storage mechanisms. This review establishes the
 tested boundaries, not a formal implementation refinement or universal
 production certification. Live and tagged-release execution remain separate
 acceptance records.
+
+The subsequent arm64 container CI run exposed a timing-dependent error in a crash-test
+helper. It attempted recovery after observing adapter death, while the guardian
+could still retain the ownership lock. An independent deterministic probe held
+the guardian after reaping the adapter and confirmed that recovery correctly
+rejected entry until the guardian exited. The helper now waits for that exact
+lock boundary and retries only lock contention; it does not retry general
+runner errors. A regression preserves the premature-recovery rejection and
+then verifies one resumed invocation without a duplicate effect. No runtime
+locking behaviour was weakened. The complete local host suite now passes 132
+tests; the new candidate still requires fresh architecture and release gates.
