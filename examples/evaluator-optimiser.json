@@ -1,0 +1,20 @@
+{
+  "name": "evaluator-optimiser",
+  "agents": [
+    "generator",
+    "evaluator"
+  ],
+  "edges": [
+    [
+      "generator",
+      "evaluator"
+    ],
+    [
+      "evaluator",
+      "generator"
+    ]
+  ],
+  "description": "Bounded candidate/critique loop; an unresolved outcome remains possible.",
+  "mailbox_capacity": 2,
+  "application": "agent-task/1"
+}

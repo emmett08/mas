@@ -1,0 +1,192 @@
+{
+  "all_acknowledged": true,
+  "claim": "Transport and scripted workflow only; no live model or human execution.",
+  "events": [
+    {
+      "acknowledged": true,
+      "identical_resend": true,
+      "message": {
+        "kind": "Request",
+        "message_id": "q1",
+        "payload": {
+          "input": {
+            "document": "one",
+            "operation": "word-count",
+            "text": "alpha beta"
+          },
+          "operation": "word-count",
+          "task_id": "t1"
+        },
+        "recipient": "worker-a",
+        "run_id": "orchestrator-workers",
+        "sender": "orchestrator",
+        "version": "1"
+      },
+      "restart_redelivery": true,
+      "wire": "message \"q1\" run \"orchestrator-workers\" from \"orchestrator\" to \"worker-a\" version \"1\" kind \"Request\" payload {\"input\":{\"document\":\"one\",\"operation\":\"word-count\",\"text\":\"alpha beta\"},\"operation\":\"word-count\",\"task_id\":\"t1\"};"
+    },
+    {
+      "acknowledged": true,
+      "identical_resend": true,
+      "message": {
+        "kind": "Result",
+        "message_id": "r1",
+        "payload": {
+          "output": {
+            "document": "one",
+            "operation": "word-count",
+            "value": 2
+          },
+          "reply_to": "q1",
+          "status": "completed",
+          "task_id": "t1"
+        },
+        "recipient": "orchestrator",
+        "run_id": "orchestrator-workers",
+        "sender": "worker-a",
+        "version": "1"
+      },
+      "restart_redelivery": true,
+      "wire": "message \"r1\" run \"orchestrator-workers\" from \"worker-a\" to \"orchestrator\" version \"1\" kind \"Result\" payload {\"output\":{\"document\":\"one\",\"operation\":\"word-count\",\"value\":2},\"reply_to\":\"q1\",\"status\":\"completed\",\"task_id\":\"t1\"};"
+    },
+    {
+      "acknowledged": true,
+      "identical_resend": true,
+      "message": {
+        "kind": "Request",
+        "message_id": "q2",
+        "payload": {
+          "input": {
+            "document": "two",
+            "operation": "uppercase",
+            "text": "Gamma Delta"
+          },
+          "operation": "uppercase",
+          "task_id": "t2"
+        },
+        "recipient": "worker-b",
+        "run_id": "orchestrator-workers",
+        "sender": "orchestrator",
+        "version": "1"
+      },
+      "restart_redelivery": true,
+      "wire": "message \"q2\" run \"orchestrator-workers\" from \"orchestrator\" to \"worker-b\" version \"1\" kind \"Request\" payload {\"input\":{\"document\":\"two\",\"operation\":\"uppercase\",\"text\":\"Gamma Delta\"},\"operation\":\"uppercase\",\"task_id\":\"t2\"};"
+    },
+    {
+      "acknowledged": true,
+      "identical_resend": true,
+      "message": {
+        "kind": "Result",
+        "message_id": "r2",
+        "payload": {
+          "output": {
+            "document": "two",
+            "operation": "uppercase",
+            "value": "GAMMA DELTA"
+          },
+          "reply_to": "q2",
+          "status": "completed",
+          "task_id": "t2"
+        },
+        "recipient": "orchestrator",
+        "run_id": "orchestrator-workers",
+        "sender": "worker-b",
+        "version": "1"
+      },
+      "restart_redelivery": true,
+      "wire": "message \"r2\" run \"orchestrator-workers\" from \"worker-b\" to \"orchestrator\" version \"1\" kind \"Result\" payload {\"output\":{\"document\":\"two\",\"operation\":\"uppercase\",\"value\":\"GAMMA DELTA\"},\"reply_to\":\"q2\",\"status\":\"completed\",\"task_id\":\"t2\"};"
+    },
+    {
+      "acknowledged": true,
+      "identical_resend": true,
+      "message": {
+        "kind": "Request",
+        "message_id": "q3",
+        "payload": {
+          "input": {
+            "document": "two",
+            "operation": "word-count",
+            "text": "Gamma Delta"
+          },
+          "operation": "word-count",
+          "task_id": "t3"
+        },
+        "recipient": "worker-a",
+        "run_id": "orchestrator-workers",
+        "sender": "orchestrator",
+        "version": "1"
+      },
+      "restart_redelivery": true,
+      "wire": "message \"q3\" run \"orchestrator-workers\" from \"orchestrator\" to \"worker-a\" version \"1\" kind \"Request\" payload {\"input\":{\"document\":\"two\",\"operation\":\"word-count\",\"text\":\"Gamma Delta\"},\"operation\":\"word-count\",\"task_id\":\"t3\"};"
+    },
+    {
+      "acknowledged": true,
+      "identical_resend": true,
+      "message": {
+        "kind": "Result",
+        "message_id": "r3",
+        "payload": {
+          "output": {
+            "document": "two",
+            "operation": "word-count",
+            "value": 2
+          },
+          "reply_to": "q3",
+          "status": "completed",
+          "task_id": "t3"
+        },
+        "recipient": "orchestrator",
+        "run_id": "orchestrator-workers",
+        "sender": "worker-a",
+        "version": "1"
+      },
+      "restart_redelivery": true,
+      "wire": "message \"r3\" run \"orchestrator-workers\" from \"worker-a\" to \"orchestrator\" version \"1\" kind \"Result\" payload {\"output\":{\"document\":\"two\",\"operation\":\"word-count\",\"value\":2},\"reply_to\":\"q3\",\"status\":\"completed\",\"task_id\":\"t3\"};"
+    }
+  ],
+  "mode": "deterministic-fixture",
+  "pattern": "orchestrator-workers",
+  "result": {
+    "outputs": [
+      {
+        "document": "one",
+        "operation": "word-count",
+        "value": 2
+      },
+      {
+        "document": "two",
+        "operation": "uppercase",
+        "value": "GAMMA DELTA"
+      },
+      {
+        "document": "two",
+        "operation": "word-count",
+        "value": 2
+      }
+    ],
+    "plan": [
+      {
+        "document": "one",
+        "operation": "word-count",
+        "worker": "worker-a"
+      },
+      {
+        "document": "two",
+        "operation": "uppercase",
+        "worker": "worker-b"
+      },
+      {
+        "document": "two",
+        "operation": "word-count",
+        "worker": "worker-a"
+      }
+    ],
+    "planning": "required operations derived from each input document",
+    "worker_pool": "fixed and pre-registered"
+  },
+  "usage": {
+    "bytes": 1535,
+    "calls": 0,
+    "messages": 6
+  }
+}

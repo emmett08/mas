@@ -1,0 +1,42 @@
+
+    :: atomic { actor == sender[@M@] && !accepted[@M@] && occupancy[recipient[@M@]] < CAPACITY ->
+#ifdef BUG_ALLOW_FORBIDDEN
+         recipient[@M@] = actor;
+#endif
+         assert(allowed[actor * AGENTS + recipient[@M@]]);
+         assert(stored < MESSAGES);
+         accepted[@M@] = true; content[@M@] = @M@; stored++; occupancy[recipient[@M@]]++;
+         printf("EVENT send @M@ %d %d\n", actor, recipient[@M@]); invariant(@M@);
+         /* These calls stutter: no persistent state changes, so their placement
+          * is abstracted to this transaction boundary. Runtime tests exercise
+          * independently scheduled duplicate and rejected calls. */
+         printf("EVENT duplicate @M@\n"); invariant(@M@);
+         printf("EVENT reject_collision @M@\n"); invariant(@M@);
+         printf("EVENT reject_early_ack @M@\n");
+#ifdef BUG_EARLY_ACK
+         acknowledged[@M@] = true;
+#endif
+         invariant(@M@) }
+    :: atomic { actor == sender[@M@] && !accepted[@M@] && occupancy[recipient[@M@]] >= CAPACITY && !full_rejected[@M@] ->
+         full_rejected[@M@] = true;
+         printf("EVENT reject_full @M@\n"); invariant(@M@) }
+    :: atomic { actor == recipient[@M@] && accepted[@M@] && !received[@M@] ->
+         received[@M@] = true; local_receipt[@M@] = true;
+         printf("EVENT receive @M@ %d\n", actor); invariant(@M@) }
+    :: atomic { actor == recipient[@M@] && received[@M@] && !acknowledged[@M@] && !redelivered[@M@] ->
+         redelivered[@M@] = true; local_receipt[@M@] = true;
+         printf("EVENT redeliver @M@\n"); invariant(@M@) }
+    :: atomic { actor == recipient[@M@] && received[@M@] && !acknowledged[@M@] && !lost_ack[@M@] ->
+         lost_ack[@M@] = true;
+         /* One ack invocation is lost BEFORE its database transaction. */
+         printf("EVENT lost_ack @M@\n"); invariant(@M@) }
+    :: atomic { actor == recipient[@M@] && received[@M@] && !acknowledged[@M@] && !restarted[@M@] ->
+         restarted[@M@] = true; local_receipt[@M@] = false;
+         /* Durable received flag survives restart; only caller memory is lost. */
+         printf("EVENT restart @M@\n"); invariant(@M@) }
+    :: atomic { (actor == recipient[@M@] && received[@M@] && !acknowledged[@M@]
+#ifdef BUG_NO_ACK
+         && @M@ != 0
+#endif
+         ) -> acknowledged[@M@] = true; occupancy[recipient[@M@]]--;
+         printf("EVENT ack @M@ %d\n", actor); invariant(@M@) }

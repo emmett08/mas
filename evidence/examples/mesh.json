@@ -1,0 +1,152 @@
+{
+  "all_acknowledged": true,
+  "claim": "Transport and scripted workflow only; no live model or human execution.",
+  "events": [
+    {
+      "acknowledged": true,
+      "identical_resend": true,
+      "message": {
+        "kind": "Request",
+        "message_id": "q1",
+        "payload": {
+          "input": {
+            "values": [
+              2,
+              3
+            ]
+          },
+          "operation": "sum",
+          "task_id": "t1"
+        },
+        "recipient": "bob",
+        "run_id": "mesh",
+        "sender": "alice",
+        "version": "1"
+      },
+      "restart_redelivery": true,
+      "wire": "message \"q1\" run \"mesh\" from \"alice\" to \"bob\" version \"1\" kind \"Request\" payload {\"input\":{\"values\":[2,3]},\"operation\":\"sum\",\"task_id\":\"t1\"};"
+    },
+    {
+      "acknowledged": true,
+      "identical_resend": true,
+      "message": {
+        "kind": "Result",
+        "message_id": "r1",
+        "payload": {
+          "output": {
+            "candidate": 5
+          },
+          "reply_to": "q1",
+          "status": "completed",
+          "task_id": "t1"
+        },
+        "recipient": "alice",
+        "run_id": "mesh",
+        "sender": "bob",
+        "version": "1"
+      },
+      "restart_redelivery": true,
+      "wire": "message \"r1\" run \"mesh\" from \"bob\" to \"alice\" version \"1\" kind \"Result\" payload {\"output\":{\"candidate\":5},\"reply_to\":\"q1\",\"status\":\"completed\",\"task_id\":\"t1\"};"
+    },
+    {
+      "acknowledged": true,
+      "identical_resend": true,
+      "message": {
+        "kind": "Request",
+        "message_id": "q2",
+        "payload": {
+          "input": {
+            "candidate": 5,
+            "values": [
+              2,
+              3
+            ]
+          },
+          "operation": "check",
+          "task_id": "t2"
+        },
+        "recipient": "checker",
+        "run_id": "mesh",
+        "sender": "bob",
+        "version": "1"
+      },
+      "restart_redelivery": true,
+      "wire": "message \"q2\" run \"mesh\" from \"bob\" to \"checker\" version \"1\" kind \"Request\" payload {\"input\":{\"candidate\":5,\"values\":[2,3]},\"operation\":\"check\",\"task_id\":\"t2\"};"
+    },
+    {
+      "acknowledged": true,
+      "identical_resend": true,
+      "message": {
+        "kind": "Result",
+        "message_id": "r2",
+        "payload": {
+          "output": {
+            "accepted": true
+          },
+          "reply_to": "q2",
+          "status": "completed",
+          "task_id": "t2"
+        },
+        "recipient": "bob",
+        "run_id": "mesh",
+        "sender": "checker",
+        "version": "1"
+      },
+      "restart_redelivery": true,
+      "wire": "message \"r2\" run \"mesh\" from \"checker\" to \"bob\" version \"1\" kind \"Result\" payload {\"output\":{\"accepted\":true},\"reply_to\":\"q2\",\"status\":\"completed\",\"task_id\":\"t2\"};"
+    },
+    {
+      "acknowledged": true,
+      "identical_resend": true,
+      "message": {
+        "kind": "Request",
+        "message_id": "q3",
+        "payload": {
+          "input": {
+            "accepted": true
+          },
+          "operation": "report",
+          "task_id": "t3"
+        },
+        "recipient": "alice",
+        "run_id": "mesh",
+        "sender": "checker",
+        "version": "1"
+      },
+      "restart_redelivery": true,
+      "wire": "message \"q3\" run \"mesh\" from \"checker\" to \"alice\" version \"1\" kind \"Request\" payload {\"input\":{\"accepted\":true},\"operation\":\"report\",\"task_id\":\"t3\"};"
+    },
+    {
+      "acknowledged": true,
+      "identical_resend": true,
+      "message": {
+        "kind": "Result",
+        "message_id": "r3",
+        "payload": {
+          "output": {
+            "recorded": true
+          },
+          "reply_to": "q3",
+          "status": "completed",
+          "task_id": "t3"
+        },
+        "recipient": "checker",
+        "run_id": "mesh",
+        "sender": "alice",
+        "version": "1"
+      },
+      "restart_redelivery": true,
+      "wire": "message \"r3\" run \"mesh\" from \"alice\" to \"checker\" version \"1\" kind \"Result\" payload {\"output\":{\"recorded\":true},\"reply_to\":\"q3\",\"status\":\"completed\",\"task_id\":\"t3\"};"
+    }
+  ],
+  "mode": "deterministic-fixture",
+  "pattern": "mesh",
+  "result": {
+    "recorded": true
+  },
+  "usage": {
+    "bytes": 1116,
+    "calls": 0,
+    "messages": 6
+  }
+}

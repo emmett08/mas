@@ -1,0 +1,16 @@
+[package]
+name = "mas-protocol-codec"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.85"
+license = "GPL-3.0-only"
+description = "Rust nom agent protocol, durable mailbox, workflows and SPIN verification"
+
+[dependencies]
+nom = "=8.0.0"
+rusqlite = { version = "=0.32.1", features = ["bundled"] }
+serde_json = { version = "=1.0.145", features = ["arbitrary_precision"] }
+
+[[bin]]
+name = "mas-protocol-codec"
+path = "src/main.rs"

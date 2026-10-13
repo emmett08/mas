@@ -1,0 +1,109 @@
+{
+  "all_acknowledged": true,
+  "claim": "Transport and scripted workflow only; no live model or human execution.",
+  "events": [
+    {
+      "acknowledged": true,
+      "identical_resend": true,
+      "message": {
+        "kind": "Request",
+        "message_id": "q1",
+        "payload": {
+          "input": {
+            "values": [
+              2,
+              3
+            ]
+          },
+          "operation": "sum",
+          "task_id": "t1"
+        },
+        "recipient": "proposer",
+        "run_id": "star",
+        "sender": "hub",
+        "version": "1"
+      },
+      "restart_redelivery": true,
+      "wire": "message \"q1\" run \"star\" from \"hub\" to \"proposer\" version \"1\" kind \"Request\" payload {\"input\":{\"values\":[2,3]},\"operation\":\"sum\",\"task_id\":\"t1\"};"
+    },
+    {
+      "acknowledged": true,
+      "identical_resend": true,
+      "message": {
+        "kind": "Result",
+        "message_id": "r1",
+        "payload": {
+          "output": {
+            "candidate": 5
+          },
+          "reply_to": "q1",
+          "status": "completed",
+          "task_id": "t1"
+        },
+        "recipient": "hub",
+        "run_id": "star",
+        "sender": "proposer",
+        "version": "1"
+      },
+      "restart_redelivery": true,
+      "wire": "message \"r1\" run \"star\" from \"proposer\" to \"hub\" version \"1\" kind \"Result\" payload {\"output\":{\"candidate\":5},\"reply_to\":\"q1\",\"status\":\"completed\",\"task_id\":\"t1\"};"
+    },
+    {
+      "acknowledged": true,
+      "identical_resend": true,
+      "message": {
+        "kind": "Request",
+        "message_id": "q2",
+        "payload": {
+          "input": {
+            "candidate": 5,
+            "values": [
+              2,
+              3
+            ]
+          },
+          "operation": "check",
+          "task_id": "t2"
+        },
+        "recipient": "checker",
+        "run_id": "star",
+        "sender": "hub",
+        "version": "1"
+      },
+      "restart_redelivery": true,
+      "wire": "message \"q2\" run \"star\" from \"hub\" to \"checker\" version \"1\" kind \"Request\" payload {\"input\":{\"candidate\":5,\"values\":[2,3]},\"operation\":\"check\",\"task_id\":\"t2\"};"
+    },
+    {
+      "acknowledged": true,
+      "identical_resend": true,
+      "message": {
+        "kind": "Result",
+        "message_id": "r2",
+        "payload": {
+          "output": {
+            "accepted": true
+          },
+          "reply_to": "q2",
+          "status": "completed",
+          "task_id": "t2"
+        },
+        "recipient": "hub",
+        "run_id": "star",
+        "sender": "checker",
+        "version": "1"
+      },
+      "restart_redelivery": true,
+      "wire": "message \"r2\" run \"star\" from \"checker\" to \"hub\" version \"1\" kind \"Result\" payload {\"output\":{\"accepted\":true},\"reply_to\":\"q2\",\"status\":\"completed\",\"task_id\":\"t2\"};"
+    }
+  ],
+  "mode": "deterministic-fixture",
+  "pattern": "star",
+  "result": {
+    "accepted": true
+  },
+  "usage": {
+    "bytes": 748,
+    "calls": 0,
+    "messages": 4
+  }
+}

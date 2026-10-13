@@ -1,0 +1,38 @@
+{
+  "name": "parallel-voting",
+  "agents": [
+    "coordinator",
+    "voter-1",
+    "voter-2",
+    "voter-3"
+  ],
+  "edges": [
+    [
+      "coordinator",
+      "voter-1"
+    ],
+    [
+      "voter-1",
+      "coordinator"
+    ],
+    [
+      "coordinator",
+      "voter-2"
+    ],
+    [
+      "voter-2",
+      "coordinator"
+    ],
+    [
+      "coordinator",
+      "voter-3"
+    ],
+    [
+      "voter-3",
+      "coordinator"
+    ]
+  ],
+  "description": "Three deterministic voters with two-vote threshold; ties, abstentions and no quorum remain unresolved. Agreement does not establish truth.",
+  "mailbox_capacity": 3,
+  "application": "agent-task/1"
+}

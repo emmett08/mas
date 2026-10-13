@@ -1,0 +1,29 @@
+{
+  "name": "prompt-chaining",
+  "agents": [
+    "coordinator",
+    "drafter",
+    "reviewer"
+  ],
+  "edges": [
+    [
+      "coordinator",
+      "drafter"
+    ],
+    [
+      "drafter",
+      "coordinator"
+    ],
+    [
+      "coordinator",
+      "reviewer"
+    ],
+    [
+      "reviewer",
+      "coordinator"
+    ]
+  ],
+  "description": "A deterministic output gate controls whether the next stage receives a task; both passing and rejected gates are demonstrated.",
+  "mailbox_capacity": 2,
+  "application": "agent-task/1"
+}

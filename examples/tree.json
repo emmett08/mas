@@ -1,0 +1,38 @@
+{
+  "name": "tree",
+  "agents": [
+    "root",
+    "lead",
+    "worker",
+    "checker"
+  ],
+  "edges": [
+    [
+      "root",
+      "lead"
+    ],
+    [
+      "lead",
+      "root"
+    ],
+    [
+      "lead",
+      "worker"
+    ],
+    [
+      "worker",
+      "lead"
+    ],
+    [
+      "lead",
+      "checker"
+    ],
+    [
+      "checker",
+      "lead"
+    ]
+  ],
+  "description": "Manager delegates through a team lead; no implicit end-to-end forwarding.",
+  "mailbox_capacity": 2,
+  "application": "agent-task/1"
+}

@@ -1,0 +1,63 @@
+/* Generated from this template by scripts/check_models.py.
+ * Two durable SQLite-style slots; one proctype for each registered worker.
+ * A slot is retained after ack, matching UNIQUE(run,id) retention.
+ * Atomic transitions are individual Store BEGIN IMMEDIATE transactions.
+ * Faults occur BETWEEN transactions. No network reliability claim is made.
+ */
+#define AGENTS @AGENT_COUNT@
+#define MESSAGES 2
+#ifndef CAPACITY
+#define CAPACITY @CAPACITY@
+#endif
+
+byte sender[MESSAGES];
+byte recipient[MESSAGES];
+byte content[MESSAGES];
+bool allowed[AGENTS * AGENTS];
+bool accepted[MESSAGES];
+bool received[MESSAGES];
+bool acknowledged[MESSAGES];
+bool local_receipt[MESSAGES];
+bool redelivered[MESSAGES];
+bool lost_ack[MESSAGES];
+bool restarted[MESSAGES];
+bool full_rejected[MESSAGES];
+byte occupancy[AGENTS];
+byte stored = 0;
+
+inline invariant(m) {
+    assert(stored <= MESSAGES);
+    assert(occupancy[recipient[m]] <= CAPACITY);
+    assert(!accepted[m] || allowed[sender[m] * AGENTS + recipient[m]]);
+    assert(!accepted[m] || content[m] == m);
+    assert(!received[m] || accepted[m]);
+    assert(!acknowledged[m] || received[m]);
+}
+
+/* The scheduler chooses both participant and enabled transaction. Every
+ * fault/duplicate action is bounded, so none can postpone an ack forever.
+ */
+proctype Agent(byte actor) {
+    do
+@ACTIONS@
+    :: acknowledged[0] && acknowledged[1] -> break
+    od
+}
+
+#ifdef BUG_NO_ACK
+/* A permanently unresponsive receiver is outside the bounded-fault contract.
+ * Keep an infinite execution so LTL detects starvation independently of
+ * invalid-end-state checks. This is an isolated negative control. */
+active proctype PermanentStall() { do :: true -> skip od }
+#endif
+
+init {
+    atomic {
+@ALLOWED@
+@ROUTES@
+@START@
+    }
+}
+
+ltl message_0_progress { [] (accepted[0] -> <> acknowledged[0]) }
+ltl message_1_progress { [] (accepted[1] -> <> acknowledged[1]) }

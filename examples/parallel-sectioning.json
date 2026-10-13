@@ -1,0 +1,29 @@
+{
+  "name": "parallel-sectioning",
+  "agents": [
+    "coordinator",
+    "worker-a",
+    "worker-b"
+  ],
+  "edges": [
+    [
+      "coordinator",
+      "worker-a"
+    ],
+    [
+      "worker-a",
+      "coordinator"
+    ],
+    [
+      "coordinator",
+      "worker-b"
+    ],
+    [
+      "worker-b",
+      "coordinator"
+    ]
+  ],
+  "description": "Dispatch independent sections before consumption; collect reversed replies by exact request identity.",
+  "mailbox_capacity": 2,
+  "application": "agent-task/1"
+}

@@ -1,0 +1,119 @@
+{
+  "all_acknowledged": true,
+  "claim": "Transport and scripted workflow only; no live model or human execution.",
+  "events": [
+    {
+      "acknowledged": true,
+      "identical_resend": true,
+      "message": {
+        "kind": "Request",
+        "message_id": "q1",
+        "payload": {
+          "input": {
+            "category": "arithmetic",
+            "values": [
+              2,
+              3
+            ]
+          },
+          "operation": "sum",
+          "task_id": "t1"
+        },
+        "recipient": "calculator",
+        "run_id": "routing",
+        "sender": "router",
+        "version": "1"
+      },
+      "restart_redelivery": true,
+      "wire": "message \"q1\" run \"routing\" from \"router\" to \"calculator\" version \"1\" kind \"Request\" payload {\"input\":{\"category\":\"arithmetic\",\"values\":[2,3]},\"operation\":\"sum\",\"task_id\":\"t1\"};"
+    },
+    {
+      "acknowledged": true,
+      "identical_resend": true,
+      "message": {
+        "kind": "Result",
+        "message_id": "r1",
+        "payload": {
+          "output": {
+            "sum": 5
+          },
+          "reply_to": "q1",
+          "status": "completed",
+          "task_id": "t1"
+        },
+        "recipient": "router",
+        "run_id": "routing",
+        "sender": "calculator",
+        "version": "1"
+      },
+      "restart_redelivery": true,
+      "wire": "message \"r1\" run \"routing\" from \"calculator\" to \"router\" version \"1\" kind \"Result\" payload {\"output\":{\"sum\":5},\"reply_to\":\"q1\",\"status\":\"completed\",\"task_id\":\"t1\"};"
+    },
+    {
+      "acknowledged": true,
+      "identical_resend": true,
+      "message": {
+        "kind": "Request",
+        "message_id": "q2",
+        "payload": {
+          "input": {
+            "category": "text",
+            "text": "hello"
+          },
+          "operation": "uppercase",
+          "task_id": "t2"
+        },
+        "recipient": "writer",
+        "run_id": "routing",
+        "sender": "router",
+        "version": "1"
+      },
+      "restart_redelivery": true,
+      "wire": "message \"q2\" run \"routing\" from \"router\" to \"writer\" version \"1\" kind \"Request\" payload {\"input\":{\"category\":\"text\",\"text\":\"hello\"},\"operation\":\"uppercase\",\"task_id\":\"t2\"};"
+    },
+    {
+      "acknowledged": true,
+      "identical_resend": true,
+      "message": {
+        "kind": "Result",
+        "message_id": "r2",
+        "payload": {
+          "output": {
+            "text": "HELLO"
+          },
+          "reply_to": "q2",
+          "status": "completed",
+          "task_id": "t2"
+        },
+        "recipient": "router",
+        "run_id": "routing",
+        "sender": "writer",
+        "version": "1"
+      },
+      "restart_redelivery": true,
+      "wire": "message \"r2\" run \"routing\" from \"writer\" to \"router\" version \"1\" kind \"Result\" payload {\"output\":{\"text\":\"HELLO\"},\"reply_to\":\"q2\",\"status\":\"completed\",\"task_id\":\"t2\"};"
+    }
+  ],
+  "mode": "deterministic-fixture",
+  "pattern": "routing",
+  "result": {
+    "routes": [
+      {
+        "sum": 5
+      },
+      {
+        "text": "HELLO"
+      },
+      {
+        "dispatched": false,
+        "reason": "unknown route",
+        "status": "unresolved"
+      }
+    ]
+  },
+  "usage": {
+    "bytes": 799,
+    "calls": 0,
+    "messages": 4
+  }
+}

@@ -1,0 +1,29 @@
+{
+  "name": "orchestrator-workers",
+  "agents": [
+    "orchestrator",
+    "worker-a",
+    "worker-b"
+  ],
+  "edges": [
+    [
+      "orchestrator",
+      "worker-a"
+    ],
+    [
+      "worker-a",
+      "orchestrator"
+    ],
+    [
+      "orchestrator",
+      "worker-b"
+    ],
+    [
+      "worker-b",
+      "orchestrator"
+    ]
+  ],
+  "description": "Dynamic task allocation to a frozen worker pool; spawning and membership changes are outside this profile.",
+  "mailbox_capacity": 2,
+  "application": "agent-task/1"
+}

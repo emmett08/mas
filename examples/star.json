@@ -1,0 +1,29 @@
+{
+  "name": "star",
+  "agents": [
+    "hub",
+    "proposer",
+    "checker"
+  ],
+  "edges": [
+    [
+      "hub",
+      "proposer"
+    ],
+    [
+      "proposer",
+      "hub"
+    ],
+    [
+      "hub",
+      "checker"
+    ],
+    [
+      "checker",
+      "hub"
+    ]
+  ],
+  "description": "Fixed supervisor delegates to workers; spokes cannot communicate directly.",
+  "mailbox_capacity": 2,
+  "application": "agent-task/1"
+}

@@ -1,0 +1,163 @@
+{
+  "all_acknowledged": true,
+  "claim": "Transport and scripted workflow only; no live model or human execution.",
+  "events": [
+    {
+      "acknowledged": true,
+      "identical_resend": true,
+      "message": {
+        "kind": "Request",
+        "message_id": "q1",
+        "payload": {
+          "input": {
+            "action": "record-example"
+          },
+          "operation": "review",
+          "task_id": "t1"
+        },
+        "recipient": "human",
+        "run_id": "human-review",
+        "sender": "agent",
+        "version": "1"
+      },
+      "restart_redelivery": true,
+      "wire": "message \"q1\" run \"human-review\" from \"agent\" to \"human\" version \"1\" kind \"Request\" payload {\"input\":{\"action\":\"record-example\"},\"operation\":\"review\",\"task_id\":\"t1\"};"
+    },
+    {
+      "acknowledged": true,
+      "identical_resend": true,
+      "message": {
+        "kind": "Result",
+        "message_id": "r1",
+        "payload": {
+          "output": {
+            "action": "record-example",
+            "approved": true,
+            "status": "completed"
+          },
+          "reply_to": "q1",
+          "status": "completed",
+          "task_id": "t1"
+        },
+        "recipient": "agent",
+        "run_id": "human-review",
+        "sender": "human",
+        "version": "1"
+      },
+      "restart_redelivery": true,
+      "wire": "message \"r1\" run \"human-review\" from \"human\" to \"agent\" version \"1\" kind \"Result\" payload {\"output\":{\"action\":\"record-example\",\"approved\":true,\"status\":\"completed\"},\"reply_to\":\"q1\",\"status\":\"completed\",\"task_id\":\"t1\"};"
+    },
+    {
+      "acknowledged": true,
+      "identical_resend": true,
+      "message": {
+        "kind": "Request",
+        "message_id": "q2",
+        "payload": {
+          "input": {
+            "action": "record-example",
+            "approved": true,
+            "status": "completed"
+          },
+          "operation": "execute-fixture",
+          "task_id": "t2"
+        },
+        "recipient": "executor",
+        "run_id": "human-review",
+        "sender": "human",
+        "version": "1"
+      },
+      "restart_redelivery": true,
+      "wire": "message \"q2\" run \"human-review\" from \"human\" to \"executor\" version \"1\" kind \"Request\" payload {\"input\":{\"action\":\"record-example\",\"approved\":true,\"status\":\"completed\"},\"operation\":\"execute-fixture\",\"task_id\":\"t2\"};"
+    },
+    {
+      "acknowledged": true,
+      "identical_resend": true,
+      "message": {
+        "kind": "Result",
+        "message_id": "r2",
+        "payload": {
+          "output": {
+            "external_effects": false,
+            "recorded": "record-example"
+          },
+          "reply_to": "q2",
+          "status": "completed",
+          "task_id": "t2"
+        },
+        "recipient": "human",
+        "run_id": "human-review",
+        "sender": "executor",
+        "version": "1"
+      },
+      "restart_redelivery": true,
+      "wire": "message \"r2\" run \"human-review\" from \"executor\" to \"human\" version \"1\" kind \"Result\" payload {\"output\":{\"external_effects\":false,\"recorded\":\"record-example\"},\"reply_to\":\"q2\",\"status\":\"completed\",\"task_id\":\"t2\"};"
+    },
+    {
+      "acknowledged": true,
+      "identical_resend": true,
+      "message": {
+        "kind": "Request",
+        "message_id": "q3",
+        "payload": {
+          "input": {
+            "action": "unapproved-action"
+          },
+          "operation": "review",
+          "task_id": "t3"
+        },
+        "recipient": "human",
+        "run_id": "human-review",
+        "sender": "agent",
+        "version": "1"
+      },
+      "restart_redelivery": true,
+      "wire": "message \"q3\" run \"human-review\" from \"agent\" to \"human\" version \"1\" kind \"Request\" payload {\"input\":{\"action\":\"unapproved-action\"},\"operation\":\"review\",\"task_id\":\"t3\"};"
+    },
+    {
+      "acknowledged": true,
+      "identical_resend": true,
+      "message": {
+        "kind": "Result",
+        "message_id": "r3",
+        "payload": {
+          "output": {
+            "action": "unapproved-action",
+            "approved": false,
+            "status": "unresolved"
+          },
+          "reply_to": "q3",
+          "status": "unresolved",
+          "task_id": "t3"
+        },
+        "recipient": "agent",
+        "run_id": "human-review",
+        "sender": "human",
+        "version": "1"
+      },
+      "restart_redelivery": true,
+      "wire": "message \"r3\" run \"human-review\" from \"human\" to \"agent\" version \"1\" kind \"Result\" payload {\"output\":{\"action\":\"unapproved-action\",\"approved\":false,\"status\":\"unresolved\"},\"reply_to\":\"q3\",\"status\":\"unresolved\",\"task_id\":\"t3\"};"
+    }
+  ],
+  "mode": "deterministic-fixture",
+  "pattern": "human-review",
+  "result": {
+    "branches": [
+      {
+        "external_effects": false,
+        "recorded": "record-example"
+      },
+      {
+        "executor_dispatched": false,
+        "reason": "simulated reviewer rejected action",
+        "status": "unresolved"
+      }
+    ],
+    "reviewer": "deterministic simulation; no human approval obtained"
+  },
+  "usage": {
+    "bytes": 1380,
+    "calls": 0,
+    "messages": 6
+  }
+}

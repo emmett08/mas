@@ -1,0 +1,37 @@
+{
+  "name": "swarm-handoff",
+  "agents": [
+    "researcher",
+    "analyst",
+    "reviewer"
+  ],
+  "edges": [
+    [
+      "researcher",
+      "analyst"
+    ],
+    [
+      "analyst",
+      "researcher"
+    ],
+    [
+      "analyst",
+      "reviewer"
+    ],
+    [
+      "reviewer",
+      "analyst"
+    ],
+    [
+      "researcher",
+      "reviewer"
+    ],
+    [
+      "reviewer",
+      "researcher"
+    ]
+  ],
+  "description": "Peer handoff example with explicit context payloads and one active participant in the scripted runner. Global exclusive control is not a transport guarantee.",
+  "mailbox_capacity": 2,
+  "application": "agent-task/1"
+}

@@ -1,0 +1,3 @@
+/root/.cargo/bin/cargo build --release --locked --manifest-path rust-protocol/Cargo.toml
+    Finished `release` profile [optimized] target(s) in 0.01s
+mkdir -p evidence/examples

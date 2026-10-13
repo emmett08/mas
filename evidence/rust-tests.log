@@ -1,0 +1,68 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.02s
+     Running unittests src/lib.rs (rust-protocol/target/debug/deps/mas_protocol_codec-0824b536b504665c)
+
+running 17 tests
+test store::tests::incompatible_databases_are_rejected_without_schema_changes ... ok
+test store::tests::deadline_and_budget_admission_preserve_existing_delivery ... ok
+test examples::tests::malformed_demo_configuration_is_rejected ... ok
+test store::tests::mailbox_full_rolls_back_and_ack_releases_capacity ... ok
+test store::tests::persistent_call_budget_and_rejected_configuration ... ok
+test tests::bounds_prevent_unbounded_recursion ... ok
+test store::tests::call_evidence_is_bounded_and_integer_exact_before_state_change ... ok
+test tests::direct_library_validate_rejects_noninteger_payload ... ok
+test tests::duplicates_malformed_and_trailing_rejected ... ok
+test tests::empty_depth_boundary_and_unpaired_surrogate ... ok
+test tests::exact_unicode_bigint_and_boolean_types ... ok
+test store::tests::restart_redelivery_ack_and_frozen_configuration ... ok
+test store::tests::task_terminal_race_and_concurrent_dedup ... ok
+test examples::tests::nested_tree_reply_retains_parent_correlation ... ok
+test examples::tests::orchestrator_plan_changes_with_input_requirements ... ok
+test examples::tests::parallel_correlation_and_application_decisions_are_explicit ... ok
+test examples::tests::all_patterns_recover_and_ack_wire_messages ... ok
+
+test result: ok. 17 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.14s
+
+     Running unittests src/bin/mas.rs (rust-protocol/target/debug/deps/mas-c42fdf14f10d624b)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/main.rs (rust-protocol/target/debug/deps/mas_protocol_codec-7e59d0a51b0f1bce)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/bin/verify.rs (rust-protocol/target/debug/deps/verify-abb60f16a3429d06)
+
+running 2 tests
+test tests::incomplete_logs_never_become_success ... ok
+test tests::invalid_examples_fail_closed ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/cli.rs (rust-protocol/target/debug/deps/cli-5f4479bfe2432bc4)
+
+running 3 tests
+test cli_errors_are_structured ... ok
+test explicit_topology_never_fails_open ... ok
+test wire_cli_roundtrip_and_restart ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running tests/semantics.rs (rust-protocol/target/debug/deps/semantics-7311e8186a835a3f)
+
+running 3 tests
+test byte_and_call_limits_preserve_state_and_actor_ownership ... ok
+test ownership_version_and_run_boundaries_survive_acknowledgement ... ok
+test task_correlation_rejects_wrong_runs_participants_and_terminal_reuse ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+   Doc-tests mas_protocol_codec
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

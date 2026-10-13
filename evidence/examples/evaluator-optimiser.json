@@ -1,0 +1,257 @@
+{
+  "all_acknowledged": true,
+  "claim": "Transport and scripted workflow only; no live model or human execution.",
+  "events": [
+    {
+      "acknowledged": true,
+      "identical_resend": true,
+      "message": {
+        "kind": "Request",
+        "message_id": "q1",
+        "payload": {
+          "input": {
+            "candidate": 3,
+            "rounds_remaining": 2
+          },
+          "operation": "evaluate",
+          "task_id": "t1"
+        },
+        "recipient": "evaluator",
+        "run_id": "evaluator-optimiser",
+        "sender": "generator",
+        "version": "1"
+      },
+      "restart_redelivery": true,
+      "wire": "message \"q1\" run \"evaluator-optimiser\" from \"generator\" to \"evaluator\" version \"1\" kind \"Request\" payload {\"input\":{\"candidate\":3,\"rounds_remaining\":2},\"operation\":\"evaluate\",\"task_id\":\"t1\"};"
+    },
+    {
+      "acknowledged": true,
+      "identical_resend": true,
+      "message": {
+        "kind": "Result",
+        "message_id": "r1",
+        "payload": {
+          "output": {
+            "accepted": false,
+            "status": "completed",
+            "suggestion": 4
+          },
+          "reply_to": "q1",
+          "status": "completed",
+          "task_id": "t1"
+        },
+        "recipient": "generator",
+        "run_id": "evaluator-optimiser",
+        "sender": "evaluator",
+        "version": "1"
+      },
+      "restart_redelivery": true,
+      "wire": "message \"r1\" run \"evaluator-optimiser\" from \"evaluator\" to \"generator\" version \"1\" kind \"Result\" payload {\"output\":{\"accepted\":false,\"status\":\"completed\",\"suggestion\":4},\"reply_to\":\"q1\",\"status\":\"completed\",\"task_id\":\"t1\"};"
+    },
+    {
+      "acknowledged": true,
+      "identical_resend": true,
+      "message": {
+        "kind": "Request",
+        "message_id": "q2",
+        "payload": {
+          "input": {
+            "candidate": 4,
+            "rounds_remaining": 1
+          },
+          "operation": "evaluate",
+          "task_id": "t2"
+        },
+        "recipient": "evaluator",
+        "run_id": "evaluator-optimiser",
+        "sender": "generator",
+        "version": "1"
+      },
+      "restart_redelivery": true,
+      "wire": "message \"q2\" run \"evaluator-optimiser\" from \"generator\" to \"evaluator\" version \"1\" kind \"Request\" payload {\"input\":{\"candidate\":4,\"rounds_remaining\":1},\"operation\":\"evaluate\",\"task_id\":\"t2\"};"
+    },
+    {
+      "acknowledged": true,
+      "identical_resend": true,
+      "message": {
+        "kind": "Result",
+        "message_id": "r2",
+        "payload": {
+          "output": {
+            "accepted": true,
+            "status": "completed",
+            "suggestion": 5
+          },
+          "reply_to": "q2",
+          "status": "completed",
+          "task_id": "t2"
+        },
+        "recipient": "generator",
+        "run_id": "evaluator-optimiser",
+        "sender": "evaluator",
+        "version": "1"
+      },
+      "restart_redelivery": true,
+      "wire": "message \"r2\" run \"evaluator-optimiser\" from \"evaluator\" to \"generator\" version \"1\" kind \"Result\" payload {\"output\":{\"accepted\":true,\"status\":\"completed\",\"suggestion\":5},\"reply_to\":\"q2\",\"status\":\"completed\",\"task_id\":\"t2\"};"
+    },
+    {
+      "acknowledged": true,
+      "identical_resend": true,
+      "message": {
+        "kind": "Request",
+        "message_id": "q3",
+        "payload": {
+          "input": {
+            "candidate": 3,
+            "rounds_remaining": 2
+          },
+          "operation": "evaluate",
+          "task_id": "t3"
+        },
+        "recipient": "evaluator",
+        "run_id": "evaluator-optimiser",
+        "sender": "generator",
+        "version": "1"
+      },
+      "restart_redelivery": true,
+      "wire": "message \"q3\" run \"evaluator-optimiser\" from \"generator\" to \"evaluator\" version \"1\" kind \"Request\" payload {\"input\":{\"candidate\":3,\"rounds_remaining\":2},\"operation\":\"evaluate\",\"task_id\":\"t3\"};"
+    },
+    {
+      "acknowledged": true,
+      "identical_resend": true,
+      "message": {
+        "kind": "Result",
+        "message_id": "r3",
+        "payload": {
+          "output": {
+            "accepted": false,
+            "status": "completed",
+            "suggestion": 4
+          },
+          "reply_to": "q3",
+          "status": "completed",
+          "task_id": "t3"
+        },
+        "recipient": "generator",
+        "run_id": "evaluator-optimiser",
+        "sender": "evaluator",
+        "version": "1"
+      },
+      "restart_redelivery": true,
+      "wire": "message \"r3\" run \"evaluator-optimiser\" from \"evaluator\" to \"generator\" version \"1\" kind \"Result\" payload {\"output\":{\"accepted\":false,\"status\":\"completed\",\"suggestion\":4},\"reply_to\":\"q3\",\"status\":\"completed\",\"task_id\":\"t3\"};"
+    },
+    {
+      "acknowledged": true,
+      "identical_resend": true,
+      "message": {
+        "kind": "Request",
+        "message_id": "q4",
+        "payload": {
+          "input": {
+            "candidate": 3,
+            "rounds_remaining": 1
+          },
+          "operation": "evaluate",
+          "task_id": "t4"
+        },
+        "recipient": "evaluator",
+        "run_id": "evaluator-optimiser",
+        "sender": "generator",
+        "version": "1"
+      },
+      "restart_redelivery": true,
+      "wire": "message \"q4\" run \"evaluator-optimiser\" from \"generator\" to \"evaluator\" version \"1\" kind \"Request\" payload {\"input\":{\"candidate\":3,\"rounds_remaining\":1},\"operation\":\"evaluate\",\"task_id\":\"t4\"};"
+    },
+    {
+      "acknowledged": true,
+      "identical_resend": true,
+      "message": {
+        "kind": "Result",
+        "message_id": "r4",
+        "payload": {
+          "output": {
+            "accepted": false,
+            "status": "completed",
+            "suggestion": 4
+          },
+          "reply_to": "q4",
+          "status": "completed",
+          "task_id": "t4"
+        },
+        "recipient": "generator",
+        "run_id": "evaluator-optimiser",
+        "sender": "evaluator",
+        "version": "1"
+      },
+      "restart_redelivery": true,
+      "wire": "message \"r4\" run \"evaluator-optimiser\" from \"evaluator\" to \"generator\" version \"1\" kind \"Result\" payload {\"output\":{\"accepted\":false,\"status\":\"completed\",\"suggestion\":4},\"reply_to\":\"q4\",\"status\":\"completed\",\"task_id\":\"t4\"};"
+    },
+    {
+      "acknowledged": true,
+      "identical_resend": true,
+      "message": {
+        "kind": "Request",
+        "message_id": "q5",
+        "payload": {
+          "input": {
+            "candidate": 3,
+            "rounds_remaining": 0
+          },
+          "operation": "evaluate",
+          "task_id": "t5"
+        },
+        "recipient": "evaluator",
+        "run_id": "evaluator-optimiser",
+        "sender": "generator",
+        "version": "1"
+      },
+      "restart_redelivery": true,
+      "wire": "message \"q5\" run \"evaluator-optimiser\" from \"generator\" to \"evaluator\" version \"1\" kind \"Request\" payload {\"input\":{\"candidate\":3,\"rounds_remaining\":0},\"operation\":\"evaluate\",\"task_id\":\"t5\"};"
+    },
+    {
+      "acknowledged": true,
+      "identical_resend": true,
+      "message": {
+        "kind": "Result",
+        "message_id": "r5",
+        "payload": {
+          "output": {
+            "accepted": false,
+            "status": "unresolved",
+            "suggestion": 4
+          },
+          "reply_to": "q5",
+          "status": "unresolved",
+          "task_id": "t5"
+        },
+        "recipient": "generator",
+        "run_id": "evaluator-optimiser",
+        "sender": "evaluator",
+        "version": "1"
+      },
+      "restart_redelivery": true,
+      "wire": "message \"r5\" run \"evaluator-optimiser\" from \"evaluator\" to \"generator\" version \"1\" kind \"Result\" payload {\"output\":{\"accepted\":false,\"status\":\"unresolved\",\"suggestion\":4},\"reply_to\":\"q5\",\"status\":\"unresolved\",\"task_id\":\"t5\"};"
+    }
+  ],
+  "mode": "deterministic-fixture",
+  "pattern": "evaluator-optimiser",
+  "result": {
+    "exhausted": {
+      "candidate": 3,
+      "iterations": 3,
+      "reason": "evaluation budget exhausted",
+      "status": "unresolved"
+    },
+    "success": {
+      "candidate": 4,
+      "criterion": "even integer",
+      "iterations": 2,
+      "status": "completed"
+    }
+  },
+  "usage": {
+    "bytes": 2371,
+    "calls": 0,
+    "messages": 10
+  }
+}

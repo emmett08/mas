@@ -1,0 +1,162 @@
+{
+  "all_acknowledged": true,
+  "claim": "Transport and scripted workflow only; no live model or human execution.",
+  "events": [
+    {
+      "acknowledged": true,
+      "identical_resend": true,
+      "message": {
+        "kind": "Request",
+        "message_id": "q1",
+        "payload": {
+          "input": {
+            "text": "  example draft  "
+          },
+          "operation": "normalise",
+          "task_id": "t1"
+        },
+        "recipient": "drafter",
+        "run_id": "prompt-chaining",
+        "sender": "coordinator",
+        "version": "1"
+      },
+      "restart_redelivery": true,
+      "wire": "message \"q1\" run \"prompt-chaining\" from \"coordinator\" to \"drafter\" version \"1\" kind \"Request\" payload {\"input\":{\"text\":\"  example draft  \"},\"operation\":\"normalise\",\"task_id\":\"t1\"};"
+    },
+    {
+      "acknowledged": true,
+      "identical_resend": true,
+      "message": {
+        "kind": "Result",
+        "message_id": "r1",
+        "payload": {
+          "output": {
+            "status": "completed",
+            "text": "EXAMPLE DRAFT"
+          },
+          "reply_to": "q1",
+          "status": "completed",
+          "task_id": "t1"
+        },
+        "recipient": "coordinator",
+        "run_id": "prompt-chaining",
+        "sender": "drafter",
+        "version": "1"
+      },
+      "restart_redelivery": true,
+      "wire": "message \"r1\" run \"prompt-chaining\" from \"drafter\" to \"coordinator\" version \"1\" kind \"Result\" payload {\"output\":{\"status\":\"completed\",\"text\":\"EXAMPLE DRAFT\"},\"reply_to\":\"q1\",\"status\":\"completed\",\"task_id\":\"t1\"};"
+    },
+    {
+      "acknowledged": true,
+      "identical_resend": true,
+      "message": {
+        "kind": "Request",
+        "message_id": "q2",
+        "payload": {
+          "input": {
+            "status": "completed",
+            "text": "EXAMPLE DRAFT"
+          },
+          "operation": "check-draft",
+          "task_id": "t2"
+        },
+        "recipient": "reviewer",
+        "run_id": "prompt-chaining",
+        "sender": "coordinator",
+        "version": "1"
+      },
+      "restart_redelivery": true,
+      "wire": "message \"q2\" run \"prompt-chaining\" from \"coordinator\" to \"reviewer\" version \"1\" kind \"Request\" payload {\"input\":{\"status\":\"completed\",\"text\":\"EXAMPLE DRAFT\"},\"operation\":\"check-draft\",\"task_id\":\"t2\"};"
+    },
+    {
+      "acknowledged": true,
+      "identical_resend": true,
+      "message": {
+        "kind": "Result",
+        "message_id": "r2",
+        "payload": {
+          "output": {
+            "accepted": true,
+            "text": "EXAMPLE DRAFT"
+          },
+          "reply_to": "q2",
+          "status": "completed",
+          "task_id": "t2"
+        },
+        "recipient": "coordinator",
+        "run_id": "prompt-chaining",
+        "sender": "reviewer",
+        "version": "1"
+      },
+      "restart_redelivery": true,
+      "wire": "message \"r2\" run \"prompt-chaining\" from \"reviewer\" to \"coordinator\" version \"1\" kind \"Result\" payload {\"output\":{\"accepted\":true,\"text\":\"EXAMPLE DRAFT\"},\"reply_to\":\"q2\",\"status\":\"completed\",\"task_id\":\"t2\"};"
+    },
+    {
+      "acknowledged": true,
+      "identical_resend": true,
+      "message": {
+        "kind": "Request",
+        "message_id": "q3",
+        "payload": {
+          "input": {
+            "text": "  "
+          },
+          "operation": "normalise",
+          "task_id": "t3"
+        },
+        "recipient": "drafter",
+        "run_id": "prompt-chaining",
+        "sender": "coordinator",
+        "version": "1"
+      },
+      "restart_redelivery": true,
+      "wire": "message \"q3\" run \"prompt-chaining\" from \"coordinator\" to \"drafter\" version \"1\" kind \"Request\" payload {\"input\":{\"text\":\"  \"},\"operation\":\"normalise\",\"task_id\":\"t3\"};"
+    },
+    {
+      "acknowledged": true,
+      "identical_resend": true,
+      "message": {
+        "kind": "Result",
+        "message_id": "r3",
+        "payload": {
+          "output": {
+            "status": "unresolved",
+            "text": ""
+          },
+          "reply_to": "q3",
+          "status": "unresolved",
+          "task_id": "t3"
+        },
+        "recipient": "coordinator",
+        "run_id": "prompt-chaining",
+        "sender": "drafter",
+        "version": "1"
+      },
+      "restart_redelivery": true,
+      "wire": "message \"r3\" run \"prompt-chaining\" from \"drafter\" to \"coordinator\" version \"1\" kind \"Result\" payload {\"output\":{\"status\":\"unresolved\",\"text\":\"\"},\"reply_to\":\"q3\",\"status\":\"unresolved\",\"task_id\":\"t3\"};"
+    }
+  ],
+  "mode": "deterministic-fixture",
+  "pattern": "prompt-chaining",
+  "result": {
+    "passed": {
+      "gate": "passed",
+      "output": {
+        "accepted": true,
+        "text": "EXAMPLE DRAFT"
+      },
+      "second_stage_dispatched": true,
+      "status": "completed"
+    },
+    "rejected": {
+      "gate": "rejected empty draft",
+      "second_stage_dispatched": false,
+      "status": "unresolved"
+    }
+  },
+  "usage": {
+    "bytes": 1340,
+    "calls": 0,
+    "messages": 6
+  }
+}

@@ -1,0 +1,30 @@
+{
+  "access_date": "2026-10-13",
+  "glossary_url": "https://agenticorgchart.com/glossary/",
+  "retrieval": "HTTPS GET after web-reader failure",
+  "html_sha256": "6e555b1d1097b38262a78efb418ab2aff25d29705c725d5ce7ce9943e18fc440",
+  "term_names": [
+    "Augmented LLM",
+    "Centralised orchestration",
+    "Coordinator pattern",
+    "Crew (CrewAI)",
+    "Emergent orchestration",
+    "Evaluator-optimiser pattern",
+    "Generator-critic",
+    "Group chat (AutoGen)",
+    "Handoff",
+    "Hierarchical agents",
+    "Human-as-arbiter",
+    "Human-as-reviewer",
+    "Human-in-the-loop",
+    "Manager agent",
+    "Multi-agent system",
+    "Orchestrator-workers",
+    "Peer agents",
+    "Routing (static / LLM-judged / tool-based)",
+    "Single-agent topology",
+    "Supervisor agent",
+    "Swarm pattern",
+    "Worker agent"
+  ]
+}

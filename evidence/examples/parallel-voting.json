@@ -1,0 +1,308 @@
+{
+  "all_acknowledged": true,
+  "claim": "Transport and scripted workflow only; no live model or human execution.",
+  "events": [
+    {
+      "acknowledged": true,
+      "identical_resend": true,
+      "message": {
+        "kind": "Request",
+        "message_id": "q1",
+        "payload": {
+          "input": {
+            "fixture_vote": "accept"
+          },
+          "operation": "vote",
+          "task_id": "t1"
+        },
+        "recipient": "voter-1",
+        "run_id": "parallel-voting",
+        "sender": "coordinator",
+        "version": "1"
+      },
+      "restart_redelivery": true,
+      "wire": "message \"q1\" run \"parallel-voting\" from \"coordinator\" to \"voter-1\" version \"1\" kind \"Request\" payload {\"input\":{\"fixture_vote\":\"accept\"},\"operation\":\"vote\",\"task_id\":\"t1\"};"
+    },
+    {
+      "acknowledged": true,
+      "identical_resend": true,
+      "message": {
+        "kind": "Request",
+        "message_id": "q2",
+        "payload": {
+          "input": {
+            "fixture_vote": "accept"
+          },
+          "operation": "vote",
+          "task_id": "t2"
+        },
+        "recipient": "voter-2",
+        "run_id": "parallel-voting",
+        "sender": "coordinator",
+        "version": "1"
+      },
+      "restart_redelivery": true,
+      "wire": "message \"q2\" run \"parallel-voting\" from \"coordinator\" to \"voter-2\" version \"1\" kind \"Request\" payload {\"input\":{\"fixture_vote\":\"accept\"},\"operation\":\"vote\",\"task_id\":\"t2\"};"
+    },
+    {
+      "acknowledged": true,
+      "identical_resend": true,
+      "message": {
+        "kind": "Request",
+        "message_id": "q3",
+        "payload": {
+          "input": {
+            "fixture_vote": "reject"
+          },
+          "operation": "vote",
+          "task_id": "t3"
+        },
+        "recipient": "voter-3",
+        "run_id": "parallel-voting",
+        "sender": "coordinator",
+        "version": "1"
+      },
+      "restart_redelivery": true,
+      "wire": "message \"q3\" run \"parallel-voting\" from \"coordinator\" to \"voter-3\" version \"1\" kind \"Request\" payload {\"input\":{\"fixture_vote\":\"reject\"},\"operation\":\"vote\",\"task_id\":\"t3\"};"
+    },
+    {
+      "acknowledged": true,
+      "identical_resend": true,
+      "message": {
+        "kind": "Result",
+        "message_id": "r3",
+        "payload": {
+          "output": {
+            "vote": "reject"
+          },
+          "reply_to": "q3",
+          "status": "completed",
+          "task_id": "t3"
+        },
+        "recipient": "coordinator",
+        "run_id": "parallel-voting",
+        "sender": "voter-3",
+        "version": "1"
+      },
+      "restart_redelivery": true,
+      "wire": "message \"r3\" run \"parallel-voting\" from \"voter-3\" to \"coordinator\" version \"1\" kind \"Result\" payload {\"output\":{\"vote\":\"reject\"},\"reply_to\":\"q3\",\"status\":\"completed\",\"task_id\":\"t3\"};"
+    },
+    {
+      "acknowledged": true,
+      "identical_resend": true,
+      "message": {
+        "kind": "Result",
+        "message_id": "r2",
+        "payload": {
+          "output": {
+            "vote": "accept"
+          },
+          "reply_to": "q2",
+          "status": "completed",
+          "task_id": "t2"
+        },
+        "recipient": "coordinator",
+        "run_id": "parallel-voting",
+        "sender": "voter-2",
+        "version": "1"
+      },
+      "restart_redelivery": true,
+      "wire": "message \"r2\" run \"parallel-voting\" from \"voter-2\" to \"coordinator\" version \"1\" kind \"Result\" payload {\"output\":{\"vote\":\"accept\"},\"reply_to\":\"q2\",\"status\":\"completed\",\"task_id\":\"t2\"};"
+    },
+    {
+      "acknowledged": true,
+      "identical_resend": true,
+      "message": {
+        "kind": "Result",
+        "message_id": "r1",
+        "payload": {
+          "output": {
+            "vote": "accept"
+          },
+          "reply_to": "q1",
+          "status": "completed",
+          "task_id": "t1"
+        },
+        "recipient": "coordinator",
+        "run_id": "parallel-voting",
+        "sender": "voter-1",
+        "version": "1"
+      },
+      "restart_redelivery": true,
+      "wire": "message \"r1\" run \"parallel-voting\" from \"voter-1\" to \"coordinator\" version \"1\" kind \"Result\" payload {\"output\":{\"vote\":\"accept\"},\"reply_to\":\"q1\",\"status\":\"completed\",\"task_id\":\"t1\"};"
+    },
+    {
+      "acknowledged": true,
+      "identical_resend": true,
+      "message": {
+        "kind": "Request",
+        "message_id": "q4",
+        "payload": {
+          "input": {
+            "fixture_vote": "accept"
+          },
+          "operation": "vote",
+          "task_id": "t4"
+        },
+        "recipient": "voter-1",
+        "run_id": "parallel-voting",
+        "sender": "coordinator",
+        "version": "1"
+      },
+      "restart_redelivery": true,
+      "wire": "message \"q4\" run \"parallel-voting\" from \"coordinator\" to \"voter-1\" version \"1\" kind \"Request\" payload {\"input\":{\"fixture_vote\":\"accept\"},\"operation\":\"vote\",\"task_id\":\"t4\"};"
+    },
+    {
+      "acknowledged": true,
+      "identical_resend": true,
+      "message": {
+        "kind": "Request",
+        "message_id": "q5",
+        "payload": {
+          "input": {
+            "fixture_vote": "reject"
+          },
+          "operation": "vote",
+          "task_id": "t5"
+        },
+        "recipient": "voter-2",
+        "run_id": "parallel-voting",
+        "sender": "coordinator",
+        "version": "1"
+      },
+      "restart_redelivery": true,
+      "wire": "message \"q5\" run \"parallel-voting\" from \"coordinator\" to \"voter-2\" version \"1\" kind \"Request\" payload {\"input\":{\"fixture_vote\":\"reject\"},\"operation\":\"vote\",\"task_id\":\"t5\"};"
+    },
+    {
+      "acknowledged": true,
+      "identical_resend": true,
+      "message": {
+        "kind": "Request",
+        "message_id": "q6",
+        "payload": {
+          "input": {
+            "fixture_vote": "abstain"
+          },
+          "operation": "vote",
+          "task_id": "t6"
+        },
+        "recipient": "voter-3",
+        "run_id": "parallel-voting",
+        "sender": "coordinator",
+        "version": "1"
+      },
+      "restart_redelivery": true,
+      "wire": "message \"q6\" run \"parallel-voting\" from \"coordinator\" to \"voter-3\" version \"1\" kind \"Request\" payload {\"input\":{\"fixture_vote\":\"abstain\"},\"operation\":\"vote\",\"task_id\":\"t6\"};"
+    },
+    {
+      "acknowledged": true,
+      "identical_resend": true,
+      "message": {
+        "kind": "Result",
+        "message_id": "r6",
+        "payload": {
+          "output": {
+            "vote": "abstain"
+          },
+          "reply_to": "q6",
+          "status": "completed",
+          "task_id": "t6"
+        },
+        "recipient": "coordinator",
+        "run_id": "parallel-voting",
+        "sender": "voter-3",
+        "version": "1"
+      },
+      "restart_redelivery": true,
+      "wire": "message \"r6\" run \"parallel-voting\" from \"voter-3\" to \"coordinator\" version \"1\" kind \"Result\" payload {\"output\":{\"vote\":\"abstain\"},\"reply_to\":\"q6\",\"status\":\"completed\",\"task_id\":\"t6\"};"
+    },
+    {
+      "acknowledged": true,
+      "identical_resend": true,
+      "message": {
+        "kind": "Result",
+        "message_id": "r5",
+        "payload": {
+          "output": {
+            "vote": "reject"
+          },
+          "reply_to": "q5",
+          "status": "completed",
+          "task_id": "t5"
+        },
+        "recipient": "coordinator",
+        "run_id": "parallel-voting",
+        "sender": "voter-2",
+        "version": "1"
+      },
+      "restart_redelivery": true,
+      "wire": "message \"r5\" run \"parallel-voting\" from \"voter-2\" to \"coordinator\" version \"1\" kind \"Result\" payload {\"output\":{\"vote\":\"reject\"},\"reply_to\":\"q5\",\"status\":\"completed\",\"task_id\":\"t5\"};"
+    },
+    {
+      "acknowledged": true,
+      "identical_resend": true,
+      "message": {
+        "kind": "Result",
+        "message_id": "r4",
+        "payload": {
+          "output": {
+            "vote": "accept"
+          },
+          "reply_to": "q4",
+          "status": "completed",
+          "task_id": "t4"
+        },
+        "recipient": "coordinator",
+        "run_id": "parallel-voting",
+        "sender": "voter-1",
+        "version": "1"
+      },
+      "restart_redelivery": true,
+      "wire": "message \"r4\" run \"parallel-voting\" from \"voter-1\" to \"coordinator\" version \"1\" kind \"Result\" payload {\"output\":{\"vote\":\"accept\"},\"reply_to\":\"q4\",\"status\":\"completed\",\"task_id\":\"t4\"};"
+    }
+  ],
+  "mode": "deterministic-fixture",
+  "pattern": "parallel-voting",
+  "result": {
+    "majority": {
+      "claim": "Agreement under this fixture rule does not establish truth.",
+      "counts": {
+        "accept": 2,
+        "reject": 1
+      },
+      "electorate": 3,
+      "policy": "At least two matching votes; otherwise unresolved; abstention cannot win.",
+      "reply_order": [
+        "q3",
+        "q2",
+        "q1"
+      ],
+      "required_votes": 2,
+      "selected": "accept",
+      "status": "completed"
+    },
+    "no_quorum": {
+      "claim": "Agreement under this fixture rule does not establish truth.",
+      "counts": {
+        "abstain": 1,
+        "accept": 1,
+        "reject": 1
+      },
+      "electorate": 3,
+      "policy": "At least two matching votes; otherwise unresolved; abstention cannot win.",
+      "reply_order": [
+        "q6",
+        "q5",
+        "q4"
+      ],
+      "required_votes": 2,
+      "selected": null,
+      "status": "unresolved"
+    }
+  },
+  "usage": {
+    "bytes": 2486,
+    "calls": 0,
+    "messages": 12
+  }
+}

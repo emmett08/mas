@@ -1,0 +1,121 @@
+{
+  "all_acknowledged": true,
+  "claim": "Transport and scripted workflow only; no live model or human execution.",
+  "events": [
+    {
+      "acknowledged": true,
+      "identical_resend": true,
+      "message": {
+        "kind": "Request",
+        "message_id": "q1",
+        "payload": {
+          "input": {
+            "context": [
+              "source"
+            ]
+          },
+          "operation": "handoff-context",
+          "task_id": "t1"
+        },
+        "recipient": "writer",
+        "run_id": "sequential-crew",
+        "sender": "researcher",
+        "version": "1"
+      },
+      "restart_redelivery": true,
+      "wire": "message \"q1\" run \"sequential-crew\" from \"researcher\" to \"writer\" version \"1\" kind \"Request\" payload {\"input\":{\"context\":[\"source\"]},\"operation\":\"handoff-context\",\"task_id\":\"t1\"};"
+    },
+    {
+      "acknowledged": true,
+      "identical_resend": true,
+      "message": {
+        "kind": "Result",
+        "message_id": "r1",
+        "payload": {
+          "output": {
+            "context": [
+              "source",
+              "writer"
+            ]
+          },
+          "reply_to": "q1",
+          "status": "completed",
+          "task_id": "t1"
+        },
+        "recipient": "researcher",
+        "run_id": "sequential-crew",
+        "sender": "writer",
+        "version": "1"
+      },
+      "restart_redelivery": true,
+      "wire": "message \"r1\" run \"sequential-crew\" from \"writer\" to \"researcher\" version \"1\" kind \"Result\" payload {\"output\":{\"context\":[\"source\",\"writer\"]},\"reply_to\":\"q1\",\"status\":\"completed\",\"task_id\":\"t1\"};"
+    },
+    {
+      "acknowledged": true,
+      "identical_resend": true,
+      "message": {
+        "kind": "Request",
+        "message_id": "q2",
+        "payload": {
+          "input": {
+            "context": [
+              "source",
+              "writer"
+            ]
+          },
+          "operation": "handoff-context",
+          "task_id": "t2"
+        },
+        "recipient": "reviewer",
+        "run_id": "sequential-crew",
+        "sender": "writer",
+        "version": "1"
+      },
+      "restart_redelivery": true,
+      "wire": "message \"q2\" run \"sequential-crew\" from \"writer\" to \"reviewer\" version \"1\" kind \"Request\" payload {\"input\":{\"context\":[\"source\",\"writer\"]},\"operation\":\"handoff-context\",\"task_id\":\"t2\"};"
+    },
+    {
+      "acknowledged": true,
+      "identical_resend": true,
+      "message": {
+        "kind": "Result",
+        "message_id": "r2",
+        "payload": {
+          "output": {
+            "context": [
+              "source",
+              "writer",
+              "reviewer"
+            ]
+          },
+          "reply_to": "q2",
+          "status": "completed",
+          "task_id": "t2"
+        },
+        "recipient": "writer",
+        "run_id": "sequential-crew",
+        "sender": "reviewer",
+        "version": "1"
+      },
+      "restart_redelivery": true,
+      "wire": "message \"r2\" run \"sequential-crew\" from \"reviewer\" to \"writer\" version \"1\" kind \"Result\" payload {\"output\":{\"context\":[\"source\",\"writer\",\"reviewer\"]},\"reply_to\":\"q2\",\"status\":\"completed\",\"task_id\":\"t2\"};"
+    }
+  ],
+  "mode": "deterministic-fixture",
+  "pattern": "sequential-crew",
+  "result": {
+    "control": "Scripted sequential execution; transport does not guarantee global exclusive control.",
+    "output": {
+      "context": [
+        "source",
+        "writer",
+        "reviewer"
+      ]
+    }
+  },
+  "usage": {
+    "bytes": 880,
+    "calls": 0,
+    "messages": 4
+  }
+}

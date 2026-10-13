@@ -1,0 +1,29 @@
+{
+  "name": "human-review",
+  "agents": [
+    "agent",
+    "human",
+    "executor"
+  ],
+  "edges": [
+    [
+      "agent",
+      "human"
+    ],
+    [
+      "human",
+      "agent"
+    ],
+    [
+      "human",
+      "executor"
+    ],
+    [
+      "executor",
+      "human"
+    ]
+  ],
+  "description": "Human reviews the candidate before an executor receives an authorised request.",
+  "mailbox_capacity": 2,
+  "application": "agent-task/1"
+}

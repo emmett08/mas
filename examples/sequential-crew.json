@@ -1,0 +1,29 @@
+{
+  "name": "sequential-crew",
+  "agents": [
+    "researcher",
+    "writer",
+    "reviewer"
+  ],
+  "edges": [
+    [
+      "researcher",
+      "writer"
+    ],
+    [
+      "writer",
+      "researcher"
+    ],
+    [
+      "writer",
+      "reviewer"
+    ],
+    [
+      "reviewer",
+      "writer"
+    ]
+  ],
+  "description": "Sequential role pipeline. Each stage consumes the previous stage output; responses use reverse edges.",
+  "mailbox_capacity": 2,
+  "application": "agent-task/1"
+}

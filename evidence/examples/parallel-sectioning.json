@@ -1,0 +1,118 @@
+{
+  "all_acknowledged": true,
+  "claim": "Transport and scripted workflow only; no live model or human execution.",
+  "events": [
+    {
+      "acknowledged": true,
+      "identical_resend": true,
+      "message": {
+        "kind": "Request",
+        "message_id": "q1",
+        "payload": {
+          "input": {
+            "values": [
+              1,
+              2
+            ]
+          },
+          "operation": "partial-sum",
+          "task_id": "t1"
+        },
+        "recipient": "worker-a",
+        "run_id": "parallel-sectioning",
+        "sender": "coordinator",
+        "version": "1"
+      },
+      "restart_redelivery": true,
+      "wire": "message \"q1\" run \"parallel-sectioning\" from \"coordinator\" to \"worker-a\" version \"1\" kind \"Request\" payload {\"input\":{\"values\":[1,2]},\"operation\":\"partial-sum\",\"task_id\":\"t1\"};"
+    },
+    {
+      "acknowledged": true,
+      "identical_resend": true,
+      "message": {
+        "kind": "Request",
+        "message_id": "q2",
+        "payload": {
+          "input": {
+            "values": [
+              3,
+              4
+            ]
+          },
+          "operation": "partial-sum",
+          "task_id": "t2"
+        },
+        "recipient": "worker-b",
+        "run_id": "parallel-sectioning",
+        "sender": "coordinator",
+        "version": "1"
+      },
+      "restart_redelivery": true,
+      "wire": "message \"q2\" run \"parallel-sectioning\" from \"coordinator\" to \"worker-b\" version \"1\" kind \"Request\" payload {\"input\":{\"values\":[3,4]},\"operation\":\"partial-sum\",\"task_id\":\"t2\"};"
+    },
+    {
+      "acknowledged": true,
+      "identical_resend": true,
+      "message": {
+        "kind": "Result",
+        "message_id": "r2",
+        "payload": {
+          "output": {
+            "partial": 7
+          },
+          "reply_to": "q2",
+          "status": "completed",
+          "task_id": "t2"
+        },
+        "recipient": "coordinator",
+        "run_id": "parallel-sectioning",
+        "sender": "worker-b",
+        "version": "1"
+      },
+      "restart_redelivery": true,
+      "wire": "message \"r2\" run \"parallel-sectioning\" from \"worker-b\" to \"coordinator\" version \"1\" kind \"Result\" payload {\"output\":{\"partial\":7},\"reply_to\":\"q2\",\"status\":\"completed\",\"task_id\":\"t2\"};"
+    },
+    {
+      "acknowledged": true,
+      "identical_resend": true,
+      "message": {
+        "kind": "Result",
+        "message_id": "r1",
+        "payload": {
+          "output": {
+            "partial": 3
+          },
+          "reply_to": "q1",
+          "status": "completed",
+          "task_id": "t1"
+        },
+        "recipient": "coordinator",
+        "run_id": "parallel-sectioning",
+        "sender": "worker-a",
+        "version": "1"
+      },
+      "restart_redelivery": true,
+      "wire": "message \"r1\" run \"parallel-sectioning\" from \"worker-a\" to \"coordinator\" version \"1\" kind \"Result\" payload {\"output\":{\"partial\":3},\"reply_to\":\"q1\",\"status\":\"completed\",\"task_id\":\"t1\"};"
+    }
+  ],
+  "mode": "deterministic-fixture",
+  "pattern": "parallel-sectioning",
+  "result": {
+    "dispatched_before_consumption": 2,
+    "execution": "Scripted interleaving of independently dispatched work; no concurrent model execution.",
+    "partials_by_request": {
+      "q1": 3,
+      "q2": 7
+    },
+    "reply_order": [
+      "q2",
+      "q1"
+    ],
+    "sum": 10
+  },
+  "usage": {
+    "bytes": 836,
+    "calls": 0,
+    "messages": 4
+  }
+}

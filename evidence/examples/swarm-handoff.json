@@ -1,0 +1,174 @@
+{
+  "all_acknowledged": true,
+  "claim": "Transport and scripted workflow only; no live model or human execution.",
+  "events": [
+    {
+      "acknowledged": true,
+      "identical_resend": true,
+      "message": {
+        "kind": "Request",
+        "message_id": "q1",
+        "payload": {
+          "input": {
+            "context": [
+              "source"
+            ]
+          },
+          "operation": "handoff-context",
+          "task_id": "t1"
+        },
+        "recipient": "analyst",
+        "run_id": "swarm-handoff",
+        "sender": "researcher",
+        "version": "1"
+      },
+      "restart_redelivery": true,
+      "wire": "message \"q1\" run \"swarm-handoff\" from \"researcher\" to \"analyst\" version \"1\" kind \"Request\" payload {\"input\":{\"context\":[\"source\"]},\"operation\":\"handoff-context\",\"task_id\":\"t1\"};"
+    },
+    {
+      "acknowledged": true,
+      "identical_resend": true,
+      "message": {
+        "kind": "Result",
+        "message_id": "r1",
+        "payload": {
+          "output": {
+            "context": [
+              "source",
+              "analyst"
+            ]
+          },
+          "reply_to": "q1",
+          "status": "completed",
+          "task_id": "t1"
+        },
+        "recipient": "researcher",
+        "run_id": "swarm-handoff",
+        "sender": "analyst",
+        "version": "1"
+      },
+      "restart_redelivery": true,
+      "wire": "message \"r1\" run \"swarm-handoff\" from \"analyst\" to \"researcher\" version \"1\" kind \"Result\" payload {\"output\":{\"context\":[\"source\",\"analyst\"]},\"reply_to\":\"q1\",\"status\":\"completed\",\"task_id\":\"t1\"};"
+    },
+    {
+      "acknowledged": true,
+      "identical_resend": true,
+      "message": {
+        "kind": "Request",
+        "message_id": "q2",
+        "payload": {
+          "input": {
+            "context": [
+              "source",
+              "analyst"
+            ]
+          },
+          "operation": "handoff-context",
+          "task_id": "t2"
+        },
+        "recipient": "reviewer",
+        "run_id": "swarm-handoff",
+        "sender": "analyst",
+        "version": "1"
+      },
+      "restart_redelivery": true,
+      "wire": "message \"q2\" run \"swarm-handoff\" from \"analyst\" to \"reviewer\" version \"1\" kind \"Request\" payload {\"input\":{\"context\":[\"source\",\"analyst\"]},\"operation\":\"handoff-context\",\"task_id\":\"t2\"};"
+    },
+    {
+      "acknowledged": true,
+      "identical_resend": true,
+      "message": {
+        "kind": "Result",
+        "message_id": "r2",
+        "payload": {
+          "output": {
+            "context": [
+              "source",
+              "analyst",
+              "reviewer"
+            ]
+          },
+          "reply_to": "q2",
+          "status": "completed",
+          "task_id": "t2"
+        },
+        "recipient": "analyst",
+        "run_id": "swarm-handoff",
+        "sender": "reviewer",
+        "version": "1"
+      },
+      "restart_redelivery": true,
+      "wire": "message \"r2\" run \"swarm-handoff\" from \"reviewer\" to \"analyst\" version \"1\" kind \"Result\" payload {\"output\":{\"context\":[\"source\",\"analyst\",\"reviewer\"]},\"reply_to\":\"q2\",\"status\":\"completed\",\"task_id\":\"t2\"};"
+    },
+    {
+      "acknowledged": true,
+      "identical_resend": true,
+      "message": {
+        "kind": "Request",
+        "message_id": "q3",
+        "payload": {
+          "input": {
+            "context": [
+              "source",
+              "analyst",
+              "reviewer"
+            ]
+          },
+          "operation": "handoff-context",
+          "task_id": "t3"
+        },
+        "recipient": "researcher",
+        "run_id": "swarm-handoff",
+        "sender": "reviewer",
+        "version": "1"
+      },
+      "restart_redelivery": true,
+      "wire": "message \"q3\" run \"swarm-handoff\" from \"reviewer\" to \"researcher\" version \"1\" kind \"Request\" payload {\"input\":{\"context\":[\"source\",\"analyst\",\"reviewer\"]},\"operation\":\"handoff-context\",\"task_id\":\"t3\"};"
+    },
+    {
+      "acknowledged": true,
+      "identical_resend": true,
+      "message": {
+        "kind": "Result",
+        "message_id": "r3",
+        "payload": {
+          "output": {
+            "context": [
+              "source",
+              "analyst",
+              "reviewer",
+              "researcher"
+            ]
+          },
+          "reply_to": "q3",
+          "status": "completed",
+          "task_id": "t3"
+        },
+        "recipient": "reviewer",
+        "run_id": "swarm-handoff",
+        "sender": "researcher",
+        "version": "1"
+      },
+      "restart_redelivery": true,
+      "wire": "message \"r3\" run \"swarm-handoff\" from \"researcher\" to \"reviewer\" version \"1\" kind \"Result\" payload {\"output\":{\"context\":[\"source\",\"analyst\",\"reviewer\",\"researcher\"]},\"reply_to\":\"q3\",\"status\":\"completed\",\"task_id\":\"t3\"};"
+    }
+  ],
+  "mode": "deterministic-fixture",
+  "pattern": "swarm-handoff",
+  "result": {
+    "control": "Scripted sequential execution; transport does not guarantee global exclusive control.",
+    "output": {
+      "context": [
+        "source",
+        "analyst",
+        "reviewer",
+        "researcher"
+      ]
+    }
+  },
+  "usage": {
+    "bytes": 1357,
+    "calls": 0,
+    "messages": 6
+  }
+}

@@ -1,0 +1,159 @@
+{
+  "all_acknowledged": true,
+  "claim": "Transport and scripted workflow only; no live model or human execution.",
+  "events": [
+    {
+      "acknowledged": true,
+      "identical_resend": true,
+      "message": {
+        "kind": "Request",
+        "message_id": "q1",
+        "payload": {
+          "input": {
+            "values": [
+              2,
+              3
+            ]
+          },
+          "operation": "delegate",
+          "task_id": "t1"
+        },
+        "recipient": "lead",
+        "run_id": "tree",
+        "sender": "root",
+        "version": "1"
+      },
+      "restart_redelivery": true,
+      "wire": "message \"q1\" run \"tree\" from \"root\" to \"lead\" version \"1\" kind \"Request\" payload {\"input\":{\"values\":[2,3]},\"operation\":\"delegate\",\"task_id\":\"t1\"};"
+    },
+    {
+      "acknowledged": true,
+      "identical_resend": true,
+      "message": {
+        "kind": "Request",
+        "message_id": "q2",
+        "payload": {
+          "input": {
+            "values": [
+              2,
+              3
+            ]
+          },
+          "operation": "sum",
+          "task_id": "t2"
+        },
+        "recipient": "worker",
+        "run_id": "tree",
+        "sender": "lead",
+        "version": "1"
+      },
+      "restart_redelivery": true,
+      "wire": "message \"q2\" run \"tree\" from \"lead\" to \"worker\" version \"1\" kind \"Request\" payload {\"input\":{\"values\":[2,3]},\"operation\":\"sum\",\"task_id\":\"t2\"};"
+    },
+    {
+      "acknowledged": true,
+      "identical_resend": true,
+      "message": {
+        "kind": "Result",
+        "message_id": "r2",
+        "payload": {
+          "output": {
+            "candidate": 5,
+            "values": [
+              2,
+              3
+            ]
+          },
+          "reply_to": "q2",
+          "status": "completed",
+          "task_id": "t2"
+        },
+        "recipient": "lead",
+        "run_id": "tree",
+        "sender": "worker",
+        "version": "1"
+      },
+      "restart_redelivery": true,
+      "wire": "message \"r2\" run \"tree\" from \"worker\" to \"lead\" version \"1\" kind \"Result\" payload {\"output\":{\"candidate\":5,\"values\":[2,3]},\"reply_to\":\"q2\",\"status\":\"completed\",\"task_id\":\"t2\"};"
+    },
+    {
+      "acknowledged": true,
+      "identical_resend": true,
+      "message": {
+        "kind": "Request",
+        "message_id": "q3",
+        "payload": {
+          "input": {
+            "candidate": 5,
+            "values": [
+              2,
+              3
+            ]
+          },
+          "operation": "check",
+          "task_id": "t3"
+        },
+        "recipient": "checker",
+        "run_id": "tree",
+        "sender": "lead",
+        "version": "1"
+      },
+      "restart_redelivery": true,
+      "wire": "message \"q3\" run \"tree\" from \"lead\" to \"checker\" version \"1\" kind \"Request\" payload {\"input\":{\"candidate\":5,\"values\":[2,3]},\"operation\":\"check\",\"task_id\":\"t3\"};"
+    },
+    {
+      "acknowledged": true,
+      "identical_resend": true,
+      "message": {
+        "kind": "Result",
+        "message_id": "r3",
+        "payload": {
+          "output": {
+            "accepted": true
+          },
+          "reply_to": "q3",
+          "status": "completed",
+          "task_id": "t3"
+        },
+        "recipient": "lead",
+        "run_id": "tree",
+        "sender": "checker",
+        "version": "1"
+      },
+      "restart_redelivery": true,
+      "wire": "message \"r3\" run \"tree\" from \"checker\" to \"lead\" version \"1\" kind \"Result\" payload {\"output\":{\"accepted\":true},\"reply_to\":\"q3\",\"status\":\"completed\",\"task_id\":\"t3\"};"
+    },
+    {
+      "acknowledged": true,
+      "identical_resend": true,
+      "message": {
+        "kind": "Result",
+        "message_id": "r1",
+        "payload": {
+          "output": {
+            "accepted": true
+          },
+          "reply_to": "q1",
+          "status": "completed",
+          "task_id": "t1"
+        },
+        "recipient": "root",
+        "run_id": "tree",
+        "sender": "lead",
+        "version": "1"
+      },
+      "restart_redelivery": true,
+      "wire": "message \"r1\" run \"tree\" from \"lead\" to \"root\" version \"1\" kind \"Result\" payload {\"output\":{\"accepted\":true},\"reply_to\":\"q1\",\"status\":\"completed\",\"task_id\":\"t1\"};"
+    }
+  ],
+  "mode": "deterministic-fixture",
+  "pattern": "tree",
+  "result": {
+    "accepted": true
+  },
+  "usage": {
+    "bytes": 1130,
+    "calls": 0,
+    "messages": 6
+  }
+}

@@ -1,0 +1,37 @@
+{
+  "name": "mesh",
+  "agents": [
+    "alice",
+    "bob",
+    "checker"
+  ],
+  "edges": [
+    [
+      "alice",
+      "bob"
+    ],
+    [
+      "bob",
+      "alice"
+    ],
+    [
+      "alice",
+      "checker"
+    ],
+    [
+      "checker",
+      "alice"
+    ],
+    [
+      "bob",
+      "checker"
+    ],
+    [
+      "checker",
+      "bob"
+    ]
+  ],
+  "description": "Peers can exchange requests directly; no consensus guarantee.",
+  "mailbox_capacity": 2,
+  "application": "agent-task/1"
+}
