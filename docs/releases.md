@@ -85,7 +85,22 @@ Native amd64 and arm64 jobs produce an OCI archive,
 embedded BuildKit provenance, a CycloneDX SBOM, audit results, a source manifest
 and `SHA256SUMS`. Before packaging is accepted, each final image must pass the
 complete installed-container host suite and dynamic-library checks. The release
-artefacts include the image identity and test log in the checksum manifest.
+build exports the OCI archive once, with gzip layers and provenance. Skopeo
+imports the requested architecture's runtime image from that archive into Docker;
+there is no separate test-image build. A verifier checks descriptor hashes and
+sizes, layer digests and uncompressed layer identities, platform selection and
+provenance naming the runtime manifest. After import, Docker's image ID must
+equal the archive's configuration digest and its ordered root filesystem layer
+identities must match the archive configuration. The original archive checksum
+must remain unchanged. This permits testing with Docker's classic image store
+while retaining attestations in the distributed OCI archive.
+
+The archive is never extracted by the verifier; layer hashing and decompression
+use streams. The release accepts its documented OCI layout, gzip or uncompressed
+tar layers and supported SLSA provenance formats; unexpected formats fail the
+gate. The artefacts include the verified archive/image binding, imported image
+identity, Skopeo version and test log in the checksum manifest. Skopeo is a
+recorded CI import tool, not an application dependency.
 Workflow definitions establish these requirements; only successful executions
 on the tagged commit establish that the candidate passed them.
 The manifest is an unsigned identity record; it is not an
@@ -98,6 +113,21 @@ Before distribution, download the intended architecture's artefacts and run
 the OCI layout, retaining its digest and provenance. Record the tested image
 digest in the deployment configuration. A release tag alone cannot establish
 that an application's live-provider acceptance has passed.
+
+### Initial packaging failure
+
+The [`v0.1.0` acceptance run](../evidence/readiness-ci-initial.json) passed its
+protocol, host, both architecture and security gates, then failed packaging on
+both architectures. The workflow requested both an OCI export with provenance
+and Docker export from the same build; the Docker exporter rejected the
+resulting manifest list. The tag remains attached to that failed candidate and
+must not be rewritten. The corrected single-archive import path will be
+evaluated as `v0.1.1`. A candidate tag is not evidence of a successful release.
+
+The implementation follows Docker's [OCI exporter options](https://docs.docker.com/build/exporters/oci-docker/)
+and [attestation storage format](https://docs.docker.com/build/metadata/attestations/attestation-storage/),
+the [OCI image layout](https://github.com/opencontainers/image-spec/blob/main/image-layout.md),
+and Skopeo's [copy interface](https://github.com/containers/skopeo/blob/main/docs/skopeo-copy.1.md).
 
 ## Upgrade and rollback
 

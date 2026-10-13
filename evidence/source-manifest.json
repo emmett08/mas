@@ -6,7 +6,7 @@
     ".github/dependabot.yml": "05810ae63acc42bc6cec49f77da9d910677c23e31ccf74db97943e8e96975ad8",
     ".github/workflows/check.yml": "4b3f021d44cef2de2f42b6dfa12e5387cda35d6ef67f4443c3926d62203d26ae",
     ".github/workflows/compose.yml": "d3fb56e18948202eb403ad2c94e16ee254061618a958945736384e410b49c34a",
-    ".github/workflows/release.yml": "d5384b1ac683a6d96377401768f92c7c15d2de22b62565eb5a46a2cc6272519d",
+    ".github/workflows/release.yml": "3ab8e66bd41dca0b751dca9ddbfaeec5407528280fce0c74e66e3f12570cda6b",
     ".github/workflows/security.yml": "b668241e13899b5cd30d9141bfb7d0dfced811fd886f732389d93efa774b8552",
     ".gitignore": "6ed7a42039445d293186797a41e9f2035681e823688cf1d19a01ebcb17813849",
     "Dockerfile": "303f1f2b516d2ceb4f84f0e9d96a53314f1f181406027a712a83d63fed37aaf6",
@@ -27,8 +27,8 @@
     "docs/host-runner.md": "162feeb46aef52df20d687dc97b41621090acd78987d0bd5c0d12f35b978aa74",
     "docs/independent-review.md": "61877cf4b184e8780cb12133d332e5171c5f76405ae123d57dae7de7adb7fd6a",
     "docs/operations.md": "6de792be2c764962c25450309b8feb3abfcacc36b9d9dd1d6ab8f8e45c6dc6a0",
-    "docs/releases.md": "a158be383edfdf9c0e346e06ffaecec44aece05e88b8a480232594bc7c62f1af",
-    "docs/verification.md": "c719c25a9aff84319c3a9a6b54626e7b05852cb1c5849032ca7f421b0946318e",
+    "docs/releases.md": "f32ac690a5fc08ca776d76d6530574f67808d6cf2c3287d73a793ae7da989b0e",
+    "docs/verification.md": "e53c154d7f2b633a91cb7eb41014daa9f24f3142d7cc819e3d34e39ee5e027de",
     "examples/evaluator-optimiser.json": "e0df929804ce9d5784430d465c3ba54b8387a17cc16a039fab66e62ba743d62b",
     "examples/host/mesh.json": "68bc78a6dafa566917db84b531990027972616eb8597e2c177136c5968a6dfba",
     "examples/human-review.json": "3ef383446a4edb322e4e5c579f0d9dfaf51347cc3a1252a8396b2bfe6c8e531e",
@@ -105,7 +105,9 @@
     "scripts/release-candidate.py": "208fa24338309d240216104bc4359f0cd3656cf2554ea867100ed09890244ec5",
     "scripts/release-container-check.py": "04d416ed64f7d68a5bbcd53cafeded7326a46a3136ebab9b9ca3d099c6baf773",
     "scripts/release-locks.py": "cf1429939c30fb464ec6b02ac2a0b79beab459479f27daf192ddec23e60c6f4d",
-    "scripts/release-manifest.py": "c02b684f278a8d82b4fa8e01345cf3153123f8c5caca53b8e7f3da89d6d8722e",
-    "scripts/tests/test_release_candidate.py": "ca187555e03b358e7716655cf2c17d1c97292955d39be842507f16c94963766a"
+    "scripts/release-manifest.py": "dcbbad25218e0de10aafd00b099e530a1d5f8a7183cfa92c7449d014ac35046f",
+    "scripts/release-oci.py": "cd41be70e5ebeb1f6e06e859edae62a8e7455318622205bd04ef956f492384c8",
+    "scripts/tests/test_release_candidate.py": "ca187555e03b358e7716655cf2c17d1c97292955d39be842507f16c94963766a",
+    "scripts/tests/test_release_oci.py": "ff1525b4897c637950f4440a9142ee62f088424a2fa43b2ed93c7498b3f5f346"
   }
 }

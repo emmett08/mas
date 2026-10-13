@@ -21,8 +21,16 @@ implementation tests; the [host recovery model](../formal/host-recovery-notes.md
 recovery abstraction, not the Python implementation.
 The separate `Host and Compose checks` workflow runs the full installed-container
 suite on native amd64 and arm64, checks reconciler readiness and tests live-mode
-secret delivery with a dummy key. Seven offline tests additionally check immutable
-release-tag source binding. Workflow success is recorded separately in Actions.
+secret delivery with a dummy key. Thirteen offline release-helper tests check
+immutable tag binding, OCI integrity, build provenance and imported-image identity.
+Workflow success is recorded separately in Actions.
+
+Both architecture gates passed for candidate `a84e190` (`v0.1.0`), with all 131
+host tests passing natively and inside each installed container. Its tagged
+packaging failed because Docker's classic exporter rejected the provenance-bearing
+manifest list. The [initial CI report](../evidence/readiness-ci-initial.json)
+retains that result. The repaired workflow exports one OCI archive and imports
+that same image for testing; a later candidate must pass the full release gates.
 
 Deployment fault checks exercise actual process termination, response loss,
 SQLite write failure and restored-state admission blocking. New regressions cover

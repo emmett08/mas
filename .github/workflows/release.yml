@@ -30,8 +30,8 @@ jobs:
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
-      - name: Test candidate source binding
-        run: python -m unittest discover -s scripts/tests -p test_release_candidate.py -v
+      - name: Test candidate source and image archive binding
+        run: python -m unittest discover -s scripts/tests -v
       - name: Verify or create the immutable candidate tag
         id: candidate
         env:
@@ -70,9 +70,19 @@ jobs:
           push: false
           tags: mas-mesh:${{ needs.candidate.outputs.version }}
           provenance: mode=max
-          outputs: |
-            type=oci,dest=mas-${{ matrix.architecture }}.oci.tar
-            type=docker
+          outputs: type=oci,dest=mas-${{ matrix.architecture }}.oci.tar,compression=gzip,force-compression=true
+      - name: Import and verify the exact OCI runtime image
+        env:
+          RELEASE_TAG: ${{ needs.candidate.outputs.version }}
+          RELEASE_ARCH: ${{ matrix.architecture }}
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y skopeo
+          skopeo --version > release-import-tool.txt
+          python scripts/release-oci.py "mas-$RELEASE_ARCH.oci.tar" --architecture "$RELEASE_ARCH" --binding release-image-binding.json
+          skopeo --override-os linux --override-arch "$RELEASE_ARCH" copy "oci-archive:mas-$RELEASE_ARCH.oci.tar" "docker-daemon:mas-mesh:$RELEASE_TAG"
+          docker image inspect mas-mesh:"$RELEASE_TAG" > release-image-identity.json
+          python scripts/release-oci.py "mas-$RELEASE_ARCH.oci.tar" --architecture "$RELEASE_ARCH" --binding release-image-binding.json --docker-inspect release-image-identity.json
       - name: Run the native architecture image
         env:
           RELEASE_TAG: ${{ needs.candidate.outputs.version }}
@@ -81,7 +91,6 @@ jobs:
         env:
           RELEASE_TAG: ${{ needs.candidate.outputs.version }}
         run: |
-          docker image inspect mas-mesh:"$RELEASE_TAG" > release-image-identity.json
           docker run --rm --init --network none --user 10001:10001 --read-only \
             --cap-drop ALL --security-opt no-new-privileges --cpus 1 \
             --memory 512m --memory-swap 512m --pids-limit 64 \
@@ -124,5 +133,7 @@ jobs:
             release-sbom.cdx.json
             release-manifest.json
             release-image-identity.json
+            release-image-binding.json
+            release-import-tool.txt
             release-container-tests.log
             SHA256SUMS

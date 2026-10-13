@@ -1,0 +1,71 @@
+{
+  "schema": "mas-ci-acceptance/1",
+  "source_commit": "a84e190b2eac52c73ba26b074312e3da1a057e2e",
+  "tag": "v0.1.0",
+  "run_url": "https://github.com/emmett08/mas/actions/runs/38466081971",
+  "status": "release_packaging_failed",
+  "jobs": [
+    {
+      "id": 115533112766,
+      "name": "protocol / check",
+      "conclusion": "success"
+    },
+    {
+      "id": 115533113065,
+      "name": "security / image-audit",
+      "conclusion": "success"
+    },
+    {
+      "id": 115533113114,
+      "name": "security / dependency-audit",
+      "conclusion": "success"
+    },
+    {
+      "id": 115533113205,
+      "name": "host / host-and-compose (ubuntu-24.04-arm, arm64)",
+      "conclusion": "success"
+    },
+    {
+      "id": 115533113249,
+      "name": "host / host-and-compose (ubuntu-24.04, amd64)",
+      "conclusion": "success"
+    },
+    {
+      "id": 115536017653,
+      "name": "candidate",
+      "conclusion": "success"
+    },
+    {
+      "id": 115536371065,
+      "name": "package (ubuntu-24.04, linux/amd64, amd64)",
+      "conclusion": "failure"
+    },
+    {
+      "id": 115536371183,
+      "name": "package (ubuntu-24.04-arm, linux/arm64, arm64)",
+      "conclusion": "failure"
+    }
+  ],
+  "host_test_evidence": {
+    "amd64": {
+      "native_tests": 131,
+      "installed_container_tests": 131,
+      "result": "passed"
+    },
+    "arm64": {
+      "native_tests": 131,
+      "installed_container_tests": 131,
+      "result": "passed"
+    }
+  },
+  "failure": {
+    "stage": "Build OCI archive with build provenance",
+    "architectures": [
+      "amd64",
+      "arm64"
+    ],
+    "message": "docker exporter does not currently support exporting manifest lists",
+    "cause": "Combined OCI and classic Docker exports with BuildKit provenance produced a manifest list that the classic Docker exporter rejects."
+  },
+  "scope": "Both full architecture gates passed. Neither final tagged package was accepted. The v0.1.0 tag is retained unchanged as evidence of this failed candidate."
+}
