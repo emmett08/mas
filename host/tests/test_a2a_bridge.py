@@ -2,6 +2,7 @@
 from dataclasses import replace
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import hashlib
+import importlib.util
 import json
 from pathlib import Path
 import tempfile
@@ -278,6 +279,8 @@ class BlockedInterfaceCompatibilityTests(unittest.TestCase):
         with self.assertRaises(ServiceError):
             RemoteSnapshot('task-one', 'unrecognised').validate()
 
+    @unittest.skipUnless(importlib.util.find_spec('langgraph') is not None,
+                         'optional LangGraph SDK is not installed')
     def test_langgraph_blocked_receipt_interrupts_and_allows_poll(self):
         from unittest.mock import Mock
         from mas_host.bridges.langgraph import make_langgraph_node
