@@ -13,7 +13,7 @@ from typing import Callable
 from ..codec import integer_json
 from ..service_contracts import ServiceError, TaskLifecycle
 
-STATES = frozenset({"queued", "running", "input_required", "auth_required",
+STATES = frozenset({"queued", "running", "blocked", "input_required", "auth_required",
                     "completed", "failed", "cancelled", "unknown"})
 WAIT_STATES = frozenset({"queued", "running"})
 

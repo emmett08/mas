@@ -25,11 +25,12 @@ STATE_TO_WIRE = {
     'input_required': 'TASK_STATE_INPUT_REQUIRED', 'auth_required': 'TASK_STATE_AUTH_REQUIRED',
     'completed': 'TASK_STATE_COMPLETED', 'failed': 'TASK_STATE_FAILED',
     'cancelled': 'TASK_STATE_CANCELED', 'unknown': 'TASK_STATE_UNSPECIFIED',
+    'blocked': 'TASK_STATE_SUBMITTED',
 }
-WIRE_TO_STATE = {value: key for key, value in STATE_TO_WIRE.items()} | {'TASK_STATE_REJECTED': 'failed'}
+WIRE_TO_STATE = {value: key for key, value in STATE_TO_WIRE.items() if key != 'blocked'} | {'TASK_STATE_REJECTED': 'failed'}
 # An unresolved effect is neither a terminal result nor an interruption. Keep
 # blocking callers behind the same bounded wait until recovery settles it.
-WAITING = frozenset({'queued', 'running', 'unknown'})
+WAITING = frozenset({'queued', 'running', 'unknown', 'blocked'})
 
 
 class A2AError(ServiceError):
@@ -165,6 +166,8 @@ class A2ABridge:
         result = {'id': receipt['task_id'], 'contextId': context_id,
                   'status': {'state': STATE_TO_WIRE[state], 'timestamp': _time(receipt['updated_at'])},
                   'metadata': {'mas': {'workflow': receipt['workflow'], 'cancelRequested': receipt['cancel_requested']}}}
+        if state == 'blocked':
+            result['metadata']['mas']['state'] = 'blocked'
         if include_artifacts:
             result['artifacts'] = ([] if receipt.get('result') is None else
                                    [{'artifactId': receipt['task_id'] + '-result', 'name': 'result',
@@ -323,6 +326,10 @@ def _remote_task(task: dict) -> RemoteSnapshot:
     state = WIRE_TO_STATE.get(wire_state) if type(wire_state) is str else None
     if state is None:
         raise ServiceError('invalid_remote_task')
+    if (state == 'queued' and type(task.get('metadata')) is dict
+            and type(task['metadata'].get('mas')) is dict
+            and task['metadata']['mas'].get('state') == 'blocked'):
+        state = 'blocked'
     peer_identifier(task.get('id'))
     context_id = task.get('contextId')
     if context_id is not None:

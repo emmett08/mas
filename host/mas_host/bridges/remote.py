@@ -22,7 +22,7 @@ from ..operations import _file_lock, _private_dir
 from ..schema import Schema, SchemaError, JOURNAL, LEDGER, connect
 from ..service_contracts import ServiceError
 
-STATES = frozenset({'queued', 'running', 'input_required', 'auth_required', 'completed', 'failed', 'cancelled', 'unknown'})
+STATES = frozenset({'queued', 'running', 'blocked', 'input_required', 'auth_required', 'completed', 'failed', 'cancelled', 'unknown'})
 TERMINAL = frozenset({'completed', 'failed', 'cancelled'})
 REMOTE_TASKS = Schema('remote bridge tasks', 0x4D415352, 1, (), (
     'CREATE TABLE remote_tasks(key TEXT PRIMARY KEY,logical_key TEXT NOT NULL,namespace TEXT NOT NULL,binding TEXT NOT NULL,descriptor TEXT NOT NULL,input TEXT NOT NULL,state TEXT NOT NULL,remote_id TEXT,context_id TEXT,result TEXT,host_run_dir TEXT NOT NULL,call_id TEXT NOT NULL,cancel_requested INTEGER NOT NULL DEFAULT 0,pending_action TEXT,created INTEGER NOT NULL,updated INTEGER NOT NULL)',

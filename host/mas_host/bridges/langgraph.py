@@ -27,7 +27,7 @@ def make_langgraph_node(connector: OrchestratorConnector, workflow: str, node_id
         if current["state"] in {"queued", "running"} and poll_seconds:
             current = connector.wait(current["task_id"], timeout_seconds=poll_seconds)
         if interrupt_pending and current["state"] in {
-                "queued", "running", "input_required", "auth_required", "unknown"}:
+                "queued", "running", "input_required", "auth_required", "unknown", "blocked"}:
             capabilities = current.get("capabilities", {})
             actions = ["poll"]
             if capabilities.get("cancel"):
