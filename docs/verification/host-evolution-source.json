@@ -6,7 +6,7 @@
     "kind": "git-visible-non-doc-files",
     "algorithm": "sha256 of sorted path + NUL + file sha256 + newline records",
     "files": 379,
-    "sha256": "ca5044d8bff87e6a6c77bdae2acd3309b746964ad6dc202db028a1970e02f198"
+    "sha256": "33661982f14a2c4a3e25fd26b96360aeed8cd7ead39710c9c3d18cb1e62a1300"
   },
   "environment": {
     "python": "3.14.8",
@@ -55,7 +55,9 @@
     "final-spin/summary.json": "ab415b004cc564e51931246514f6d12e3eb6450bbeb51d6387e2fa10461d534b",
     "final-foundation-transport.log": "ac12ac4ac8580d3c8f574e01817bca646442531c973b657a3b6fefb47f5e6ca6",
     "final-host-tests.log": "ff6a4d03cc3182ace6c13bf5c424c36d1a0e43d25c5759751180cc3fb754303c",
-    "blocked-interfaces-main.log": "d8a0954a2e3f2dfab21e17eec4eb0d58ea5bb21e87dacc7d225408abb75d2154"
+    "blocked-interfaces-main.log": "d8a0954a2e3f2dfab21e17eec4eb0d58ea5bb21e87dacc7d225408abb75d2154",
+    "optional-sdk-absent.log": "4530ee01344d016be20b214933bd3eba04a2e1ec14ff0a698a6b0f3b10d23645",
+    "optional-sdk-provisioned.log": "be26ea327332af87f20bb36911ceb9760ec4d1587203c9a02a38b4e05967697e"
   },
   "performance": {
     "receipt": "host-ipc-benchmark.json",
@@ -77,5 +79,25 @@
     "runtime_changed_since_integrated_run": false,
     "status": "PASS",
     "scope": "Bridge/orchestrator regression suite after three blocked-definition bridge tests were added; not a second full host run."
+  },
+  "optional_sdk_guards": {
+    "runtime_changed": false,
+    "absent_sdk_environment": {
+      "python": "3.12",
+      "tests": 22,
+      "passed": 20,
+      "skipped": 2,
+      "seconds": 2.631,
+      "status": "PASS"
+    },
+    "provisioned_environment": {
+      "python": "3.14.8",
+      "tests": 22,
+      "passed": 22,
+      "skipped": 0,
+      "seconds": 3.27,
+      "status": "PASS"
+    },
+    "scope": "Two optional SDK tests guarded after hosted minimal-dependency phase failure; installed-SDK CI already discovers both test files."
   }
 }

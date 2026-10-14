@@ -14,6 +14,13 @@ bridge/orchestrator supplement**. No runtime code changed after the integrated
 run. The final source therefore contains 949 host tests; the evidence above is a
 946-test integrated run plus that supplement, not a claimed 949-test full run.
 
+Hosted CI then exposed two tests that imported optional SDKs in the base
+dependency phase. Those tests now skip only when their SDK is absent; the
+installed-SDK workflow already discovers both files. The affected 22-test suite
+passed with exactly two skips in an actual environment without those SDKs and
+with no skips in the provisioned Python 3.14 environment. These test guards did
+not change runtime code.
+
 Rust passed **61 tests**; its two model-specific tests are excluded from ordinary
 `cargo test` and covered by the separate verifier. Script tests passed **43** and
 executable fixtures passed **14**. SPIN passed **110 cases**, including the new
