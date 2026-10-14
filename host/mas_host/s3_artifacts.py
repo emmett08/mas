@@ -117,6 +117,19 @@ There is no multipart upload, unbounded listing or automatic object deletion.
             manifest["objects"][reference.sha256] = {"size": reference.size, "state": "reserved"}
             # This intent precedes PUT. A crash/lost reply cannot hide used quota.
             _atomic_json(directory, _MANIFEST, manifest)
+        self.publish_object(manifest['store_id'], reference, source, policy)
+        manifest["objects"][reference.sha256]["state"] = "verified"
+        _atomic_json(directory, _MANIFEST, manifest)
+
+    def publish_object(self, store_id, reference, source, policy):
+        """Publish bytes after an authoritative owner has reserved this object.
+
+        The shared PostgreSQL repository owns reservations in HA mode; local
+        mode owns them in the manifest above. This method grants no read access.
+        """
+        if type(store_id) is not str or re.fullmatch('[0-9a-f]{32}', store_id) is None:
+            raise ArtifactError('invalid object-store namespace identity')
+        manifest = {'store_id': store_id}
         with TemporaryFile(mode="w+b") as snapshot:
             if _hash_source(source, policy.max_artifact_bytes, destination=snapshot) != (reference.size, reference.sha256):
                 raise ArtifactError("artefact source changed during publication")
@@ -132,8 +145,14 @@ There is no multipart upload, unbounded listing or automatic object deletion.
                     if type(response) is not dict or response.get("ResponseMetadata", {}).get("HTTPStatusCode") != 412:
                         raise
                 self._verify(client, manifest, reference)
-        manifest["objects"][reference.sha256]["state"] = "verified"
-        _atomic_json(directory, _MANIFEST, manifest)
+
+    def verify_object(self, store_id, reference, *, collect=False, destination=None):
+        """Verify a shared owner's authorised reference without local metadata."""
+        if type(store_id) is not str or re.fullmatch('[0-9a-f]{32}', store_id) is None:
+            raise ArtifactError('invalid object-store namespace identity')
+        with self._client() as client:
+            return self._verify(client, {'store_id': store_id}, reference,
+                                collect=collect, destination=destination)
 
     def _verify(self, client, manifest, reference, *, collect=False, destination=None):
         response = client.get_object(Bucket=self.config.bucket, Key=self._key(manifest, reference))
