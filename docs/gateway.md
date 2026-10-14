@@ -200,3 +200,84 @@ exit. Policy fingerprints use
 choices, not a proof that the complete service has no timing side channels.
 The remaining basis includes OS randomness, protection of bearer credentials,
 the trusted broker/host, SQLite durability and the execution platform.
+
+## Persistent host transport
+
+Supply a `PersistentProtocolClient` through the existing `Runner` transport port
+to retain one Rust process per run. The command strategy remains the default.
+The retained process performs wire encoding, capability admission, status and
+expiry reconciliation using the same Rust implementations and database schema.
+Provider calls remain in supervised Python workers. A supplied `protocol_client`
+remains caller-owned and must be closed by its caller:
+
+```python
+from mas_host.protocol_client import PersistentProtocolClient
+
+client = PersistentProtocolClient(mas_bin, gateway_bin)
+try:
+    with Runner(topology, adapters, state_dir, protocol_client=client) as runner:
+        outcome = runner.request(sender, recipient, operation, input)
+finally:
+    client.close()
+```
+
+The private executable interface is:
+
+```sh
+mas-gateway host /absolute/private/state.sqlite PRIVATE_CONFIG.json RUN
+```
+
+All credentials must bind the named run. This interface also carries trusted
+administrative status and reconciliation operations, so its pipes must never be
+given to an agent. It has no socket listener, permits no request-selected path or
+executable, and cannot select another run. The Python client strips the child
+environment to `PATH` and closes unrelated descriptors. Inherited client objects
+cannot dispatch from a forked process or terminate the parent's Rust process;
+the existing adapter guardian drops inherited host pipes before invoking code.
+
+The child first sends a JSON-line negotiation record containing `version: 1`
+and its bounds. Each request then consists of a JSON-line header followed by
+exactly `body_bytes` bytes, without an additional delimiter. Headers have exactly
+`version`, `request_id`, `operation`, `body_bytes` and `deadline_ms` fields. The
+request ID increases within one process session. Operations are `encode`,
+`gateway`, `status`, `reconcile` and `close`. The latter three have empty bodies.
+Responses use a JSON-line header with `version`, `request_id`, `body_bytes` and
+`close`, followed by the original JSON result envelope.
+
+Headers are limited to 1,024 bytes. Codec input retains its 65,792-byte transport
+allowance; gateway bodies retain their 65,536-byte admission-frame limit.
+Responses are limited to 16 MiB. A larger result returns `response_too_large`;
+the caller must inspect retained state using an appropriate administrative path,
+not infer that the operation failed to commit. Existing command transport is
+available when retained history exceeds that response bound.
+
+The client allows one outstanding request and bounds lock acquisition, writes,
+reads and handshake by the command deadline. The child rejects an expired
+deadline before dispatch. Incomplete bodies, malformed headers, unsupported
+versions and reused sequence numbers close the session without admitting an
+agent operation. Once a complete gateway body is admitted, its original parser,
+credential checks and durable attempt charges apply, including malformed bodies.
+
+A lost, late or incorrectly correlated response closes the client session and
+raises a sanitised error. The transport never retries a request automatically.
+The next explicit operation can open a new process; the caller remains
+responsible for identity-based reconciliation of the previous operation. A
+deadline or killed pipe cannot prove that an already-dispatched transaction did
+not commit. Run deadlines, message identities, reservations and admission
+counters remain in the existing SQLite database and survive process replacement.
+
+Run the bounded comparison on the local release binaries with:
+
+```sh
+python scripts/benchmark-host-ipc.py --samples 100
+```
+
+It reports process launches and status latency for both strategies on the same
+workload. This measures the status path; it does not establish end-to-end provider
+throughput or distributed-host performance. Persistent transport does not replace
+the Linux process supervisor or add distributed ownership.
+
+The gateway also provides a Linux `supervise` command for registered executable
+workers. It owns a process group, retains supplied lifetime descriptors, applies
+configured resource limits, and reaps descendants before reporting cleanup.
+This trusted process supervisor is separate from transport and is not a sandbox.

@@ -3,9 +3,12 @@
 //! recognised JSON string/number token and serialises lowered typed values.
 
 pub mod store;
+mod store_schema;
 pub mod tasks;
 pub mod examples;
 pub mod gateway;
+pub mod host_ipc;
+pub mod worker_supervisor;
 
 use nom::{
     branch::alt,

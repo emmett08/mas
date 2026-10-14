@@ -95,37 +95,19 @@ impl Store {
         const APPLICATION_ID: i64 = 0x4d415331;
         let fresh = objects == 0 && application == 0 && version == 0;
         if fresh {
-            tx.execute_batch("CREATE TABLE runs(id TEXT PRIMARY KEY,config TEXT NOT NULL,deadline REAL NOT NULL,message_count INTEGER NOT NULL DEFAULT 0,byte_count INTEGER NOT NULL DEFAULT 0,call_count INTEGER NOT NULL DEFAULT 0,active TEXT NOT NULL DEFAULT '1');
-                CREATE TABLE messages(seq INTEGER PRIMARY KEY AUTOINCREMENT,run TEXT NOT NULL REFERENCES runs(id),id TEXT NOT NULL,sender TEXT NOT NULL,recipient TEXT NOT NULL,content TEXT NOT NULL,received INTEGER NOT NULL DEFAULT 0,acked INTEGER NOT NULL DEFAULT 0,UNIQUE(run,id));
-                CREATE INDEX mailbox ON messages(run,recipient,acked,seq);
-                CREATE TABLE calls(run TEXT NOT NULL REFERENCES runs(id),id TEXT NOT NULL,actor TEXT NOT NULL,state TEXT NOT NULL DEFAULT 'reserved',result TEXT,UNIQUE(run,id));
-                PRAGMA application_id=1296126769; PRAGMA user_version=1;").map_err(err)?;
+            tx.execute_batch(crate::store_schema::V1).map_err(err)?;
         } else {
             if application != APPLICATION_ID || !matches!(version,1|2) || objects != if version == 1 {4} else {6} {
                 return Err("incompatible database schema: use a fresh MAS database path; legacy or unrelated databases require explicit migration".into());
             }
-            for (table,expected) in [
-                ("runs", if version == 1 { &["id","config","deadline","message_count","byte_count","call_count","active"][..] } else { &["id","config","deadline","message_count","byte_count","call_count","active","expired"][..] }),
-                ("messages", &["seq","run","id","sender","recipient","content","received","acked"][..]),
-                ("calls", &["run","id","actor","state","result"][..]),
-                ("tasks", &["run","id","request_id","state","terminal_id","closed_at"][..]),
-                ("admissions", &["scope","policy_fingerprint","limit_count","attempts"][..]),
-            ] {
-                if version == 1 && matches!(table,"tasks"|"admissions") { continue; }
-                let mut statement = tx.prepare(&format!("PRAGMA table_info({table})")).map_err(err)?;
-                let names = statement.query_map([],|r|r.get::<_,String>(1)).map_err(err)?.collect::<std::result::Result<Vec<_>,_>>().map_err(err)?;
-                if names.iter().map(String::as_str).collect::<Vec<_>>() != expected {
-                    return Err("incompatible database schema: table layout differs from MAS native schema".into());
-                }
-            }
+            crate::store_schema::validate(&tx, version)?;
         }
         if fresh || version == 1 {
-            tx.execute_batch("ALTER TABLE runs ADD COLUMN expired INTEGER NOT NULL DEFAULT 0 CHECK(expired IN (0,1));
-                CREATE TABLE tasks(run TEXT NOT NULL REFERENCES runs(id),id TEXT NOT NULL,request_id TEXT NOT NULL,state TEXT NOT NULL DEFAULT 'open' CHECK(state IN ('open','completed','unresolved','failed','cancelled','expired_outcome_unknown')),terminal_id TEXT,closed_at REAL,PRIMARY KEY(run,id),UNIQUE(run,request_id),FOREIGN KEY(run,request_id) REFERENCES messages(run,id),FOREIGN KEY(run,terminal_id) REFERENCES messages(run,id));
-                CREATE TABLE admissions(scope TEXT PRIMARY KEY,policy_fingerprint TEXT NOT NULL,limit_count INTEGER NOT NULL CHECK(limit_count>0),attempts INTEGER NOT NULL DEFAULT 0 CHECK(attempts>=0 AND attempts<=limit_count));").map_err(err)?;
+            tx.execute_batch(crate::store_schema::V2_MIGRATION).map_err(err)?;
             // Rebuild task state from native-v1 accepted history in the same
             // migration transaction. Invalid histories leave the old DB intact.
             crate::tasks::migrate(&tx)?;
+            crate::store_schema::validate(&tx, 2)?;
             tx.execute_batch("PRAGMA user_version=2;").map_err(err)?;
         }
         tx.commit().map_err(err)?;

@@ -13,6 +13,9 @@ serde_json = { version = "=1.0.152", features = ["arbitrary_precision"] }
 sha2 = "=0.11.0"
 subtle = "=2.6.1"
 
+[target.'cfg(target_os = "linux")'.dependencies]
+libc = "=0.2.190"
+
 [[bin]]
 name = "mas-protocol-codec"
 path = "src/main.rs"

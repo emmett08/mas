@@ -171,6 +171,7 @@ dependencies = [
 name = "mas-protocol-codec"
 version = "0.1.0"
 dependencies = [
+ "libc",
  "nom",
  "rusqlite",
  "serde_json",

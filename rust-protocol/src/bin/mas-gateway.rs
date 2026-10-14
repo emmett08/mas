@@ -57,7 +57,9 @@ fn execute(args: &[String]) -> Result<Option<Value>, String> {
         Some("help" | "--help" | "-h") | None => Ok(Some(json!({"usage":[
             "mas-gateway provision POLICY.json PRIVATE_CONFIG.json",
             "mas-gateway export PRIVATE_CONFIG.json CREDENTIAL_ID PRIVATE_SESSION.json",
-            "mas-gateway serve /absolute/private/state.sqlite PRIVATE_CONFIG.json"
+            "mas-gateway serve /absolute/private/state.sqlite PRIVATE_CONFIG.json",
+            "mas-gateway host /absolute/private/state.sqlite PRIVATE_CONFIG.json RUN",
+            "mas-gateway supervise LIFETIME_FD CHANNEL_FD DEADLINE_MS MEMORY_BYTES CPU_SECONDS FILE_BYTES LOCK_FDS -- /absolute/worker [ARGS...]"
         ],"transport":"JSONL on a private host broker's stdin/stdout; no socket listener","platform":"Unix, /dev/urandom; credential files mode 0600, database directory mode 0700"}))),
         Some("provision") if args.len() == 3 => {
             let policy = read_json(Path::new(&args[1]), false)?;
@@ -82,6 +84,21 @@ fn execute(args: &[String]) -> Result<Option<Value>, String> {
             let stdin = io::stdin();
             let stdout = io::stdout();
             gateway.serve(&mut BufReader::new(stdin.lock()), &mut stdout.lock())?;
+            Ok(None)
+        },
+        Some("host") if args.len() == 4 => {
+            let db = Path::new(&args[1]);
+            private_database_parent(db)?;
+            let config = read_json(Path::new(&args[2]), true)?;
+            let mut session = mas_protocol_codec::host_ipc::HostSession::open(db, &config, &args[3])
+                .map_err(|_| "host IPC unavailable")?;
+            let stdin = io::stdin();
+            let stdout = io::stdout();
+            session.serve(&mut BufReader::new(stdin.lock()), &mut stdout.lock())?;
+            Ok(None)
+        },
+        Some("supervise") => {
+            mas_protocol_codec::worker_supervisor::supervise(&args[1..])?;
             Ok(None)
         },
         _ => Err("incorrect arguments; use mas-gateway help".into()),
