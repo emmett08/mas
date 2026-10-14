@@ -53,6 +53,10 @@ unlimited faults, with and without process fairness. These are labelled
 A `PASS` for either kind means the expected counterexample was found and
 replayed. It does not mean that its violated property holds. `expected_result`,
 `purpose` and each check's observed status make that distinction explicit.
+Every assertion mutation must replay its named property; a missing or unrelated
+assertion fails acceptance. Liveness counterexamples must replay a cycle for
+the selected LTL property, with that property identified in both checker and
+replay output.
 
 ## Contract and bounds
 
@@ -295,8 +299,8 @@ shared trace, rather than by the exhaustive concurrent schedule.
 
 The local model runs with and without reduction. Four mutations target specific
 guards; five separate witnesses establish that both owners, late cancellation,
-continuation, unknown recovery and foreign rejection are reachable. Cursor,
-bridge and local-service mutations must replay at their named assertion; an
+continuation, unknown recovery and foreign rejection are reachable. Assertion
+mutations must replay at their named assertion; an
 unrelated assertion failure cannot satisfy those checks.
 
 The verifier and `test_task_service_conformance.py` both consume

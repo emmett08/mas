@@ -43,6 +43,54 @@ def _fields(value, allowed):
         raise A2AError(-32602, 'invalid_parameters')
 
 
+def send_task_id(message: dict) -> str | None:
+    """Classify SendMessage identically for scope checks and task dispatch.
+
+    Only omission starts a task. A present identifier must name a local MAS
+    task; null or malformed values can never turn a continuation into a submit.
+    """
+    if type(message) is not dict:
+        raise A2AError(-32602, 'invalid_parameters')
+    if 'taskId' not in message:
+        return None
+    try:
+        return token(message['taskId'])
+    except ServiceError:
+        raise A2AError(-32602, 'invalid_identifier') from None
+
+
+def validate_request(message: dict, metadata=None) -> tuple[str, object]:
+    """Validate the wire envelope before interpreting operation scopes."""
+    request_id = message.get('id') if type(message) is dict else None
+    if (type(message) is not dict or message.get('jsonrpc') != '2.0'
+            or 'id' not in message or type(request_id) not in (str, int)
+            or type(message.get('method')) is not str or not message['method']
+            or set(message) - {'jsonrpc', 'id', 'method', 'params'}):
+        raise A2AError(-32600, 'invalid_request')
+    bounded(message, 65_536)
+    if metadata is not None and {k.lower(): v for k, v in metadata.items()}.get('a2a-version', VERSION) != VERSION:
+        raise A2AError(-32009, 'version_not_supported')
+    return message['method'], message.get('params', {})
+
+
+def error_response(request_id, error: ServiceError) -> dict:
+    """Keep pre-dispatch validation errors in the A2A JSON-RPC error contract."""
+    if type(request_id) not in (str, int):
+        request_id = None
+    if isinstance(error, A2AError):
+        code = error.rpc_code
+    elif error.code in ('task_not_found', 'not_found', 'forbidden', 'unauthorised'):
+        code = -32001
+    elif error.code in ('task_not_continuable', 'task_terminal', 'invalid_transition', 'not_interrupted', 'unsupported_capability', 'invalid_task_state'):
+        code = -32004
+    elif error.code in ('invalid_identifier', 'invalid_payload', 'idempotency_conflict', 'request_conflict', 'unknown_workflow', 'invalid_input', 'input_too_large', 'input_not_encodable'):
+        code = -32602
+    else:
+        code = -32603
+    return {'jsonrpc': '2.0', 'id': request_id, 'error': {'code': code, 'message': error.code,
+            'data': [{'@type': 'type.googleapis.com/google.rpc.ErrorInfo', 'reason': error.code.upper(), 'domain': 'mas'}]}}
+
+
 def _message_key(identifier):
     """Preserve legacy keys; encode opaque wire IDs outside the local alphabet."""
     peer_identifier(identifier)
@@ -131,6 +179,7 @@ class A2ABridge:
         _fields(params, ('message', 'configuration', 'metadata'))
         message = params.get('message')
         _fields(message, ('messageId', 'role', 'parts', 'contextId', 'taskId', 'metadata'))
+        task_id = send_task_id(message)
         message_id = peer_identifier(message.get('messageId'))
         request_key = _message_key(message_id)
         if message.get('role') != 'ROLE_USER':
@@ -162,9 +211,8 @@ class A2ABridge:
         if 'metadata' in message:
             bounded(message['metadata'], 4096)
         metadata = {'message_digest': digest(message), 'request_metadata': params.get('metadata', {})}
-        task_id = message.get('taskId')
         if task_id is not None:
-            existing = self.service.inspect(principal, token(task_id))
+            existing = self.service.inspect(principal, task_id)
             context_id = existing.get('metadata', {}).get('context_id', 'context-' + task_id)
             if message.get('contextId', context_id) != context_id or workflow != existing['workflow']:
                 raise A2AError(-32602, 'task_context_mismatch')
@@ -238,15 +286,7 @@ class A2ABridge:
     def handle(self, principal: str, message: dict, metadata=None) -> dict:
         request_id = message.get('id') if type(message) is dict else None
         try:
-            if (type(message) is not dict or message.get('jsonrpc') != '2.0'
-                    or 'id' not in message or type(request_id) not in (str, int)
-                    or type(message.get('method')) is not str or not message['method']
-                    or set(message) - {'jsonrpc', 'id', 'method', 'params'}):
-                raise A2AError(-32600, 'invalid_request')
-            bounded(message, 65_536)
-            if metadata is not None and {k.lower(): v for k, v in metadata.items()}.get('a2a-version', VERSION) != VERSION:
-                raise A2AError(-32009, 'version_not_supported')
-            method, params = message.get('method'), message.get('params', {})
+            method, params = validate_request(message, metadata)
             if method == 'SendMessage':
                 result = self._send(principal, params)
             elif method == 'GetTask':
@@ -273,18 +313,7 @@ class A2ABridge:
                 raise A2AError(-32601, 'method_not_found')
             return {'jsonrpc': '2.0', 'id': request_id, 'result': result}
         except ServiceError as error:
-            if isinstance(error, A2AError):
-                code = error.rpc_code
-            elif error.code in ('task_not_found', 'not_found', 'forbidden', 'unauthorised'):
-                code = -32001
-            elif error.code in ('task_not_continuable', 'task_terminal', 'invalid_transition', 'not_interrupted', 'unsupported_capability', 'invalid_task_state'):
-                code = -32004
-            elif error.code in ('invalid_identifier', 'invalid_payload', 'idempotency_conflict', 'request_conflict', 'unknown_workflow', 'invalid_input'):
-                code = -32602
-            else:
-                code = -32603
-            return {'jsonrpc': '2.0', 'id': request_id, 'error': {'code': code, 'message': error.code,
-                    'data': [{'@type': 'type.googleapis.com/google.rpc.ErrorInfo', 'reason': error.code.upper(), 'domain': 'mas'}]}}
+            return error_response(request_id, error)
 
 
 def _remote_task(task: dict) -> RemoteSnapshot:

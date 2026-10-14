@@ -5,7 +5,15 @@ import json
 from .contracts import RunnerError
 
 
-def integer_json(value: object, limit: int = 65_536) -> str:
+JSON_BYTES = 65_536
+ENCODE_ENVELOPE_BYTES = JSON_BYTES + 256
+
+
+class JsonSizeError(RunnerError):
+    """Canonical JSON exceeds the caller's explicit byte bound."""
+
+
+def integer_json(value: object, limit: int = JSON_BYTES) -> str:
     """Reject Python coercions before handing JSON to the authoritative codec."""
     def check(item: object, depth: int) -> None:
         if depth > 32:
@@ -33,7 +41,7 @@ def integer_json(value: object, limit: int = 65_536) -> str:
         source = json.dumps(value, ensure_ascii=False, allow_nan=False,
                             separators=(",", ":"))
         if len(source.encode("utf-8")) > limit:
-            raise RunnerError("JSON byte limit exceeded")
+            raise JsonSizeError("JSON byte limit exceeded")
         return source
     except (ValueError, TypeError, UnicodeError, RecursionError):
         raise RunnerError("invalid protocol JSON") from None

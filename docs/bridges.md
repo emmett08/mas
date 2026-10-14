@@ -100,8 +100,17 @@ updated_after=...)`. Its `next` cursor is passed back as `after` until it is
 Trusted local worker execution is a separate `TaskWorker` capability and has
 no HTTP operation. Orchestration connectors require only `TaskLifecycle`.
 
-The task service allows 65,536 bytes for each application input, metadata
-object and result, within a separate 1 MiB HTTP request/response envelope.
+The task service caps each application input, metadata object and result at
+65,536 canonical UTF-8 JSON bytes, within a separate 1 MiB HTTP envelope.
+For the Rust executor, application data must also fit its complete 65,536-byte
+wire message and escaped 65,536-byte gateway frame. Identity, operation and
+correlation fields consume part of those bounds; characters requiring JSON
+escaping consume additional space. The service checks the actual request
+encoding before accepting a submission or continuation, without creating a
+task or charging a run. Oversized frames return `input_too_large`. Metadata
+is application history and is not included in the Rust request. An oversized
+adapter result fails the task while retaining any already recorded invocation
+output for inspection; it does not turn that known output into an unknown effect.
 Task and event lists return a prefix bounded to 512 KiB even when the requested
 item count is larger. For offset lists advance by the number actually returned;
 for events advance `after` to the final event ID. Continue until an empty list,

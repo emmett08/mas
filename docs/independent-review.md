@@ -327,3 +327,35 @@ actual Rust binaries. Discarding an accepted submission reply triggers an actual
 Temporal activity retry with the same request key and task ID, and produces one
 completed durable invoice task. Outbound real-server checks separately cover
 start, polling, cancellation and original-run recovery after continue-as-new.
+
+## Production-readiness recheck — 14 October 2026
+
+The next review inspected main at `6a23507a183d4a35e188861756f89666100a6a4b`.
+It reproduced three runtime defects and identified missing deployment and
+release controls. These repairs are reviewed separately from the earlier
+bridge claims above.
+
+| Finding | Repair and verification |
+| --- | --- |
+| An update-only A2A token could submit work with `taskId: null`. | Shared envelope validation and task classification drive both scope checks and dispatch. Scope/identifier matrices prove rejected requests leave no durable tasks. |
+| Reopening ingress waited for an executing worker's deployment lock. | Current-schema opening uses a shared lock and read-only validation; initialisation and migration retain exclusive locking and revalidation. Actual CLI ingress inspection and cancellation work during active execution. |
+| Application input could fit its advertised cap but exceed the enclosing native frame after admission. | A narrow, side-effect-free validator shares the authoritative Rust codec and complete gateway framing. Exact UTF-8 and escaping boundaries, continuation rollback and no-charge rejection are tested. |
+| Unencodable result intent could prevent recovery despite a known completed invocation. | Result framing is checked before terminal intent is saved. An application failure preserves completed invocation evidence and avoids duplicate effects. |
+| The bridge example lacked supervision and watched the wrong state with the mesh overlay. | A dedicated production overlay adds ingress/worker readiness and a separate reconciler on `bridge-state`. Process ownership, deadlines, restart, backup exclusions and decorator capability preservation have regressions; container execution remains an exact-revision CI gate. |
+| Release automation attempted tag writes forbidden by owner-only policy and omitted Cursor packages. | Read-only validation requires an existing owner-created tag. Four native architecture/variant packages retain exact source and runtime-image binding; helpers test missing/mismatched tags and changed archives. |
+| Original transport mutation controls could accept an unrelated counterexample. | Every mutation now requires its named replayed assertion or selected LTL acceptance cycle. The full bounded suite was rerun and its logs, trails and source hashes retained. |
+
+Independent follow-up reviewers checked authorisation, locking, frame validation,
+health/decorator integration and both workflows. One integration defect found in
+that pass was repaired: the monitoring Decorator now preserves an executor's
+optional input-validation capability. The service keeps its generic executor
+port; native encoding remains in its concrete adapter. Shared classification and
+encoding remove duplicated decisions, while maintenance retains its necessary
+cross-store knowledge. These are concrete applications of responsibility,
+substitution and interface segregation, not a design-pattern count.
+
+The result closes the identified code defects within the documented single-host
+profile. Formal verification remains sufficient only for its stated finite
+properties and assumptions. Live provider and external security integration,
+target-host workload/recovery acceptance and an owner-created packaged release
+remain distinct evidence requirements; they are not inferred from passing tests.

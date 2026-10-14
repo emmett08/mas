@@ -1,0 +1,108 @@
+{
+  "base_commit": "6a23507a183d4a35e188861756f89666100a6a4b",
+  "ci_acceptance": "Required PR checks must pass at the published head. The final PR metadata records results without an evidence-only retrigger. Both architecture jobs exercise actual installed standard/Cursor runtimes, optional SDK environments and the new supervised Compose restart/replay gate.",
+  "claim_limits": [
+    "Finite model checking does not prove Python/Rust refinement, authentication, physical storage durability or external provider correctness",
+    "Health checks establish bounded local readiness, not provider progress; unhealthy containers need alerting/recovery and are not restarted merely by Docker health status",
+    "Input encoding errors and codec process unavailability share a fail-closed input_not_encodable diagnostic",
+    "Repository visibility, forkability and owner-only mutation/merge policies are preserved; no tag, merge or release publication is performed"
+  ],
+  "date": "2026-10-14",
+  "evidence_sha256": {
+    "evidence/bridge-model-checks.json": "856ff4151497ccb67133f4e5d542e1605dcab4305aa9679289088812b6a0e415",
+    "evidence/bridge-model-checks.tar.gz": "888a1892c35b7f6f03b6eadd3e3bc7aa4aa46d90463a84f2a28b1a77422e04a2",
+    "evidence/production-readiness-host-tests.log": "7768744c00e1ca70687053201572c0ae2bdb5cc118ba2a476beebd839b62eff9",
+    "evidence/production-readiness-rust-tests.log": "1417f09cd49df32a0d9ac32192bb2b2ad6a9f01f975c93b7a2a7f25fc7613769",
+    "evidence/production-readiness-script-tests.log": "aab86a77d0d16d41f7e044a656f4a3bfc6a556694b439e85c1ebd4313800d0c7"
+  },
+  "independent_review": "Separate follow-up review covered auth/locking, framing and result evidence, monitoring/decorator contracts, workflow service commands and release/archive identity. Review found and repaired optional validator loss in the monitoring decorator.",
+  "local_checks": {
+    "dependency_locks": "release-locks.py --check and release-wolfi.py --lock docker/wolfi-packages.json --check passed; dependency and image vulnerability scans remain exact-revision CI gates",
+    "diff_check": "passed",
+    "environment": {
+      "cursor_and_orchestrator_sdks": "not installed in local verification environment",
+      "docker": "unavailable locally",
+      "openai_sdk": "3.29.0",
+      "python": "3.12.14",
+      "rust": "1.99.0",
+      "spin": "6.5.2"
+    },
+    "formal": {
+      "assumption_counterexamples": 2,
+      "cases": 90,
+      "checks": 118,
+      "defect_counterexamples": 32,
+      "exact_assertion_counterexamples": 36,
+      "historical_archive_members_preserved": 19,
+      "named_ltl_cycles": 3,
+      "positive_checks": 79,
+      "raw_evidence": "bridge-model-checks.tar.gz",
+      "reachability_witnesses": 5,
+      "simulations": 53,
+      "status": "PASS",
+      "summary": "bridge-model-checks.json",
+      "verified_logs": 406,
+      "verified_trails": 39
+    },
+    "host": {
+      "log": "production-readiness-host-tests.log",
+      "optional_sdk_skips": 20,
+      "passed": 407,
+      "tests": 427
+    },
+    "release_helpers": {
+      "log": "production-readiness-script-tests.log",
+      "passed": 35
+    },
+    "rust": {
+      "log": "production-readiness-rust-tests.log",
+      "passed": 52
+    },
+    "workflow_static": "Actionlint 1.7.7 passed all workflows (shellcheck unavailable); YAML and all 24 shell blocks in changed workflows parsed successfully"
+  },
+  "remaining_acceptance": [
+    "Live OpenAI, Cursor, mixed-provider and Cursor Cloud execution with an authorised account",
+    "Organisation OAuth/introspection and TLS integration, and external MCP/A2A peer acceptance",
+    "Representative target-host workload, resource limits, operational alerts and recovery exercises",
+    "Owner-created tagged release at the accepted revision, four package artefacts and durable external retention"
+  ],
+  "repairs": [
+    "A2A envelope/scope/dispatch classification rejects present null or malformed task identifiers",
+    "Current ledger opens under shared deployment lock; initialisation and migration retain exclusive locking",
+    "Complete native request framing is checked before durable admission; result framing preserves known invocation evidence",
+    "Supervised bridge ingress, worker and independent reconciler use the same durable state; monitor preserves input-validation capability",
+    "Owner-created release tags and read-only workflow permissions; standard/Cursor packaging on amd64/arm64",
+    "Every formal mutation requires its intended replayed assertion or selected LTL cycle"
+  ],
+  "scope": "Production-readiness code repairs for the documented bounded single-host Linux profile",
+  "source_sha256": {
+    ".github/workflows/compose.yml": "3c1d0a447a5cad088441f31f5a560c8efaf22ca08d9dc24bbf053f8957ba5cbb",
+    ".github/workflows/release.yml": "dde04f77c3d99627e0298dcf73e8a69ed5a824a53924cd93a7d4cb2e19fe2a98",
+    "README.md": "09ec79b1ad70e4f5cbcb57ae74b6d2a6bf584c7f238d731e751d1c59815ff605",
+    "compose.bridges.production.yaml": "4d7fe6c1db4fb98293036a095d90cb90c88e38cb609e514ab280555e17a07a13",
+    "docs/bridges.md": "d7d1c6a328973fe42e57548b9691b7dc8033eb87750d601bd75d15bd86211717",
+    "docs/deployment-acceptance.md": "f6d68c26dafe4dadb376236524f82aecc1d989cd20092a65c146a5eb921fe829",
+    "docs/independent-review.md": "0208f640fb4f3f899e6be36272bc677c597202bdffbb4fc8e3aa0631153d016a",
+    "docs/operations.md": "dd52e8342974cbac1d106db9b3d9552fb64b2b0616eee2e58ba6e8d146595393",
+    "docs/releases.md": "a6aecfd003cd996a2de491b674ee4beeac2c672bb476b6e8e33d6d359b6f9f38",
+    "docs/verification.md": "02f4229ddc41f41de94dde7755215076bfc20d882704d3690266b82705f7b683",
+    "formal/README.md": "bef8aebc86cc34eab9b5695001f38db1a10d87bef67e00fe022d21243cd60cf5",
+    "host/mas_host/bridge_cli.py": "74b1117fdd2d0b756bd7b8729748edd918e59ced578d856936e6527301ce8ce4",
+    "host/mas_host/bridge_health.py": "85a681dbf25f1c538a5a9e9a6cabbd1ea74984255d0eae5fb432ff520683ea57",
+    "host/mas_host/bridges/a2a.py": "bfd1bc744db5c35409221129d619b16b669ccba3474d7665013bb3d953a5cf1b",
+    "host/mas_host/bridges/server.py": "c990e9ea8af695431f00b9e5b3750c5869e17f9f674018febec3be4d3f40b2ff",
+    "host/mas_host/codec.py": "af7f809e6dafd782f38259158fad9590b493c12303c11b7f90bf44bce05beb5e",
+    "host/mas_host/operations.py": "a2c6febe610da95d5728870317e1914bf01e00ff131cf730ba0971be45442f1a",
+    "host/mas_host/runner.py": "bf05646e9e6c56c449f57a120130e00f3e05f3979c925565b4a3647836e2e8bf",
+    "host/mas_host/task_service.py": "5b0eebcb963b1e5708141b3f4f245658607a444da07ef5761e0ae657330128ba",
+    "host/tests/test_a2a_authorisation.py": "e4978b74d4f7710fc7e7ea791800431f52c7963f749b234dd61948fd414491a6",
+    "host/tests/test_bridge_health.py": "b5b469e3af7c214390aba9969dcaaae19be45cd4ffa41d7ea489ecac2d42c64a",
+    "host/tests/test_input_boundaries.py": "0715713e6f628ce981d21d048efd80c3010b65e8b58bb27dcf15ccb477a41d3b",
+    "host/tests/test_ledger_startup.py": "d43ed1bcc1f3c617d96a4445dc1942a84113640038eff56033c4ee85f4a08285",
+    "rust-protocol/src/bin/verify.rs": "e94a76f3e5cdc7654772814d2da2e416030ac707680000a04bf0bc2b207d70aa",
+    "scripts/release-candidate.py": "36a6584a7f9b28dd1045ffa49eb6df14021fac140f066a2a177f0adf04d6d322",
+    "scripts/release-manifest.py": "efe0f0a4ed434d048d1eb8740e2064122731cdcd58c72dd7532fb10c0a6f0dc5",
+    "scripts/tests/test_release_candidate.py": "095ab2a871b0b4a692db10d74d76899e90849e75bee6c22988ccd3660e842c3d",
+    "scripts/tests/test_release_manifest.py": "27e15687067af045d5678f974853ad0e7b8073eb240a99d130ed684463fb25ee"
+  }
+}

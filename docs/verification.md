@@ -1,6 +1,44 @@
 # Verification results
 
-## Durable bridge extension — 14 October 2026
+## Production-readiness repairs — 14 October 2026
+
+Review of main at `6a23507a183d4a35e188861756f89666100a6a4b` found
+additional defects after the earlier bridge acceptance. The repairs reject the
+A2A null-task scope bypass, allow ingress to reopen a current ledger during
+active execution, and validate complete Rust/gateway request frames before
+durable admission. Oversized results preserve known invocation evidence while
+failing the application result. Regression tests exercise the actual HTTP,
+SQLite, subprocess and Rust boundaries.
+
+The supervised bridge profile now checks HTTP ingress, worker ownership and
+bounded progress, and an independent reconciler on the same state volume. CI
+exercises submission, completion and idempotent replay after restarting ingress
+and worker on both supported architectures. Readiness does not establish
+provider availability, and Docker health status alone does not restart a hung
+container; the operations guide describes alerting and recovery.
+
+The release workflow now accepts an existing owner-created tag, uses read-only
+repository permissions, and packages both standard and Cursor variants on amd64
+and arm64. Each archive is bound to the runtime image actually tested and scanned.
+An owner-created release and durable retention remain separate operations.
+
+The full formal rerun passed **90 cases and 118 checks**. All 32 deliberate
+mutations now require their specific replayed assertion or selected liveness
+property, including the original transport controls. There are **79 positive
+checks, 32 defect counterexamples, two assumption counterexamples and five
+reachability witnesses**. The model bounds are unchanged; this strengthens the
+acceptance oracle without claiming whole-program refinement.
+
+The [current repair record](../evidence/production-readiness.json) identifies
+executed local checks and their limits. Its host suite has explicit optional SDK
+skips. Prior optional-SDK and real Temporal results below are historical evidence;
+the architecture workflow reruns its pinned SDK environments. Exact-revision PR
+checks establish container and image-scan results. No live OpenAI, Cursor, Cloud,
+organisation OAuth/TLS or representative production workload acceptance is
+claimed. Code repairs and finite-model checks do not by themselves establish
+production readiness.
+
+## Earlier durable bridge extension — 14 October 2026
 
 The whole-PR recheck found defects despite the earlier green CI. Repairs and
 requirement coverage are recorded in [the independent review](independent-review.md#whole-pr-bridge-and-provider-recheck--14-october-2026).

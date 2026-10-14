@@ -87,6 +87,12 @@ protocol guarantee. See [operations](docs/operations.md),
 [release controls](docs/releases.md). Live-provider acceptance needs your own
 credentials and is not implied by the offline tests.
 
+For a continuously served bridge, apply `compose.bridges.production.yaml` after
+`compose.bridges.yaml`; it supervises ingress, worker and a reconciler on the
+same durable volume. Follow the [bridge operations procedure](docs/operations.md)
+for private credentials, readiness, alerts and recovery. Current verification
+and its remaining deployment gates are recorded in [verification](docs/verification.md).
+
 See [when to choose MAS](docs/choosing-mas.md) for organisational use cases,
 alternatives and a measurable adoption pilot.
 

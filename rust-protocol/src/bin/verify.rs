@@ -168,6 +168,15 @@ struct CaseOptions {
 
 fn expected_assertion(defect: Option<&str>) -> Option<&'static str> {
     Some(match defect? {
+        "BUG_EARLY_ACK" => "TRANSPORT_ACK_REQUIRES_RECEIPT",
+        "BUG_ALLOW_FORBIDDEN" => "TRANSPORT_ROUTE_ALLOWED",
+        "BUG_DOUBLE_TERMINAL" => "TASK_SINGLE_TERMINAL",
+        "BUG_PARTIAL_COMMIT" | "BUG_DUPLICATE_INSERT" => "TRANSACTION_ROW_COUNT",
+        "BUG_EXPIRY_OVERWRITE" => "EXPIRY_SINGLE_TERMINAL",
+        "BUG_HOST_UNCHARGED" => "HOST_ADMITTED",
+        "BUG_HOST_REPLAY_UNKNOWN" => "HOST_NO_REPLAY",
+        "BUG_HOST_STALE_OWNER" => "HOST_CURRENT_OWNER",
+        "BUG_HOST_MUTABLE_RESULT" => "HOST_RESULT_IMMUTABLE",
         "BUG_CURSOR_UNCHARGED" => "CURSOR_ADMITTED",
         "BUG_CURSOR_REPLAY_UNKNOWN" => "CURSOR_NO_RELAUNCH",
         "BUG_CURSOR_LOST_ID" => "CURSOR_ID_RETAINED",
@@ -197,15 +206,55 @@ fn expected_assertion(defect: Option<&str>) -> Option<&'static str> {
     })
 }
 
+// The original models predate assertion markers. Bind their exact replayed
+// expressions to assertions present in the source, including SPIN's inline
+// parameter substitution. Source-line remapping must not select a different
+// assertion. Unknown expression formats fail closed.
+fn core_replay_assertion(model_name: &str, model: &str, expression: &str) -> Option<&'static str> {
+    let source: String = model.chars().filter(|c| !c.is_whitespace()).collect();
+    let assertions = [
+        ("task-lifecycle.pml", "assert(terminal_count[t]==1)", "assert((terminal_count[task]==1))", "TASK_SINGLE_TERMINAL"),
+        ("transaction-recovery.pml", "assert(stored==committed[0]+committed[1])", "assert((stored==(committed[0]+committed[1])))", "TRANSACTION_ROW_COUNT"),
+        ("host-recovery.pml", "assert(charged[attempt]&&reserved[attempt])", "assert((charged[attempt]&&reserved[attempt]))", "HOST_ADMITTED"),
+        ("host-recovery.pml", "assert(dispatches[attempt]==1)", "assert((dispatches[attempt]==1))", "HOST_NO_REPLAY"),
+        ("host-recovery.pml", "assert(!result_written||result_owner==owner)", "assert((!(result_written)||(result_owner==owner)))", "HOST_CURRENT_OWNER"),
+        ("host-recovery.pml", "assert(!result_written||result_value==first_result)", "assert((!(result_written)||(result_value==first_result)))", "HOST_RESULT_IMMUTABLE"),
+    ];
+    for (name, original, expanded, marker) in assertions {
+        if model_name == name && expression == expanded && source.contains(original) { return Some(marker); }
+    }
+    for message in 0..2 {
+        if model_name == "protocol.pml" && source.contains("assert(!acknowledged[m]||received[m])")
+            && expression == format!("assert((!(acknowledged[{message}])||received[{message}]))") {
+            return Some("TRANSPORT_ACK_REQUIRES_RECEIPT");
+        }
+        if model_name == "task-expiry.pml" && source.contains("assert(terminal_count[task]==1)")
+            && expression == format!("assert((terminal_count[{message}]==1))") {
+            return Some("EXPIRY_SINGLE_TERMINAL");
+        }
+        for agents in 2..=6 {
+            if model_name == "protocol.pml"
+                && model.lines().any(|line| line.trim() == format!("#define AGENTS {agents}"))
+                && source.contains(&format!("assert(allowed[actor*AGENTS+recipient[{message}]])"))
+                && expression == format!("assert(allowed[((actor*{agents})+recipient[{message}])])") {
+                return Some("TRANSPORT_ROUTE_ALLOWED");
+            }
+        }
+    }
+    None
+}
+
 // SPIN's replay reports the original model line, including inline assertions.
 // Bind a mutation to that line's stable property marker, not merely any failure.
 fn replay_assertion(model_name: &str, model: &str, replay: &str) -> Option<String> {
     let prefix = format!("spin: {model_name}:");
-    let failure = replay.lines().find(|line| line.starts_with(&prefix) && line.contains(", Error: assertion violated"))?;
+    let mut lines = replay.lines();
+    let failure = lines.find(|line| line.starts_with(&prefix) && line.contains(", Error: assertion violated"))?;
     // SPIN 6.5.2 can report a collapsed #ifdef line for the later witness
     // alternatives. Match their exact failed expression instead of guessing
     // another source line. This remains an assertion-specific, fail-closed gate.
-    let expression = replay.lines().find_map(|line| line.strip_prefix("spin: text of failed assertion: "))?;
+    let expression = lines.next()?.strip_prefix("spin: text of failed assertion: ")?;
+    if let Some(marker) = core_replay_assertion(model_name, model, expression) { return Some(marker.to_owned()); }
     let witness = match expression {
         "assert(!((receipts[0]==1)&&(receipts[1]==1)))" => Some("REACH_SERVICE_TWO_OWNERS"),
         "assert(!(cancelled_pause))" => Some("REACH_SERVICE_CANCEL_PAUSE"),
@@ -226,11 +275,24 @@ fn replay_assertion(model_name: &str, model: &str, replay: &str) -> Option<Strin
     Some(marker.to_owned())
 }
 
+fn replay_cycle(property: &str, checked: &str, replay: &str) -> Option<String> {
+    let named_check = checked.lines().any(|line| line == format!("pan: ltl formula {property}"));
+    let claim = format!("({property}:1)");
+    let named_replay = replay.lines().any(|line| line.split_whitespace().collect::<Vec<_>>().windows(4)
+        .any(|part| part[0] == "proc" && part[1] == "-" && part[2] == claim && part[3].starts_with("_spin_nvr.tmp:")));
+    (named_check && named_replay && replay.contains("<<<<<START OF CYCLE>>>>>")
+        && !replay.contains("Error: assertion violated")).then(|| property.to_owned())
+}
+
 fn expected_check_satisfied(check: &Value, counterexample: bool, cycle: bool) -> bool {
     if !counterexample { return check["status"] == "COMPLETE_NO_ERRORS"; }
     check["status"] == "COUNTEREXAMPLE" && check["counterexample_kind"] == if cycle {"acceptance_cycle"} else {"assertion"}
         && check["replay"]["returncode"] == 0 && check["replay"]["timeout"] == false
-        && (check["expected_assertion_id"].is_null() || check["expected_assertion_id"] == check["replayed_assertion_id"])
+        && if cycle {
+            check["expected_ltl_property"].is_string() && check["expected_ltl_property"] == check["replayed_ltl_property"]
+        } else {
+            check["expected_assertion_id"].is_string() && check["expected_assertion_id"] == check["replayed_assertion_id"]
+        }
 }
 
 fn run_case(source: &Path, dest: &Path, opt: &Options, case: CaseOptions) -> Result<Value> {
@@ -308,6 +370,7 @@ fn run_case(source: &Path, dest: &Path, opt: &Options, case: CaseOptions) -> Res
             checked["counterexample_kind"]=json!(if raw.contains("acceptance cycle") {"acceptance_cycle"}
                 else if raw.contains("assertion violated") {"assertion"} else {"none_or_other"});
             checked["expected_assertion_id"] = json!(expected_assertion(defect));
+            checked["expected_ltl_property"] = json!(if assumption_witness || defect==Some("BUG_NO_ACK") {Some(property)} else {None});
             let trail=dest.join(format!("{model_name}.trail"));
             if trail.exists() {
                 let saved=dest.join(format!("{property}.trail")); fs::rename(trail,&saved)?;
@@ -317,6 +380,7 @@ fn run_case(source: &Path, dest: &Path, opt: &Options, case: CaseOptions) -> Res
                 checked["replay"]=invoke(&mut commands,cmd,dest,&format!("replay-{property}"),opt)?;
                 let replay = fs::read_to_string(dest.join(checked["replay"]["log"].as_str().ok_or("missing replay log")?))?;
                 checked["replayed_assertion_id"] = json!(replay_assertion(model_name, &fs::read_to_string(&model)?, &replay));
+                checked["replayed_ltl_property"] = json!(replay_cycle(property, &raw, &replay));
             }
             checks.push(checked);
         }
@@ -579,11 +643,16 @@ mod tests {
     fn expected_failures_need_the_right_counterexample_and_replay() {
         let mut check=json!({"status":"COUNTEREXAMPLE","counterexample_kind":"acceptance_cycle",
             "replay":{"returncode":0,"timeout":false}});
+        assert!(!expected_check_satisfied(&check,true,true));
+        check["expected_ltl_property"]=json!("message_0_progress");
+        check["replayed_ltl_property"]=json!("message_1_progress");
+        assert!(!expected_check_satisfied(&check,true,true));
+        check["replayed_ltl_property"]=json!("message_0_progress");
         assert!(expected_check_satisfied(&check,true,true));
         assert!(!expected_check_satisfied(&check,true,false));
         assert!(!expected_check_satisfied(&check,false,false));
         check["counterexample_kind"]=json!("assertion");
-        assert!(expected_check_satisfied(&check,true,false));
+        assert!(!expected_check_satisfied(&check,true,false));
         check["expected_assertion_id"]=json!("SERVICE_OWNER_ISOLATED");
         check["replayed_assertion_id"]=json!("SERVICE_EVENT_ATOMIC");
         assert!(!expected_check_satisfied(&check,true,false));
@@ -593,6 +662,53 @@ mod tests {
         assert!(!expected_check_satisfied(&check,true,false));
         check["status"]=json!("INCOMPLETE");
         assert!(!expected_check_satisfied(&check,true,false));
+    }
+    #[test]
+    fn original_assertion_mutations_reject_unrelated_counterexamples() {
+        let root=PathBuf::from(env!("CARGO_MANIFEST_DIR")).parent().unwrap().to_path_buf();
+        let transport=generate(&root.join("examples/star.json"),&root).unwrap();
+        // Expressions are taken from the retained SPIN replays. Deliberately
+        // invalid line numbers exercise expression-based inline/ifdef mapping.
+        for (defect,name,expression) in [
+            ("BUG_EARLY_ACK","protocol.pml","assert((!(acknowledged[0])||received[0]))"),
+            ("BUG_ALLOW_FORBIDDEN","protocol.pml","assert(allowed[((actor*3)+recipient[0])])"),
+            ("BUG_DOUBLE_TERMINAL","task-lifecycle.pml","assert((terminal_count[task]==1))"),
+            ("BUG_PARTIAL_COMMIT","transaction-recovery.pml","assert((stored==(committed[0]+committed[1])))"),
+            ("BUG_DUPLICATE_INSERT","transaction-recovery.pml","assert((stored==(committed[0]+committed[1])))"),
+            ("BUG_EXPIRY_OVERWRITE","task-expiry.pml","assert((terminal_count[0]==1))"),
+            ("BUG_HOST_UNCHARGED","host-recovery.pml","assert((charged[attempt]&&reserved[attempt]))"),
+            ("BUG_HOST_REPLAY_UNKNOWN","host-recovery.pml","assert((dispatches[attempt]==1))"),
+            ("BUG_HOST_STALE_OWNER","host-recovery.pml","assert((!(result_written)||(result_owner==owner)))"),
+            ("BUG_HOST_MUTABLE_RESULT","host-recovery.pml","assert((!(result_written)||(result_value==first_result)))"),
+        ] {
+            let model=if name=="protocol.pml" {transport.clone()} else {fs::read_to_string(root.join("formal").join(name)).unwrap()};
+            let replay=format!("spin: {name}:9999, Error: assertion violated\nspin: text of failed assertion: {expression}\n");
+            let actual=replay_assertion(name,&model,&replay);
+            let expected=expected_assertion(Some(defect));
+            assert!(expected.is_some(),"{defect}");
+            assert_eq!(actual.as_deref(),expected,"{defect}");
+            assert_eq!(replay_assertion(name,"",&replay),None,"{defect}");
+            let mut check=json!({"status":"COUNTEREXAMPLE","counterexample_kind":"assertion",
+                "replay":{"returncode":0,"timeout":false},"expected_assertion_id":expected,
+                "replayed_assertion_id":actual});
+            assert!(expected_check_satisfied(&check,true,false),"{defect}");
+            check["replayed_assertion_id"]=json!("UNRELATED_ASSERTION");
+            assert!(!expected_check_satisfied(&check,true,false),"{defect}");
+            let unrelated=format!("spin: {name}:9999, Error: assertion violated\nspin: text of failed assertion: assert(0)\n");
+            assert_eq!(replay_assertion(name,&model,&unrelated),None,"{defect}");
+        }
+        assert_eq!(expected_assertion(Some("UNRECOGNISED_MUTATION")),None);
+    }
+    #[test]
+    fn cycle_counterexample_requires_the_selected_ltl_claim_in_check_and_replay() {
+        let checked="pan: ltl formula message_0_progress\npan:1: acceptance cycle (at depth 18)\n";
+        let replay="  <<<<<START OF CYCLE>>>>>\n 22:\tproc  - (message_0_progress:1) _spin_nvr.tmp:7 (state 10)\n";
+        assert_eq!(replay_cycle(PROPERTIES[0],checked,replay).as_deref(),Some(PROPERTIES[0]));
+        assert_eq!(replay_cycle(PROPERTIES[0],checked,&replay.replace("proc  -","proc\t-")).as_deref(),Some(PROPERTIES[0]));
+        assert_eq!(replay_cycle(PROPERTIES[1],checked,replay),None);
+        assert_eq!(replay_cycle(PROPERTIES[0],checked,&replay.replace("message_0_progress","message_1_progress")),None);
+        assert_eq!(replay_cycle(PROPERTIES[0],checked,&replay.replace("<<<<<START OF CYCLE>>>>>","")),None);
+        assert_eq!(replay_cycle(PROPERTIES[0],checked,&format!("{replay}spin: protocol.pml:34, Error: assertion violated\n")),None);
     }
     #[test]
     fn replay_binds_the_actual_failed_source_assertion() {

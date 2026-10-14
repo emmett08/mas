@@ -2,7 +2,6 @@ name: Release candidate artefacts
 on:
   push:
     tags: ['v0.*']
-    branches: ['release/v0.*']
   workflow_dispatch:
 permissions:
   contents: read
@@ -11,17 +10,17 @@ defaults:
     shell: bash
 jobs:
   protocol:
+    needs: candidate
     uses: ./.github/workflows/check.yml
   host:
+    needs: candidate
     uses: ./.github/workflows/compose.yml
   security:
+    needs: candidate
     uses: ./.github/workflows/security.yml
   candidate:
-    needs: [protocol, host, security]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
-    permissions:
-      contents: write
     outputs:
       version: ${{ steps.candidate.outputs.version }}
       source: ${{ steps.candidate.outputs.source }}
@@ -32,7 +31,7 @@ jobs:
           persist-credentials: false
       - name: Test candidate source and image archive binding
         run: python -m unittest discover -s scripts/tests -v
-      - name: Verify or create the immutable candidate tag
+      - name: Verify the existing owner-created candidate tag
         id: candidate
         env:
           GH_TOKEN: ${{ github.token }}
@@ -40,7 +39,7 @@ jobs:
           SOURCE_SHA: ${{ github.sha }}
         run: python scripts/release-candidate.py
   package:
-    needs: candidate
+    needs: [candidate, protocol, host, security]
     strategy:
       fail-fast: false
       matrix:
@@ -48,11 +47,49 @@ jobs:
           - runner: ubuntu-24.04
             platform: linux/amd64
             architecture: amd64
+            variant: standard
+            dockerfile: Dockerfile
+            image: mas-mesh
+            memory: 512m
+            cpus: '1'
+            pids: 64
           - runner: ubuntu-24.04-arm
             platform: linux/arm64
             architecture: arm64
+            variant: standard
+            dockerfile: Dockerfile
+            image: mas-mesh
+            memory: 512m
+            cpus: '1'
+            pids: 64
+          - runner: ubuntu-24.04
+            platform: linux/amd64
+            architecture: amd64
+            variant: cursor
+            dockerfile: Dockerfile.cursor
+            image: mas-mesh-cursor
+            memory: 1g
+            cpus: '2'
+            pids: 128
+          - runner: ubuntu-24.04-arm
+            platform: linux/arm64
+            architecture: arm64
+            variant: cursor
+            dockerfile: Dockerfile.cursor
+            image: mas-mesh-cursor
+            memory: 1g
+            cpus: '2'
+            pids: 128
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
+    env:
+      RELEASE_TAG: ${{ needs.candidate.outputs.version }}
+      RELEASE_ARCH: ${{ matrix.architecture }}
+      RELEASE_VARIANT: ${{ matrix.variant }}
+      RELEASE_IMAGE: ${{ matrix.image }}
+      RELEASE_MEMORY: ${{ matrix.memory }}
+      RELEASE_CPUS: ${{ matrix.cpus }}
+      RELEASE_PIDS: ${{ matrix.pids }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -66,45 +103,39 @@ jobs:
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
+          file: ${{ matrix.dockerfile }}
           platforms: ${{ matrix.platform }}
           push: false
-          tags: mas-mesh:${{ needs.candidate.outputs.version }}
+          tags: ${{ matrix.image }}:${{ needs.candidate.outputs.version }}
           provenance: mode=max
-          outputs: type=oci,dest=mas-${{ matrix.architecture }}.oci.tar,compression=gzip,force-compression=true
+          outputs: type=oci,dest=mas-${{ matrix.variant }}-${{ matrix.architecture }}.oci.tar,compression=gzip,force-compression=true
       - name: Import and verify the exact OCI runtime image
-        env:
-          RELEASE_TAG: ${{ needs.candidate.outputs.version }}
-          RELEASE_ARCH: ${{ matrix.architecture }}
         run: |
           sudo apt-get update
           sudo apt-get install -y skopeo
           skopeo --version > release-import-tool.txt
-          python scripts/release-oci.py "mas-$RELEASE_ARCH.oci.tar" --architecture "$RELEASE_ARCH" --binding release-image-binding.json
-          skopeo --override-os linux --override-arch "$RELEASE_ARCH" copy "oci-archive:mas-$RELEASE_ARCH.oci.tar" "docker-daemon:mas-mesh:$RELEASE_TAG"
-          docker image inspect mas-mesh:"$RELEASE_TAG" > release-image-identity.json
-          python scripts/release-oci.py "mas-$RELEASE_ARCH.oci.tar" --architecture "$RELEASE_ARCH" --binding release-image-binding.json --docker-inspect release-image-identity.json
+          python scripts/release-oci.py "mas-$RELEASE_VARIANT-$RELEASE_ARCH.oci.tar" --architecture "$RELEASE_ARCH" --binding release-image-binding.json
+          skopeo --override-os linux --override-arch "$RELEASE_ARCH" copy "oci-archive:mas-$RELEASE_VARIANT-$RELEASE_ARCH.oci.tar" "docker-daemon:$RELEASE_IMAGE:$RELEASE_TAG"
+          docker image inspect "$RELEASE_IMAGE:$RELEASE_TAG" > release-image-identity.json
+          python scripts/release-oci.py "mas-$RELEASE_VARIANT-$RELEASE_ARCH.oci.tar" --architecture "$RELEASE_ARCH" --binding release-image-binding.json --docker-inspect release-image-identity.json
       - name: Run the native architecture image
-        env:
-          RELEASE_TAG: ${{ needs.candidate.outputs.version }}
-        run: docker run --rm --read-only --cap-drop ALL --security-opt no-new-privileges --memory 512m --cpus 1 --pids-limit 64 --tmpfs /state:uid=10001,gid=10001,mode=0700 --tmpfs /tmp mas-mesh:"$RELEASE_TAG"
+        run: docker run --rm --init --network none --user 10001:10001 --read-only --cap-drop ALL --security-opt no-new-privileges --memory "$RELEASE_MEMORY" --memory-swap "$RELEASE_MEMORY" --cpus "$RELEASE_CPUS" --pids-limit "$RELEASE_PIDS" --tmpfs /state:uid=10001,gid=10001,mode=0700 --tmpfs /tmp:mode=1777,size=256m "$RELEASE_IMAGE:$RELEASE_TAG"
       - name: Verify the final image runtime and complete host fault suite
-        env:
-          RELEASE_TAG: ${{ needs.candidate.outputs.version }}
         run: |
+          runtime_args=()
+          if [ "$RELEASE_VARIANT" = cursor ]; then runtime_args+=(--cursor); fi
           docker run --rm --init --network none --user 10001:10001 --read-only \
-            --cap-drop ALL --security-opt no-new-privileges --cpus 1 \
-            --memory 512m --memory-swap 512m --pids-limit 64 \
+            --cap-drop ALL --security-opt no-new-privileges --cpus "$RELEASE_CPUS" \
+            --memory "$RELEASE_MEMORY" --memory-swap "$RELEASE_MEMORY" --pids-limit "$RELEASE_PIDS" \
             --tmpfs /tmp:mode=1777,size=256m \
             --mount type=bind,src="$PWD/host/tests",dst=/mounted-tests,readonly \
             --mount type=bind,src="$PWD/examples",dst=/mounted-examples,readonly \
             --mount type=bind,src="$PWD/scripts/release-container-check.py",dst=/release-container-check.py,readonly \
-            --entrypoint python mas-mesh:"$RELEASE_TAG" -I /release-container-check.py 2>&1 | tee release-container-tests.log
+            --entrypoint python "$RELEASE_IMAGE:$RELEASE_TAG" -I /release-container-check.py "${runtime_args[@]}" 2>&1 | tee release-container-tests.log
       - name: Materialise the verified OCI layout for scanning
         id: scanner
-        env:
-          RELEASE_ARCH: ${{ matrix.architecture }}
         run: |
-          python scripts/release-oci.py "mas-$RELEASE_ARCH.oci.tar" --architecture "$RELEASE_ARCH" --binding release-image-binding.json --layout-directory release-oci-layout
+          python scripts/release-oci.py "mas-$RELEASE_VARIANT-$RELEASE_ARCH.oci.tar" --architecture "$RELEASE_ARCH" --binding release-image-binding.json --layout-directory release-oci-layout
           python - <<'PY'
           import json, os
           from pathlib import Path
@@ -138,7 +169,7 @@ jobs:
         run: python scripts/release-manifest.py
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: mas-${{ needs.candidate.outputs.version }}-${{ matrix.architecture }}
+          name: mas-${{ needs.candidate.outputs.version }}-${{ matrix.variant }}-${{ matrix.architecture }}
           retention-days: 30
           path: |
             mas-*.oci.tar
