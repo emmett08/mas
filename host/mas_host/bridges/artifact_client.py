@@ -7,10 +7,10 @@ import json
 from tempfile import TemporaryFile
 import time
 
-from ..artifacts import ArtifactError, ArtifactRef, ArtifactRepository
+from ..artifact_contracts import ArtifactError, ArtifactRef, ArtifactRepository
 from ..codec import integer_json
 from ..service_contracts import ServiceError
-from .artifact_transfer import CHUNK_BYTES, OPERATIONS
+from .artifact_protocol import CHUNK_BYTES, OPERATIONS
 
 
 def artifact_tools():

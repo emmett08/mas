@@ -27,20 +27,9 @@ from ..operations import _file_lock
 from ..service_contracts import ServiceError
 from .authentication import _principal
 
-CHUNK_BYTES = 32768  # Base64 + MCP envelope remains below the 64 KiB wire limit.
+from .artifact_protocol import CHUNK_BYTES, OPERATIONS, WRITE_OPERATIONS
 _ID = re.compile(r'[0-9a-f]{32}\Z')
 _FORMAT = 'mas-artifact-transfer/1'
-OPERATIONS = {
-    'upload_begin': ({'scope', 'sha256', 'size', 'media_type'}, {'input_sha256s', 'readers'}),
-    'upload_chunk': ({'transfer_id', 'offset', 'data'}, set()),
-    'upload_commit': ({'transfer_id'}, set()),
-    'download_begin': ({'scope', 'reference'}, set()),
-    'download_chunk': ({'transfer_id', 'offset'}, set()),
-    'close': ({'transfer_id'}, set()),
-    'status': ({'transfer_id'}, set()),
-    'revoke': ({'scope', 'reference', 'readers'}, set()),
-}
-WRITE_OPERATIONS = frozenset({'upload_begin', 'upload_chunk', 'upload_commit', 'revoke'})
 
 
 @dataclass(frozen=True)
