@@ -1,5 +1,5 @@
 """Composition observations participate in operational health and readiness."""
-from contextlib import redirect_stdout
+from contextlib import closing, redirect_stdout
 import io
 import json
 from pathlib import Path
@@ -98,7 +98,7 @@ class CompositionMonitoringTests(unittest.TestCase):
         for statement in ("PRAGMA user_version=999", "DROP TABLE events"):
             with self.subTest(statement=statement):
                 path.write_bytes(original)
-                with sqlite3.connect(path) as db:
+                with closing(sqlite3.connect(path)) as db, db:
                     db.execute(statement)
                 self.assert_unverified()
 
@@ -116,7 +116,7 @@ class CompositionMonitoringTests(unittest.TestCase):
         for statement in statements:
             with self.subTest(statement=statement):
                 path.write_bytes(original)
-                with sqlite3.connect(path) as db:
+                with closing(sqlite3.connect(path)) as db, db:
                     db.execute(statement)
                 self.assert_unverified()
 
@@ -140,7 +140,7 @@ class CompositionMonitoringTests(unittest.TestCase):
 
     def test_failed_finite_watcher_keeps_scan_report_and_sanitised_health_error(self):
         path = self.composition()
-        with sqlite3.connect(path) as db:
+        with closing(sqlite3.connect(path)) as db, db:
             db.execute("PRAGMA user_version=999")
         output = io.StringIO()
         with redirect_stdout(output):
@@ -164,14 +164,14 @@ class CompositionWatcherTests(unittest.TestCase):
     def test_corrupt_composition_keeps_live_watcher_degraded_until_repair(self):
         from mas_host.monitor import reconciler_health
         store = WorkflowStore(self.state)
-        with sqlite3.connect(store.path) as db:
+        with closing(sqlite3.connect(store.path)) as db, db:
             db.execute("PRAGMA user_version=999")
         child = self.watcher()
         self.until_status("degraded")
         self.assertIsNone(child.poll())
         with self.assertRaises(OperationsError):
             reconciler_health(self.state)
-        with sqlite3.connect(store.path) as db:
+        with closing(sqlite3.connect(store.path)) as db, db:
             db.execute("PRAGMA user_version=1")
         self.until_status("healthy")
         self.assertTrue(reconciler_health(self.state)["reconciler_ready"])

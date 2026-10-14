@@ -1,5 +1,5 @@
 """Owned task details expose durable pauses without writing or broadening scope."""
-from contextlib import redirect_stderr, redirect_stdout
+from contextlib import closing, redirect_stderr, redirect_stdout
 from dataclasses import replace
 import hashlib
 import io
@@ -167,13 +167,13 @@ class WorkflowInspectionTests(unittest.TestCase):
 
     def test_parent_and_leaf_are_read_from_one_sqlite_snapshot(self):
         instance, _ = self.run_task()
-        with sqlite3.connect(self.state / 'composition.sqlite') as db:
+        with closing(sqlite3.connect(self.state / 'composition.sqlite')) as db, db:
             db.execute('PRAGMA journal_mode=WAL')
         owned = self.engine._owned
         def change_after_authorisation(db, principal, identity):
             item = owned(db, principal, identity)
             self.assertTrue(db.in_transaction)
-            with sqlite3.connect(self.state / 'composition.sqlite') as writer:
+            with closing(sqlite3.connect(self.state / 'composition.sqlite')) as writer, writer:
                 writer.execute("UPDATE instances SET state='auth_required' WHERE id=?", (instance,))
                 writer.execute("UPDATE attempts SET state='auth_required',output=? WHERE instance=?",
                                (json.dumps({'changed': True}), instance))
@@ -186,7 +186,7 @@ class WorkflowInspectionTests(unittest.TestCase):
 
     def test_graph_does_not_mix_parent_pause_with_new_continuation(self):
         instance, before = self.run_task()
-        with sqlite3.connect(self.state / 'composition.sqlite') as db:
+        with closing(sqlite3.connect(self.state / 'composition.sqlite')) as db, db:
             db.execute('PRAGMA journal_mode=WAL')
         writer = WorkflowEngine(self.state, **self.registry, **self.options)
         owned = self.engine._owned

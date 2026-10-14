@@ -1,6 +1,7 @@
 """Real SIGKILL boundaries while creating a private, durably admitted run."""
 from __future__ import annotations
 
+from contextlib import closing
 import json
 import os
 from pathlib import Path
@@ -105,7 +106,7 @@ class BootstrapRecoveryTests(unittest.TestCase):
                 intent = json.loads((run_dir / "bootstrap.json").read_text())
                 original_deadline = None
                 if (run_dir / "state.sqlite").exists():
-                    with sqlite3.connect(run_dir / "state.sqlite") as db:
+                    with closing(sqlite3.connect(run_dir / "state.sqlite")) as db:
                         row = db.execute("SELECT deadline FROM runs WHERE id=?", (intent["run_id"],)).fetchone()
                         original_deadline = row[0] if row else None
                 private_path = (run_dir / "gateway.json" if (run_dir / "gateway.json").exists()
@@ -200,7 +201,7 @@ class BootstrapRecoveryTests(unittest.TestCase):
             runner.request("a", "b", "solve", {})
             run_dir = runner.run_dir
         (run_dir / "bootstrap.json").unlink()
-        with sqlite3.connect(run_dir / "host.sqlite") as db:
+        with closing(sqlite3.connect(run_dir / "host.sqlite")) as db, db:
             db.execute("PRAGMA application_id=0")
             db.execute("PRAGMA user_version=0")
         with Runner.resume(run_dir, adapters, **self.options) as resumed:
@@ -212,7 +213,7 @@ class BootstrapRecoveryTests(unittest.TestCase):
         adapters = {actor: FunctionAdapter(lambda _c, r: Outcome(r.input)) for actor in ("a", "b", "c")}
         with self.assertRaisesRegex(RunnerError, "original explicit"):
             Runner.resume(run_dir, adapters, **(self.options | {"workflow_version": "changed"}))
-        with sqlite3.connect(state / "deployment.sqlite") as db:
+        with closing(sqlite3.connect(state / "deployment.sqlite")) as db, db:
             db.execute("UPDATE metadata SET value='restored_audit_only' WHERE key='admission_state'")
         with self.assertRaisesRegex(RunnerError, "audit-only"):
             Runner.resume(run_dir, adapters, **self.options)

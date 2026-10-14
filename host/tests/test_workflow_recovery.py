@@ -5,6 +5,7 @@ receipt: its append precedes a deliberately withheld invocation response.
 """
 from __future__ import annotations
 
+from contextlib import closing
 import json
 import os
 from pathlib import Path
@@ -356,5 +357,5 @@ class WorkflowRecoveryTests(unittest.TestCase):
                 self.assertEqual(result["usage"]["calls"], 1)
                 self.assertEqual(result["usage"]["reserved_microusd"], 3)
                 self.assertEqual(len(self.receipts(receipts)), 1)
-                with sqlite3.connect(engine.state_dir / "deployment.sqlite") as db:
+                with closing(sqlite3.connect(engine.state_dir / "deployment.sqlite")) as db:
                     self.assertEqual(db.execute("SELECT count(*), sum(reserved_microusd) FROM calls").fetchone(), (1, 3))

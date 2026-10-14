@@ -63,11 +63,26 @@ class ArtifactTests(unittest.TestCase):
         self.assertEqual(reader.read_bytes(ref), "é雪".encode())
 
     def test_excessively_nested_metadata_has_fixed_artifact_and_retention_errors(self):
-        (self.store.directory / "index.json").write_text("[" * 20000 + "0" + "]" * 20000)
-        with self.assertRaisesRegex(ArtifactError, "invalid artefact metadata"):
+        from mas_host.artifacts import _load_json
+
+        # Parser recursion behaviour differs across supported Python versions.
+        # Exercise its translation independently of a particular depth limit.
+        with patch("mas_host.artifacts.json.loads", side_effect=RecursionError("parser detail")):
+            with self.assertRaises(ArtifactError) as parser_error:
+                _load_json(b"{}")
+        self.assertEqual(str(parser_error.exception), "invalid artefact metadata")
+
+        index = self.store.directory / "index.json"
+        nested = b"[" * 20000 + b"0" + b"]" * 20000
+        index.write_bytes(nested)
+        with self.assertRaises(ArtifactError) as store_error:
             self.store.status()
-        with self.assertRaisesRegex(OperationsError, "artefact retention state cannot be verified"):
+        self.assertIn(str(store_error.exception), {
+            "invalid artefact metadata", "invalid artefact store metadata"})
+        with self.assertRaises(OperationsError) as retention_error:
             has_retained_artifacts(self.root)
+        self.assertEqual(str(retention_error.exception), "artefact retention state cannot be verified")
+        self.assertEqual(index.read_bytes(), nested)
 
     def test_principals_and_namespaces_are_isolated_even_with_known_reference(self):
         ref = self.store.put_bytes(b"private")
