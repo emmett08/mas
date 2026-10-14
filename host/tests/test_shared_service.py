@@ -126,6 +126,9 @@ class SharedServiceTests(unittest.TestCase):
         self.assertEqual(replacement.result('alice', task)['result'], {'answer': 8})
         self.assertIsNone(replacement.run_once())
         self.assertEqual(self.effects, [{'x': 7}])
+        events = replacement.events('alice', task)
+        self.assertTrue(any(item['event'] == 'protocol' for item in events))
+        self.assertTrue(all('input' not in item['data'] and 'output' not in item['data'] for item in events))
         self.assertFalse(list(Path(self.temp.name).rglob('*.sqlite')))
         with self.assertRaises(ServiceError) as denied:
             replacement.inspect('bob', task)

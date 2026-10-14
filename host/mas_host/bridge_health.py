@@ -46,6 +46,9 @@ def ingress_health(state_dir: Path, config: dict, port: int = 8765) -> dict:
     from .bridges.a2a import A2ABridge
     expected = A2ABridge(None, endpoint=public_url + "/a2a",
                          allow_http=public_url.startswith("http:")).agent_card()
+    # CLI ingress always serves the durable task-service discovery profile.
+    # The card-only constructor above has no service from which to infer it.
+    expected["capabilities"]["extendedAgentCard"] = True
     connection = http.client.HTTPConnection("127.0.0.1", port, timeout=3)
     try:
         connection.request("GET", "/.well-known/agent-card.json",

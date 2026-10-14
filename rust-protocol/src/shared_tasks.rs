@@ -422,6 +422,19 @@ pub fn apply(tx: &mut Transaction<'_>, op: &str, p: &Value) -> Result<Value> {
             saved["owner"] = json!(owner);
             Ok(saved)
         }
+        "task.protocol" => {
+            let saved=own(tx,p)?;let id=text(p,"task")?;let run=text(p,"run")?;
+            if tx.query_opt("SELECT 1 FROM service_executions WHERE task=$1 AND revision=$2 AND run=$3",&[&id,&saved["revision"].as_i64().unwrap(),&run]).map_err(db_error)?.is_none(){return Err("invalid_protocol_event".into());}
+            let item=p["event"].as_object().ok_or("invalid_protocol_event")?;
+            let mut data=serde_json::Map::new();
+            for key in ["sender","recipient","kind","message_id","task_id"]{if let Some(value)=item.get(key){let text=value.as_str().filter(|s|s.len()<=256).ok_or("invalid_protocol_event")?;data.insert(key.into(),json!(text));}}
+            let message=data.get("message_id").and_then(Value::as_str).ok_or("invalid_protocol_event")?.to_string();
+            if tx.query_opt("SELECT 1 FROM service_task_events WHERE task=$1 AND event='protocol' AND data::jsonb->>'run_id'=$2 AND data::jsonb->>'message_id'=$3 LIMIT 1",&[&id,&run,&message]).map_err(db_error)?.is_none(){
+                data.insert("run_id".into(),json!(run));data.insert("revision".into(),saved["revision"].clone());
+                event(tx,id,"protocol",Value::Object(data))?;
+                let t=timestamp(tx)?;tx.execute("UPDATE service_tasks SET updated=$2 WHERE id=$1",&[&id,&t]).map_err(db_error)?;
+            }Ok(json!({"recorded":true}))
+        }
         "task.complete" => {
             let saved = own(tx, p)?;
             let id = text(p, "task")?;

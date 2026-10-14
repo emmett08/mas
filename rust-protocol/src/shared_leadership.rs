@@ -107,6 +107,9 @@ impl PostgresRepository {
         {
             return Err("stale protocol authority".into());
         }
+        if r.get::<_, i64>(3) >= 6 {
+            crate::shared_backup::check_active(&mut tx)?;
+        }
         let expired: bool = tx
             .query_one(
                 "SELECT lease_until<=clock_timestamp() FROM controller_lease WHERE singleton",

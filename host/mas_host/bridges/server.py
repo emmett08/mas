@@ -105,6 +105,8 @@ class BridgeHTTPServer(ThreadingMixIn, HTTPServer):
                 or type(max_subscriptions) is not int or not 0 <= max_subscriptions < max_connections):
             raise ServiceError("invalid_server_configuration")
         self.service, self.verifier = service, verifier
+        self.telemetry_root = getattr(getattr(service, 'authority', None), 'observation_dir',
+                                      getattr(service, 'state_dir', None))
         self.artifact_transfer = artifact_transfer
         self.worker_controller = worker_controller
         self.operator_service = operator_service
@@ -179,6 +181,7 @@ class _Handler(BaseHTTPRequestHandler):
         self.request_id = uuid.uuid4().hex
         self._started_at = time.monotonic()
         self._operation, self._response_status, self._error_code = "unparsed", 0, None
+        self._correlations = {}
         try:
             super().handle_one_request()
         except ServiceError as exc:
@@ -187,6 +190,11 @@ class _Handler(BaseHTTPRequestHandler):
             self.close_connection = True
             self._error_code = "transport_closed"
         finally:
+            from ..telemetry import record
+            record(self.server.telemetry_root, 'http',
+                   max(0, int((time.monotonic() - self._started_at) * 1_000_000)),
+                   outcome='returned' if 200 <= self._response_status < 400 else 'raised',
+                   request_id=self.request_id, **self._correlations)
             # Only fixed route names and codes enter this record. Never include
             # a request target, body, token, principal name or exception text.
             try:
@@ -200,6 +208,14 @@ class _Handler(BaseHTTPRequestHandler):
 
     def _send(self, status, body, *, headers=None):
         self.close_connection = True
+        if (200 <= status < 300 and self._operation in {
+                'service.submit', 'service.inspect', 'service.update', 'service.cancel',
+                'service.recover', 'service.task'}
+                and type(body) is dict and type(body.get('result')) is dict):
+            # Only known lifecycle receipt IDs; result payloads may contain
+            # application fields named run_id and must never enter observations.
+            self._correlations = {key: body['result'][key]
+                for key in ('task_id', 'run_id', 'assignment_id', 'invocation_id') if key in body['result']}
         try:
             raw = integer_json(body, self.server.max_response_bytes).encode("utf-8") if body is not None else b""
         except RunnerError:

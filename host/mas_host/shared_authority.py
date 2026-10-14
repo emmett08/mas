@@ -14,7 +14,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import uuid
-import threading
+import sys
 
 from .codec import integer_json, is_actor_identity
 from .contracts import RunnerError, RecoveryRequired
@@ -42,13 +42,12 @@ class SharedAuthority:
         self._binding = {'deployment': deployment, 'controller': controller, 'epoch': epoch}
         self.namespace = namespace
         self.default_reservation_microusd = default_reservation_microusd
-        self._renew_stop = threading.Event()
-        self._renew_thread = None
-        self._renew_error = None
+        self._renew_process = None
+        self._renew_lifetime = None
 
     def _request(self, operation, *, timeout=10, **fields):
         source = integer_json({'version': 1, 'schema': self.namespace, 'binding': self._binding,
-                               'operation': operation, **fields})
+                               'operation': operation, **fields}, 1_048_576)
         try:
             result = subprocess.run([self._binary], input=source, text=True,
                 stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=timeout,
@@ -104,29 +103,46 @@ class SharedAuthority:
         return self._request('renew', lease_seconds=lease_seconds)
 
     def start_renewal(self, *, lease_seconds=60):
-        """Maintain the bound epoch; never acquire a replacement epoch implicitly."""
+        """Maintain only this epoch in a child process; keep fork owners single-threaded."""
         if type(lease_seconds) is not int or not 3 <= lease_seconds <= 3600:
             raise RunnerError('invalid controller lease interval')
-        if self._renew_thread is not None and self._renew_thread.is_alive():
+        if self._renew_process is not None and self._renew_process.poll() is None:
             return
+        self.close()
         self.renew(lease_seconds=lease_seconds)
-        self._renew_stop.clear()
-        self._renew_error = None
-        def heartbeat():
-            while not self._renew_stop.wait(lease_seconds / 3):
-                try:
-                    self.renew(lease_seconds=lease_seconds)
-                except Exception:
-                    self._renew_error = 'controller lease renewal failed'
-                    self._renew_stop.set()
-        self._renew_thread = threading.Thread(target=heartbeat, name='mas-controller-lease', daemon=True)
-        self._renew_thread.start()
+        read_fd, write_fd = os.pipe()
+        try:
+            process = subprocess.Popen([sys.executable, '-m', 'mas_host.shared_lease',
+                str(read_fd), str(os.getpid())], stdin=subprocess.PIPE,
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, pass_fds=(read_fd,),
+                env={'PATH': os.environ.get('PATH', os.defpath),
+                     'PYTHONPATH': str(Path(__file__).resolve().parents[1]),
+                     'PYTHONNOUSERSITE': '1'})
+            payload = {'binary': self._binary, 'dsn': self._dsn, 'schema': self.namespace,
+                'binding': self._binding, 'lease_seconds': lease_seconds,
+                'ca_file': self._postgres_ca_file}
+            process.stdin.write(integer_json(payload).encode())
+            process.stdin.close()
+            self._renew_process, self._renew_lifetime = process, write_fd
+            write_fd = None
+        except (OSError, BrokenPipeError):
+            raise RunnerError('controller lease guardian unavailable') from None
+        finally:
+            os.close(read_fd)
+            if write_fd is not None:
+                os.close(write_fd)
 
     def close(self):
-        self._renew_stop.set()
-        if self._renew_thread is not None:
-            self._renew_thread.join(timeout=11)
-            self._renew_thread = None
+        if self._renew_lifetime is not None:
+            os.close(self._renew_lifetime)
+            self._renew_lifetime = None
+        process, self._renew_process = self._renew_process, None
+        if process is not None:
+            try:
+                process.wait(timeout=11)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait(timeout=5)
 
     def handover(self, next_controller):
         """Explicitly transfer this live database epoch; returns successor binding."""

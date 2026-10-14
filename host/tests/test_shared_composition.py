@@ -47,6 +47,14 @@ class Barrier:
         return Outcome(context.invoke(effect, input=request.input, reservation_microusd=1))
 
 
+def classify_confirmation(outcome):
+    return 'completed' if outcome.output.get('confirmed') else 'input_required'
+
+
+def confirm(previous, supplied):
+    return {**previous, **supplied}
+
+
 class ControllerDied(BaseException):
     pass
 
@@ -104,6 +112,10 @@ class SharedCompositionTests(unittest.TestCase):
                 usage = self.authority.query('scope', {'scope': ancestor})
                 self.assertGreaterEqual(usage['calls'], 1)
         self.assertEqual(len(self.effects()), 2)
+        protocol = [event['data'] for event in service.events('alice', accepted['task_id']) if event['event'] == 'protocol']
+        self.assertTrue(protocol)
+        self.assertEqual(len(protocol), len({(event['run_id'], event['message_id']) for event in protocol}))
+        self.assertTrue(all(set(event) == {'run_id', 'message_id', 'sender', 'recipient', 'kind', 'task_id', 'revision'} for event in protocol))
         self.assertFalse(list(self.directory.rglob('*.sqlite')))
         self.assertEqual(service.submit('alice', 'nested', 'sequence', {'value': 0})['task_id'], accepted['task_id'])
 
@@ -230,3 +242,19 @@ class SharedCompositionTests(unittest.TestCase):
         self.assertEqual(sum(e['event'] == 'deadline_extended' for e in events), 1)
         service.run('alice', task)
         self.assertEqual(admin.extend('operator', 'alice', task, **arguments), receipt)
+
+    def test_continuation_preserves_history_and_idempotent_revision(self):
+        self.leaf = Workflow('confirmation/1', self.leaf.topology, {'a': Echo(), 'b': Echo()},
+            'a', 'b', 'confirm', classify=classify_confirmation, continue_input=confirm)
+        service = self.service()
+        task = service.submit('alice', 'paused', 'sequence', {'value': 0})['task_id']
+        self.assertEqual(service.run('alice', task)['state'], 'input_required')
+        first = service.inspect_task('alice', task, 'root/s0', 0)
+        request = {'path': 'root/s0', 'input': {'confirmed': True}}
+        updated = service.update('alice', task, 'continue/1', request)
+        self.assertEqual(service.update('alice', task, 'continue/1', request)['revision'], updated['revision'])
+        self.assertEqual(service.run('alice', task)['state'], 'completed')
+        current = service.inspect_task('alice', task, 'root/s0')
+        self.assertEqual(current['revision'], 1)
+        self.assertNotEqual(first['run_id'], current['run_id'])
+        self.assertEqual(service.inspect_task('alice', task, 'root/s0', 0)['state'], 'input_required')

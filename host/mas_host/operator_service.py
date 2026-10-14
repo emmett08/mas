@@ -166,6 +166,10 @@ class OperatorService:
             return {**result, "observations": page(result["observations"], payload.get("offset", 0), payload.get("limit", 20))}
         if operation == "storage":
             return service.operations.health()
+        if operation == "telemetry":
+            from .telemetry import snapshot
+            root = getattr(getattr(service, 'authority', None), 'observation_dir', service.state_dir)
+            return snapshot(root)
         if operation == "archive_preview":
             from .task_history import archive_tasks
             functions = {"tasks": (archive_tasks, "tasks"), "workflows": (archive_workflows, "instances"),

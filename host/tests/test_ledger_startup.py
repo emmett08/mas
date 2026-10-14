@@ -103,6 +103,9 @@ class LedgerStartupTests(unittest.TestCase):
         with closing(sqlite3.connect(original.path)) as db:
             # Reconstruct the actual legacy layout, not a current layout with
             # an unsupported old version stamp.
+            db.execute('DROP TABLE provider_charges')
+            db.execute('DROP TABLE period_allocations')
+            db.execute('DROP TABLE period_policies')
             db.execute('DROP TABLE budget_amendments')
             db.execute('DROP TABLE principal_quotas')
             db.execute('DROP TABLE run_principals')

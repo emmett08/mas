@@ -95,7 +95,9 @@ class Guest:
             '-device', 'virtio-net-pci,netdev=net0,id=nic0'], stdin=subprocess.DEVNULL, stdout=self.log, stderr=subprocess.STDOUT)
 
     def ssh(self, *command):
-        return ['ssh', '-i', str(self.key), '-p', str(self.ssh_port), '-o', 'BatchMode=yes',
+        return ['ssh', '-F', '/dev/null', '-i', str(self.key), '-p', str(self.ssh_port),
+                '-o', 'BatchMode=yes', '-o', 'IdentitiesOnly=yes', '-o', 'GSSAPIAuthentication=no',
+                '-o', 'KexAlgorithms=curve25519-sha256',
                 '-o', 'StrictHostKeyChecking=yes', '-o', f'UserKnownHostsFile={self.known_hosts}',
                 '-o', 'ConnectTimeout=10', '-o', 'ServerAliveInterval=15', '-o', 'ServerAliveCountMax=3',
                 'ubuntu@127.0.0.1', *command]
@@ -439,7 +441,11 @@ def main():
              for name in ('worker-one', 'worker-two')}
     tokens = {name: secrets.token_urlsafe(32) for name in nodes}
     report = {'format': 'mas-multimachine-qualification/1', 'passed': False, 'profile': 'qemu-tcg-independent-kernels',
-              'image_sha256': lock['sha256'], 'controller': machine()}
+              'image_sha256': lock['sha256'], 'controller': machine(),
+              'git_revision': subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip(),
+              'runtime_archive_sha256': digest(archive), 'mas_sha256': digest(args.mas),
+              'gateway_sha256': digest(args.gateway),
+              'qemu_version': subprocess.check_output(['qemu-system-x86_64', '--version'], text=True).splitlines()[0]}
     report_path = args.state_dir/'qualification.json'
     report_path.write_text(json.dumps(report, indent=2, sort_keys=True)+'\n')
     try:

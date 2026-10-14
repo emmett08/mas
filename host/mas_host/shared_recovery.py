@@ -85,8 +85,11 @@ class SharedRecoveryService:
             raise ServiceError('invocation_not_uncertain')
         request = {'task_id': task_id, 'run_id': report['run_id'], 'call_id': call_id,
                    'actor': call['actor'], 'evidence': call['evidence']}
-        observed = observation(contract.query(_copy(request)), call_id,
-                               permits_no_effect=contract.permits_no_effect)
+        from .telemetry import span
+        with span(getattr(self.authority, 'observation_dir', None), 'reconciliation',
+                  task_id=task_id, run_id=report['run_id'], invocation_id=call_id):
+            observed = observation(contract.query(_copy(request)), call_id,
+                                   permits_no_effect=contract.permits_no_effect)
         return {'contract': contract.descriptor, 'observation': observed, 'resolved': False}
 
     def resolve(self, operator, principal, task_id, call_id, *, request_key,

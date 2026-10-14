@@ -85,6 +85,7 @@ $('op-period-configure').onclick=()=>action(()=>operatorCall('period_configure',
 $('op-charge-record').onclick=()=>action(()=>operatorCall('charge_record',object('op-charge')));
 $('op-charge-reconcile').onclick=()=>action(()=>{const charge=object('op-charge');return operatorCall('charge_reconcile',{run_id:charge.run_id,call_id:charge.call_id,...operatorPage()});});
 $('op-storage').onclick=()=>action(()=>operatorCall('storage'));
+$('op-telemetry').onclick=()=>action(()=>operatorCall('telemetry'));
 $('op-peer-status').onclick=()=>action(()=>operatorCall('peer_status',operatorPage()));
 $('op-peer-register').onclick=()=>action(()=>operatorCall('peer_register',{...amendment(),registration:object('op-peer')}));
 $('op-peer-revoke').onclick=()=>action(()=>operatorCall('peer_revoke',{...amendment(),name:$('op-peer-name').value,version:$('op-peer-version').value}));
@@ -136,6 +137,7 @@ BODY = """<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewp
 <p class="hint">Scope is deployment or principal:NAME. Policy contains period_seconds, max_calls, max_reserved_microusd and optionally start_epoch. Existing reservations remain charged.</p><button id="op-period-configure">Configure fixed allocation period</button>
 <label for="op-charge">Charge JSON: provider, charge_id, run_id, call_id, actual_microusd, observed_at, evidence</label><textarea id="op-charge" maxlength="8000">{}</textarea>
 <p class="hint">observed_at is UTC epoch seconds; evidence is an exact source reference. Observations do not refund allocations or establish invoice completeness.</p><button id="op-charge-record">Record provider charge observation</button><button id="op-charge-reconcile">Compare charges with reservation</button></details>
+<details><summary>Latency observations</summary><button id="op-telemetry">Read latency histograms and recent spans</button><p class="hint">Deployment administrators can inspect this controller's retained observations. These samples can be dropped and are separate from the durable effect and billing records.</p></details>
 <details><summary>Storage and local workers</summary><button id="op-storage">Storage and admission status</button><button id="op-workers">Worker drain status</button>
 <label for="op-draining">Local dispatcher state</label><select id="op-draining"><option value="true">Drain: stop new assignments</option><option value="false">Resume new assignments</option></select><button id="op-drain">Apply worker state</button>
 <p class="hint">Drain preserves running effects and receipts. It does not establish remote cancellation.</p>

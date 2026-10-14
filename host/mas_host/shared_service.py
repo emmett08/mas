@@ -11,7 +11,9 @@ class SharedTaskFacade:
         self.leaves, self.compositions = leaves, compositions
         self.authority = self.operations = leaves.authority
         self.state_dir = leaves.state_dir
-        self.grants = leaves.grants
+        self.grants = {p: names | (compositions.grants.get(p, frozenset()) if compositions else frozenset())
+                       for p, names in leaves.grants.items()}
+        self.plan_names = set(compositions.plans) | leaves.definitions.names('plan') if compositions else set()
         self.capacity = leaves.capacity
         self.definitions = leaves.definitions
         from .shared_remote import SharedPeerRegistry
@@ -25,7 +27,7 @@ class SharedTaskFacade:
         raise ServiceError('task_not_found')
 
     def submit(self, principal, request_key, workflow, input, **options):
-        owner = self.compositions if self.compositions is not None and workflow in self.compositions.plans else self.leaves
+        owner = self.compositions if self.compositions is not None and workflow in self.plan_names else self.leaves
         return owner.submit(principal, request_key, workflow, input, **options)
 
     def inspect(self, principal, task_id):
@@ -86,7 +88,7 @@ class SharedTaskFacade:
         discovery = self.leaves.discover(principal)
         if self.compositions is not None:
             plans = self.compositions.discover(principal)
-            names = set(self.compositions.plans)
+            names = self.plan_names
             discovery['registrations'] = [r for r in discovery['registrations'] if r['name'] not in names] + plans
         return discovery
 
@@ -155,17 +157,24 @@ def create_shared_service(authority, cache_dir, workflows, grants, *, plans=None
                 if 'max_reserved_microusd' in quota:
                     limits['max_microusd'] = min(limits['max_microusd'], quota['max_reserved_microusd'])
             authority.configure_scope(scope, **limits)
-        leaves = SharedTaskService(authority, cache_dir, workflows, grants,
+        from .shared_definitions import SharedDefinitionRegistry
+        registry = SharedDefinitionRegistry(authority)
+        plans = plans or {}
+        leaf_names = set(workflows) | registry.names('workflow')
+        plan_names = set(plans) | registry.names('plan')
+        if leaf_names & plan_names:
+            raise ServiceError('ambiguous_workflow_name')
+        if any(not set(names) <= leaf_names | plan_names for names in grants.values()):
+            raise ServiceError('invalid_grant')
+        leaf_grants = {p: set(names) & leaf_names for p, names in grants.items()}
+        plan_grants = {p: set(names) & plan_names for p, names in grants.items()}
+        leaves = SharedTaskService(authority, cache_dir, workflows, leaf_grants,
             workflow_versions=workflow_versions, max_pending=max_pending,
             max_tasks=max_tasks, max_revisions=max_revisions, supervised=supervised,
             scheduler_policy=scheduler_policy, principal_quotas=principal_quotas)
-        compositions = None
-        if plans:
-            from .shared_composition_service import SharedCompositionService
-            if set(workflows) & set(plans):
-                raise ServiceError('ambiguous_registration')
-            compositions = SharedCompositionService(authority, cache_dir, plans, workflows,
-                grants, workflow_versions=workflow_versions, supervised=supervised, max_instances=max_instances)
+        from .shared_composition_service import SharedCompositionService
+        compositions = SharedCompositionService(authority, cache_dir, plans, workflows,
+            plan_grants, workflow_versions=workflow_versions, supervised=supervised, max_instances=max_instances)
         return SharedTaskFacade(leaves, compositions)
     except BaseException:
         authority.close()

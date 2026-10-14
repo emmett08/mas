@@ -136,9 +136,24 @@ class SharedAuthorityIntegrationTests(unittest.TestCase):
             'command_id': 'resolve-' + call_id}
         self.authority.resolve_invocation(run_id, call_id, **kwargs)
         self.authority.resolve_invocation(run_id, call_id, **kwargs)
+        self.assertEqual(self.authority._request('status', run=run_id)['calls'][0]['state'], 'reserved')
         resumed = self.runner(run_id=run_id, cache='resolved-cache')
         self.assertEqual(resumed.request('a', 'b', 'work', {'x': 7}).output, {'answer': 99})
         self.assertEqual(self.effects, [])
-        self.assertEqual(resumed.status()['calls'][0]['state'], 'reserved')
+        self.assertEqual(resumed.status()['calls'][0]['state'], 'recorded')
+        self.assertEqual(resumed.status()['calls'][0]['evidence'], kwargs['evidence'])
         self.assertEqual(len(self.authority.query('resolutions', {'run': run_id})), 1)
         self.assertEqual(self.authority.query('scope', {'scope': 'deployment'})['calls'], 1)
+
+    def test_renewal_guardian_preserves_single_thread_fork_boundary(self):
+        import threading
+        import time
+        before_threads = threading.active_count()
+        self.authority.start_renewal(lease_seconds=6)
+        guardian = self.authority._renew_process
+        first = self.authority.authority_status()['lease_until_ms']
+        self.assertEqual(threading.active_count(), before_threads)
+        time.sleep(2.5)
+        self.assertGreater(self.authority.authority_status()['lease_until_ms'], first)
+        self.authority.close()
+        self.assertIsNotNone(guardian.poll())

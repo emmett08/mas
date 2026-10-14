@@ -323,7 +323,10 @@ class Context:
             runner._invoking = True
             self._invocation_id = ticket.call_id
             try:
-                invocation = call()
+                from .telemetry import span
+                with span(runner._telemetry_root, 'provider', run_id=runner.run_id,
+                          request_id=self._request_id, invocation_id=ticket.call_id):
+                    invocation = call()
             finally:
                 runner._invoking = False
                 self._invocation_id = None
@@ -417,6 +420,8 @@ class Runner:
             state_dir = Path(state_dir).absolute()
             state_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
             self._operations = operations if operations is not None else DeploymentLedger(state_dir)
+            self._telemetry_root = getattr(self._operations, 'observation_dir',
+                                           getattr(self._operations, 'state_dir', state_dir))
             circuit_factory = getattr(self._operations, 'circuit_breaker',
                                       lambda policy: CircuitBreaker(self._operations, policy))
             self._circuits = {actor: circuit_factory(policy) for actor, policy in policies.items()}
@@ -488,7 +493,10 @@ class Runner:
     def _command(self, args: list[str], source: str | None = None):
         timeout = (self._timeout if not self._active else
                    max(0.01, min(self._timeout, self._deadline - time.monotonic())))
-        return self._client.command(args, source, timeout=timeout)
+        from .telemetry import span
+        with span(getattr(self, '_telemetry_root', None), 'protocol',
+                  run_id=getattr(self, 'run_id', 'initialising')):
+            return self._client.command(args, source, timeout=timeout)
 
     def _gateway(self, actor: str, **command):
         if actor not in self._tokens:

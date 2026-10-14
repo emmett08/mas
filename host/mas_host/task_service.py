@@ -969,10 +969,17 @@ class DurableTaskService:
                         self._protocol_event(db, task['id'], execution, item)
                 # BaseException and infrastructure failures leave running intent
                 # for replay. They never create a new execution or run identity.
-                outcome = self.executor.execute(workflow, execution | {
-                    "principal": task["principal"], "workflow": task["workflow"], 'execution_deadline': deadline,
-                    'event_sink': progress},
-                    cancelled=cancelled, ownership_descriptor=(descriptor, slot.descriptor))
+                from .telemetry import record, span
+                correlations = {'task_id': task['id'], 'run_id': execution['run_id'],
+                                'assignment_id': task['id'] + ':' + str(execution['revision'])}
+                if task['state'] in {'queued', 'blocked'}:
+                    record(self.state_dir, 'queue', max(0, now() - task['updated_at']) * 1000,
+                           **correlations)
+                with span(self.state_dir, 'dispatch', **correlations):
+                    outcome = self.executor.execute(workflow, execution | {
+                        "principal": task["principal"], "workflow": task["workflow"], 'execution_deadline': deadline,
+                        'event_sink': progress},
+                        cancelled=cancelled, ownership_descriptor=(descriptor, slot.descriptor))
                 if not isinstance(outcome, ExecutionResult) or outcome.state not in STATES - {"queued", "running"}:
                     raise ServiceError("invalid_executor_result")
                 output = _object(outcome.result) if outcome.result is not None else None

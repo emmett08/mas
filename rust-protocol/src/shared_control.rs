@@ -809,7 +809,20 @@ pub(crate) fn query(tx: &mut Transaction, operation: &str, p: &Value) -> Result<
         }
         "worker.job" => {
             fields(p, &["principal", "call_id"], &[])?;
-            owned_view(tx, p)
+            let mut result = owned_view(tx, p)?;
+            let row = job(tx, id(p, "call_id")?)?;
+            let timestamp = now(tx)?;
+            if row
+                .get::<_, Option<i64>>(8)
+                .is_some_and(|expires| expires <= timestamp)
+            {
+                match row.get::<_, &str>(4) {
+                    "claimed" => result["state"] = json!("pending"),
+                    "dispatched" => result["state"] = json!("unknown"),
+                    _ => (),
+                }
+            }
+            Ok(result)
         }
         "worker.evidence" => {
             fields(p, &["principal", "call_id"], &[])?;

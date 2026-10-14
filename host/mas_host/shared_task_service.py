@@ -289,7 +289,8 @@ class SharedTaskService:
                 supervised=self.supervised, retry_policy=workflow.retry_policy,
                 circuit_breakers=dict(workflow.circuit_breakers) if workflow.circuit_breakers else None,
                 executor=_SharedCancellableExecutor(executor, cancelled),
-                execution_deadline=execution.get('execution_deadline')) as runner:
+                execution_deadline=execution.get('execution_deadline'),
+                event_sink=execution.get('event_sink')) as runner:
             try:
                 outcome = runner.request(workflow.sender, workflow.recipient, workflow.operation, execution['input'])
                 state = workflow.classify(outcome) if workflow.classify else (
@@ -324,13 +325,18 @@ class SharedTaskService:
             import time
             execution['execution_deadline'] = time.monotonic() + max(0, min(
                 timing['remaining_active_ms'], timing['business_expires_ms'] - timing['observed_at_ms'])) / 1000
+        execution['event_sink'] = lambda item: self._command('task.protocol', principal=principal,
+            task=task, owner=owner, run=execution['run_id'], event=item)
         if execution['workflow'] not in self.grants.get(principal, ()):
             outcome = ExecutionResult('unknown', error={'code': 'permission_revoked_reconciliation_required'})
         else:
             try:
                 workflow = self._workflow(execution['workflow'], execution['workflow_identity'])
-                outcome = self.execute_assignment(workflow, execution,
-                    cancelled=lambda: self._owned(principal, task)['cancel_requested'])
+                from .telemetry import span
+                with span(getattr(self.authority, 'observation_dir', None), 'dispatch',
+                          task_id=task, run_id=execution['run_id'], assignment_id=owner):
+                    outcome = self.execute_assignment(workflow, execution,
+                        cancelled=lambda: self._owned(principal, task)['cancel_requested'])
             except ServiceError as error:
                 if error.code != 'definition_unavailable' and not error.code.startswith('implementation_'):
                     raise

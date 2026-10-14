@@ -3,10 +3,10 @@
 use mas_protocol_codec::{
     encode_message,
     gateway::Gateway,
-    parse_json,
+    parse_shared_command,
     postgres_repository::{AuthorityBinding, PostgresRepository},
     repository::ProtocolRepository,
-    MAX_BYTES, MAX_DEPTH,
+    MAX_BYTES, MAX_DEPTH, SHARED_COMMAND_BYTES,
 };
 use postgres::{
     config::{Host, SslMode},
@@ -38,7 +38,7 @@ fn execute(request: Value) -> Result<Value, String> {
             #[cfg(unix)]
             Host::Unix(_) => false,
         });
-    let client: Client = if remote || config.get_ssl_mode() == SslMode::Require {
+    let mut client: Client = if remote || config.get_ssl_mode() == SslMode::Require {
         if remote && config.get_ssl_mode() == SslMode::Disable {
             return Err("remote PostgreSQL requires TLS".into());
         }
@@ -75,6 +75,9 @@ fn execute(request: Value) -> Result<Value, String> {
     };
     let operation = field(&request, "operation")?;
     let schema = field(&request, "schema")?;
+    if operation == "recovery_target" {
+        return mas_protocol_codec::shared_backup::target(&mut client);
+    }
     let mut repository = if operation == "initialise" {
         PostgresRepository::initialise(client, schema, binding)?
     } else {
@@ -85,8 +88,18 @@ fn execute(request: Value) -> Result<Value, String> {
             repository.install_host_repository()?;
             repository.install_controller_repository()?;
             repository.install_service_repository()?;
+            repository.install_accounting_repository()?;
+            repository.install_recovery_repository()?;
             Ok(json!({"installed":true}))
         }
+        "recovery_seal" => repository.recovery_seal(&request["parameters"]),
+        "recovery_inspect" => repository.recovery_inspect(),
+        "recovery_objects" => repository.recovery_objects(
+            field(&request, "after_namespace")?,
+            field(&request, "after_digest")?,
+        ),
+        "recovery_audit" => repository.recovery_audit(&request["parameters"]),
+        "recovery_activate" => repository.recovery_activate(&request["parameters"]),
         "authority_status" => repository.authority_status(),
         "renew" => repository.renew_authority(
             request["lease_seconds"]
@@ -137,15 +150,15 @@ fn execute(request: Value) -> Result<Value, String> {
 fn main() {
     let mut source = Vec::new();
     let result = std::io::stdin()
-        .take((MAX_BYTES + 1) as u64)
+        .take((SHARED_COMMAND_BYTES + 1) as u64)
         .read_to_end(&mut source)
         .map_err(|_| "input unavailable".to_owned())
         .and_then(|_| {
-            if source.len() > MAX_BYTES {
+            if source.len() > SHARED_COMMAND_BYTES {
                 return Err("shared command too large".into());
             }
             let text = std::str::from_utf8(&source).map_err(|_| "invalid input encoding")?;
-            execute(parse_json(text).map_err(|_| "invalid shared command")?)
+            execute(parse_shared_command(text).map_err(|_| "invalid shared command")?)
         });
     let success = result.is_ok();
     let response = match result {
@@ -190,6 +203,21 @@ fn main() {
                 | "worker_policy_changed"
                 | "worker_queue_full"
                 | "worker_registration_conflict"
+                | "principal_quota_unavailable"
+                | "principal_task_limit"
+                | "principal_pending_limit"
+                | "principal_quota_changed"
+                | "scheduler_assignment_conflict"
+                | "scheduler_policy_changed"
+                | "scheduler_capacity"
+                | "invalid_scheduler_policy"
+                | "invalid_budget_amendment"
+                | "budget_amendment_conflict"
+                | "budget_revision_conflict"
+                | "budget_history_full"
+                | "budget_must_increase"
+                | "invalid_archive_kind"
+                | "task_admission_closed"
                 | "invalid_definition"
                 | "definition_identity_conflict"
                 | "definition_retired"

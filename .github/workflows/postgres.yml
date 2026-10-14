@@ -34,6 +34,13 @@ jobs:
         run: cargo test --locked --manifest-path rust-protocol/Cargo.toml --features postgres-repository
       - name: Real PostgreSQL conformance and fault boundaries
         run: cargo test --locked --manifest-path rust-protocol/Cargo.toml --features postgres-repository --test postgres_repository -- --ignored --nocapture
+      - name: Real PostgreSQL period accounting and legacy migration
+        run: cargo test --locked --manifest-path rust-protocol/Cargo.toml --features postgres-repository --test shared_accounting -- --ignored --nocapture
+      - name: Install native PostgreSQL archive clients
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes postgresql-client-16 libpq5
+          echo /usr/lib/postgresql/16/bin >> "$GITHUB_PATH"
       - name: Build the shared host command channel
         run: cargo build --locked --manifest-path rust-protocol/Cargo.toml --features postgres-repository --bin mas-shared
       - name: Run the Python runner against shared Rust and PostgreSQL authority

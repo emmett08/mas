@@ -134,8 +134,14 @@ class SharedControlIntegrationTests(unittest.TestCase):
         self.admit()
         self.assertIsNone(self.controller.claim('worker', boot='replacement-boot')['assignment'])
         self.assertEqual(len(self.controller.evidence('alice', assignment['call_id'])), 1)
+        # The permanent receipt replays the earlier command without issuing a
+        # fresh effect grant, even after the original boot has been fenced.
+        self.assertFalse(self.dispatch(assignment)['execute'])
+        # A new native command still validates the now-stale boot/assignment.
         with self.assertRaises((ServiceError, RunnerError)):
-            self.dispatch(assignment)
+            self.authority.command('worker.dispatch', {'principal': 'worker',
+                **{key: assignment[key] for key in ('boot', 'call_id', 'fence')}},
+                command_id='different-command-after-reboot')
 
     def test_grants_and_exact_shared_admission_binding_fail_closed(self):
         call_id = self.admit()

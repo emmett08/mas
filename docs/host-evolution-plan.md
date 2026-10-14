@@ -1,34 +1,36 @@
 **MAS host: complete implementation and delivery plan**
 
-Prepared 14 October 2026. Repository: https://github.com/emmett08/mas. Baseline: `ccc7bb85cede76398aee19b24b9281f2d2959046`, which includes PR #15. Status: the source profiles recorded below are delivered as a draft PR stack; the full roadmap and release acceptance remain open. This document is the canonical plan for this review and should be updated in place as work progresses.
+Prepared 14 October 2026. Repository: https://github.com/emmett08/mas. Baseline: `ccc7bb85cede76398aee19b24b9281f2d2959046`, which includes PR #15. Status: implementation and qualification continue in the consolidated draft PR #45; release acceptance remains open. This document is the canonical plan for this review and should be updated in place as work progresses.
 
 **Implementation record, 14 October 2026.** The source changes implement the
 bounded profiles below. The original W00–W17 requirements remain the acceptance
 contract; a partial profile does not close its whole work package or milestone.
-The changes are delivered as a dependency-ordered draft PR stack, without merging,
-releasing images or enabling production authority. The final verification receipt
-and PR order are recorded below after the package descriptions.
+At the owner’s explicit request on 14 October, all changes are consolidated in
+[PR #45](https://github.com/emmett08/mas/pull/45), targeting `main`. PRs #16–44
+are closed as superseded, with their history retained. Further fixes use PR #45.
+This instruction supersedes the original focused-PR delivery guidance below.
+No merge, release or production activation is implied.
 
 | Package | Implemented source profile | Remaining implementation or acceptance |
 |---|---|---|
 | W00 | Pinned baseline, real Rust fixtures, mock load sample, SDK/orchestrator and formal evidence. | Accepted representative workload/SLOs, sustained load, live provider profiles and availability objectives. |
-| W01 | Durable definition manifests/current aliases, retained exact-version execution, blocked unavailable code, historical access and retirement checks. | Loaded package digest verification/signing; implementation digests are optional trusted deployment assertions. |
+| W01 | Durable immutable definitions/current aliases, loaded implementation-package digest verification, authorised history and retirement, in local and shared repositories. | Deployment signing-key operations and application-specific acceptance. |
 | W02 | Typed no-send/completed-invalid/refused/completed-valid-cleanup outcomes; bounded diagnostics and private completed output; original unknown records remain unknown. | Live credentialled provider acceptance and provider-specific proof of non-execution beyond the declared adapters. |
-| W03 | Unified leaf/plan service, durable queue intent, discovery, pagination, leaf detail, continuation/recovery and live events. Real CLI-worker HTTP/MCP/A2A composed approval and archive replay tested. | New versioned request-key epochs and richer plan discovery schemas. Existing arbitrary-key namespaces remain permanent. |
-| W04 | Per-assignment ownership, shared global/principal/workflow/resource concurrency, eligible-principal round-robin, bounded process dispatcher and drain. | Principal spending/call/queue quotas, weights/priorities, live scheduler-policy amendments and representative fairness/load qualification. |
+| W03 | Unified leaf/composition lifecycle, versioned request-key epochs and retirement, discovery schemas, durable scheduling intent, native shared queues and historical routing. | Combined-head interface and PostgreSQL qualification. |
+| W04 | Atomic assignment claims; shared global/principal/workflow/resource slots; eligible-principal round-robin; bounded queues and principal call/spend quotas; drain. | Representative sustained fairness/load qualification. Priority and weight remain explicit future policy extension points under the specified initial round-robin policy. |
 | W05 | Per-peer operation ownership outside network waits; exact binding validation; explicit HTTPS CONNECT proxy, CA and origin policy. | Deployment-specific OAuth/corporate proxy/private-CA qualification; independent DNS/TLS phase tuning is not a new guarantee. |
-| W06 | Task/plan archive preview/apply, request and continuation tombstones, cursor expiry, reference-aware prune, physical compaction and audited monotonic lifetime budget amendments. | Period budgets and provider invoice reconciliation; long-history capacity qualification beyond bounded regression fixtures. |
-| W07 | Durable business, queue, active and human-pause clocks for tasks/plans/scopes, conservative restart accounting and uncertainty-preserving expiry. | Separately authorised audited deadline extensions and summed worker-time metrics. Legacy fixed deadlines remain unchanged. |
+| W06 | Reference-aware archive/prune, permanent tombstones, audited lifetime amendments, immutable UTC period budgets, retained attributed provider charge observations; local and shared accounting. | Combined-head migration/rollback and long-history capacity qualification; real provider invoice acceptance. |
+| W07 | Business, queue, active and human-pause clocks; audited authorised deadline extensions; summed worker time; native shared admission checks. | Combined-head parallel timing and restart qualification. |
 | W08 | Durable bounded retries/backoff, shared circuits, query extension contract, operator recovery inbox/resolution, and cancellation observations. | Additional built-in provider-specific network queries and credentialled recovery qualification. Unknown effects never become retryable merely through a timeout. |
-| W09 | Durable protocol progress/outbox, resumable polling, safe request logs, authenticated console, read-only doctor/effective configuration and fixed-label JSON/Prometheus snapshots. | Push subscriptions/webhooks, distributed traces, latency histograms, full operator UI parity and non-Linux client qualification. |
+| W09 | Durable progress, subscriptions/webhook outbox, safe logs, operator API/CLI/console, read-only diagnostics, fixed-label metrics and bounded correlated latency spans. Native Linux/macOS/Windows clients passed on the earlier integrated head. | Final-head API/UI parity, redaction and instrumentation regression checks; deployment collector operations. |
 | W10 | Trusted versioned provider registry, bounded map/reduce/while/switch/transforms, schemas, all/quorum/first-accepted joins and separately admitted recovery/compensation. | Application-specific acceptance and production workload qualification; compensation is never an assertion of automatic undo. |
-| W11 | Authorised chunked remote transfer over HTTP/MCP, expiry/quotas, hash validation, grants/revocation, disk-backed reads and finite float64 artefacts. | Object-storage backend and its consistency/lifecycle qualification; published remote bytes use the local service repository today. |
-| W12 | Opt-in persistent Rust IPC, strict Rust store validation, Rust process-group guardian, explicit pinned Python worker executables and bounded dispatcher. | Persisted ready-frontier optimisation, incremental storage accounting, production performance targets and native macOS/Windows worker profiles. |
-| W13 | Trusted bounded attempt workspaces, immutable inputs/context, registered tools, metered effects, output provenance and crash-safe retention receipts. | Untrusted-code containment/network enforcement and production container profiles. The implemented profile explicitly trusts registered application code. |
-| W14 | One-controller authenticated remote leaf workers, boot epochs/fences/leases, retained late evidence, bounded durable spool, explicit operator reconciliation and inline JSON output acknowledgement. | Two-machine/partition/volume-loss qualification and a verified durable artefact-output worker contract. Inline reference-shaped JSON grants no artefact durability guarantee. |
-| W15 | Pinned negotiated HTTP/Python peer contracts, transactional identity/deployment guards, lost-receipt reuse and orchestrator retry/cancellation tests. | A managed peer registry, universal MCP/A2A capability negotiation, shared cross-peer budgets and deployment recipes/acceptance for each organisation. |
-| W16 | Complete authority inventory and staged shared-storage design in [shared-authority-design.md](shared-authority-design.md). Existing restores stay audit-only. | PostgreSQL/object-storage authority, controller failover, activation and measured RPO/RTO are **not implemented**. |
-| W17 | Source suites, real Rust/Temporal/CLI workers, failure injection, exact schema migration checks, finite SPIN models and mutation counterexamples. | Published installed image qualification, live paid profiles, multi-machine faults, soak/SLOs, release provenance and accepted release. |
+| W11 | Authorised chunked transfer, verified float64 encodings, S3-compatible content storage, native PostgreSQL artefact metadata, frozen backend identity and fenced publication. Real RustFS backend acceptance passed. | Combined-head PostgreSQL/object-store failure qualification and deployment lifecycle policy acceptance. |
+| W12 | Persistent Rust IPC, native process guardians/pidfd wakeups, persisted workflow progress/frontier and exact faster storage scanning. | Production performance targets and sustained measurements; native macOS/Windows workers remain a separately qualified profile. |
+| W13 | Trusted workspaces plus explicit isolated Linux container execution with CPU/memory/process/network limits, immutable inputs and retained output receipts. Real Docker qualification passed on the earlier integrated head. | Final-head containment checks and deployment-specific container image acceptance. |
+| W14 | Authenticated fenced remote workers, bounded durable spool, exact retained protocol/artefact receipts, revocation-aware transfer and shared native worker authority; independent VM fault gate implemented. | Two-guest partition/death/reset/volume-loss gate has not passed yet. Physical-host and production-network acceptance remain separate. |
+| W15 | Managed immutable HTTP/MCP/A2A peers, pinned capability negotiation, operation-scoped credential snapshots, lost-receipt identity reuse and shared remote-intent/circuit authority. Three-profile local race tests passed. | Combined-head shared backend, deployment-specific OAuth/proxy/private-CA and cross-organisation acceptance. |
+| W16 | Native PostgreSQL authority for protocol, journals, queues, composition, workers, definitions, accounting and events; S3 artefact bytes; controller epoch fencing and leases. Guarded sealed backup/restore implementation in progress. | Final integrated backend/failover/restore qualification and measured recovery objectives; production replication/fencing acceptance. No production activation is claimed. |
+| W17 | Source, real Rust/Temporal/CLI, native client, real Docker and S3 acceptance; installed amd64/arm64, PostgreSQL, security, formal and independent-VM CI gates. | Final combined-head checks and fault gates; live paid profiles, sustained workload/SLOs, release provenance and accepted release. |
 
 See [host-service-evolution.md](host-service-evolution.md),
 [provider-outcomes-recovery.md](provider-outcomes-recovery.md),
@@ -38,23 +40,12 @@ See [host-service-evolution.md](host-service-evolution.md),
 semantics and explicit limits. The remaining items above are not reclassified as
 completed simply because their extension points exist.
 
-**Review and integration order.** Each PR targets its predecessor. Merge or
-rebase in this order, running the required checks on the resulting revision;
-passing checks on an earlier head do not qualify a later head. No PR has been
-merged or released by this implementation task.
+**Review and integration.** Review and qualify the combined head of
+[PR #45](https://github.com/emmett08/mas/pull/45). Earlier passing checks do not
+qualify a later head. Commit boundaries retain the implementation history; no
+additional PR stack is required. No PR has been merged or released by this task.
 
-| Order | Review | Source change |
-|---|---|---|
-| 1 | [PR #16](https://github.com/emmett08/mas/pull/16) | Versioned provider registration |
-| 2 | [PR #17](https://github.com/emmett08/mas/pull/17) | Rust IPC, store validation and process supervision |
-| 3 | [PR #18](https://github.com/emmett08/mas/pull/18) | Provider outcomes, execution policies and recovery |
-| 4 | [PR #19](https://github.com/emmett08/mas/pull/19) | Unified service, lifecycle, scheduling, composition and console |
-| 5 | [PR #20](https://github.com/emmett08/mas/pull/20) | Trusted workspaces and immutable context |
-| 6 | [PR #21](https://github.com/emmett08/mas/pull/21) | HTTP policy, remote artefacts and pinned peers |
-| 7 | [PR #22](https://github.com/emmett08/mas/pull/22) | Authenticated remote workers under one controller |
-| 8 | [Final diagnostics branch](https://github.com/emmett08/mas/tree/feat/host-diagnostics-qualification) | Read-only diagnostics, model checks and implementation evidence |
-
-The integrated source suite passed 946 host tests with no skips, using real Rust
+The earlier diagnostics-stack source suite passed 946 host tests with no skips, using real Rust
 binaries and Temporal. Three subsequent bridge regression tests passed in a
 24-test supplement, with no runtime changes after the integrated run. Rust passed
 61 tests, scripts 43, executable examples 14, and SPIN 110 bounded cases. The
@@ -72,7 +63,7 @@ All three GitHub Actions workflows for the baseline—Protocol checks, Host and 
 
 The working assumptions are Linux execution workers, trusted application registrations, compatibility with existing public interfaces, support for the current amd64 and arm64 image targets, and portable clients for macOS, Windows and Linux. Native macOS/Windows supervision is a separately qualified profile. Untrusted code execution requires an explicit containment profile; ordinary trusted adapters do not become sandboxed merely because they run in another process.
 
-**The release sequence is functional, rather than tied to an invented completion date.** Engineering estimates follow the baseline measurements and deployment profile in W00. Every work package below has dependencies and an exit condition. Each normally becomes one focused PR; split a package into consecutive PRs if its migration and feature cannot be reviewed together. Do not combine all work into one PR.
+**The release sequence is functional, rather than tied to an invented completion date.** Engineering estimates follow the baseline measurements and deployment profile in W00. Every work package below has dependencies and an exit condition. The original plan called for focused PRs. The owner has since explicitly requested one consolidated PR; preserve focused commits and review evidence within PR #45.
 
 | Milestone | Outcome | Required packages | Claim permitted after its gate |
 |---|---|---|---|

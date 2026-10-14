@@ -102,7 +102,7 @@ impl PostgresRepository {
                 .query_one("SELECT version FROM authority WHERE singleton", &[])
                 .map_err(db_error)?
                 .get(0);
-            if version == 4 {
+            if version >= 4 {
                 return Ok(());
             }
             if version != 3 {
@@ -129,6 +129,29 @@ impl PostgresRepository {
             Ok(())
         })
     }
+    pub fn install_accounting_repository(&mut self) -> Result<()> {
+        self.transaction(|tx| {
+            let version: i64 = tx
+                .query_one("SELECT version FROM authority WHERE singleton", &[])
+                .map_err(db_error)?
+                .get(0);
+            if version >= 5 {
+                return Ok(());
+            }
+            if version != 4 {
+                return Err("service repository must be installed before shared accounting".into());
+            }
+            tx.batch_execute(crate::shared_accounting::DDL)
+                .map_err(db_error)?;
+            let digest = layout(tx)?;
+            tx.execute(
+                "UPDATE authority SET version=5,layout_digest=$1 WHERE singleton",
+                &[&digest],
+            )
+            .map_err(db_error)?;
+            Ok(())
+        })
+    }
     pub fn host_command(
         &mut self,
         command_id: &str,
@@ -138,9 +161,9 @@ impl PostgresRepository {
         if !crate::identity(command_id) {
             return Err("invalid command identity".into());
         }
-        let mut bytes = crate::MAX_BYTES;
+        let mut bytes = crate::SHARED_COMMAND_BYTES;
         crate::validate_value(parameters, 0, &mut bytes).map_err(|e| e.message)?;
-        crate::parse_json(&parameters.to_string()).map_err(|e| e.message)?;
+        crate::parse_shared_command(&parameters.to_string()).map_err(|e| e.message)?;
         if operation == "admit_invocation" {
             self.reconcile(id(parameters, "run")?)?;
         }
@@ -217,6 +240,7 @@ impl PostgresRepository {
             "steps"=>{fields(p,&["run"],&[])?;let mut out=Vec::new();for row in tx.query("SELECT key,kind,input,data,revision FROM host_steps WHERE run=$1 ORDER BY seq",&[&id(p,"run")?]).map_err(db_error)? {out.push(json!({"key":row.get::<_,String>(0),"kind":row.get::<_,String>(1),"input":decoded(row.get::<_,&str>(2))?,"data":decoded(row.get::<_,&str>(3))?,"revision":row.get::<_,i64>(4)}));}Ok(json!(out))},
             "invocations"=>{fields(p,&["run"],&[])?;let r=id(p,"run")?;let mut out=Vec::new();for row in tx.query("SELECT call_id FROM host_invocations WHERE run=$1 ORDER BY seq",&[&r]).map_err(db_error)? {out.push(invocation(tx,r,row.get::<_,&str>(0))?);}Ok(json!(out))},
             "recovery_snapshot"=>recovery_snapshot(tx,p),
+            op if op.starts_with("accounting.")=>crate::shared_accounting::query(tx,op,p),
             op if op.starts_with("authority.")=>crate::shared_leadership::query(tx,op,p),
             "resolutions"=>{fields(p,&["run"],&[])?;let r=id(p,"run")?;let mut out=Vec::new();for row in tx.query("SELECT seq,call_id,principal,decision,evidence,(created*1000)::bigint FROM host_resolutions WHERE run=$1 ORDER BY seq",&[&r]).map_err(db_error)? {out.push(json!({"seq":row.get::<_,i64>(0),"call_id":row.get::<_,String>(1),"principal":row.get::<_,String>(2),"decision":row.get::<_,String>(3),"evidence":decoded(row.get::<_,&str>(4))?,"created_ms":row.get::<_,i64>(5)}));}Ok(json!(out))},
             op if op.starts_with("task.") || op.starts_with("definition.") || op.starts_with("epoch.")=>crate::shared_tasks::query(tx,op,p),
@@ -249,7 +273,21 @@ fn apply(tx: &mut Transaction<'_>, operation: &str, p: &Value) -> Result<Value> 
                     row.get::<_, i64>(2),
                 ) != (runs, calls, money)
                 {
-                    return Err("frozen allocation scope differs".into());
+                    let version: i64 = tx
+                        .query_one("SELECT version FROM authority WHERE singleton", &[])
+                        .map_err(db_error)?
+                        .get(0);
+                    let baseline = if version >= 4 {
+                        tx.query_opt("SELECT max_runs,max_calls,max_microusd FROM operator_budget_base WHERE scope=$1",&[&s]).map_err(db_error)?
+                    } else {
+                        None
+                    };
+                    if !baseline.is_some_and(|r| {
+                        (r.get::<_, i64>(0), r.get::<_, i64>(1), r.get::<_, i64>(2))
+                            == (runs, calls, money)
+                    }) {
+                        return Err("frozen allocation scope differs".into());
+                    }
                 }
             } else {
                 tx.execute("INSERT INTO host_scopes(id,max_runs,max_calls,max_microusd) VALUES($1,$2,$3,$4)",&[&s,&runs,&calls,&money]).map_err(db_error)?;
@@ -306,6 +344,14 @@ fn apply(tx: &mut Transaction<'_>, operation: &str, p: &Value) -> Result<Value> 
             if let Some(row)=tx.query_opt("SELECT h.principal,h.scopes,h.metadata,r.config FROM host_runs h JOIN runs r ON r.id=h.run WHERE h.run=$1",&[&r]).map_err(db_error)? {
                 if row.get::<_,String>(0)!=principal||row.get::<_,String>(1)!=scope_text||row.get::<_,String>(2)!=metadata||row.get::<_,String>(3)!=c.to_string(){return Err("frozen shared run differs".into());}
                 return Ok(json!({"run_id":r}));
+            }
+            let version: i64 = tx
+                .query_one("SELECT version FROM authority WHERE singleton", &[])
+                .map_err(db_error)?
+                .get(0);
+            if version >= 4 {
+                crate::shared_tasks::admission_open(tx, r)?;
+                crate::shared_composition::admission_open(tx, r)?;
             }
             for scope in &scopes {
                 let changed = tx
@@ -450,6 +496,14 @@ fn apply(tx: &mut Transaction<'_>, operation: &str, p: &Value) -> Result<Value> 
             if protocol.calls >= protocol.config["max_calls"].as_i64().unwrap() {
                 return Err("call budget exhausted".into());
             }
+            let version: i64 = tx
+                .query_one("SELECT version FROM authority WHERE singleton", &[])
+                .map_err(db_error)?
+                .get(0);
+            if version >= 4 {
+                crate::shared_tasks::admission_open(tx, &r)?;
+                crate::shared_composition::admission_open(tx, &r)?;
+            }
             let scopes: Value = decoded(
                 tx.query_one("SELECT scopes FROM host_runs WHERE run=$1", &[&r])
                     .map_err(db_error)?
@@ -461,6 +515,13 @@ fn apply(tx: &mut Transaction<'_>, operation: &str, p: &Value) -> Result<Value> 
                 if changed != 1 {
                     return Err("call allocation scope unavailable or exhausted".into());
                 }
+            }
+            let version: i64 = tx
+                .query_one("SELECT version FROM authority WHERE singleton", &[])
+                .map_err(db_error)?
+                .get(0);
+            if version >= 5 {
+                crate::shared_accounting::admit(tx, &r, c, amount)?;
             }
             tx.execute(
                 "INSERT INTO calls(run,id,actor) VALUES($1,$2,$3)",
@@ -564,6 +625,7 @@ fn apply(tx: &mut Transaction<'_>, operation: &str, p: &Value) -> Result<Value> 
             tx.execute("UPDATE host_invocations SET state=$1,output=$2,evidence=$3 WHERE run=$4 AND call_id=$5",&[&state,&output,&evidence,&r,&c]).map_err(db_error)?;
             invocation(tx, &r, c)
         }
+        op if op.starts_with("accounting.") => crate::shared_accounting::apply(tx, op, p),
         op if op.starts_with("authority.") => crate::shared_leadership::apply(tx, op, p),
         op if op.starts_with("task.")
             || op.starts_with("definition.")

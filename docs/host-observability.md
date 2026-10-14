@@ -176,3 +176,36 @@ endpoint.
 
 These aggregates cover the deployment's root repositories, not an inventory or
 integrity check of every per-run invocation journal.
+
+
+## Correlated latency observations
+
+The deployment-admin `telemetry` operation is available through the operator API,
+MCP and portable client (`mas-client ENDPOINT operator --principal OPERATOR
+--token-file PRIVATE_TOKEN --data REQUEST.json`, with request JSON
+`{"operation":"telemetry","payload":{}}`). It returns `mas-telemetry/1`: fixed-stage latency histograms and the
+last 20 retained spans. Stages distinguish HTTP handling, queue wait, dispatch,
+provider calls, Rust protocol commands and reconciliation queries. The callback
+outcomes `returned` and `raised` describe control flow, not effect certainty or
+provider billing. The durable journal remains authoritative for those facts.
+
+Request, task, run, assignment and invocation IDs correlate the observations when
+available. A run ID determines its trace ID across processes. Identifiers never
+become metric labels; labels are the fixed stage and outcome enums. No prompts,
+outputs, credentials, principal names or exception messages enter these records.
+HTTP response request IDs continue to link requests to safe structured logs.
+
+Observation storage is a deliberately lossy, controller-local window, bounded to
+two 1 MiB files. A shared-authority controller uses its disposable cache directory;
+these files are neither PostgreSQL authority nor a distributed trace collector.
+Each controller's API reports its own retained window. Lock contention, full disks
+or a failed recorder drop observations without changing admission or task results.
+Audit-only copies are readable without recording new spans. Corrupt observations
+produce `telemetry_unavailable`, never fabricated zero measurements.
+
+Histograms describe retained samples rather than lifetime totals or an SLO. Queue
+samples measure observed waits before local dispatch, and dispatch includes worker
+execution and cleanup. Use durable task clocks for deadline enforcement, the
+operational metrics for unknown-effect age and allocation headroom, and provider
+charge observations for reconciliation. Exporters can poll the authenticated
+operator snapshot; retained observations do not promise exactly-once delivery.

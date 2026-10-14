@@ -71,8 +71,9 @@ class SharedWorkerController(WorkerController):
         return self._command('submit', {'call_id': call_id, 'binding': checked})
 
     def inspect(self, principal, call_id):
-        # Lease expiry is itself a durable transition, not an optimistic read.
-        return self._command('inspect', {'principal': principal, 'call_id': call_id})
+        # Inspect current database time without manufacturing a command receipt
+        # per poll; admission transitions persist expiry before they act.
+        return self._query('job', {'principal': principal, 'call_id': call_id})
 
     def abandon(self, principal, call_id):
         return self._command('abandon', {'principal': principal, 'call_id': call_id})

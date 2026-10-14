@@ -18,6 +18,7 @@ OPERATIONS = {
     "charge_record": ({"provider", "charge_id", "run_id", "call_id", "actual_microusd", "observed_at", "evidence"}, set()),
     "charge_reconcile": ({"run_id", "call_id"}, {"offset", "limit"}),
     "storage": (set(), set()),
+    "telemetry": (set(), set()),
     "archive_preview": ({"kind", "older_than_seconds"}, {"offset", "limit"}),
     "definition": ({"kind", "name", "identity"}, set()),
     "definition_retire": ({"kind", "name", "identity"}, set()),
@@ -28,4 +29,3 @@ OPERATIONS = {
     "worker_drain": ({"request_key", "reason", "expected_revision", "draining"}, set()),
 }
 OWNER_OPERATIONS = {"request_epoch_status", "request_epoch_retire", "registrations", "tasks", "task", "events", "recovery_inbox", "recovery_query", "recovery_resolve", "deadline_extend"}
-

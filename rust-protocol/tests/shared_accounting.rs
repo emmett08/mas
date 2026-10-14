@@ -63,13 +63,14 @@ fn legacy_unknown_time_is_marked_and_clock_rollback_rolls_back_every_charge() {
             &[],
         )
         .unwrap();
-    assert!(repository
+    let rejected = repository
         .host_command(
             "rollback-attempt",
             "admit_invocation",
             &json!({"run":"legacy","owner":"fixture-owner","call_id":"new"})
         )
-        .is_err());
+        .unwrap_err();
+    assert!(rejected.contains("allocation clock moved backwards"), "{rejected}");
     let charged: i64 = admin
         .query_one("SELECT calls FROM host_scopes WHERE id='deployment'", &[])
         .unwrap()

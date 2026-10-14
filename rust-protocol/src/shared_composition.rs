@@ -7,6 +7,7 @@ use sha2::{Digest, Sha256};
 type Result<T> = std::result::Result<T, String>;
 
 pub(crate) const DDL: &str = "
+CREATE TABLE composition_policy(singleton boolean PRIMARY KEY CHECK(singleton),max_instances bigint NOT NULL CHECK(max_instances>0));
 CREATE TABLE composition_instances(id text PRIMARY KEY,principal text NOT NULL,request_namespace text NOT NULL,request_epoch text NOT NULL,request_key text NOT NULL,plan text NOT NULL,identity text NOT NULL,input text NOT NULL,metadata text NOT NULL,binding text NOT NULL,limits text NOT NULL,state text NOT NULL,output text,error text,created bigint NOT NULL,updated bigint NOT NULL,deadline bigint NOT NULL,cancel_requested boolean NOT NULL DEFAULT false,owner text,owner_epoch bigint,UNIQUE(principal,request_namespace,request_epoch,request_key));
 CREATE TABLE composition_nodes(instance text NOT NULL REFERENCES composition_instances(id),path text NOT NULL,kind text NOT NULL,input text NOT NULL,state text NOT NULL,output text,error text,PRIMARY KEY(instance,path));
 CREATE TABLE composition_attempts(instance text NOT NULL REFERENCES composition_instances(id),path text NOT NULL,revision bigint NOT NULL,workflow text NOT NULL,identity text NOT NULL,run_id text UNIQUE NOT NULL,input text NOT NULL,wall_seconds bigint NOT NULL,ancestors text NOT NULL,state text NOT NULL,output text,error text,PRIMARY KEY(instance,path,revision));
@@ -15,6 +16,7 @@ CREATE TABLE composition_scopes(instance text NOT NULL REFERENCES composition_in
 CREATE TABLE composition_progress(instance text NOT NULL REFERENCES composition_instances(id),path text NOT NULL,kind text NOT NULL,next_index bigint NOT NULL,output text NOT NULL,consumed bigint NOT NULL,PRIMARY KEY(instance,path));
 CREATE TABLE composition_joins(instance text NOT NULL REFERENCES composition_instances(id),path text NOT NULL,winners text NOT NULL,obsolete text NOT NULL,PRIMARY KEY(instance,path));
 CREATE TABLE composition_continuations(instance text NOT NULL REFERENCES composition_instances(id),request_key text NOT NULL,digest text NOT NULL,receipt text NOT NULL,PRIMARY KEY(instance,request_key));
+CREATE TABLE composition_protocol_events(run_id text NOT NULL REFERENCES composition_attempts(run_id),message_id text NOT NULL,data text NOT NULL,PRIMARY KEY(run_id,message_id));
 CREATE TABLE composition_events(id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,instance text NOT NULL REFERENCES composition_instances(id),path text,event text NOT NULL,state text NOT NULL,data text,created bigint NOT NULL);
 ";
 fn text<'a>(p: &'a Value, key: &str) -> Result<&'a str> {
@@ -93,7 +95,15 @@ fn node(tx: &mut Transaction<'_>, id: &str, path: &str) -> Result<Value> {
     tx.query_opt("SELECT kind,input,state,output,error FROM composition_nodes WHERE instance=$1 AND path=$2",&[&id,&path]).map_err(db_error)?.map(|r|Ok(json!({"path":path,"kind":r.get::<_,&str>(0),"input":decoded(r.get(1))?,"state":r.get::<_,&str>(2),"output":optional(r.get(3))?,"error":optional(r.get(4))?}))).unwrap_or(Ok(Value::Null))
 }
 fn attempt(tx: &mut Transaction<'_>, id: &str, path: &str) -> Result<Value> {
-    tx.query_opt("SELECT revision,workflow,identity,run_id,input,wall_seconds,ancestors,state,output,error FROM composition_attempts WHERE instance=$1 AND path=$2 ORDER BY revision DESC LIMIT 1",&[&id,&path]).map_err(db_error)?.map(|r|Ok(json!({"instance":id,"path":path,"revision":r.get::<_,i64>(0),"workflow":r.get::<_,&str>(1),"identity":r.get::<_,&str>(2),"run_id":r.get::<_,&str>(3),"run_directory":r.get::<_,&str>(3),"input":decoded(r.get(4))?,"wall_seconds":r.get::<_,i64>(5),"ancestors":decoded(r.get(6))?,"state":r.get::<_,&str>(7),"output":optional(r.get(8))?,"error":optional(r.get(9))?}))).unwrap_or(Ok(Value::Null))
+    attempt_at(tx, id, path, None)
+}
+fn attempt_at(
+    tx: &mut Transaction<'_>,
+    id: &str,
+    path: &str,
+    revision: Option<i64>,
+) -> Result<Value> {
+    tx.query_opt("SELECT revision,workflow,identity,run_id,input,wall_seconds,ancestors,state,output,error FROM composition_attempts WHERE instance=$1 AND path=$2 AND ($3::bigint IS NULL OR revision=$3) ORDER BY revision DESC LIMIT 1",&[&id,&path,&revision]).map_err(db_error)?.map(|r|Ok(json!({"instance":id,"path":path,"revision":r.get::<_,i64>(0),"workflow":r.get::<_,&str>(1),"identity":r.get::<_,&str>(2),"run_id":r.get::<_,&str>(3),"run_directory":r.get::<_,&str>(3),"input":decoded(r.get(4))?,"wall_seconds":r.get::<_,i64>(5),"ancestors":decoded(r.get(6))?,"state":r.get::<_,&str>(7),"output":optional(r.get(8))?,"error":optional(r.get(9))?}))).unwrap_or(Ok(Value::Null))
 }
 fn scope(
     tx: &mut Transaction<'_>,
@@ -210,7 +220,67 @@ fn activity(tx: &mut Transaction<'_>, id: &str) -> Result<()> {
     }
     Ok(())
 }
+fn expired(tx: &mut Transaction<'_>, id: &str) -> Result<bool> {
+    let item = instance(tx, id)?;
+    if integer(&item, "deadline", 1)? <= now(tx)?
+        || item["timing"]["expired"]
+            .as_array()
+            .is_some_and(|v| !v.is_empty())
+    {
+        return Ok(true);
+    }
+    for r in tx.query("SELECT s.path,s.deadline,n.state FROM composition_scopes s LEFT JOIN composition_nodes n ON n.instance=s.instance AND n.path=s.path WHERE s.instance=$1",&[&id]).map_err(db_error)?{
+        if r.get::<_,Option<&str>>(2).is_some_and(terminal){continue}
+        let status=shared_timing::status(tx,id,r.get(0))?;
+        if r.get::<_,i64>(1)<=now(tx)?||status["expired"].as_array().is_some_and(|v|!v.is_empty()){return Ok(true)}
+    }
+    Ok(false)
+}
 pub(crate) fn apply(tx: &mut Transaction<'_>, operation: &str, p: &Value) -> Result<Value> {
+    if operation == "composition.expire" {
+        let rows=tx.query("SELECT id FROM composition_instances WHERE owner IS NULL AND state IN ('queued','waiting','blocked_definition','input_required','auth_required') ORDER BY created,id LIMIT 1000",&[]).map_err(db_error)?;
+        let mut count = 0;
+        for row in rows {
+            let id = row.get::<_, &str>(0);
+            if !expired(tx, id)? {
+                continue;
+            }
+            let uncertain:bool=tx.query_one("SELECT EXISTS(SELECT 1 FROM composition_attempts WHERE instance=$1 AND state IN ('running','unknown'))",&[&id]).map_err(db_error)?.get(0);
+            let state = if uncertain { "unknown" } else { "expired" };
+            tx.execute("UPDATE composition_instances SET state=$2,error=$3 WHERE id=$1",&[&id,&state,&json!({"code":if uncertain{"reconciliation_required"}else{"deadline_exceeded"}}).to_string()]).map_err(db_error)?;
+            shared_timing::transition(
+                tx,
+                id,
+                "",
+                if uncertain { "paused" } else { "terminal" },
+                0,
+            )?;
+            event(tx, id, None, "expired", state, None)?;
+            count += 1;
+        }
+        return Ok(json!({"expired":count}));
+    }
+    if operation == "composition.configure" {
+        let maximum = integer(p, "max_instances", 1)?;
+        if let Some(row) = tx
+            .query_opt(
+                "SELECT max_instances FROM composition_policy WHERE singleton",
+                &[],
+            )
+            .map_err(db_error)?
+        {
+            if row.get::<_, i64>(0) != maximum {
+                return Err("composition policy changed".into());
+            }
+        } else {
+            tx.execute(
+                "INSERT INTO composition_policy VALUES(true,$1)",
+                &[&maximum],
+            )
+            .map_err(db_error)?;
+        }
+        return Ok(json!({"max_instances":maximum}));
+    }
     if operation == "composition.submit" {
         let id = text(p, "instance")?;
         let principal = text(p, "principal")?;
@@ -241,6 +311,21 @@ pub(crate) fn apply(tx: &mut Transaction<'_>, operation: &str, p: &Value) -> Res
         let identity = text(p, "identity")?;
         if !p["input"].is_object() || !p["metadata"].is_object() || !p["binding"].is_object() {
             return Err("invalid composition submission".into());
+        }
+        crate::shared_tasks::check_submission(tx, principal)?;
+        let count: i64 = tx
+            .query_one("SELECT count(*) FROM composition_instances", &[])
+            .map_err(db_error)?
+            .get(0);
+        let maximum: i64 = tx
+            .query_one(
+                "SELECT max_instances FROM composition_policy WHERE singleton",
+                &[],
+            )
+            .map_err(db_error)?
+            .get(0);
+        if count >= maximum {
+            return Err("composition instance limit".into());
         }
         let timestamp = now(tx)?;
         let clock = shared_timing::start(tx, id, "", &p["timing_policy"])?;
@@ -393,6 +478,59 @@ pub(crate) fn apply(tx: &mut Transaction<'_>, operation: &str, p: &Value) -> Res
     let id = owned(tx, p)?;
     let path = p["path"].as_str().unwrap_or("root");
     match operation {
+        "composition.protocol" => {
+            let run = text(p, "run_id")?;
+            let supplied = &p["event"];
+            let event_fields = supplied.as_object().ok_or("invalid protocol event")?;
+            if event_fields.len() != 6
+                || [
+                    "run_id",
+                    "sender",
+                    "recipient",
+                    "kind",
+                    "message_id",
+                    "task_id",
+                ]
+                .iter()
+                .any(|k| {
+                    supplied[k]
+                        .as_str()
+                        .is_none_or(|v| v.is_empty() || v.len() > 256)
+                })
+                || supplied["run_id"] != run
+            {
+                return Err("invalid protocol event".into());
+            }
+            let row=tx.query_opt("SELECT path,revision FROM composition_attempts WHERE instance=$1 AND run_id=$2",&[&id,&run]).map_err(db_error)?.ok_or("unknown composition run")?;
+            let path = row.get::<_, &str>(0);
+            let revision: i64 = row.get(1);
+            let message = text(supplied, "message_id")?;
+            let envelope = tx
+                .query_opt(
+                    "SELECT content FROM messages WHERE run=$1 AND id=$2",
+                    &[&run, &message],
+                )
+                .map_err(db_error)?
+                .ok_or("unaccepted protocol event")?;
+            let envelope = decoded(envelope.get(0))?;
+            if ["run_id", "sender", "recipient", "kind", "message_id"]
+                .iter()
+                .any(|k| envelope[k] != supplied[k])
+                || envelope["payload"]["task_id"] != supplied["task_id"]
+            {
+                return Err("protocol event conflict".into());
+            }
+            let mut data = supplied.clone();
+            data["revision"] = json!(revision);
+            if let Some(saved)=tx.query_opt("SELECT data FROM composition_protocol_events WHERE run_id=$1 AND message_id=$2",&[&run,&message]).map_err(db_error)?{if decoded(saved.get(0))?!=data{return Err("protocol event conflict".into())}return Ok(json!({"published":true}))}
+            tx.execute(
+                "INSERT INTO composition_protocol_events VALUES($1,$2,$3)",
+                &[&run, &message, &data.to_string()],
+            )
+            .map_err(db_error)?;
+            event(tx, &id, Some(path), "protocol", "running", Some(&data))?;
+            Ok(json!({"published":true}))
+        }
         "composition.release" => {
             tx.execute(
                 "UPDATE composition_instances SET owner=NULL,owner_epoch=NULL WHERE id=$1",
@@ -559,6 +697,16 @@ pub(crate) fn apply(tx: &mut Transaction<'_>, operation: &str, p: &Value) -> Res
                     return Err("composition scope expired".into());
                 }
             }
+            if !crate::shared_tasks::acquire_slot(
+                tx,
+                text(&saved, "run_id")?,
+                text(&item, "principal")?,
+                text(&saved, "workflow")?,
+                text(&saved, "identity")?,
+                text(p, "owner")?,
+            )? {
+                return Ok(Value::Null);
+            }
             tx.execute("UPDATE composition_attempts SET state='running' WHERE instance=$1 AND path=$2 AND revision=$3",&[&id,&path,&integer(&saved,"revision",0)?]).map_err(db_error)?;
             activity(tx, &id)?;
             event(tx, &id, Some(path), "attempt_started", "running", None)?;
@@ -577,6 +725,7 @@ pub(crate) fn apply(tx: &mut Transaction<'_>, operation: &str, p: &Value) -> Res
                 return Err("attempt transition conflict".into());
             }
             tx.execute("UPDATE composition_attempts SET state=$4,output=$5,error=$6 WHERE instance=$1 AND path=$2 AND revision=$3",&[&id,&path,&integer(&saved,"revision",0)?,&state,&p["output"].to_string(),&p["error"].to_string()]).map_err(db_error)?;
+            crate::shared_tasks::release_slot(tx, text(&saved, "run_id")?, text(p, "owner")?)?;
             activity(tx, &id)?;
             event(tx, &id, Some(path), "attempt_finished", state, None)?;
             attempt(tx, &id, path)
@@ -645,7 +794,14 @@ pub(crate) fn apply(tx: &mut Transaction<'_>, operation: &str, p: &Value) -> Res
                 ],
             )
             .map_err(db_error)?;
-            event(tx, &id, Some(path), "join_decided", "waiting", Some(p))?;
+            event(
+                tx,
+                &id,
+                Some(path),
+                "join_decided",
+                "waiting",
+                Some(&json!({"winners":p["winners"],"obsolete":p["obsolete"]})),
+            )?;
             join(tx, &id, path)
         }
         "composition.finish" => {
@@ -688,17 +844,48 @@ pub(crate) fn apply(tx: &mut Transaction<'_>, operation: &str, p: &Value) -> Res
             instance(tx, &id)
         }
         "composition.recover" => {
-            shared_timing::require_open(tx, &id, "")?;
+            let item = instance(tx, &id)?;
+            if item["state"] != "unknown" {
+                return Err("composition recovery unavailable".into());
+            }
+            let closed = if item["cancel_requested"] == true {
+                Some("cancelled")
+            } else if expired(tx, &id)? {
+                Some("expired")
+            } else {
+                None
+            };
             let rows=tx.query("SELECT path,run_id FROM composition_attempts WHERE instance=$1 AND state='unknown'",&[&id]).map_err(db_error)?;
-            for r in rows {
-                let run = r.get::<_, &str>(1);
+            for row in rows {
+                let path = row.get::<_, &str>(0);
+                let run = row.get::<_, &str>(1);
                 let unsafe_effect:bool=tx.query_one("SELECT EXISTS(SELECT 1 FROM host_invocations WHERE run=$1 AND state IN ('executing','unknown'))",&[&run]).map_err(db_error)?.get(0);
                 if unsafe_effect {
                     return Err("shared effect resolution required".into());
                 }
-                tx.execute("UPDATE composition_attempts SET state='queued',error=NULL WHERE instance=$1 AND path=$2 AND state='unknown'",&[&id,&r.get::<_,&str>(0)]).map_err(db_error)?;
+                if closed.is_none() {
+                    require_path_open(tx, &id, path)?;
+                }
+                tx.execute("UPDATE composition_attempts SET state=$3,error=NULL WHERE instance=$1 AND path=$2 AND state='unknown'",&[&id,&path,&closed.unwrap_or("queued")]).map_err(db_error)?;
             }
-            tx.execute("UPDATE composition_instances SET state='queued',error=NULL WHERE id=$1 AND state='unknown'",&[&id]).map_err(db_error)?;
+            let state = closed.unwrap_or("queued");
+            tx.execute(
+                "UPDATE composition_instances SET state=$2,error=NULL WHERE id=$1",
+                &[&id, &state],
+            )
+            .map_err(db_error)?;
+            shared_timing::transition(
+                tx,
+                &id,
+                "",
+                if closed.is_some() {
+                    "terminal"
+                } else {
+                    "queued"
+                },
+                0,
+            )?;
+            event(tx, &id, None, "reconciled", state, None)?;
             instance(tx, &id)
         }
         "composition.continue" => {
@@ -820,7 +1007,7 @@ pub(crate) fn query(tx: &mut Transaction<'_>, operation: &str, p: &Value) -> Res
             ))
         }
         "composition.node" => node(tx, id, path),
-        "composition.attempt" => attempt(tx, id, path),
+        "composition.attempt" => attempt_at(tx, id, path, p["revision"].as_i64()),
         "composition.progress" => progress(tx, id, path),
         "composition.join" => join(tx, id, path),
         "composition.scopes" => {
@@ -870,4 +1057,45 @@ pub(crate) fn definition_in_use(
         if binding["binding"][section][name]==identity{return Ok(true)}
     }
     Ok(false)
+}
+
+/// The final effect-admission transaction rechecks every enclosing deadline and
+/// cancellation intent. Scheduler polling is only a promptness optimisation.
+pub(crate) fn admission_open(tx: &mut Transaction<'_>, run_id: &str) -> Result<()> {
+    let row=tx.query_opt("SELECT a.instance,a.path,a.state,i.cancel_requested,i.deadline,i.owner,i.owner_epoch,z.epoch FROM composition_attempts a JOIN composition_instances i ON i.id=a.instance CROSS JOIN authority z WHERE a.run_id=$1 AND z.singleton",&[&run_id]).map_err(db_error)?;
+    let Some(row) = row else { return Ok(()) };
+    let id = row.get::<_, &str>(0);
+    let path = row.get::<_, &str>(1);
+    if row.get::<_, &str>(2) != "running"
+        || row.get::<_, bool>(3)
+        || row.get::<_, i64>(4) <= now(tx)?
+        || row.get::<_, Option<&str>>(5).is_none()
+        || row.get::<_, Option<i64>>(6) != Some(row.get(7))
+        || obsolete(tx, id, path)?
+    {
+        return Err("composition effect admission closed".into());
+    }
+    let root = node(tx, id, "root")?;
+    if matches!(
+        root["state"].as_str(),
+        Some("failed" | "unknown" | "expired" | "cancelled" | "input_required" | "auth_required")
+    ) {
+        return Err("composition control admission closed".into());
+    }
+    require_path_open(tx, id, path)?;
+    for row in tx
+        .query(
+            "SELECT path,deadline FROM composition_scopes WHERE instance=$1",
+            &[&id],
+        )
+        .map_err(db_error)?
+    {
+        let prefix = row.get::<_, &str>(0);
+        if (path == prefix || path.starts_with(&format!("{prefix}/")))
+            && row.get::<_, i64>(1) <= now(tx)?
+        {
+            return Err("composition ancestor expired".into());
+        }
+    }
+    Ok(())
 }

@@ -117,7 +117,7 @@ impl PostgresRepository {
         binding_valid(&binding)?;
         client
             .batch_execute(&format!(
-                "SET search_path TO {},pg_catalog;",
+                "SET search_path TO {},pg_catalog; SET TIME ZONE 'UTC'; SET datestyle TO ISO,YMD; SET extra_float_digits TO 3;",
                 namespace(schema)?
             ))
             .map_err(db_error)?;
@@ -129,7 +129,7 @@ impl PostgresRepository {
         {
             return Err("stale protocol authority".into());
         }
-        if !matches!(row.get::<_, i64>(3), 1 | 2 | 3 | 4)
+        if !matches!(row.get::<_, i64>(3), 1 | 2 | 3 | 4 | 5 | 6)
             || row.get::<_, String>(4) != layout(&mut tx)?
         {
             return Err("incompatible PostgreSQL protocol schema".into());
@@ -190,9 +190,12 @@ impl PostgresRepository {
         if row.get::<_, String>(0) != self.binding.deployment
             || row.get::<_, String>(1) != self.binding.controller
             || row.get::<_, i64>(2) != self.binding.epoch
-            || !matches!(row.get::<_, i64>(3), 1 | 2 | 3 | 4)
+            || !matches!(row.get::<_, i64>(3), 1 | 2 | 3 | 4 | 5 | 6)
         {
             return Err("stale protocol authority".into());
+        }
+        if row.get::<_, i64>(3) >= 6 {
+            crate::shared_backup::check_active(&mut tx)?;
         }
         if row.get::<_, i64>(3) >= 3 {
             crate::shared_leadership::check_lease(&mut tx)?;

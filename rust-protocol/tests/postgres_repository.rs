@@ -552,6 +552,7 @@ fn controller_lease_takeover_fences_every_old_handle_and_preserves_unknown_effec
     fixture.admin().batch_execute("UPDATE controller_lease SET lease_until=clock_timestamp()-interval '1 second' WHERE singleton").unwrap();
     assert!(old.inspect("r").is_err());
     assert!(old.renew_authority(60).is_err());
+    let recovery_started = std::time::Instant::now();
     let next = contender.takeover("controller-two", 30).unwrap();
     assert_eq!(next.epoch, 2);
     assert!(contender.takeover("controller-three", 30).is_err());
@@ -577,6 +578,10 @@ fn controller_lease_takeover_fences_every_old_handle_and_preserves_unknown_effec
     assert_eq!(
         current.host_query("authority.audit", &json!({})).unwrap()[0]["operation"],
         "takeover"
+    );
+    assert!(
+        recovery_started.elapsed() < std::time::Duration::from_secs(60),
+        "reference same-database recovery gate exceeded 60 seconds"
     );
 }
 
