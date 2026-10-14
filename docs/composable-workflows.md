@@ -216,12 +216,21 @@ python -m mas_host workflow run \
 logical node paths and leaf attempt states. `cancel` records cancellation and
 stops further admission. Cancellation does not undo external effects. Unknown
 effects take precedence over an apparently cancelled or failed result.
+Once workers have drained, cancellation closes queued and paused latest leaf
+revisions and their visible nodes. Earlier continuation revisions, completed
+branch results and uncertain effects retain their evidence. A queued sibling
+cannot start after cancellation, including when another branch remains unknown.
 
 An `input_required` or `auth_required` leaf can be continued with `continue`,
 `--path` from status, a new `--request-key` and an `--input` file. The registered
 workflow must provide its continuation function; the new revision preserves
 the original composition deadline and allocation. Continuation input does not
 grant a principal new authority.
+
+New submissions and continuations obey the deployment storage thresholds before
+persisting input. Identical request replay, cancellation and evidenced recovery
+remain available above those thresholds; a read-only or restored audit-only
+deployment still rejects service mutations.
 
 `recover` requeues uncertain work for the original assigned run after any
 required invocation reconciliation; it does not create a replacement effect

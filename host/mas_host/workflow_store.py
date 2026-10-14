@@ -73,6 +73,39 @@ class WorkflowStore:
         finally:
             db.close()
 
+    @staticmethod
+    def close_stopped_work(db, instance):
+        """Close future local work only after the instance's workers have drained.
+
+        Historical revisions and completed or uncertain effects retain their
+        evidence. A continuation's latest revision is the only actionable one.
+        """
+        latest = ('SELECT max(other.revision) FROM attempts other '
+                  'WHERE other.instance=attempts.instance AND other.path=attempts.path')
+        for row in db.execute('SELECT path,revision FROM attempts WHERE instance=? '
+                              "AND state IN ('queued','input_required','auth_required') "
+                              f'AND revision=({latest})', (instance,)).fetchall():
+            db.execute("UPDATE attempts SET state='cancelled' WHERE instance=? AND path=? AND revision=?",
+                       (instance, row['path'], row['revision']))
+            event(db, instance, row['path'], 'task_state', 'cancelled')
+        # Reconcile the visible graph with closed attempts. Do not conceal a
+        # running or unknown descendant beneath a cancelled control node.
+        for row in db.execute("SELECT path,kind FROM nodes WHERE instance=? AND state IN "
+                              "('waiting','queued','running','input_required','auth_required','unknown')", (instance,)).fetchall():
+            path = row['path']
+            if row['kind'] == 'task':
+                attempt = db.execute('SELECT state FROM attempts WHERE instance=? AND path=? '
+                                     'ORDER BY revision DESC LIMIT 1', (instance, path)).fetchone()
+                if attempt is None or attempt['state'] != 'cancelled':
+                    continue
+            elif db.execute("SELECT 1 FROM attempts WHERE instance=? AND state IN ('running','unknown') "
+                            'AND (path=? OR substr(path,1,?)=?) LIMIT 1',
+                            (instance, path, len(path) + 1, path + '/')).fetchone():
+                continue
+            db.execute("UPDATE nodes SET state='cancelled',error=? WHERE instance=? AND path=?",
+                       (encode({'code': 'cancelled'}), instance, path))
+            event(db, instance, path, 'node_state', 'cancelled')
+
 
 def holds_run(state_dir: Path, run_directory: str) -> bool:
     """Conservative retention: composition history retains all referenced runs.

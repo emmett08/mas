@@ -7,7 +7,6 @@ journal resolution before explicit recovery, never a fresh submission.
 """
 from __future__ import annotations
 
-from contextlib import contextmanager
 from dataclasses import dataclass
 import fcntl
 import hashlib
@@ -21,6 +20,7 @@ import uuid
 from .codec import JsonSizeError, integer_json
 from .contracts import Adapter, AdapterInterrupted, AdapterTimeout, Outcome, RecoveryRequired, RunnerError
 from .service_contracts import ServiceError
+from .service_mutation import service_mutation
 from .task_store import TaskStore, canonical, decoded, event, now
 
 
@@ -326,7 +326,7 @@ class DurableTaskService:
         if any(not names <= self.workflows.keys() for names in self.grants.values()):
             raise ServiceError("invalid_grant")
         self.identities = {name: workflow.identity for name, workflow in self.workflows.items()}
-        active = self.operations.admission_enabled
+        active = not self.operations.readonly and self.operations.admission_enabled
         with _file_lock(self.state_dir / ".deployment.lock", False):
             self.store = TaskStore(self.state_dir, deployment_id=self.operations.deployment_id,
                                    readonly=not active)
@@ -342,15 +342,8 @@ class DurableTaskService:
         self.executor = executor or RunnerExecutor(self.state_dir, operations=self.operations,
             mas_bin=mas_bin, gateway_bin=gateway_bin, supervised=supervised)
 
-    @contextmanager
     def _mutation(self):
-        from .operations import _file_lock
-        with _file_lock(self.state_dir / ".deployment.lock", False):
-            if not self.operations.admission_enabled:
-                raise ServiceError("audit_only")
-            self.operations._disk()
-            with self.store.transaction() as db:
-                yield db
+        return service_mutation(self.operations, self.store)
 
     def _authorise(self, principal, workflow=None):
         _text(principal, "principal")
@@ -425,6 +418,7 @@ class DurableTaskService:
             duplicate = self._duplicate(db, principal, request_key, digest)
             if duplicate:
                 return duplicate
+            self.operations.check_storage_admission()
             self._capacity(db, new=True)
             task_id, timestamp = "task-" + uuid.uuid4().hex, now()
             self._validate_execution_input(self.workflows[workflow], task_id, 0, value)
@@ -484,6 +478,7 @@ class DurableTaskService:
                 raise ServiceError("invalid_task_state")
             if task["revision"] + 1 >= self.max_revisions:
                 raise ServiceError("revision_limit")
+            self.operations.check_storage_admission()
             # Pure application mapping, never a network effect or model call.
             try:
                 combined = _object(workflow.continue_input(task["result"] or {}, value))
@@ -608,7 +603,7 @@ class DurableTaskService:
             except BlockingIOError:
                 raise ServiceError("worker_busy") from None
             with _file_lock(self.state_dir / ".deployment.lock", False):
-                if not self.operations.admission_enabled:
+                if self.operations.readonly or not self.operations.admission_enabled:
                     raise ServiceError("audit_only")
                 with self.store.transaction() as db:
                     row = db.execute("SELECT e.* FROM executions e JOIN tasks t ON t.id=e.task_id AND t.revision=e.revision WHERE e.state IN ('queued','running') ORDER BY e.sequence LIMIT 1").fetchone()

@@ -221,6 +221,11 @@ class DeploymentLedger:
             return self._admission_enabled(db)
 
     @property
+    def readonly(self) -> bool:
+        """Whether this ledger handle permits mutations and admissions."""
+        return self._readonly
+
+    @property
     def deployment_id(self) -> str:
         """Read identity without scanning unrelated operational repositories."""
         with _db(self.path, readonly=True) as db:
@@ -240,7 +245,14 @@ class DeploymentLedger:
             "reserved_microusd": db.execute("SELECT coalesce(sum(reserved_microusd),0) FROM calls").fetchone()[0],
         }
 
-    def _disk(self):
+    def check_storage_admission(self):
+        """Reject new work when a storage admission threshold has been reached.
+
+        These thresholds are not a physical storage quota: already admitted
+        work still needs to record results, cancellation and reconciliation.
+        Callers hold their deployment/repository mutation locks around checks
+        and new input records. Identical retained requests need no new admission.
+        """
         size = _state_size(self.state_dir)
         free = shutil.disk_usage(self.state_dir).free
         if free < self.policy.min_free_bytes:
@@ -265,7 +277,7 @@ class DeploymentLedger:
                 return False
             if not self._admission_enabled(db):
                 raise OperationsError("restored deployment is audit-only; new work admissions are disabled")
-            self._disk()
+            self.check_storage_admission()
             if self._limits(db)["runs"] >= self.policy.max_runs:
                 raise OperationsError("deployment admission closed: lifetime run limit reached")
             db.execute("INSERT INTO runs VALUES(?,?,?,NULL)", (run_id, run_dir.name, int(time.time())))
@@ -291,7 +303,7 @@ class DeploymentLedger:
                 if existing[0] != allocation:
                     raise OperationsError("call allocation changed for an admitted identity")
                 return False
-            self._disk()
+            self.check_storage_admission()
             usage = self._limits(db)
             if usage["calls"] >= self.policy.max_calls:
                 raise OperationsError("deployment admission closed: lifetime call limit reached")

@@ -17,6 +17,7 @@ import uuid
 from .operations import DeploymentLedger, _file_lock
 from .contracts import RunnerError
 from .service_contracts import ServiceError
+from .service_mutation import service_mutation
 from .task_service import RunnerExecutor, _object, _text
 from .workflow_allocation import WorkflowAllocation
 from .workflow_plan import WorkflowPlan, bind_plan, validate_registry
@@ -58,17 +59,13 @@ class WorkflowEngine:
             self.grants[principal] = frozenset(names)
         self.options = {'mas_bin': mas_bin, 'gateway_bin': gateway_bin}
         with _file_lock(self.state_dir / '.deployment.lock', False):
-            if not self.operations.admission_enabled and not (self.state_dir / 'composition.sqlite').exists():
+            active = not self.operations.readonly and self.operations.admission_enabled
+            if not active and not (self.state_dir / 'composition.sqlite').exists():
                 raise ServiceError('audit_only')
-            self.store = WorkflowStore(self.state_dir, readonly=not self.operations.admission_enabled)
+            self.store = WorkflowStore(self.state_dir, readonly=not active)
 
-    @contextmanager
     def _mutation(self):
-        with _file_lock(self.state_dir / '.deployment.lock', False):
-            if not self.operations.admission_enabled:
-                raise ServiceError('audit_only')
-            with self.store.transaction() as db:
-                yield db
+        return service_mutation(self.operations, self.store)
 
     def _owned(self, db, principal, instance):
         row = db.execute('SELECT * FROM instances WHERE id=? AND principal=?', (instance, principal)).fetchone()
@@ -98,6 +95,7 @@ class WorkflowEngine:
                     raise ServiceError('request_conflict')
                 instance = row['id']
             else:
+                self.operations.check_storage_admission()
                 if db.execute('SELECT count(*) FROM instances').fetchone()[0] >= self.max_instances:
                     raise ServiceError('workflow_limit')
                 instance, now = 'flow-' + uuid.uuid4().hex, int(time.time())
@@ -136,9 +134,17 @@ class WorkflowEngine:
                 db.execute('UPDATE instances SET cancel_requested=1 WHERE id=?', (instance,))
                 # Unknown effects survive cancellation; the scheduler observes
                 # running workers and records the final local state.
-                if item['state'] in {'queued', 'input_required', 'auth_required'}:
-                    db.execute('UPDATE instances SET state=\'cancelled\' WHERE id=?', (instance,))
-                event(db, instance, None, 'cancellation_requested', item['state'])
+                state = item['state']
+                if state in {'queued', 'input_required', 'auth_required', 'unknown'}:
+                    self.store.close_stopped_work(db, instance)
+                    if state != 'unknown':
+                        state = 'cancelled'
+                        db.execute('UPDATE instances SET state=?,output=NULL,error=? WHERE id=?',
+                                   (state, encode({'code': state}), instance))
+                if not item['cancel_requested']:
+                    event(db, instance, None, 'cancellation_requested', state)
+                elif state != item['state']:
+                    event(db, instance, None, 'state_changed', state)
         return self.inspect(principal, instance)
 
     @contextmanager
@@ -266,7 +272,7 @@ class WorkflowEngine:
         with self.store.transaction(readonly=True) as db:
             self._owned(db, principal, instance)
         with SchedulerOwnership(self.state_dir, instance) as ownership:
-            if not self.operations.admission_enabled:
+            if self.operations.readonly or not self.operations.admission_enabled:
                 raise ServiceError('audit_only')
             item = self._instance(instance)
             if item['state'] in _FINISHED | _PAUSED:
@@ -297,15 +303,19 @@ class WorkflowEngine:
                 if not live and (stopped or state in _PAUSED | {'expired', 'cancelled'}
                                  or state in _FINISHED and not ready):
                     with self.store.transaction() as db:
+                        # Cancellation may have committed after the iteration's
+                        # snapshot. Final publication must honour that intent.
+                        cancelled = db.execute('SELECT cancel_requested FROM instances WHERE id=?',
+                                               (instance,)).fetchone()[0]
                         uncertain = db.execute("SELECT 1 FROM attempts WHERE instance=? AND state='unknown' LIMIT 1", (instance,)).fetchone()
-                        final = ('unknown' if uncertain else 'expired' if expired else 'cancelled' if current['cancel_requested'] else state)
+                        final = ('unknown' if uncertain else 'expired' if expired else 'cancelled' if cancelled else state)
                         db.execute('UPDATE instances SET state=?,output=?,error=? WHERE id=?',
                                    (final, encode(output) if final == 'completed' else None,
                                     encode({'code': final}) if final != 'completed' else None, instance))
                         # A stopped instance never leaves an unstarted task
                         # looking actionable. Running/unknown records survive.
-                        if final in {'failed', 'cancelled', 'expired'}:
-                            db.execute("UPDATE attempts SET state='cancelled' WHERE instance=? AND state='queued'", (instance,))
+                        if cancelled or final in {'failed', 'cancelled', 'expired'}:
+                            self.store.close_stopped_work(db, instance)
                         event(db, instance, None, 'state_changed', final)
                     return self.inspect(principal, instance)
                 if not stopped and state not in _PAUSED | {'expired', 'cancelled'}:
@@ -346,6 +356,7 @@ class WorkflowEngine:
                 workflow = self.workflows[attempt['workflow']]
                 if workflow.continue_input is None:
                     raise ServiceError('unsupported_capability')
+                self.operations.check_storage_admission()
                 value = _object(workflow.continue_input(attempt['output'] or {}, supplied))
                 revision = attempt['revision'] + 1
                 if revision >= 32:

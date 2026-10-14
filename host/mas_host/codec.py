@@ -1,12 +1,19 @@
-"""Bounded integer JSON used by the host and local adapter IPC."""
+"""Host validation for Rust actor identities and bounded integer JSON."""
 
 import json
+import re
 
 from .contracts import RunnerError
 
 
 JSON_BYTES = 65_536
 ENCODE_ENVELOPE_BYTES = JSON_BYTES + 256
+_ACTOR_IDENTITY = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.:/-]{0,127}")
+
+
+def is_actor_identity(value: object) -> bool:
+    """Match the Rust actor grammar; protocol admission remains authoritative."""
+    return type(value) is str and _ACTOR_IDENTITY.fullmatch(value) is not None
 
 
 class JsonSizeError(RunnerError):

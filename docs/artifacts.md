@@ -80,6 +80,15 @@ Publication is serialised across processes and atomically installs durable
 content before its manifest. Unknown versions, inconsistent metadata and
 corrupt content fail closed.
 
+Within a deployment, new namespaces and publications also require its storage
+admission thresholds to remain open. An identical retained publication is
+verified and returned without allocating temporary content, even when admission
+is closed. Reads and retention-state updates remain available so existing work
+can be resolved. These are admission thresholds, not a physical byte quota;
+existing writes still require free space. A file is fingerprinted before admission
+and checked again while copying, so a changed source cannot publish mismatched
+content.
+
 ## Retention and recovery
 
 Place the root at `<run_dir>/artifacts`. Existing deployment backup includes the

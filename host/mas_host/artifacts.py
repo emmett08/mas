@@ -19,6 +19,7 @@ import stat
 import uuid
 from typing import BinaryIO, ContextManager, Iterator, Protocol
 
+from .codec import is_actor_identity
 from .operations import OperationsError, _file_lock
 
 
@@ -27,7 +28,6 @@ class ArtifactError(RuntimeError):
 
 
 _ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}\Z")
-_PRINCIPAL = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.:/-]{0,127}\Z")
 _DIGEST = re.compile(r"[0-9a-f]{64}\Z")
 _MEDIA = re.compile(r"[a-z0-9!#$&^_.+-]+/[a-z0-9!#$&^_.+-]+\Z")
 _FORMAT = "mas-artifact/1"
@@ -45,7 +45,7 @@ def _identity(value: str) -> str:
 
 def _principal(value: str) -> str:
     """Rust actor identity; opaque metadata, never a filesystem component."""
-    if type(value) is not str or not _PRINCIPAL.fullmatch(value):
+    if not is_actor_identity(value):
         raise ArtifactError("invalid artefact principal")
     return value
 
@@ -188,6 +188,19 @@ def _read_file(directory: int, name: str, limit: int) -> bytes:
         return data
 
 
+def _hash_source(source: BinaryIO, limit: int, *, destination: BinaryIO | None = None) -> tuple[int, str]:
+    """Read bounded content, optionally copying the exact bytes being hashed."""
+    digest, size = hashlib.sha256(), 0
+    while chunk := source.read(min(_CHUNK, limit - size + 1)):
+        size += len(chunk)
+        if size > limit:
+            raise ArtifactError("artefact exceeds per-object quota")
+        if destination is not None:
+            destination.write(chunk)
+        digest.update(chunk)
+    return size, digest.hexdigest()
+
+
 def _atomic_json(directory: int, name: str, data: dict) -> None:
     encoded = _json(data)
     if len(encoded) > _MAX_INDEX:
@@ -288,6 +301,15 @@ class ArtifactStore:
             if not DeploymentLedger(deployment, readonly=True).admission_enabled:
                 raise ArtifactError("restored artefacts are audit-only")
 
+    def _publication_capacity(self) -> None:
+        deployment = self._deployment()
+        if deployment is not None:
+            from .operations import DeploymentLedger
+            try:
+                DeploymentLedger(deployment, readonly=True).check_storage_admission()
+            except OperationsError:
+                raise ArtifactError("artefact publication admission closed") from None
+
     @contextmanager
     def _locked(self, *, write: bool = False, initialise: bool = False):
         try:
@@ -299,6 +321,8 @@ class ArtifactStore:
             with lock:
                 if write:
                     self._writable()
+                    if initialise and not (self.directory / "index.json").exists():
+                        self._publication_capacity()
                 root_fd = _open_dir(self.root, create=write and initialise)
                 try:
                     if stat.S_IMODE(os.fstat(root_fd).st_mode) & 0o077:
@@ -385,25 +409,20 @@ class ArtifactStore:
         # Validate metadata before consuming any source bytes.
         ArtifactRef(self.namespace, "0" * 64, "0" * 64, 0, media_type, self.principal, inputs)
         with self._locked(write=True) as (directory, index):
+            # Recognise a duplicate without allocating a temporary blob. New
+            # publications obey deployment admission before writing any bytes.
+            offset = source.tell()
+            size, digest = _hash_source(source, self.policy.max_artifact_bytes)
+            source.seek(offset)
+            provisional = ArtifactRef(self.namespace, "0" * 64, digest, size, media_type, self.principal, inputs)
+            identity = hashlib.sha256(_json({"reference": {key: value for key, value in provisional.to_dict().items() if key != "artifact_id"}, "readers": grants})).hexdigest()
+            ref = ArtifactRef(self.namespace, identity, digest, size, media_type, self.principal, inputs)
+            if identity in index["artifacts"]:
+                self._verify_file(directory, ref)
+                return ref
+            self._publication_capacity()
             pending = ".pending-" + uuid.uuid4().hex
             try:
-                digest = hashlib.sha256()
-                size = 0
-                with os.fdopen(_open_file(directory, pending, os.O_WRONLY | os.O_CREAT | os.O_EXCL), "wb") as output:
-                    while chunk := source.read(min(_CHUNK, self.policy.max_artifact_bytes - size + 1)):
-                        size += len(chunk)
-                        if size > self.policy.max_artifact_bytes:
-                            raise ArtifactError("artefact exceeds per-object quota")
-                        output.write(chunk)
-                        digest.update(chunk)
-                    output.flush()
-                    os.fsync(output.fileno())
-                provisional = ArtifactRef(self.namespace, "0" * 64, digest.hexdigest(), size, media_type, self.principal, inputs)
-                identity = hashlib.sha256(_json({"reference": {key: value for key, value in provisional.to_dict().items() if key != "artifact_id"}, "readers": grants})).hexdigest()
-                ref = ArtifactRef(self.namespace, identity, digest.hexdigest(), size, media_type, self.principal, inputs)
-                if identity in index["artifacts"]:
-                    self._verify_file(directory, ref)
-                    return ref
                 if len(index["artifacts"]) >= self.policy.max_artifacts:
                     raise ArtifactError("artefact count quota exhausted")
                 blob = ref.sha256 + ".blob"
@@ -425,6 +444,12 @@ class ArtifactStore:
                 if blob in names:
                     self._verify_file(directory, ref)
                 else:
+                    with os.fdopen(_open_file(directory, pending, os.O_WRONLY | os.O_CREAT | os.O_EXCL), "wb") as output:
+                        copied = _hash_source(source, self.policy.max_artifact_bytes, destination=output)
+                        if copied != (size, digest):
+                            raise ArtifactError("artefact source changed during publication")
+                        output.flush()
+                        os.fsync(output.fileno())
                     os.replace(pending, blob, src_dir_fd=directory, dst_dir_fd=directory)
                     os.fsync(directory)
                 index["artifacts"][identity] = {"artifact_id": identity, "reference": ref.to_dict(), "readers": grants}

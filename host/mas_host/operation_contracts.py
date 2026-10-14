@@ -14,7 +14,7 @@ import re
 from types import MappingProxyType
 from typing import Iterable
 
-from .codec import integer_json
+from .codec import integer_json, is_actor_identity
 from .contracts import Adapter, AdapterContext, AdapterError, Outcome, RunnerError, TaskRequest
 
 
@@ -43,7 +43,7 @@ def _name(value: str) -> str:
 
 
 def _actor(value: str) -> str:
-    if type(value) is not str or re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.:/-]{0,127}", value) is None:
+    if not is_actor_identity(value):
         raise ContractError("invalid_actor_identity")
     return value
 

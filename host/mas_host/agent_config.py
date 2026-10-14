@@ -7,9 +7,9 @@ without introducing application-specific roles into the host.
 from __future__ import annotations
 
 from dataclasses import dataclass
-import re
 from typing import Iterable, Mapping
 
+from .codec import is_actor_identity
 from .cursor_transport import SDK_DEFAULT, validate_transport_policy
 from .operation_contracts import OperationContract
 from .provider_config import read_api_key
@@ -31,7 +31,7 @@ class AgentConfig:
     cursor_transport: str = SDK_DEFAULT
 
     def __post_init__(self) -> None:
-        if type(self.actor) is not str or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.:/-]{0,127}", self.actor):
+        if not is_actor_identity(self.actor):
             raise ProviderError("agent requires a valid registered actor identity")
         for value in (self.role, self.model):
             if type(value) is not str or not IDENTIFIER.fullmatch(value):

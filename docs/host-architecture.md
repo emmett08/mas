@@ -28,7 +28,7 @@ before writes.
 | Component | Owned responsibility |
 | --- | --- |
 | `contracts.py` | Adapter-facing values, typed public failures and narrow context/execution protocols. |
-| `codec.py` | Bounded exact integer-JSON validation for host boundaries. |
+| `codec.py` | Shared Rust actor-identity grammar and bounded exact integer-JSON validation for host boundaries. |
 | `Runner` | Ordered request orchestration and checkpoint replay through a stable façade. |
 | `RunSession` | Exclusive run lifetime and staged, idempotent bootstrap. |
 | `ProtocolClient` | Bounded Rust subprocess execution, credential-free child environments and sanitised diagnostics. |
@@ -43,6 +43,7 @@ before writes.
 | `JobStore` and `DurableJobService` | Persist remote-job intent, correlate exact identities, serialise observations and retain reconciliation evidence. |
 | `CursorCloudJobAdapter` | Admit a repository-job submission through the existing runner and return its durable receipt. |
 | `DurableTaskService` and `TaskStore` | Bind principal-scoped request keys to immutable submissions, serialise execution revisions and commit task events with state changes. |
+| `service_mutation.py` | Share maintenance locking and read-only/audit-only rejection between task and composition services; new-input admission remains distinct from cancellation and recovery writes. |
 | `RunnerExecutor` and `ExecutionBinding` | Assign one run/root request to each revision and construct adapters from trusted principal, workflow and run identity. |
 | HTTP/stdio boundary and token verifiers | Bound incoming requests, authenticate callers and enforce scopes before invoking the task service. |
 | MCP and A2A adapters | Convert the declared protocol profile into task-service operations or admitted remote-client operations. |

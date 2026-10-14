@@ -11,7 +11,7 @@ import re
 from dataclasses import dataclass
 from typing import Any, Protocol
 
-from .codec import integer_json
+from .codec import integer_json, is_actor_identity
 from .contracts import AdapterContext, Invocation, Outcome, TaskRequest
 from .operation_contracts import JsonObjectSchema, OperationContract
 from .provider_contract import ProviderError
@@ -152,7 +152,7 @@ is checked against its registration snapshot before admission and execution.
             raise ProviderError("structured adapter requires an operation contract")
         descriptor, _ = structured_binding(provider)
         actor = descriptor["role"] if actor is None else actor
-        if type(actor) is not str or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.:/-]{0,127}", actor):
+        if not is_actor_identity(actor):
             raise ProviderError("structured adapter requires a valid actor identity")
         # Validate instructions and output schema before any task can be admitted.
         StructuredRequest({}, instructions, contract.output_schema,

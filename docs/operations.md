@@ -128,6 +128,14 @@ Policy values are immutable after initialisation. Changing an environment variab
 
 Disk thresholds are checked before admissions. They close admission when free space falls below `min_free_bytes` or retained state reaches `max_state_bytes`. Writes already admitted can cross the threshold; use a filesystem quota for a strict storage ceiling. Watch `free_bytes`, `state_bytes`, usage and admission state through the read-only `health` command. It never creates a deployment or migrates its database. Backups occupy separate storage and need their own retention policy.
 
+Both durable services check these thresholds before persisting a new submission
+or continuation. An identical retained request can still return its receipt;
+cancellation and evidenced recovery remain available above the threshold.
+Deployment-backed artefact stores also check before publishing new content or
+reference metadata. These recovery paths still require physical space for their
+records. A read-only ledger handle or restored audit-only deployment rejects
+service mutations independently of available space.
+
 ## Reconcile expiry independently
 
 A host crash must not leave task expiry dependent on the next adapter call. The watcher calls Rust reconciliation independently:

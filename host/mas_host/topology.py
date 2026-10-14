@@ -10,22 +10,20 @@ from __future__ import annotations
 from dataclasses import dataclass
 import hashlib
 import json
-import re
 
-from .codec import integer_json
+from .codec import integer_json, is_actor_identity
 from .contracts import RunnerError
 
 
 FORMAT = "mas-topology/1"
 MAX_AGENTS = 32
-_IDENTITY = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.:/-]{0,127}\Z")
 _DEFAULTS = {"max_messages": 100, "max_bytes": 100_000, "max_calls": 20,
              "wall_seconds": 3600, "mailbox_capacity": 100}
 _COMMON = set(_DEFAULTS) | {"application"}
 
 
 def _identity(value: object, *, component: bool = False) -> str:
-    if (type(value) is not str or not _IDENTITY.fullmatch(value)
+    if (not is_actor_identity(value)
             or component and "/" in value):
         raise RunnerError("invalid topology identity")
     return value
