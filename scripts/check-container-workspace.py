@@ -74,6 +74,12 @@ def main():
     parser.add_argument('--gateway', default=os.environ.get('MAS_GATEWAY_BIN', 'mas-gateway'))
     args = parser.parse_args()
     runtime = DockerRuntime(args.docker, socket_path=args.socket)
+    controls = json.loads(runtime.exchange(['info', '--format', '{{json .}}'],
+        deadline=time.monotonic()+10, limit=65536))
+    # Fixed control names only: never dump registry/auth/daemon endpoint data.
+    print(json.dumps({'container_controls': {key: controls.get(key) for key in (
+        'OSType', 'CgroupVersion', 'MemoryLimit', 'SwapLimit', 'PidsLimit', 'CpuCfsQuota', 'SecurityOptions')}}),
+        file=sys.stderr)
     spec = ContainerSpec('probe', '1', args.image, ('/usr/local/bin/python', '-I', '/workspace/inputs/probe.py'))
     runtime.ready(spec)
     gateway = shutil.which(args.gateway)

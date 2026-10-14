@@ -144,9 +144,9 @@ class ContainerTests(unittest.TestCase):
     def test_daemon_readiness_rejects_missing_isolation_controls(self):
         runtime = object.__new__(DockerRuntime)
         good = {'OSType': 'linux', 'CgroupVersion': '2', 'MemoryLimit': True, 'SwapLimit': True,
-                'PidsLimit': True, 'CPUCfsQuota': True, 'SecurityOptions': ['name=seccomp,profile=builtin']}
+                'PidsLimit': True, 'CpuCfsQuota': True, 'SecurityOptions': ['name=seccomp,profile=builtin']}
         for key, value in (('OSType', 'windows'), ('CgroupVersion', '1'), ('MemoryLimit', False),
-                           ('PidsLimit', False), ('SecurityOptions', [])):
+                           ('PidsLimit', False), ('CpuCfsQuota', False), ('SecurityOptions', [])):
             runtime.exchange = Mock(return_value=json.dumps({**good, key: value}).encode())
             with self.assertRaises(ContainerError):
                 runtime.ready(self.spec)

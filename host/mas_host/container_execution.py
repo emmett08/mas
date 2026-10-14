@@ -145,7 +145,7 @@ class DockerRuntime:
             raw = self.exchange(['info', '--format', '{{json .}}'], deadline=deadline, limit=65536)
             info = json.loads(raw)
             if (info.get('OSType') != 'linux' or info.get('CgroupVersion') != '2'
-                    or not all(info.get(key) is True for key in ('MemoryLimit', 'SwapLimit', 'PidsLimit', 'CPUCfsQuota'))
+                    or not all(info.get(key) is True for key in ('MemoryLimit', 'SwapLimit', 'PidsLimit', 'CpuCfsQuota'))
                     or not any('seccomp' in value for value in info.get('SecurityOptions', ()) if type(value) is str)):
                 raise ContainerError('container daemon lacks required isolation controls')
             # --pull=never below ensures this cannot become an implicit network pull.
