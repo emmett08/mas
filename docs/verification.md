@@ -21,6 +21,14 @@ passed with exactly two skips in an actual environment without those SDKs and
 with no skips in the provisioned Python 3.14 environment. These test guards did
 not change runtime code.
 
+The installed one-CPU container also exposed a timing mismatch in the real-worker
+success test: its one-second dispatch lease was shorter than the registered
+executor's five-second budget. That test now allows ten seconds for execution and
+receipt delivery. Five repetitions passed with inherited single-CPU affinity;
+five unchanged deterministic expiry, fencing, capacity and lost-reply tests also
+passed. Production lease and uncertainty rules are unchanged. Exact installed
+image acceptance is recorded by the corresponding hosted CI revision.
+
 Rust passed **61 tests**; its two model-specific tests are excluded from ordinary
 `cargo test` and covered by the separate verifier. Script tests passed **43** and
 executable fixtures passed **14**. SPIN passed **110 cases**, including the new

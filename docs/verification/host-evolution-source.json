@@ -6,7 +6,7 @@
     "kind": "git-visible-non-doc-files",
     "algorithm": "sha256 of sorted path + NUL + file sha256 + newline records",
     "files": 379,
-    "sha256": "33661982f14a2c4a3e25fd26b96360aeed8cd7ead39710c9c3d18cb1e62a1300"
+    "sha256": "4cf1761bdcb892374c98408b58438d3ea8e711c4b8c5f13a5f141abe8e6861ea"
   },
   "environment": {
     "python": "3.14.8",
@@ -57,7 +57,8 @@
     "final-host-tests.log": "ff6a4d03cc3182ace6c13bf5c424c36d1a0e43d25c5759751180cc3fb754303c",
     "blocked-interfaces-main.log": "d8a0954a2e3f2dfab21e17eec4eb0d58ea5bb21e87dacc7d225408abb75d2154",
     "optional-sdk-absent.log": "4530ee01344d016be20b214933bd3eba04a2e1ec14ff0a698a6b0f3b10d23645",
-    "optional-sdk-provisioned.log": "be26ea327332af87f20bb36911ceb9760ec4d1587203c9a02a38b4e05967697e"
+    "optional-sdk-provisioned.log": "be26ea327332af87f20bb36911ceb9760ec4d1587203c9a02a38b4e05967697e",
+    "distributed-single-cpu-lease-fix.log": "4ec9e20e803281b2530e68120f4004b18933403e00029f15c8cafe74dac57239"
   },
   "performance": {
     "receipt": "host-ipc-benchmark.json",
@@ -99,5 +100,15 @@
       "status": "PASS"
     },
     "scope": "Two optional SDK tests guarded after hosted minimal-dependency phase failure; installed-SDK CI already discovers both test files."
+  },
+  "worker_success_test_lease": {
+    "runtime_changed": false,
+    "previous_ms": 1000,
+    "current_ms": 10000,
+    "registered_executor_timeout_seconds": 5,
+    "real_process_repetitions_passed": 5,
+    "deterministic_safety_tests_passed": 5,
+    "platform": "native Linux x86_64 with inherited one-CPU affinity; installed musl rerun is separate hosted evidence",
+    "status": "PASS"
   }
 }

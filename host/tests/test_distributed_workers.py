@@ -216,7 +216,11 @@ class DistributedWorkerTests(unittest.TestCase):
         grants = {name: {"capabilities": {"echo": implementation}, "trust_zone": "test", "capacity": 1}
                   for name in self.grants}
         self.state = self.root / "process-controller"
-        controller = WorkerController(self.state, grants, lease_ms=1000)
+        # This success-path integration starts two Python workers, HTTP helper
+        # processes and Rust guardians on the installed image's single CPU.
+        # Its lease must outlast the five-second executor budget plus receipt
+        # delivery; deterministic clock tests above exercise one-second expiry.
+        controller = WorkerController(self.state, grants, lease_ms=10000)
         adapter = RemoteWorkerAdapter(controller, principal="alice", operation="echo",
                                       implementation=implementation, trust_zone="test")
         context = multiprocessing.get_context("spawn")
