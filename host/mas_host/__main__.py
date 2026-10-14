@@ -5,6 +5,9 @@ import sys
 
 def main(argv: list[str] | None = None) -> int:
     arguments = list(sys.argv[1:] if argv is None else argv)
+    if arguments and arguments[0] == "workers":
+        from .distributed_cli import main as workers_main
+        return workers_main(arguments[1:])
     if arguments and arguments[0] == "workflow":
         from .workflow_cli import main as workflow_main
         return workflow_main(arguments[1:])
