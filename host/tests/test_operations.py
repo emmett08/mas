@@ -1,10 +1,12 @@
 """Real SQLite and filesystem tests of deployment-wide operational controls."""
 from __future__ import annotations
 
+from contextlib import closing
 from dataclasses import replace
 import json
 import multiprocessing
 from pathlib import Path
+import os
 import sqlite3
 import tempfile
 import unittest
@@ -40,7 +42,7 @@ class OperationsTests(unittest.TestCase):
         directory = self.state / identity
         directory.mkdir(mode=0o700)
         self.ledger.admit_run(identity, directory)
-        with sqlite3.connect(directory / "state.sqlite") as db:
+        with closing(sqlite3.connect(directory / "state.sqlite")) as db, db:
             db.executescript("CREATE TABLE tasks(state TEXT); INSERT INTO tasks VALUES('completed'); CREATE TABLE calls(id TEXT,state TEXT,result TEXT);")
         journal = Journal(directory, {"run_id": identity, "workflow_version": "operations-fixture/1",
                                       "topology": {}, "max_depth": 8})
@@ -97,13 +99,13 @@ class OperationsTests(unittest.TestCase):
         self.run_directory()
         journal = self.state / "r" / "state.sqlite-journal"
         journal.write_bytes(b"temporary SQLite journal")
-        original_lstat = Path.lstat
+        original_stat = os.stat
         def vanished(path, *args, **kwargs):
-            if path == journal:
+            if path == str(journal) or path == journal:
                 journal.unlink(missing_ok=True)
                 raise FileNotFoundError("concurrent SQLite transaction removed journal")
-            return original_lstat(path, *args, **kwargs)
-        with patch.object(Path, "lstat", vanished):
+            return original_stat(path, *args, **kwargs)
+        with patch('mas_host.storage_accounting.os.stat', side_effect=vanished):
             self.assertTrue(self.ledger.admit_call("r", "allowed"))
         self.assertFalse(journal.exists())
 
@@ -203,7 +205,7 @@ class OperationsTests(unittest.TestCase):
 
     def test_open_task_blocks_prune(self):
         directory = self.run_directory()
-        with sqlite3.connect(directory / "state.sqlite") as db:
+        with closing(sqlite3.connect(directory / "state.sqlite")) as db, db:
             db.execute("UPDATE tasks SET state='open'")
         self.assertFalse(prune_runs(self.state, 0, apply=True)["runs"][0]["eligible"])
 

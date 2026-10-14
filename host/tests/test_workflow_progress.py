@@ -128,6 +128,27 @@ class WorkflowProgressTests(unittest.TestCase):
             with self.assertRaisesRegex(ServiceError, 'workflow progress conflict'):
                 journal.checkpoint(instance, 'root', 'sequence', 3, {})
 
+    def test_crash_after_final_loop_checkpoint_does_not_allocate_another_iteration(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            node = {'kind': 'loop', 'max_iterations': 2, 'body': TASK,
+                    'until': {'path': ['done'], 'equals': True}}
+            instance = create(root, {'done': False})
+            journal = StoreJournal(root)
+            _, ready = advance(journal, instance, node, {'done': False})
+            journal.save_attempt(ready[0], 'completed', {'done': True})
+            def interrupted(*args):
+                journal.store.checkpoint(*args)
+                raise RuntimeError('lost parent completion')
+            journal.checkpoint = interrupted
+            with self.assertRaisesRegex(RuntimeError, 'lost parent completion'):
+                advance(journal, instance, node, {'done': False})
+            result, ready = advance(StoreJournal(root), instance, node, {'done': False})
+            self.assertEqual(result, ('completed', {'done': True}))
+            self.assertEqual(ready, [])
+            with journal.store.transaction(readonly=True) as db:
+                self.assertEqual(db.execute('SELECT count(*) FROM attempts').fetchone()[0], 1)
+
     def test_unchanged_poll_is_read_only(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)

@@ -35,7 +35,7 @@ class ArtifactAdmissionTests(unittest.TestCase):
         return {
             "free_bytes": patch("mas_host.operations.shutil.disk_usage",
                                 return_value=usage(100, 100, 0)),
-            "state_bytes": patch("mas_host.operations._state_size",
+            "state_bytes": patch("mas_host.operations.DeploymentLedger._current_state_size",
                                  return_value=self.ledger.policy.max_state_bytes),
         }
 
@@ -101,7 +101,8 @@ class ArtifactAdmissionTests(unittest.TestCase):
                 self.source.write_bytes(b"changed")
             return result
 
-        with patch.object(artifacts, "_hash_source", side_effect=change_after_scan):
+        with (patch.object(artifacts, "_hash_source", side_effect=change_after_scan),
+              patch('mas_host.artifact_content._hash_source', side_effect=change_after_scan)):
             with self.assertRaisesRegex(ArtifactError, "source changed"):
                 self.store.put_file(self.source)
         self.assertEqual(len(scans), 2)

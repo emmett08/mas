@@ -76,23 +76,11 @@ def _file_lock(path: Path, exclusive: bool, nonblocking: bool = False):
 
 
 def _state_size(path: Path) -> int:
-    total = 0
-    for directory, directories, files in os.walk(path, followlinks=False):
-        for name in [*directories, *files]:
-            entry = Path(directory) / name
-            try:
-                details = entry.lstat()
-            except FileNotFoundError:
-                # SQLite rollback/WAL files can disappear between directory
-                # enumeration and lstat while another admitted host commits.
-                continue
-            if stat.S_ISLNK(details.st_mode):
-                raise OperationsError("state tree must not contain symlinks")
-            if stat.S_ISREG(details.st_mode):
-                total += details.st_size
-            elif not stat.S_ISDIR(details.st_mode):
-                raise OperationsError("state tree must contain regular files only")
-    return total
+    from .storage_accounting import state_size, StorageAccountingError
+    try:
+        return state_size(path)
+    except StorageAccountingError as error:
+        raise OperationsError(str(error)) from None
 
 
 @contextmanager
@@ -130,6 +118,9 @@ def _db(path: Path, readonly: bool = False):
         elif path.name == 'provider-circuits.sqlite':
             from .circuit_breaker import CIRCUITS
             known = CIRCUITS
+        elif path.name == 'peer-registry.sqlite':
+            from .peer_registry import PEERS
+            known = PEERS
         if known and existed:
             validate(connection, known)
     except SchemaError as error:
@@ -389,6 +380,15 @@ class DeploymentLedger:
             "reserved_microusd": db.execute("SELECT coalesce(sum(reserved_microusd),0) FROM calls").fetchone()[0],
         }
 
+    def _current_state_size(self):
+        from .storage_accounting import StateSizeIndex, StorageAccountingError
+        if not hasattr(self, '_storage_accounting'):
+            self._storage_accounting = StateSizeIndex(self.state_dir)
+        try:
+            return self._storage_accounting.measure()
+        except StorageAccountingError as error:
+            raise OperationsError(str(error)) from None
+
     def check_storage_admission(self):
         """Reject new work when a storage admission threshold has been reached.
 
@@ -397,7 +397,7 @@ class DeploymentLedger:
         Callers hold their deployment/repository mutation locks around checks
         and new input records. Identical retained requests need no new admission.
         """
-        size = _state_size(self.state_dir)
+        size = self._current_state_size()
         free = shutil.disk_usage(self.state_dir).free
         if free < self.policy.min_free_bytes:
             raise OperationsError("deployment admission closed: free disk threshold reached")
@@ -497,7 +497,7 @@ class DeploymentLedger:
             identity = db.execute("SELECT value FROM metadata WHERE key='deployment_id'").fetchone()[0]
             enabled = self._admission_enabled(db)
             retained = db.execute("SELECT count(*) FROM runs WHERE purged_at IS NULL").fetchone()[0]
-        size, free = _state_size(self.state_dir), shutil.disk_usage(self.state_dir).free
+        size, free = self._current_state_size(), shutil.disk_usage(self.state_dir).free
         return {"deployment_id": identity, "policy": asdict(self.policy), "usage": usage,
                 "admission_state": "active" if enabled else "restored_audit_only",
                 "retained_runs": retained, "state_bytes": size, "free_bytes": free,

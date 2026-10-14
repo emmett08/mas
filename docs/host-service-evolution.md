@@ -76,6 +76,40 @@ plans retain `flow-…` IDs. Durable submission records are the scheduling inten
 so there is no separate enqueue write that can be lost after acknowledgement.
 The unified facade arbitrates submission keys across both repositories.
 
+New unified submissions use the explicit `mas-unified/1` request namespace.
+Existing arbitrary legacy keys retain their original namespace and logical IDs;
+a default retry first returns an existing versioned key, then an existing legacy
+key. The underlying stores use separate namespace and epoch columns, so a string
+which happens to resemble a prefix cannot alias another namespace.
+
+Supply `request_epoch="release-42"` on HTTP/client/MCP submissions or in the A2A
+JSON data part to use an independently scoped epoch. The local workflow CLI uses
+`--request-epoch release-42`. Continuations inherit their original task's scope.
+The same key in another epoch denotes separate work. Reusing a key inside one
+epoch preserves the usual payload-conflict checks and cross-plan/leaf arbitration.
+
+An authorised owner or operator can retire a drained epoch with
+`retire_request_epoch(owner, epoch, reason="…", prune=True)`. Queued, paused,
+running and uncertain work prevents retirement, including unresolved child
+executions beneath a terminal parent. The durable retirement intent immediately
+rejects every subsequent submit or continuation into that epoch, including
+previously accepted keys. Each owning repository then records its retirement;
+restart or later admission repairs interrupted owner acknowledgements. A direct
+leaf or composition API uses the same guard, so it cannot bypass an incomplete
+retirement. The result records the work owner, authorising principal and reason.
+
+Optional pruning removes deduplication rows for archived leaf tasks and archived
+composition continuations only after closure. Compact historical task/plan
+receipts and lifetime accounting remain available. Legacy arbitrary keys and the
+default epoch are retained indefinitely. Historical inspection and cancellation
+continue by original task ID after retirement.
+
+Plan discovery exposes bounded integer-JSON input/output contracts. A plan may
+declare `input_schema` and `output_schema`; registration checks their local JSON
+Schema syntax, admission validates new input, and completion validates the final
+output while retaining the executed leaf evidence. Omitting them retains the
+existing object contract.
+
 The shared operations are submit, inspect, result, cancel, update, event pages,
 listing, discovery and recovery. A paused composed receipt contains
 `result.pending_tasks` with explicit node paths and revisions. Continue one
@@ -217,3 +251,37 @@ For example, `extension.json` may contain `{"pause_seconds": 172800}`. Supply
 `--path` for an exact nested composition scope. Network boundaries must derive
 operator identity and independent administrative grants from authenticated
 configuration, never from request body assertions.
+
+
+## Sequential progress and storage observations
+
+Composition schema 4 introduced `control_progress`; subsequent schema versions
+retain it. Sequence, reduction, loop and while controls commit a cursor and the
+last completed child's output. Reduction checkpoints also preserve accumulated
+expanded-input bytes. The store verifies the referenced child completion before
+advancing the cursor. A crash before the checkpoint replays retained evidence;
+a crash afterwards resumes at the next child with the original assignment IDs.
+An unfinished or uncertain child cannot enter the completed prefix. Existing
+queued attempt records retain the ready leaf assignments across restart.
+
+Unchanged node/attempt observations use read-only transactions. Repeated node
+states produce neither a write nor an extra event. Linux schedulers wake on
+worker `pidfd` readiness where supported, retaining a 20 ms timer for cancellation
+and expiry checks. Unsupported kernels retain the bounded timer path.
+
+Storage accounting maintains a process-local file-size index. Every admission
+and health decision fully enumerates directories and re-reads file sizes/types;
+external SDK file growth therefore remains observable without trusting host
+write hooks. Full checks reject symlinks and special files and tolerate vanished
+SQLite journals. The index is discarded safely after loss, fork or excess cache
+size. An explicit `estimate()` method can reuse directory inventories with
+periodic reconciliation, but is excluded from admission: coarse filesystem
+timestamps cannot establish that no new directory entries exist. Admission
+thresholds remain distinct from physical filesystem quotas.
+
+Run `python scripts/benchmark-workflow-overhead.py` for the bounded comparison.
+The sequential case measures repeated observation behind 100 completed steps;
+the storage case measures 1,000 files with external writes between observations.
+The benchmark marks provisional inventory estimates as ineligible for admission.
+Results describe local control overhead and do not measure provider latency or
+establish a production throughput objective.
