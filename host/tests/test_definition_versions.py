@@ -59,13 +59,20 @@ class DefinitionVersionTests(unittest.TestCase):
                               {"leaf": workflow or self.original} if workflows is None else workflows,
                               {"owner": {"plan"}}, **options)
 
-    def test_original_identity_is_unchanged_without_optional_package_digest(self):
+    def test_new_identity_binds_verified_source_without_relabelling_legacy(self):
         descriptor = {"version": "1", "topology": self.original.topology,
                       "sender": "a", "recipient": "b", "operation": "work", "max_depth": 8,
                       "continuation": False, "classifier": False, "adapter_factory": False}
-        self.assertEqual(self.original.identity, hashlib.sha256(canonical(descriptor).encode()).hexdigest())
-        pinned = replace(self.original, implementation_digest="a" * 64)
-        self.assertNotEqual(pinned.identity, self.original.identity)
+        legacy = hashlib.sha256(canonical(descriptor).encode()).hexdigest()
+        self.assertNotEqual(self.original.identity, legacy)
+        registry = self.service().definitions
+        registry.remember("workflow", "leaf", legacy, descriptor=descriptor)
+        self.assertEqual(registry.inspect("workflow", "leaf", legacy)["descriptor"], descriptor)
+        self.assertEqual(registry.inspect("workflow", "leaf", legacy)["implementation_provenance"], "not_recorded")
+        pinned = replace(self.original, implementation_digest=self.original.verified_implementation.digest)
+        self.assertEqual(pinned.identity, self.original.identity)
+        with self.assertRaisesRegex(ServiceError, "implementation digest mismatch"):
+            replace(self.original, implementation_digest="a" * 64)
         with self.assertRaises(ServiceError):
             replace(self.original, implementation_digest="unverified-package-name")
 
@@ -146,7 +153,7 @@ class DefinitionVersionTests(unittest.TestCase):
         restored = DurableTaskService(self.root / "restored", {}, {"owner": {"leaf"}}, executor=self.executor)
         self.assertEqual(restored.result("owner", old["task_id"]), {"version": "1"})
         self.assertEqual(restored.inspect("owner", old["task_id"])["capabilities"]["update"], False)
-        self.assertEqual(restored.definitions.inspect("workflow", "leaf", self.original.identity)["implementation_provenance"], "not_recorded")
+        self.assertEqual(restored.definitions.inspect("workflow", "leaf", self.original.identity)["implementation_provenance"], "verified_source_package")
 
     def test_legacy_backfill_never_invents_missing_descriptor(self):
         service = self.service()

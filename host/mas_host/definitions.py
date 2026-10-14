@@ -18,10 +18,15 @@ from .schema import Schema, SchemaError, connect
 from .service_contracts import ServiceError
 
 
-DEFINITIONS = Schema("definition registry", 0x4D415356, 1, (), (
+DEFINITIONS_V1 = Schema("definition registry", 0x4D415356, 1, (), (
     "CREATE TABLE definitions(kind TEXT NOT NULL,name TEXT NOT NULL,identity TEXT NOT NULL,version TEXT,descriptor TEXT,implementation_digest TEXT,created INTEGER NOT NULL,retired INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(kind,name,identity))",
     "CREATE TABLE aliases(kind TEXT NOT NULL,name TEXT NOT NULL,identity TEXT NOT NULL,PRIMARY KEY(kind,name))",
 ))
+
+_MANIFESTS = "CREATE TABLE implementation_manifests(digest TEXT PRIMARY KEY,manifest TEXT NOT NULL)"
+DEFINITIONS = Schema("definition registry", 0x4D415356, 2, (),
+                     (*DEFINITIONS_V1.statements, _MANIFESTS),
+                     ((DEFINITIONS_V1, (_MANIFESTS,)),))
 
 
 def canonical(value):
@@ -68,7 +73,7 @@ class DefinitionRegistry:
             raise ServiceError("unsupported_schema", str(error)) from None
 
     def remember(self, kind, name, identity, *, descriptor=None, implementation_digest=None,
-                 current=False):
+                 implementation_manifest=None, current=False):
         if kind not in {"workflow", "plan", "plan_source"} or not re.fullmatch(r"[0-9a-f]{64}", identity):
             raise ServiceError("invalid_definition")
         source = canonical(descriptor) if descriptor is not None else None
@@ -76,10 +81,17 @@ class DefinitionRegistry:
             raise ServiceError("definition_identity_conflict")
         if implementation_digest is not None and (descriptor is None or descriptor.get("implementation_digest") != implementation_digest):
             raise ServiceError("definition_identity_conflict")
+        manifest = canonical(implementation_manifest) if implementation_manifest is not None else None
+        if manifest is not None and (implementation_manifest.get("format") != "mas-python-implementation/1"
+                or hashlib.sha256(manifest.encode()).hexdigest() != implementation_digest):
+            raise ServiceError("implementation_digest_mismatch")
         version = descriptor.get("version") if descriptor else None
         if kind == "plan" and descriptor:
             version = descriptor["spec"]["version"]
         with self.transaction() as db:
+            if manifest is not None:
+                db.execute("INSERT OR IGNORE INTO implementation_manifests VALUES(?,?)",
+                           (implementation_digest, manifest))
             old = db.execute("SELECT * FROM definitions WHERE kind=? AND name=? AND identity=?",
                              (kind, name, identity)).fetchone()
             if old is not None:
@@ -109,8 +121,12 @@ class DefinitionRegistry:
                 return None
             result = dict(row)
             result["descriptor"] = json.loads(result["descriptor"]) if result["descriptor"] else None
-            result["implementation_provenance"] = ("deployment_asserted_digest" if result["implementation_digest"]
-                                                    else "not_recorded")
+            has_manifests = db.execute("SELECT 1 FROM sqlite_master WHERE name='implementation_manifests'").fetchone()
+            manifest = db.execute("SELECT manifest FROM implementation_manifests WHERE digest=?",
+                                  (result["implementation_digest"],)).fetchone() if has_manifests else None
+            result["implementation_manifest"] = json.loads(manifest[0]) if manifest else None
+            result["implementation_provenance"] = ("verified_source_package" if manifest else
+                "deployment_asserted_digest" if result["implementation_digest"] else "not_recorded")
             return result
 
     def names(self, kind):

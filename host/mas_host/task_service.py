@@ -7,7 +7,7 @@ journal resolution before explicit recovery, never a fresh submission.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import fcntl
 import hashlib
 import json
@@ -95,9 +95,10 @@ class ExecutionBinding:
 class Workflow:
     """Explicit trusted workflow registration, frozen for recovery.
 
-    ``version`` covers adapter implementation, provider identity, classifiers
-    and continuation logic. Change the registered name/version when changing
-    those behaviours. ``continue_input`` is pure: it combines the previous
+    ``version`` identifies application intent; measured source-package bytes
+    bind adapter implementation, classifiers and continuation logic. Changing
+    package bytes changes identity even when the version label is unchanged.
+    ``continue_input`` is pure: it combines the previous
     output with supplied input for a fresh, separately admitted revision.
     ``contract_descriptor`` optionally binds operation, provider and acceptance
     descriptors into recovery identity. It is copied on construction; any
@@ -119,6 +120,8 @@ class Workflow:
     timing_policy: TimingPolicy | dict | None = None
     resource_keys: tuple[str, ...] = ()
     circuit_breakers: dict | None = None
+    implementation_sources: tuple[Callable, ...] = ()
+    _implementation: object = field(init=False, repr=False, compare=False)
 
     def __post_init__(self):
         _text(self.version, "workflow_version")
@@ -158,6 +161,22 @@ class Workflow:
                 or len(set(self.resource_keys)) != len(self.resource_keys)):
             raise ServiceError("invalid_resource_keys")
         object.__setattr__(self, "resource_keys", tuple(sorted(self.resource_keys)))
+        if (not isinstance(self.implementation_sources, tuple)
+                or any(not callable(item) for item in self.implementation_sources)):
+            raise ServiceError("invalid_implementation_sources")
+        from .implementation import VerifiedImplementation, implementation_values
+        implementation = VerifiedImplementation.capture(implementation_values(self))
+        if self.implementation_digest is not None and self.implementation_digest != implementation.digest:
+            raise ServiceError("implementation_digest_mismatch")
+        object.__setattr__(self, "_implementation", implementation)
+
+    @property
+    def verified_implementation(self):
+        return self._implementation
+
+    def verify_implementation(self):
+        from .implementation import implementation_values
+        self._implementation.verify(implementation_values(self))
 
     @property
     def descriptor(self) -> dict:
@@ -165,11 +184,10 @@ class Workflow:
             "sender": self.sender, "recipient": self.recipient, "operation": self.operation,
             "max_depth": self.max_depth, "continuation": self.continue_input is not None,
             "classifier": self.classify is not None, "adapter_factory": self.adapter_factory is not None}
-        # Omission preserves identities of all pre-composition registrations.
+        # Keep the established optional contract descriptor shape.
         if self.contract_descriptor is not None:
             descriptor["contract_descriptor"] = _object(self.contract_descriptor)
-        if self.implementation_digest is not None:
-            descriptor["implementation_digest"] = self.implementation_digest
+        descriptor["implementation_digest"] = self._implementation.digest
         if self.retry_policy is not None:
             descriptor["retry_policy"] = self.retry_policy.descriptor
         if self.timing_policy is not None:
@@ -296,6 +314,7 @@ class RunnerExecutor:
                                        operations=self.operations):
                 return ExecutionResult('unknown', error={'code': 'reconciliation_required'})
             return ExecutionResult("cancelled")
+        workflow.verify_implementation()
         path = self._bootstrap(workflow, execution)
         adapters = workflow.adapters
         if workflow.adapter_factory is not None:
@@ -308,6 +327,7 @@ class RunnerExecutor:
             if (set(adapters) != set(workflow.adapters)
                     or any(not callable(getattr(adapter, "handle", None)) for adapter in adapters.values())):
                 raise ServiceError("invalid_adapter_factory")
+            workflow.verified_implementation.verify_bindings(tuple(adapters.values()))
         executor = LinuxProcessExecutor() if self.options["supervised"] else InlineExecutor()
         from .operations import DeploymentLedger
         from .principal_quotas import PrincipalAllocation
@@ -404,7 +424,8 @@ class DurableTaskService:
                     self.definitions.remember("workflow", name, identity)
                 for (name, identity), workflow in self.workflow_versions.items():
                     self.definitions.remember("workflow", name, identity, descriptor=workflow.descriptor,
-                        implementation_digest=workflow.implementation_digest,
+                        implementation_digest=workflow.verified_implementation.digest,
+                        implementation_manifest=workflow.verified_implementation.manifest,
                         current=self.identities.get(name) == identity)
             with self.store.transaction(readonly=not active) as db:
                 for name, identity in self.identities.items():
@@ -452,17 +473,24 @@ class DurableTaskService:
         if principal not in self.grants or workflow is not None and workflow not in self.grants[principal]:
             raise ServiceError("forbidden")
 
-    def _resolve(self, name, identity):
+    def _resolve(self, name, identity, *, verify=False):
         workflow = self.workflow_versions.get((name, identity))
         if workflow is None:
             return None
         if workflow.identity != identity:
             raise ServiceError("workflow_changed")
         definition = self.definitions.inspect("workflow", name, identity)
-        return None if definition and definition["retired"] else workflow
+        if not definition or definition["retired"] or definition["implementation_provenance"] != "verified_source_package":
+            return None
+        if verify:
+            try:
+                workflow.verify_implementation()
+            except ServiceError:
+                return None
+        return workflow
 
     def _required_workflow(self, name, identity):
-        workflow = self._resolve(name, identity)
+        workflow = self._resolve(name, identity, verify=True)
         if workflow is None:
             raise ServiceError("definition_unavailable")
         return workflow
@@ -865,7 +893,7 @@ class DurableTaskService:
                             event(db, task['id'], 'deadline_expired', reason)
                             return self._receipt(self._owned(db, task['principal'], task['id']))
                         try:
-                            workflow = self._resolve(task["workflow"], task["workflow_identity"])
+                            workflow = self._resolve(task["workflow"], task["workflow_identity"], verify=True)
                         except ServiceError as error:
                             if error.code != "workflow_changed":
                                 raise

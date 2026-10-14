@@ -7,12 +7,42 @@ changing existing task, request, run or continuation identities.
 
 ## Registrations and deployment changes
 
-`Workflow.identity` identifies its declared descriptor. `implementation_digest`
-is an optional explicit SHA-256 assertion about implementation code; without it,
-the registry does **not** claim to have hashed Python adapter behaviour.
-`definition-registry.sqlite` retains immutable workflow and plan descriptors and
-current aliases. New submissions select the current alias. Duplicate requests,
+`Workflow.identity` binds its declared descriptor to a measured implementation
+manifest. Registration hashes the complete source packages and assets containing
+its adapters, classifiers, continuations and factories, together with runtime
+imports of those entry modules and their package dependencies. Registered Python
+functions and reachable helpers are compared against code compiled from those
+source bytes; a file digest alone cannot hide stale loaded code. The manifest
+also records the Python implementation/version and optimisation mode. Absolute
+installation paths are excluded, so relocating identical packages preserves
+identity. Source files must be available; synthetic or unavailable entrypoint
+code fails closed.
+
+The optional `implementation_digest` is now an expected SHA-256 value which must
+match the measured manifest, rather than a deployment assertion. Trusted factory
+code can include additional callable package roots through
+`implementation_sources=(trusted_helper, ...)` for dynamically selected
+application integrations. This is a code registration API, never a remote import
+name. The bridge includes its configured factory in new registrations; retained
+versions must supply their original binding, including original factory sources.
+Mutable application settings still belong in the explicit contract descriptor;
+source integrity does not make arbitrary Python code a sandbox.
+
+`definition-registry.sqlite` version 2 stores the reproducible manifests alongside
+immutable descriptors and current aliases. Registration and actual execution
+check source availability and integrity. File hashes are cached only while
+device, inode, size, modification time and change time remain identical; writes
+during hashing fail. Historical receipt inspection does not traverse package
+files. New submissions select the current alias. Duplicate requests,
 continuations and recovery retain their original identities.
+
+Migration preserves every version-1 descriptor, asserted digest and identity
+exactly. An unverified legacy record remains `not_recorded` or
+`deployment_asserted_digest`; migration cannot certify it using currently loaded
+code. New registrations have distinct verified identities. Keep immutable
+versioned application packages/runtime installations to drain previous work;
+replacing their bytes makes those definitions unavailable for execution while
+retaining authorised historical inspection and lifecycle administration.
 
 Pass old executable versions as `workflow_versions={"name": (old_workflow, ...)}`
 when constructing `DurableTaskService`, `WorkflowEngine` or `UnifiedTaskService`.

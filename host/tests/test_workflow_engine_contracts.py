@@ -49,11 +49,12 @@ class RecordedEffect:
 
 
 class WorkflowDescriptorTests(unittest.TestCase):
-    def test_omitted_contract_descriptor_preserves_legacy_identity(self):
+    def test_omitted_contract_descriptor_preserves_verified_identity(self):
         registered = workflow()
         legacy = {"version": registered.version, "topology": registered.topology,
             "sender": registered.sender, "recipient": registered.recipient, "operation": registered.operation,
             "max_depth": registered.max_depth, "continuation": False, "classifier": False, "adapter_factory": False}
+        legacy["implementation_digest"] = registered.verified_implementation.digest
         self.assertEqual(registered.identity, hashlib.sha256(canonical(legacy).encode()).hexdigest())
         self.assertEqual(replace(registered, contract_descriptor=None).identity, registered.identity)
         self.assertNotEqual(replace(registered, contract_descriptor={}).identity, registered.identity)

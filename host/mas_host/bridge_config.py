@@ -1,6 +1,7 @@
 """Load trusted deployment configuration and compose the shared task service."""
 from __future__ import annotations
 
+from dataclasses import replace
 import importlib
 import json
 import os
@@ -55,17 +56,21 @@ def build_service(config: dict, state_dir: Path):
             raise ServiceError("invalid_factory")
         module, name = target.split(":")
         # This is local operator configuration, never a remotely supplied name.
-        workflows = getattr(importlib.import_module(module), name)()
+        factory = getattr(importlib.import_module(module), name)
+        workflows = factory()
+        def pinned(workflow):
+            return replace(workflow, implementation_sources=(*workflow.implementation_sources, factory))
         if (type(workflows) is dict and 'plans' in workflows and 'workflows' in workflows
                 and set(workflows) <= {'plans', 'workflows', 'grants', 'workflow_versions'}):
             from .unified_service import UnifiedTaskService
-            return UnifiedTaskService(state_dir, workflows['workflows'], workflows['plans'],
+            return UnifiedTaskService(state_dir, {name: pinned(item) for name, item in workflows['workflows'].items()}, workflows['plans'],
                 {principal: set(names) for principal, names in config['grants'].items()},
                 operations=DeploymentLedger(state_dir, principal_quotas=config.get('principal_quotas')),
                 workflow_versions=workflows.get('workflow_versions'),
                 max_pending=config.get('max_pending', 1000), max_tasks=config.get('max_tasks', 10000),
                 max_instances=config.get('max_instances', 1000), scheduler_policy=scheduler_policy,
                 mas_bin=os.environ.get('MAS_BIN', 'mas'), gateway_bin=os.environ.get('MAS_GATEWAY_BIN', 'mas-gateway'))
+        workflows = {name: pinned(item) for name, item in workflows.items()}
     else:
         workflows = invoice_workflows(mode=config.get("mode", "mock"))
     return DurableTaskService(state_dir, workflows,

@@ -87,7 +87,8 @@ class WorkflowEngine:
                     self.definitions.remember('plan', name, identity)
                 for (name, identity), workflow in self.workflow_versions.items():
                     self.definitions.remember('workflow', name, identity, descriptor=workflow.descriptor,
-                                              implementation_digest=workflow.implementation_digest)
+                                              implementation_digest=workflow.verified_implementation.digest,
+                                              implementation_manifest=workflow.verified_implementation.manifest)
                 for name, plan in self.plans.items():
                     self.definitions.remember('plan_source', name, plan.identity, descriptor=plan.spec)
                     binding = self.bindings[name]
@@ -112,8 +113,12 @@ class WorkflowEngine:
         if workflow is None or workflow.identity != identity:
             raise ServiceError('definition_unavailable')
         record = self.definitions.inspect('workflow', name, identity)
-        if record and record['retired']:
+        if not record or record['retired'] or record['implementation_provenance'] != 'verified_source_package':
             raise ServiceError('definition_unavailable')
+        try:
+            workflow.verify_implementation()
+        except ServiceError:
+            raise ServiceError('definition_unavailable') from None
         return workflow
 
     @contextmanager
