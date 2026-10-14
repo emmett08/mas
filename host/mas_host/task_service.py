@@ -97,6 +97,9 @@ class Workflow:
     and continuation logic. Change the registered name/version when changing
     those behaviours. ``continue_input`` is pure: it combines the previous
     output with supplied input for a fresh, separately admitted revision.
+    ``contract_descriptor`` optionally binds operation, provider and acceptance
+    descriptors into recovery identity. It is copied on construction; any
+    subsequent local mutation changes the identity rather than hiding drift.
     """
     version: str
     topology: dict
@@ -108,6 +111,7 @@ class Workflow:
     classify: Callable[[Outcome], str] | None = None
     continue_input: Callable[[dict, dict], dict] | None = None
     adapter_factory: Callable[[ExecutionBinding], Mapping[str, Adapter]] | None = None
+    contract_descriptor: dict | None = None
 
     def __post_init__(self):
         _text(self.version, "workflow_version")
@@ -122,13 +126,19 @@ class Workflow:
         _text(self.operation, "operation")
         object.__setattr__(self, "topology", topology)
         object.__setattr__(self, "adapters", MappingProxyType(dict(self.adapters)))
+        if self.contract_descriptor is not None:
+            object.__setattr__(self, "contract_descriptor", _object(self.contract_descriptor))
 
     @property
     def identity(self) -> str:
-        return hashlib.sha256(canonical({"version": self.version, "topology": self.topology,
+        descriptor = {"version": self.version, "topology": self.topology,
             "sender": self.sender, "recipient": self.recipient, "operation": self.operation,
             "max_depth": self.max_depth, "continuation": self.continue_input is not None,
-            "classifier": self.classify is not None, "adapter_factory": self.adapter_factory is not None}).encode()).hexdigest()
+            "classifier": self.classify is not None, "adapter_factory": self.adapter_factory is not None}
+        # Omission preserves identities of all pre-composition registrations.
+        if self.contract_descriptor is not None:
+            descriptor["contract_descriptor"] = _object(self.contract_descriptor)
+        return hashlib.sha256(canonical(descriptor).encode()).hexdigest()
 
 
 @dataclass(frozen=True)
@@ -141,7 +151,7 @@ class ExecutionResult:
 
 class WorkflowExecutor(Protocol):
     def execute(self, workflow: Workflow, execution: dict, *, cancelled: Callable[[], bool],
-                ownership_descriptor: int) -> ExecutionResult: ...
+                ownership_descriptor: int | tuple[int, ...]) -> ExecutionResult: ...
 
 
 class WorkflowInputValidator(Protocol):
@@ -155,11 +165,15 @@ class WorkflowInputValidator(Protocol):
 
 class _OwnedContext:
     def __init__(self, context, descriptor):
-        self._context, self._descriptor = context, descriptor
+        values = descriptor if type(descriptor) is tuple else (descriptor,)
+        if (not values or any(type(value) is not int or value < 0 for value in values)
+                or len(values) != len(set(values))):
+            raise ServiceError("invalid_ownership_descriptors")
+        self._context, self._descriptors = context, values
 
     @property
     def ownership_descriptors(self):
-        return (*self._context.ownership_descriptors, self._descriptor)
+        return tuple(dict.fromkeys((*self._context.ownership_descriptors, *self._descriptors)))
 
     def __getattr__(self, name):
         return getattr(self._context, name)
@@ -232,6 +246,8 @@ class RunnerExecutor:
     def execute(self, workflow, execution, *, cancelled, ownership_descriptor):
         from .runner import Runner
         from .supervision import InlineExecutor, LinuxProcessExecutor
+        if cancelled():
+            return ExecutionResult("cancelled")
         path = self._bootstrap(workflow, execution)
         adapters = workflow.adapters
         if workflow.adapter_factory is not None:
@@ -248,6 +264,7 @@ class RunnerExecutor:
         with Runner.resume(path, adapters, workflow_version=workflow.version,
                            max_depth=workflow.max_depth, operations=self.operations,
                            executor=_CancellableExecutor(executor, cancelled, ownership_descriptor),
+                           execution_deadline=execution.get("execution_deadline"),
                            **self.options) as runner:
             try:
                 outcome = runner.request(workflow.sender, workflow.recipient,

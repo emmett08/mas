@@ -164,6 +164,7 @@ struct CaseOptions {
     standalone: bool, unbounded_faults: bool, assumption_witness: bool,
     weak_fairness: bool,
     reachability_witness: bool,
+    progress_property: Option<&'static str>,
 }
 
 fn expected_assertion(defect: Option<&str>) -> Option<&'static str> {
@@ -197,6 +198,14 @@ fn expected_assertion(defect: Option<&str>) -> Option<&'static str> {
         "BUG_SERVICE_UNSCOPED_KEY" => "SERVICE_OWNER_ISOLATED",
         "BUG_SERVICE_STALE_REVISION" => "SERVICE_COMMIT_CURRENT_REVISION",
         "BUG_SERVICE_EVENT_LOST" => "SERVICE_EVENT_ATOMIC",
+        "BUG_WORKFLOW_UNADMITTED" => "WORKFLOW_INTENT_ADMISSION",
+        "BUG_WORKFLOW_OVERBUDGET" => "WORKFLOW_SHARED_ALLOWANCE",
+        "BUG_WORKFLOW_STOP_BYPASS" => "WORKFLOW_STOP_BLOCKS_DISPATCH",
+        "BUG_WORKFLOW_UNKNOWN_REPLAY" => "WORKFLOW_NO_REDISPATCH",
+        "BUG_WORKFLOW_NEW_ID" => "WORKFLOW_STABLE_ASSIGNMENT",
+        "BUG_WORKFLOW_TERMINAL_OVERWRITE" => "WORKFLOW_TERMINAL_IMMUTABLE",
+        "BUG_WORKFLOW_EARLY_JOIN" => "WORKFLOW_JOIN_ALL_COMPLETED",
+        "WITNESS_WORKFLOW_SUCCESS" => "REACH_WORKFLOW_SUCCESS",
         "WITNESS_SERVICE_TWO_OWNERS" => "REACH_SERVICE_TWO_OWNERS",
         "WITNESS_SERVICE_CANCEL_PAUSE" => "REACH_SERVICE_CANCEL_PAUSE",
         "WITNESS_SERVICE_REVISION" => "REACH_SERVICE_REVISION",
@@ -276,7 +285,8 @@ fn replay_assertion(model_name: &str, model: &str, replay: &str) -> Option<Strin
 }
 
 fn replay_cycle(property: &str, checked: &str, replay: &str) -> Option<String> {
-    let named_check = checked.lines().any(|line| line == format!("pan: ltl formula {property}"));
+    let named_check = checked.lines().any(|line| line == format!("pan: ltl formula {property}")
+        || line.split_whitespace().collect::<Vec<_>>() == ["never", "claim", "+", &format!("({property})")]);
     let claim = format!("({property}:1)");
     let named_replay = replay.lines().any(|line| line.split_whitespace().collect::<Vec<_>>().windows(4)
         .any(|part| part[0] == "proc" && part[1] == "-" && part[2] == claim && part[3].starts_with("_spin_nvr.tmp:")));
@@ -296,7 +306,7 @@ fn expected_check_satisfied(check: &Value, counterexample: bool, cycle: bool) ->
 }
 
 fn run_case(source: &Path, dest: &Path, opt: &Options, case: CaseOptions) -> Result<Value> {
-    let CaseOptions {defect,no_reduce,capacity,standalone:task,unbounded_faults,assumption_witness,weak_fairness,reachability_witness}=case;
+    let CaseOptions {defect,no_reduce,capacity,standalone:task,unbounded_faults,assumption_witness,weak_fairness,reachability_witness,progress_property}=case;
     fs::create_dir_all(dest)?;
     // Reject stale verifier/trail output from a previous interrupted invocation.
     for entry in fs::read_dir(dest)? {
@@ -314,7 +324,8 @@ fn run_case(source: &Path, dest: &Path, opt: &Options, case: CaseOptions) -> Res
     let mut commands = Vec::new(); let mut checks = Vec::new();
     let mut simulations_ok = true;
     if task && source.file_name().is_some_and(|name| name == "host-recovery.pml" || name == "cursor-jobs.pml"
-        || name == "bridge-service.pml" || name == "bridge-events.pml" || name == "task-service.pml") && defect.is_none() {
+        || name == "bridge-service.pml" || name == "bridge-events.pml" || name == "task-service.pml"
+        || name == "workflow-composition.pml") && defect.is_none() {
         for seed in [17, 29, 53] {
             let command = strings(&["spin", &format!("-n{seed}"), "-u10000", "-p", "-g", "-l", model_name]);
             let mut record = run(&command, dest, &format!("simulation-{seed}"), opt)?;
@@ -348,7 +359,9 @@ fn run_case(source: &Path, dest: &Path, opt: &Options, case: CaseOptions) -> Res
     if generated["returncode"] != 0 {
         return Ok(json!({"topology":source.file_name().unwrap().to_string_lossy(),"status":"GENERATION_FAILED","commands":commands}));
     }
-    let modes = if assumption_witness || defect==Some("BUG_NO_ACK") {vec!["ltl"]}
+    let cycle_defect = defect==Some("BUG_NO_ACK") || defect==Some("BUG_WORKFLOW_STALL");
+    let modes = if assumption_witness || cycle_defect {vec!["ltl"]}
+        else if progress_property.is_some() && defect.is_none() {vec!["safety","ltl"]}
         else if task || unbounded_faults || defect.is_some() {vec!["safety"]} else {vec!["safety","ltl"]};
     for mode in modes {
         let mut cmd=strings(&["cc","-O2",&format!("-DMEMLIM={}",opt.memory-32)]);
@@ -357,7 +370,9 @@ fn run_case(source: &Path, dest: &Path, opt: &Options, case: CaseOptions) -> Res
         cmd.extend(strings(&["-o",&format!("pan-{mode}"),"pan.c"]));
         let compiled=invoke(&mut commands,cmd,dest,&format!("compile-{mode}"),opt)?;
         if compiled["returncode"]!=0 {checks.push(json!({"property":mode,"status":"COMPILATION_FAILED"}));continue;}
-        let properties=if mode=="safety" {vec!["safety"]} else if defect.is_some() || assumption_witness {vec![PROPERTIES[0]]} else {PROPERTIES.to_vec()};
+        let properties=if mode=="safety" {vec!["safety"]}
+            else if let Some(property)=progress_property {vec![property]}
+            else if defect.is_some() || assumption_witness {vec![PROPERTIES[0]]} else {PROPERTIES.to_vec()};
         for property in properties {
             let mut cmd=strings(&[&format!("./pan-{mode}"),"-b",&format!("-m{}",opt.depth),"-w20"]);
             if mode=="ltl" {
@@ -370,7 +385,7 @@ fn run_case(source: &Path, dest: &Path, opt: &Options, case: CaseOptions) -> Res
             checked["counterexample_kind"]=json!(if raw.contains("acceptance cycle") {"acceptance_cycle"}
                 else if raw.contains("assertion violated") {"assertion"} else {"none_or_other"});
             checked["expected_assertion_id"] = json!(expected_assertion(defect));
-            checked["expected_ltl_property"] = json!(if assumption_witness || defect==Some("BUG_NO_ACK") {Some(property)} else {None});
+            checked["expected_ltl_property"] = json!(if assumption_witness || cycle_defect {Some(property)} else {None});
             let trail=dest.join(format!("{model_name}.trail"));
             if trail.exists() {
                 let saved=dest.join(format!("{property}.trail")); fs::rename(trail,&saved)?;
@@ -387,7 +402,7 @@ fn run_case(source: &Path, dest: &Path, opt: &Options, case: CaseOptions) -> Res
     }
     let counterexample=defect.is_some() || assumption_witness;
     let expected=if counterexample {"COUNTEREXAMPLE"}else{"COMPLETE_NO_ERRORS"};
-    let cycle=assumption_witness || defect==Some("BUG_NO_ACK");
+    let cycle=assumption_witness || cycle_defect;
     let ok=simulations_ok && !checks.is_empty() && checks.iter().all(|c|expected_check_satisfied(c,counterexample,cycle));
     for entry in fs::read_dir(dest)? {
         let path=entry?.path();let name=path.file_name().unwrap().to_string_lossy();
@@ -400,6 +415,7 @@ fn run_case(source: &Path, dest: &Path, opt: &Options, case: CaseOptions) -> Res
         "partial_order_reduction":!no_reduce,"weak_process_fairness":weak_fairness,
         "fault_repetition":if unbounded_faults {"unlimited"} else {"bounded_or_not_applicable"},
         "purpose":if reachability_witness {"reachability_witness"} else if assumption_witness {"assumption_counterexample"} else if defect.is_some() {"deliberate_defect"}
+            else if task && progress_property.is_some() {"standalone_safety_and_bounded_progress"}
             else if task {"standalone_safety"} else if unbounded_faults {"unbounded_fault_safety"} else {"bounded_transport"},
         "expected_result":expected,"expectation_met":ok,
         "commands":commands,"checks":checks,"status":if ok{"PASS"}else{"FAIL_OR_INCONCLUSIVE"}}))
@@ -532,6 +548,24 @@ fn main() -> Result<()> {
             CaseOptions{standalone:true,no_reduce:true,..Default::default()})?;
         println!("{name}-no-reduction {}",case["status"]);cases.push(case);
     }
+    for (name,defect,no_reduce) in [
+        ("workflow-composition",None,false),
+        ("workflow-composition-no-reduction",None,true),
+        ("negative-workflow-unadmitted",Some("BUG_WORKFLOW_UNADMITTED"),false),
+        ("negative-workflow-overbudget",Some("BUG_WORKFLOW_OVERBUDGET"),false),
+        ("negative-workflow-stop-bypass",Some("BUG_WORKFLOW_STOP_BYPASS"),false),
+        ("negative-workflow-unknown-replay",Some("BUG_WORKFLOW_UNKNOWN_REPLAY"),false),
+        ("negative-workflow-new-id",Some("BUG_WORKFLOW_NEW_ID"),false),
+        ("negative-workflow-terminal-overwrite",Some("BUG_WORKFLOW_TERMINAL_OVERWRITE"),false),
+        ("negative-workflow-early-join",Some("BUG_WORKFLOW_EARLY_JOIN"),false),
+        ("negative-workflow-stall",Some("BUG_WORKFLOW_STALL"),false),
+        ("reach-workflow-success",Some("WITNESS_WORKFLOW_SUCCESS"),false),
+    ] {
+        let case=run_case(&opt.root.join("formal/workflow-composition.pml"),&opt.out.join(name),&opt,
+            CaseOptions{standalone:true,defect,no_reduce,progress_property:Some("workflow_settles"),
+                reachability_witness:defect==Some("WITNESS_WORKFLOW_SUCCESS"),..Default::default()})?;
+        println!("{name} {}",case["status"]);cases.push(case);
+    }
     for (defect,name) in [
         ("WITNESS_SERVICE_TWO_OWNERS", "reach-service-two-owners"),
         ("WITNESS_SERVICE_CANCEL_PAUSE", "reach-service-cancel-pause"),
@@ -567,6 +601,8 @@ fn main() -> Result<()> {
             "cursor_jobs":{"logical_jobs":1,"remote_run_id_values":2,"crashes":1,"polls":2,"cancellation_requests":1},
             "bridge_service":{"principals":1,"request_keys":1,"payload_values":2,"submissions":3,"crashes":1,"observations":2},
             "bridge_events":{"tasks":2,"event_slots":3,"reads":2,"client_restarts":1},
+            "workflow_composition":{"branches":2,"shared_call_allowance_values":[1,2],"crashes":1,
+                "cancellation_requests":1,"expiry_events":1,"observations_per_dispatched_branch":1},
             "task_service":{"principals":2,"tasks":2,"scheduled_tasks":1,"revisions_per_task":2,"workers":1,"crashes":1,
                 "shared_trace_count":corpus["traces"].as_array().unwrap().len()}},
         "limits":{"seconds_per_command":opt.seconds,"memory_mb":opt.memory,"depth":opt.depth},
@@ -582,7 +618,9 @@ fn main() -> Result<()> {
             "Bridge event consumers own their cursor; no server acknowledgement, guaranteed delivery or eventual remote completion is claimed",
             "Local TaskService checks serialize API transactions, split worker claim/reply/commit, and assume the separately tested host checkpoint contract",
             "Local remote-evidence separation is an environmental assumption, not a proof of the remote implementation",
-            "Shared finite traces compare model transitions with real TaskService/SQLite and an injected executor, not unrestricted implementation refinement"],
+            "Shared finite traces compare model transitions with real TaskService/SQLite and an injected executor, not unrestricted implementation refinement",
+            "Workflow settlement requires finitely observed responses/faults and continued execution; unknown is a settled result, not success",
+            "Workflow composition abstracts durable assignment and shared admission; nested scope budgets and OS supervision require separate implementation evidence"],
         "runner_sha256":sha(&opt.root.join("rust-protocol/src/bin/verify.rs"))?,
         "template_sha256":sha(&opt.root.join("formal/protocol.pml.in"))?,
         "actions_sha256":sha(&opt.root.join("formal/actions.pml.in"))?,
@@ -593,6 +631,7 @@ fn main() -> Result<()> {
         "bridge_service_model_sha256":sha(&opt.root.join("formal/bridge-service.pml"))?,
         "bridge_events_model_sha256":sha(&opt.root.join("formal/bridge-events.pml"))?,
         "task_service_model_sha256":sha(&opt.root.join("formal/task-service.pml"))?,
+        "workflow_composition_model_sha256":sha(&opt.root.join("formal/workflow-composition.pml"))?,
         "task_service_trace_corpus_sha256":sha(&corpus_path)?});
     fs::write(opt.out.join("summary.json"),format!("{}\n",serde_json::to_string_pretty(&summary)?))?;
     if !ok{return Err(io::Error::other("model verification failed or incomplete; inspect summary.json").into());}
@@ -709,6 +748,9 @@ mod tests {
         assert_eq!(replay_cycle(PROPERTIES[0],checked,&replay.replace("message_0_progress","message_1_progress")),None);
         assert_eq!(replay_cycle(PROPERTIES[0],checked,&replay.replace("<<<<<START OF CYCLE>>>>>","")),None);
         assert_eq!(replay_cycle(PROPERTIES[0],checked,&format!("{replay}spin: protocol.pml:34, Error: assertion violated\n")),None);
+        let single="never claim         \t+ (message_0_progress)\npan:1: acceptance cycle (at depth 18)\n";
+        assert_eq!(replay_cycle(PROPERTIES[0],single,replay).as_deref(),Some(PROPERTIES[0]));
+        assert_eq!(replay_cycle(PROPERTIES[1],single,replay),None);
     }
     #[test]
     fn replay_binds_the_actual_failed_source_assertion() {
@@ -736,5 +778,32 @@ mod tests {
         assert!(trace_model("",&invalid).is_err());
         invalid=trace.clone();invalid["actions"][0]["expect"]["state"][0]=json!("invalid");
         assert!(trace_model("",&invalid).is_err());
+    }
+
+    #[test]
+    #[ignore = "requires installed SPIN and C compiler; the full verify command also runs these cases"]
+    fn workflow_composition_models_and_mutations() {
+        let root=PathBuf::from(env!("CARGO_MANIFEST_DIR")).parent().unwrap().to_path_buf();
+        let out=scratch();
+        let opt=Options{root:root.clone(),examples:root.join("examples"),out:out.clone(),
+            seconds:30,memory:512,depth:100000,only:None,generate_only:false};
+        for (name,defect,no_reduce) in [
+            ("positive",None,false), ("no-reduction",None,true),
+            ("unadmitted",Some("BUG_WORKFLOW_UNADMITTED"),false),
+            ("overbudget",Some("BUG_WORKFLOW_OVERBUDGET"),false),
+            ("stop-bypass",Some("BUG_WORKFLOW_STOP_BYPASS"),false),
+            ("unknown-replay",Some("BUG_WORKFLOW_UNKNOWN_REPLAY"),false),
+            ("new-id",Some("BUG_WORKFLOW_NEW_ID"),false),
+            ("overwrite",Some("BUG_WORKFLOW_TERMINAL_OVERWRITE"),false),
+            ("early-join",Some("BUG_WORKFLOW_EARLY_JOIN"),false),
+            ("stall",Some("BUG_WORKFLOW_STALL"),false),
+            ("success",Some("WITNESS_WORKFLOW_SUCCESS"),false),
+        ] {
+            let record=run_case(&root.join("formal/workflow-composition.pml"),&out.join(name),&opt,
+                CaseOptions{standalone:true,defect,no_reduce,progress_property:Some("workflow_settles"),
+                    reachability_witness:defect==Some("WITNESS_WORKFLOW_SUCCESS"),..Default::default()}).unwrap();
+            assert_eq!(record["status"],"PASS","{name}: {record}; evidence {}",out.display());
+        }
+        fs::remove_dir_all(out).unwrap();
     }
 }

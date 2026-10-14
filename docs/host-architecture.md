@@ -211,6 +211,56 @@ single Linux host with SQLite, rather than a distributed scheduler.
 
 ## Verification and limits
 
+### Generic composition above the serial runner
+
+`WorkflowEngine` adds durable sequence, conditional, loop, parallel and
+subworkflow execution above existing `Workflow` registrations. `PlanEvaluator`
+owns control-flow decisions; `WorkflowStore` owns versioned composition records;
+`SchedulerOwnership` owns Linux worker lifetime and inherited locks. Every leaf
+uses `RunnerExecutor`, the existing Rust gateway and its own immutable run
+identity. `Runner` retains its serial context and ordinal replay semantics.
+
+An in-place threaded runner was rejected because its thread-bound contexts,
+active request stack and ordered checkpoints are part of its recovery contract.
+Independent synchronous wrappers were also insufficient: they do not retain
+branch identities, joins, ancestor budgets or unknown outcomes. Process-owned
+leaf runs preserve those contracts while admitting genuine concurrent work.
+The cost is a separate Rust run and supervised process hierarchy for each leaf;
+this remains a bounded single-host implementation.
+
+Every plan binds the transitive registered workflow identities. Optional
+`Workflow.contract_descriptor` covers operation, provider and acceptance
+descriptors; omission preserves old workflow fingerprints. Topology compilation
+produces the existing directed ACL rather than introducing new wire types.
+Structured OpenAI/Cursor interfaces coexist with the invoice `TotalProvider`;
+the latter's descriptors and recovery compatibility are retained.
+
+The parent deadline is fixed at submission. Subworkflow entry freezes a deadline
+no later than its parent's; root and ancestor call/spending allowances apply
+atomically before deployment admission. A denied downstream call conservatively
+retains its composition allocation. Each nested concurrency cap applies in
+addition to the root cap. The static expanded-node bound and runtime root-node
+cap limit control-flow work. Model-produced results cannot change these limits.
+
+Scheduler and deployment locks survive in workers and execution guardians.
+Closing an owner never explicitly unlocks another surviving owner's descriptor.
+A lifetime pipe stops child admission after scheduler death; original deadlines
+still bound execution. Unknown effects block further dispatch until the existing
+evidence-backed invocation resolution allows recovery of the original run.
+Parallel joins settle all dispatched work and require every branch to complete
+before declaring success. Acceptance of the returned result remains separate.
+
+Composition databases and run-local artefacts participate in quiescent backups.
+Restores remain audit-only. Composition history conservatively retains every
+referenced run; deleting historical composition records is not an automatic
+retention feature in this version. Artefact consumer links independently retain
+live or unresolved references. See [composition](composable-workflows.md) and
+[artefact ownership](artifacts.md) for the explicit operational contracts.
+
+The new model in [workflow composition](../formal/workflow-composition-notes.md)
+covers bounded admission, crash identity, terminal safety and joins. It is an
+abstract state-machine check, not a refinement proof of the Python scheduler.
+
 Regressions exercise actual process death during bootstrap, a killed host with
 ordinary adapter descendants, ownership retention during cleanup, incompatible
 database versions, failed reconciliation, persistent live-acceptance state and

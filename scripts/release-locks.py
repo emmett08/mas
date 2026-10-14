@@ -99,6 +99,9 @@ def check() -> None:
     for dependency in metadata["project"]["optional-dependencies"]["bridges"]:
         if dependency + " " not in bridges or dependency + " " not in orchestrators:
             raise ValueError(f"Bridge schema pin mismatch: {dependency}")
+    for dependency in metadata["project"]["optional-dependencies"]["workflows"]:
+        if dependency + " " not in bridges:
+            raise ValueError(f"Workflow schema pin mismatch: {dependency}")
     installer_spec = importlib.util.spec_from_file_location("cursor_node_installer", ROOT / "scripts/install-cursor-runtime.py")
     installer = importlib.util.module_from_spec(installer_spec)
     installer_spec.loader.exec_module(installer)

@@ -3,6 +3,11 @@
 The [bridge guide](docs/bridges.md) covers authenticated MCP and A2A endpoints,
 durable remote tasks, Temporal/LangGraph connectors and mixed-provider deployments.
 
+The [composable workflow guide](docs/composable-workflows.md) covers named
+star/mesh/tree groups, reusable bounded plans, concurrent branches, arbitrary
+model roles, versioned operation contracts and result acceptance. Two offline
+applications demonstrate these features through the existing Rust gateway.
+
 A Rust/nom protocol and durable SQLite mailbox for agent, tool and human-adapter
 messages, with SPIN/Promela models and executable workflow examples. The protocol
 runtime and CLI are native Rust. A reusable Python host connects model and tool

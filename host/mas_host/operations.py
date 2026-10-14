@@ -114,6 +114,9 @@ def _db(path: Path, readonly: bool = False):
         elif path.name == "remote-tasks.sqlite":
             from .bridges.remote import REMOTE_TASKS
             known = REMOTE_TASKS
+        elif path.name == "composition.sqlite":
+            from .workflow_store import COMPOSITION
+            known = COMPOSITION
         if known and existed:
             validate(connection, known)
     except SchemaError as error:
@@ -591,7 +594,12 @@ def restore_state(bundle: Path, destination: Path) -> dict:
             if relative == ".restored-audit-only":
                 continue
             target = staging / relative
-            target.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+            # mkdir(parents=True) applies its explicit mode only to the leaf.
+            # Create each restored ancestor privately, including artefact roots.
+            parent = staging
+            for component in Path(relative).parts[:-1]:
+                parent = parent / component
+                parent.mkdir(mode=0o700, exist_ok=True)
             shutil.copyfile(bundle / relative, target)
             target.chmod(0o600)
         # A snapshot cannot know about charges committed after it was taken,
@@ -646,6 +654,10 @@ def prune_runs(state_dir: Path, older_than_seconds: int, apply: bool = False) ->
                         result["reason"] = "active or unresolved external cloud job retained"
                     elif _pending_bridge_task(directory):
                         result["reason"] = "active or unresolved bridge task or operation retained"
+                    elif _composition_holds_run(directory):
+                        result["reason"] = "workflow composition history retained"
+                    elif _pending_artifacts(directory):
+                        result["reason"] = "live or unresolved artefact references retained"
                     elif not _terminal_run(directory):
                         result["reason"] = "open tasks, incomplete journal or unresolved invocations retained"
                     else:
@@ -661,6 +673,24 @@ def prune_runs(state_dir: Path, older_than_seconds: int, apply: bool = False) ->
                 result["reason"] = "run busy or state cannot be verified"
             results.append(result)
     return {"ok": True, "dry_run": not apply, "runs": results}
+
+
+def _composition_holds_run(directory: Path) -> bool:
+    if (directory.parent / "composition.sqlite").is_symlink():
+        raise OperationsError("workflow composition state cannot be verified")
+    from .workflow_store import holds_run
+    try:
+        return holds_run(directory.parent, directory.name)
+    except SchemaError:
+        raise OperationsError("workflow composition state cannot be verified") from None
+
+
+def _pending_artifacts(directory: Path) -> bool:
+    # The optional local artefact repository sits below each run, so quiescent
+    # deployment backups include it. Its explicit manifests can retain results
+    # for consumers whose lifecycle outlasts the producing run.
+    from .artifacts import has_retained_artifacts
+    return has_retained_artifacts(directory)
 
 
 def _terminal_run(directory: Path) -> bool:
