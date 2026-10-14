@@ -28,7 +28,7 @@ def load_config(path: Path) -> dict:
         integer_json(value)
         if (type(value) is not dict or type(value.get("version")) is not int or value.get("version") != 1
                 or set(value) - {"version", "mode", "factory", "grants", "auth", "public_url",
-                                 "allowed_hosts", "allowed_origins", "max_pending", "max_tasks", "max_instances", "scheduler", "artifacts"}
+                                 "allowed_hosts", "allowed_origins", "max_pending", "max_tasks", "max_instances", "scheduler", "artifacts", "principal_quotas"}
                 or type(value.get("grants")) is not dict):
             raise ServiceError("invalid_configuration")
         for principal, workflows in value["grants"].items():
@@ -44,6 +44,7 @@ def build_service(config: dict, state_dir: Path):
     from .task_service import DurableTaskService
     from .bridge_workflows import invoice_workflows
     from .scheduler_capacity import SchedulerPolicy
+    from .operations import DeploymentLedger
     try:
         scheduler_policy = SchedulerPolicy(**config['scheduler']) if 'scheduler' in config else None
     except (TypeError, ValueError):
@@ -60,6 +61,7 @@ def build_service(config: dict, state_dir: Path):
             from .unified_service import UnifiedTaskService
             return UnifiedTaskService(state_dir, workflows['workflows'], workflows['plans'],
                 {principal: set(names) for principal, names in config['grants'].items()},
+                operations=DeploymentLedger(state_dir, principal_quotas=config.get('principal_quotas')),
                 workflow_versions=workflows.get('workflow_versions'),
                 max_pending=config.get('max_pending', 1000), max_tasks=config.get('max_tasks', 10000),
                 max_instances=config.get('max_instances', 1000), scheduler_policy=scheduler_policy,
@@ -68,6 +70,7 @@ def build_service(config: dict, state_dir: Path):
         workflows = invoice_workflows(mode=config.get("mode", "mock"))
     return DurableTaskService(state_dir, workflows,
         {principal: set(names) for principal, names in config["grants"].items()},
+        operations=DeploymentLedger(state_dir, principal_quotas=config.get('principal_quotas')),
         max_pending=config.get("max_pending", 1000), max_tasks=config.get("max_tasks", 10000),
         scheduler_policy=scheduler_policy,
         mas_bin=os.environ.get("MAS_BIN", "mas"), gateway_bin=os.environ.get("MAS_GATEWAY_BIN", "mas-gateway"))

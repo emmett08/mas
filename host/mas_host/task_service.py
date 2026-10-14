@@ -309,8 +309,11 @@ class RunnerExecutor:
                     or any(not callable(getattr(adapter, "handle", None)) for adapter in adapters.values())):
                 raise ServiceError("invalid_adapter_factory")
         executor = LinuxProcessExecutor() if self.options["supervised"] else InlineExecutor()
+        from .operations import DeploymentLedger
+        from .principal_quotas import PrincipalAllocation
+        allocation = PrincipalAllocation(self.operations or DeploymentLedger(self.state_dir), execution['principal'])
         with Runner.resume(path, adapters, workflow_version=workflow.version,
-                           max_depth=workflow.max_depth, operations=self.operations,
+                           max_depth=workflow.max_depth, operations=allocation,
                            executor=_CancellableExecutor(executor, cancelled, ownership_descriptor),
                            execution_deadline=execution.get("execution_deadline"),
                            retry_policy=workflow.retry_policy,
@@ -535,7 +538,8 @@ class DurableTaskService:
         value = _object(input)
         metadata = _object(metadata) if metadata is not None else {}
         digest = self._digest("submit", None, workflow, value, metadata)
-        with self._mutation() as db:
+        from .principal_quotas import submission_mutation, check_submission_quota
+        with submission_mutation(self.operations, self.store, principal) as db:
             if expected_deployment_id is not None and expected_deployment_id != self.operations.deployment_id:
                 raise ServiceError('deployment_identity_mismatch')
             duplicate = self._duplicate(db, principal, request_key, digest)
@@ -552,6 +556,7 @@ class DurableTaskService:
             if alias is None or alias[0] != selected.identity:
                 raise ServiceError("workflow_changed")
             self.operations.check_storage_admission()
+            check_submission_quota(self.operations, principal)
             self._capacity(db, new=True)
             task_id, timestamp = "task-" + uuid.uuid4().hex, now()
             self._validate_execution_input(selected, task_id, 0, value)

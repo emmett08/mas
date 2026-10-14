@@ -157,7 +157,7 @@ class DeploymentLedger:
     purging run data never returns an admission allocation.
     """
     def __init__(self, state_dir: Path, policy: DeploymentPolicy | None = None,
-                 *, readonly: bool = False):
+                 *, readonly: bool = False, principal_quotas: dict | None = None):
         self.state_dir = _private_dir(Path(state_dir), create=not readonly)
         self.path = self.state_dir / "deployment.sqlite"
         self._readonly = readonly
@@ -175,6 +175,15 @@ class DeploymentLedger:
                     raise OperationsError("deployment policy is immutable; use its existing policy")
             except (ValueError, TypeError):
                 raise OperationsError("invalid saved deployment policy") from None
+            if db.execute("SELECT 1 FROM sqlite_master WHERE name='principal_quotas'").fetchone():
+                from .principal_quotas import quota_configuration
+                try:
+                    stored = {row[0]: json.loads(row[1]) for row in db.execute(
+                        'SELECT principal,policy FROM principal_quotas')}
+                    if quota_configuration(stored) != stored:
+                        raise OperationsError('incomplete saved principal quotas')
+                except (ValueError, TypeError):
+                    raise OperationsError('invalid saved principal quotas') from None
 
         def initialise(db):
             chosen = policy or DeploymentPolicy()
@@ -209,6 +218,7 @@ class DeploymentLedger:
             # Opening an unchanged ledger must coexist with an executing worker,
             # which retains a shared deployment lock for its whole lifetime.
             # Read/validate under that same lock; maintenance still needs EX.
+            unchanged = False
             with _file_lock(self.state_dir / ".deployment.lock", False):
                 fresh = not self.path.exists()
                 if self.path.is_symlink() or not fresh and not self.path.is_file():
@@ -219,12 +229,71 @@ class DeploymentLedger:
                                  and check.execute("PRAGMA user_version").fetchone()[0] == 0
                                  and check.execute("SELECT count(*) FROM sqlite_master").fetchone()[0] == 0)
                     if not fresh and open_ledger(read_only=True, current_only=True):
-                        return
+                        unchanged = True
             # Initialisation and recognised migrations require quiescence.
             # Reopen and validate after acquiring EX: another constructor or
             # maintenance operation may have changed state since the SH read.
-            with _file_lock(self.state_dir / ".deployment.lock", True):
-                open_ledger(read_only=False)
+            if not unchanged:
+                with _file_lock(self.state_dir / ".deployment.lock", True):
+                    open_ledger(read_only=False)
+        if principal_quotas is not None:
+            self._check_principal_configuration(principal_quotas)
+
+    def _check_principal_configuration(self, supplied):
+        from .principal_quotas import quota_configuration
+        requested = quota_configuration(supplied)
+        with _db(self.path, readonly=True) as db:
+            exists = db.execute("SELECT 1 FROM sqlite_master WHERE name='principal_quotas'").fetchone()
+            installed = {row['principal']: json.loads(row['policy']) for row in db.execute(
+                'SELECT principal,policy FROM principal_quotas')} if exists else {}
+        if installed == requested:
+            return
+        if installed or self._readonly or not exists:
+            raise OperationsError('principal quota policy changed or unavailable')
+        # Initial policy installation is maintenance. Existing executing workers
+        # and accepted submissions must drain before this authority changes.
+        with _file_lock(self.state_dir / '.deployment.lock', True, nonblocking=True), _db(self.path) as db:
+            db.execute('BEGIN IMMEDIATE')
+            if not self._admission_enabled(db):
+                raise OperationsError('restored deployment is audit-only; principal quota changes disabled')
+            installed = {row['principal']: json.loads(row['policy']) for row in db.execute(
+                'SELECT principal,policy FROM principal_quotas')}
+            if installed:
+                if installed != requested:
+                    raise OperationsError('principal quota policy changed')
+                return
+            db.executemany('INSERT INTO principal_quotas VALUES(?,?)',
+                           ((owner, json.dumps(policy, sort_keys=True)) for owner, policy in requested.items()))
+
+    def principal_policy(self, principal):
+        from .principal_quotas import principal_identity
+        principal_identity(principal)
+        with _db(self.path, readonly=True) as db:
+            if not db.execute("SELECT 1 FROM sqlite_master WHERE name='principal_quotas'").fetchone():
+                return None
+            row = db.execute('SELECT policy FROM principal_quotas WHERE principal=?', (principal,)).fetchone()
+            return json.loads(row['policy']) if row else None
+
+    @staticmethod
+    def _principal_usage(db, principal):
+        row = db.execute('SELECT count(*),coalesce(sum(c.reserved_microusd),0) FROM calls c '
+            'LEFT JOIN run_principals p ON c.run_id=p.run_id WHERE p.principal=? OR p.principal IS NULL',
+            (principal,)).fetchone()
+        unknown = db.execute('SELECT count(*),coalesce(sum(c.reserved_microusd),0) FROM calls c '
+            'LEFT JOIN run_principals p ON c.run_id=p.run_id WHERE p.principal IS NULL').fetchone()
+        return {'calls': row[0], 'reserved_microusd': row[1],
+                'unattributed_calls': unknown[0], 'unattributed_reserved_microusd': unknown[1]}
+
+    def principal_usage(self, principal):
+        """Trusted operator inspection; uncertainty is included conservatively."""
+        from .principal_quotas import principal_identity
+        principal_identity(principal)
+        with _db(self.path, readonly=True) as db:
+            if not db.execute("SELECT 1 FROM sqlite_master WHERE name='run_principals'").fetchone():
+                totals = self._limits(db)
+                return {'calls': totals['calls'], 'reserved_microusd': totals['reserved_microusd'],
+                        'unattributed_calls': totals['calls'], 'unattributed_reserved_microusd': totals['reserved_microusd']}
+            return self._principal_usage(db, principal)
 
     @property
     def policy(self) -> DeploymentPolicy:
@@ -335,9 +404,12 @@ class DeploymentLedger:
         if size >= self.policy.max_state_bytes:
             raise OperationsError("deployment admission closed: state size limit reached")
 
-    def admit_run(self, run_id: str, run_dir: Path) -> bool:
+    def admit_run(self, run_id: str, run_dir: Path, *, principal: str | None = None) -> bool:
         if self._readonly:
             raise OperationsError("read-only deployment cannot admit work")
+        if principal is not None:
+            from .principal_quotas import principal_identity
+            principal_identity(principal)
         run_dir = Path(run_dir).absolute()
         if not isinstance(run_id, str) or not run_id or len(run_id) > 128:
             raise OperationsError("invalid run identity")
@@ -349,13 +421,24 @@ class DeploymentLedger:
             if existing:
                 if existing[0] != run_dir.name or existing[1] is not None:
                     raise OperationsError("run admission identity is unavailable")
+                binding = db.execute('SELECT principal FROM run_principals WHERE run_id=?', (run_id,)).fetchone()
+                if binding is not None and principal is not None and binding[0] != principal:
+                    raise OperationsError('run allocation principal conflict')
+                if binding is None and principal is not None:
+                    if not self._admission_enabled(db):
+                        raise OperationsError('audit-only deployment cannot attribute run ownership')
+                    db.execute('INSERT INTO run_principals VALUES(?,?)', (run_id, principal))
                 return False
             if not self._admission_enabled(db):
                 raise OperationsError("restored deployment is audit-only; new work admissions are disabled")
             self.check_storage_admission()
             if self._limits(db)["runs"] >= self.policy.max_runs:
                 raise OperationsError("deployment admission closed: lifetime run limit reached")
+            if principal is None and db.execute('SELECT 1 FROM principal_quotas LIMIT 1').fetchone():
+                raise OperationsError('principal quota requires attributed run ownership')
             db.execute("INSERT INTO runs VALUES(?,?,?,NULL)", (run_id, run_dir.name, int(time.time())))
+            if principal is not None:
+                db.execute('INSERT INTO run_principals VALUES(?,?)', (run_id, principal))
             return True
 
     def admit_call(self, run_id: str, call_id: str, reservation_microusd: int | None = None) -> bool:
@@ -378,6 +461,18 @@ class DeploymentLedger:
                 if existing[0] != allocation:
                     raise OperationsError("call allocation changed for an admitted identity")
                 return False
+            binding = db.execute('SELECT principal FROM run_principals WHERE run_id=?', (run_id,)).fetchone()
+            if binding is None and db.execute('SELECT 1 FROM principal_quotas LIMIT 1').fetchone():
+                raise OperationsError('principal quota requires attributed run ownership')
+            if binding is not None:
+                row = db.execute('SELECT policy FROM principal_quotas WHERE principal=?', (binding[0],)).fetchone()
+                if row is not None:
+                    policy = json.loads(row[0])
+                    usage = self._principal_usage(db, binding[0])
+                    if usage['calls'] >= policy['max_calls']:
+                        raise OperationsError('principal lifetime call limit reached')
+                    if allocation > policy['max_reserved_microusd'] - usage['reserved_microusd']:
+                        raise OperationsError('principal expenditure allocation exhausted')
             self.check_storage_admission()
             usage = self._limits(db)
             if usage["calls"] >= self.policy.max_calls:

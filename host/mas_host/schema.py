@@ -73,9 +73,18 @@ LEDGER_V2 = Schema("deployment ledger", 0x4D415344, 2, ((0, 1),), (
     "CREATE TABLE calls(run_id TEXT NOT NULL,call_id TEXT NOT NULL,reserved_microusd INTEGER NOT NULL,admitted_at INTEGER NOT NULL,PRIMARY KEY(run_id,call_id),FOREIGN KEY(run_id) REFERENCES runs(run_id))",
 ))
 _BUDGET_AUDIT = "CREATE TABLE budget_amendments(revision INTEGER PRIMARY KEY,request_key TEXT UNIQUE NOT NULL,digest TEXT NOT NULL,principal TEXT NOT NULL,reason TEXT NOT NULL,policy TEXT NOT NULL,created INTEGER NOT NULL)"
-LEDGER = Schema("deployment ledger", 0x4D415344, 3, (),
+LEDGER_V3 = Schema("deployment ledger", 0x4D415344, 3, (),
                 (*LEDGER_V2.statements, _BUDGET_AUDIT),
                 ((LEDGER_V2, (_BUDGET_AUDIT,)),))
+_PRINCIPAL_QUOTAS = (
+    "CREATE TABLE principal_quotas(principal TEXT PRIMARY KEY,policy TEXT NOT NULL)",
+    "CREATE TABLE run_principals(run_id TEXT PRIMARY KEY,principal TEXT NOT NULL,FOREIGN KEY(run_id) REFERENCES runs(run_id))",
+    "CREATE INDEX run_principal_owner ON run_principals(principal,run_id)",
+)
+LEDGER = Schema("deployment ledger", 0x4D415344, 4, (),
+                (*LEDGER_V3.statements, *_PRINCIPAL_QUOTAS),
+                ((LEDGER_V3, _PRINCIPAL_QUOTAS),
+                 (LEDGER_V2, (_BUDGET_AUDIT, *_PRINCIPAL_QUOTAS))))
 JOURNAL = Schema("host journal", 0x4D41534A, 2, ((0, 0), (0x4D41534A, 1)), (
     "CREATE TABLE metadata(key TEXT PRIMARY KEY,value TEXT NOT NULL)",
     "CREATE TABLE steps(key TEXT PRIMARY KEY,kind TEXT NOT NULL,input TEXT NOT NULL,data TEXT NOT NULL)",

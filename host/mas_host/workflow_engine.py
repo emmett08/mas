@@ -155,7 +155,8 @@ class WorkflowEngine:
             raise ServiceError('forbidden')
         value = _object(input)
         metadata = _object(metadata) if metadata is not None else {}
-        with self._mutation() as db:
+        from .principal_quotas import submission_mutation, check_submission_quota
+        with submission_mutation(self.operations, self.store, principal) as db:
             if expected_deployment_id is not None and expected_deployment_id != self.operations.deployment_id:
                 raise ServiceError('deployment_identity_mismatch')
             row = self.store.submitted(db, principal, request_key)
@@ -176,6 +177,7 @@ class WorkflowEngine:
                 if self.definitions.current('plan', plan) != self.bindings[plan]['identity']:
                     raise ServiceError('workflow_changed')
                 self.operations.check_storage_admission()
+                check_submission_quota(self.operations, principal)
                 from .execution_policy import timing_policy
                 policy = timing_policy(self.plans[plan].spec.get('timing_policy'))
                 clock = policy.start(int(time.time() * 1000)) if policy else None

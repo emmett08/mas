@@ -294,7 +294,7 @@ The host-side repositories have independent application identities and versions:
 
 | Repository | Application identity | Current version | Compatible previous format |
 | --- | --- | --- | --- |
-| Deployment ledger | `MASD` (`0x4d415344`) | 3 | Identified version 2 and unidentified version 1 |
+| Deployment ledger | `MASD` (`0x4d415344`) | 4 | Identified versions 2–3 and unidentified version 1 |
 | Workflow journal | `MASJ` (`0x4d41534a`) | 2 | Identified version 1 and unidentified version 0 |
 | Cursor cloud jobs | `MASC` (`0x4d415343`) | 1 | None |
 | Durable task service | `MAST` (`0x4d415354`) | 2 | Version 1 |
@@ -347,3 +347,57 @@ jobs and unreviewed late worker receipts also protect run evidence. Audit-only
 restores permit previews, but reject archival, compaction and budget amendments.
 
 These controls support a bounded single-host service. They do not provide multi-host consensus, hostile-code isolation, automatic provider refund accounting, or a highly available distributed database. The acceptance suite exercises process interruption, quotas, disk thresholds, backup/restore, sustained local load and explicit live-provider acceptance separately.
+
+
+## Principal queue and allocation quotas
+
+Trusted bridge configuration may set independent limits for each principal:
+
+```json
+"principal_quotas": {
+  "team-a": {"max_pending": 100, "max_calls": 5000,
+             "max_reserved_microusd": 50000000},
+  "team-b": {"max_pending": 20, "max_calls": 1000,
+             "max_reserved_microusd": 10000000}
+}
+```
+
+`max_pending` bounds outstanding logical submissions across the leaf and
+composition repositories together. Running, blocked, paused and unknown work
+retain capacity. A terminal composition with a running or unknown child retains
+capacity until that child is resolved. A continuation belongs to its existing
+logical submission. Completing or safely cancelling a submission releases this
+queue allowance; archival is unnecessary. Replaying an accepted request still
+returns its original receipt when the limit is full. Another principal's
+allowance remains independent, subject to deployment-wide bounds.
+
+`max_calls` and `max_reserved_microusd` are lifetime allocation ceilings, separate
+from concurrency slots and actual provider invoices. The deployment ledger
+checks the principal and deployment ceilings in one call-admission transaction.
+Its immutable run-to-principal binding comes from the trusted service assignment;
+application input cannot choose another owner. Composition ancestors retain their
+own admission controls. A denied downstream admission never refunds a retained
+ancestor reservation. Failure, retries, process death, archive and restart do not
+refund accepted call allocations. Each separately admitted retry consumes another
+call and reservation.
+
+The policy is stored in deployment ledger version 4. Unchanged configuration and
+omitted configuration use the installed limits. Initial installation requires a
+quiescent deployment; changing or clearing installed limits is rejected. The
+existing deployment budget-amendment API changes only deployment ceilings and
+cannot silently increase principal ceilings. Principals without configured limits
+remain subject to the deployment and workflow limits.
+
+Migration preserves existing call rows and IDs. Historical calls whose owner is
+unknown are conservatively counted against every configured principal; this does
+not duplicate the deployment's total consumption. A trusted resumed service
+assignment can attribute its original run to its retained principal. Unowned
+legacy runs cannot receive fresh call admissions while principal quotas are
+configured. Purged call evidence and attribution remain in the ledger and backup;
+a restored deployment remains audit-only.
+
+Trusted operator code can inspect `ledger.principal_policy(principal)` and
+`ledger.principal_usage(principal)`. Usage explicitly includes
+`unattributed_calls` and `unattributed_reserved_microusd`.
+`principal_quotas.pending_count(ledger, principal)` reports outstanding logical
+submissions. These identities are never emitted as metric labels.

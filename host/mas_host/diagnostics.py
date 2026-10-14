@@ -298,6 +298,8 @@ def effective_configuration(config_path):
             if type(value) is not int or not 1 <= value <= (100000 if name == 'max_instances' else 1000000):
                 raise ValueError()
         scheduler = SchedulerPolicy(**config.get('scheduler', {}))
+        from .principal_quotas import quota_configuration
+        principal_quotas = quota_configuration(config.get('principal_quotas', {}))
         factory = config.get('factory')
         if 'factory' in config and (type(factory) is not str or not re.fullmatch(r'[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*:[A-Za-z_]\w*', factory)):
             raise ValueError()
@@ -332,6 +334,7 @@ def effective_configuration(config_path):
                 'max_per_principal': scheduler.max_per_principal,
                 'workflow_limit_count': len(scheduler.workflows), 'resource_limit_count': len(scheduler.resources)},
             'principal_count': len(config['grants']),
+            'principal_quota_count': len(principal_quotas),
             'grant_count': sum(len(set(names)) for names in config['grants'].values()),
             'auth_type': auth['type'] if auth is not None else 'not_configured',
             'auth_material_readable': auth is not None,
