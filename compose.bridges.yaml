@@ -13,7 +13,7 @@ x-bridge: &bridge
   memswap_limit: 512m
   pids_limit: 64
   stop_grace_period: 20s
-  tmpfs: [/tmp:mode=1777,size=32m]
+  tmpfs: ["/tmp:mode=1777,size=32m"]
   volumes: [bridge-state:/state]
   logging:
     driver: json-file

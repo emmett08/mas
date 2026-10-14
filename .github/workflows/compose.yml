@@ -188,6 +188,14 @@ jobs:
             MAS_BRIDGE_CONFIG="/app/examples/bridges/$topology.json" docker compose -f compose.bridges.yaml config --quiet
           done
           docker compose -f compose.bridges.yaml -f compose.bridges.mixed.yaml config --quiet
+          docker compose -f compose.bridges.yaml config --format json > bridge-compose.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          config = json.loads(Path('bridge-compose.json').read_text())
+          for name in ('bridge', 'worker'):
+              assert config['services'][name]['tmpfs'] == ['/tmp:mode=1777,size=32m']
+          PY
           docker compose -f compose.bridges.yaml run --rm --no-deps --entrypoint python bridge -c '
           from mas_host.bridges.authentication import StaticTokenVerifier
           from mas_host.bridge_config import load_config, build_service

@@ -10,7 +10,7 @@ models without partial-order reduction, and nine detected/replayed defects.
 See the [bridge model contract](../formal/bridge-notes.md) for properties,
 scenario bounds and implementation correspondence.
 
-The local host suite reported **349 tests: 338 passed and 11 optional SDK tests skipped**;
+The local host suite reported **350 tests: 339 passed and 11 optional SDK tests skipped**;
 the separately installed orchestrator environment passed **all 19 tests**,
 including the real Temporal-server exercise. The Rust suite passed 48 tests and
 the release-helper suite passed 32. Six dependency-lock groups, containing 120

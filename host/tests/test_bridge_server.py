@@ -6,6 +6,8 @@ import json
 import os
 from pathlib import Path
 import socket
+import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -63,10 +65,80 @@ class MemoryService:
         return [r for (p, _k), r in self.records.items() if p == principal][offset:offset + limit]
 
 
+class JoinedBridgeHTTPServer(BridgeHTTPServer):
+    # Test fixtures must join their request handlers before later tests exercise
+    # the supervisor's intentional single-threaded-host requirement.
+    daemon_threads = False
+
+
+class BoundedPeer:
+    """Own a stoppable loopback peer, including the no-connect failure path.
+
+    The listener stays open until its accept loop has terminated. Closing a
+    listener in another thread does not portably wake accept and risks its
+    descriptor being reused by a later test.
+    """
+    def __init__(self, respond):
+        self.respond = respond
+        self.stop = threading.Event()
+        self.received = threading.Event()
+        self.errors = []
+        self.listener = socket.socket()
+        self.listener.bind(("127.0.0.1", 0))
+        self.listener.listen(1)
+        self.listener.settimeout(0.05)
+        self.endpoint = "http://127.0.0.1:" + str(self.listener.getsockname()[1])
+        self.thread = threading.Thread(target=self._serve, name="bounded-test-peer")
+
+    def _serve(self):
+        try:
+            while not self.stop.is_set():
+                try:
+                    connection, _ = self.listener.accept()
+                    break
+                except socket.timeout:
+                    continue
+            else:
+                return
+            with connection:
+                connection.settimeout(0.05)
+                while not self.stop.is_set():
+                    try:
+                        data = connection.recv(65536)
+                    except socket.timeout:
+                        continue
+                    if not data:
+                        return
+                    self.received.set()
+                    self.respond(connection, self.stop)
+                    return
+        except (BrokenPipeError, ConnectionResetError):
+            # The timeout path deliberately kills the HTTP child while the
+            # peer is still writing its incomplete response.
+            pass
+        except Exception as error:
+            self.errors.append(error)
+
+    def __enter__(self):
+        self.thread.start()
+        return self
+
+    def __exit__(self, *_args):
+        self.stop.set()
+        self.thread.join(5)
+        alive = self.thread.is_alive()
+        if not alive:
+            self.listener.close()
+        if alive:
+            raise AssertionError("loopback fixture peer did not terminate")
+        if self.errors:
+            raise AssertionError("loopback fixture failed") from self.errors[0]
+
+
 class ServerFixture:
     def __init__(self, service=None, **options):
         self.service = service or MemoryService()
-        self.server = BridgeHTTPServer(("127.0.0.1", 0), service=self.service, verifier=options.pop("verifier", verifier()),
+        self.server = JoinedBridgeHTTPServer(("127.0.0.1", 0), service=self.service, verifier=options.pop("verifier", verifier()),
             public_url="http://127.0.0.1", allow_loopback_http=True,
             request_timeout=options.pop("request_timeout", 2), **options)
         self.port = self.server.server_address[1]
@@ -81,6 +153,8 @@ class ServerFixture:
         self.server.shutdown()
         self.server.server_close()
         self.thread.join(2)
+        if self.thread.is_alive():
+            raise AssertionError("bridge fixture accept loop did not terminate")
 
     @property
     def endpoint(self):
@@ -337,51 +411,66 @@ class BridgeServerTests(unittest.TestCase):
             serve_stdio(Bridge(), "alice", input_stream=io.BytesIO(b"x" * 20), output_stream=io.BytesIO(), max_bytes=10)
 
     def test_transport_deadline_covers_slow_headers_from_worker_thread(self):
-        listener = socket.socket()
-        listener.bind(("127.0.0.1", 0))
-        listener.listen(1)
-        stop = threading.Event()
-        def remote():
-            connection, _ = listener.accept()
-            connection.recv(65536)
-            connection.sendall(b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n")
-            stop.wait(2)
-            connection.close()
-        thread = threading.Thread(target=remote, daemon=True)
-        thread.start()
+        headers_started = threading.Event()
+        def trickle_headers(connection, stop):
+            connection.sendall(b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nX-Slow: ")
+            headers_started.set()
+            while not stop.wait(0.05):
+                # Activity defeats an inactivity-only socket timeout. Only the
+                # parent's whole-request deadline may complete this request.
+                connection.sendall(b"x")
         result = []
-        def invoke():
-            started = time.monotonic()
+        timeout = 5
+        with BoundedPeer(trickle_headers) as peer:
+            def invoke():
+                started = time.monotonic()
+                try:
+                    http_exchange(peer.endpoint, timeout_seconds=timeout, allow_loopback_http=True)
+                except ServiceError as exc:
+                    result.append((exc.code, time.monotonic() - started))
+            worker = threading.Thread(target=invoke, name="http-deadline-test-client")
+            worker.start()
             try:
-                http_exchange("http://127.0.0.1:" + str(listener.getsockname()[1]), timeout_seconds=0.2,
-                              allow_loopback_http=True)
-            except ServiceError as exc:
-                result.append((exc.code, time.monotonic() - started))
-        worker = threading.Thread(target=invoke)
-        worker.start()
-        worker.join(2)
-        stop.set()
-        thread.join(2)
-        listener.close()
-        self.assertEqual(result[0][0], "transport_timeout")
-        self.assertLess(result[0][1], 1.5)
+                # Do not pass vacuously when slow startup consumes the budget.
+                self.assertTrue(headers_started.wait(timeout - 1), "HTTP worker never reached the slow-header response")
+            finally:
+                worker.join(timeout + 2)
+                self.assertFalse(worker.is_alive(), "HTTP client fixture did not terminate")
+            self.assertEqual(result[0][0], "transport_timeout")
+            self.assertGreaterEqual(result[0][1], timeout - 0.1)
+            self.assertLess(result[0][1], timeout + 2)
+        self.assertFalse(peer.thread.is_alive())
+
+    def test_timeout_before_connect_joins_peer_and_reaps_child(self):
+        def unexpected_connection(connection, stop):
+            raise AssertionError("delayed helper must never connect")
+        real_popen = subprocess.Popen
+        children = []
+        def delayed_start(_command, **kwargs):
+            # Deterministically reproduce slow Python/SSL startup on a loaded
+            # arm64 runner without reducing the production deadline contract.
+            process = real_popen([sys.executable, "-I", "-c", "import time; time.sleep(30)"], **kwargs)
+            children.append(process)
+            return process
+        with BoundedPeer(unexpected_connection) as peer:
+            with patch("mas_host.bridges.service_client.subprocess.Popen", side_effect=delayed_start):
+                with self.assertRaises(ServiceError) as context:
+                    http_exchange(peer.endpoint, timeout_seconds=0.05, allow_loopback_http=True)
+            self.assertEqual(context.exception.code, "transport_timeout")
+            self.assertFalse(peer.received.is_set())
+            self.assertEqual(len(children), 1)
+            self.assertIsNotNone(children[0].poll(), "deadline helper was not reaped")
+        self.assertFalse(peer.thread.is_alive())
 
     def test_transport_redirect_rejected_without_followup(self):
-        listener = socket.socket()
-        listener.bind(("127.0.0.1", 0))
-        listener.listen(1)
-        def remote():
-            connection, _ = listener.accept()
-            connection.recv(65536)
+        def redirect(connection, stop):
             connection.sendall(b"HTTP/1.1 307 Temporary Redirect\r\nLocation: https://elsewhere.example/\r\nContent-Length: 0\r\n\r\n")
-            connection.close()
-        thread = threading.Thread(target=remote, daemon=True)
-        thread.start()
-        with self.assertRaises(ServiceError) as context:
-            http_exchange("http://127.0.0.1:" + str(listener.getsockname()[1]), allow_loopback_http=True)
-        self.assertEqual(context.exception.code, "redirect_rejected")
-        thread.join(2)
-        listener.close()
+        with BoundedPeer(redirect) as peer:
+            with self.assertRaises(ServiceError) as context:
+                http_exchange(peer.endpoint, allow_loopback_http=True)
+            self.assertEqual(context.exception.code, "redirect_rejected")
+            self.assertTrue(peer.received.is_set())
+        self.assertFalse(peer.thread.is_alive())
 
 
 if __name__ == "__main__":
