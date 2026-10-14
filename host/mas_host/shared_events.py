@@ -18,10 +18,12 @@ class SharedEventDelivery:
             raise ServiceError('invalid_subscription_limit')
         event_page_arguments(0, page_size)
         self.page_size = page_size
-        self._command('configure', {'max_subscriptions': max_subscriptions, 'page_size': page_size})
+        configuration = {'max_subscriptions': max_subscriptions, 'page_size': page_size}
+        identity = hashlib.sha256(integer_json(configuration).encode()).hexdigest()
+        self._command('configure', configuration, command_id='event-config-' + identity)
 
-    def _command(self, operation, payload):
-        return self.authority.command('event.' + operation, payload)['receipt']
+    def _command(self, operation, payload, *, command_id=None):
+        return self.authority.command('event.' + operation, payload, command_id=command_id)['receipt']
 
     def _read(self, principal, subscription_id):
         value = self.authority.query('event.read', {'principal': principal, 'subscription_id': subscription_id})

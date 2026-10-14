@@ -202,6 +202,15 @@ This recovery restores committed storage; it does not replay an application
 effect. Read-only audit opens never perform this recovery and may report that
 writable recovery is required. Keep database sidecars with their database;
 deleting a journal to force an inspection can destroy the retained evidence.
+Python repositories and native Rust SQLite owners use `synchronous=EXTRA`, which
+also syncs removal of a DELETE-mode rollback journal. SQLite's `FULL` mode alone
+can lose a committed transaction across an immediate OS/power failure. The VM
+gate uses explicit QEMU `cache=writeback` with disk flushes enabled and requires
+the exact original receipt after a hard reset; it does not sync the guest on
+behalf of the application before injecting that failure.
+These durability settings follow the [SQLite synchronization contract](https://www.sqlite.org/pragma.html#pragma_synchronous)
+and [QEMU disk-cache contract](https://www.qemu.org/docs/master/system/qemu-manpage.html).
+The report includes the actual QMP-reported cache policy and fails if flushes are disabled.
 
 In the controller's application factory, construct the controller with the same
 pinned grants and policy, then install a `RemoteWorkerAdapter` for the appropriate

@@ -97,3 +97,46 @@ class SharedCommandCapacityTests(unittest.TestCase):
         with self.assertRaises(RunnerError):
             authority.install_host(command_capacity={**policy, 'normal_limit': 100})
         self.assertEqual(authority.query('command_capacity.status', {})['initial_policy'], policy)
+
+    def test_full_normal_pool_keeps_subscription_closure_available(self):
+        from mas_host.shared_events import SharedEventDelivery
+        authority, _ = self.authority(normal=3, recovery=2)
+        SharedEventDelivery(authority, object(), {}, max_subscriptions=3, page_size=10)
+        for subscription in ('stop-me', 'expire-me'):
+            authority.command('event.subscribe', {'principal': 'alice', 'subscription_id': subscription,
+                'task_id': 'task-one', 'descriptor': {'principal': 'alice', 'task_id': 'task-one',
+                    'after': 0}, 'after': 0})
+        self.assertEqual(authority.query('command_capacity.status', {})['normal']['remaining'], 0)
+        SharedEventDelivery(authority, object(), {}, max_subscriptions=3, page_size=10)
+        self.assertEqual(authority.query('command_capacity.status', {})['normal']['used'], 3)
+        scope = {'principal': 'alice', 'subscription_id': 'stop-me'}
+        first = authority.command('event.stop', scope, command_id='stop-command')
+        self.assertEqual(first['receipt']['state'], 'stopped')
+        expired = authority.command('event.expire', {**scope, 'subscription_id': 'expire-me'})
+        self.assertEqual(expired['receipt']['state'], 'resync_required')
+        self.assertEqual(authority.query('command_capacity.status', {})['recovery']['remaining'], 0)
+        self.assertTrue(authority.command('event.stop', scope, command_id='stop-command')['replayed'])
+        self.assert_code('command_capacity_exhausted', lambda: authority.command('event.subscribe',
+            {**scope, 'subscription_id': 'new-work', 'task_id': 'task-one',
+             'descriptor': {'principal': 'alice', 'task_id': 'task-one', 'after': 0}, 'after': 0}))
+        self.assertEqual(authority.query('event.read', scope)['record']['state'], 'stopped')
+
+    def test_worker_and_artifact_ports_reconstruct_at_normal_capacity(self):
+        from mas_host.shared_control import SharedWorkerController
+        from mas_host.shared_artifacts import SharedArtifactStore
+        from mas_host.s3_artifacts import S3ArtifactContent
+        from mas_host.s3_transport import S3ContentConfig
+        import test_s3_artifacts as fixtures
+        authority, _ = self.authority(normal=2)
+        grants = {'worker': {'trust_zone': 'trusted', 'capacity': 1, 'capabilities': {'work': 'a' * 64}}}
+        backend = S3ArtifactContent(S3ContentConfig('https://objects.example', 'test-bucket', 'mas',
+            'us-east-1', Path('/unused-fixture-credentials')), client=fixtures.ObjectClient())
+        SharedWorkerController(authority, grants)
+        first = SharedArtifactStore(authority, namespace='results', principal='alice', content_backend=backend)
+        self.assertEqual(authority.query('command_capacity.status', {})['normal']['remaining'], 0)
+        SharedWorkerController(authority, grants)
+        restored = SharedArtifactStore(authority, namespace='results', principal='alice', content_backend=backend)
+        self.assertEqual(restored.status(), first.status())
+        self.assertEqual(authority.query('command_capacity.status', {})['normal']['used'], 2)
+        self.assert_code('command_capacity_exhausted', lambda: authority.configure_scope(
+            'new-work', max_runs=1, max_calls=1, max_microusd=1))

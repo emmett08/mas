@@ -452,7 +452,7 @@ class WorkerController:
                                         if receipt["output_profile"] == ARTIFACT_OUTPUT_PROFILE else {})}), receipt["call_id"]))
             return {"stored": True, "receipt_id": receipt["id"], "authoritative": authoritative}
 
-    def _verify_artifacts(self, principal, binding, receipt, *, retain=True):
+    def _verify_artifacts(self, principal, binding, receipt, *, retain=True, retention_target=None):
         if receipt["output_profile"] != ARTIFACT_OUTPUT_PROFILE:
             return
         artifacts = receipt["artifacts"]
@@ -477,6 +477,8 @@ class WorkerController:
                 publisher.inspect(ref)  # Authenticated worker has a read grant.
                 if consumer.verify(ref) is not True:  # Full bytes/hash and consumer grant.
                     raise ArtifactError("artefact content integrity mismatch")
+                if retention_target is not None:
+                    consumer = consumer.with_retention_target(**retention_target)
                 groups.setdefault(ref.namespace, (consumer, []))[1].append(ref)
             if not retain:
                 return  # An acknowledged replay cannot reopen released retention.

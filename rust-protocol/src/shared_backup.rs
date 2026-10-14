@@ -109,7 +109,7 @@ fn check_binding(tx: &mut Transaction<'_>, binding: &AuthorityBinding, lock: boo
     if r.get::<_, String>(0) != binding.deployment
         || r.get::<_, String>(1) != binding.controller
         || r.get::<_, i64>(2) != binding.epoch
-        || !matches!(r.get::<_, i64>(3), 6..=11)
+        || !matches!(r.get::<_, i64>(3), 6..=12)
         || r.get::<_, String>(4) != layout(tx)?
     {
         return Err("incompatible recovery authority".into());

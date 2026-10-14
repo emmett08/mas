@@ -63,6 +63,10 @@ class ArtifactScope:
             value["content_backend"] = self.content_backend.descriptor
         return hashlib.sha256(json.dumps(value, sort_keys=True).encode()).hexdigest()
 
+    def authority_key(self):
+        """The repository whose actor grants this scope exposes."""
+        return ('local', os.path.normpath(str(self.root)), self.namespace)
+
     def repository(self, principal, *, readonly=False):
         actor = self.principals.get(principal)
         if actor is None:
@@ -82,6 +86,12 @@ class ArtifactTransferService:
             raise ServiceError('invalid_artifact_configuration')
         for name in scopes:
             _identity(name)
+        owners = {}
+        for scope in scopes.values():
+            for principal, actor in scope.principals.items():
+                key = (scope.authority_key(), actor)
+                if owners.setdefault(key, principal) != principal:
+                    raise ServiceError('invalid_artifact_configuration')
         self.root, self.scopes = Path(root).absolute(), dict(scopes)
         self.ttl_seconds, self.max_sessions = ttl_seconds, max_sessions
         self.max_staging_bytes, self.clock = max_staging_bytes, clock

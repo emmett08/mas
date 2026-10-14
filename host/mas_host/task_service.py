@@ -123,6 +123,8 @@ class Workflow:
     circuit_breakers: dict | None = None
     implementation_sources: tuple[Callable, ...] = ()
     _implementation: object = field(init=False, repr=False, compare=False)
+    _worker_bindings: str = field(init=False, repr=False, compare=False)
+    _workspace_bindings: str = field(init=False, repr=False, compare=False)
 
     def __post_init__(self):
         _text(self.version, "workflow_version")
@@ -170,6 +172,14 @@ class Workflow:
         if self.implementation_digest is not None and self.implementation_digest != implementation.digest:
             raise ServiceError("implementation_digest_mismatch")
         object.__setattr__(self, "_implementation", implementation)
+        from .executable_worker import ExecutableAdapter
+        workers = {actor: adapter.spec.descriptor for actor, adapter in self.adapters.items()
+                   if isinstance(adapter, ExecutableAdapter)}
+        object.__setattr__(self, '_worker_bindings', canonical(workers))
+        from .workspaces import WorkspaceAdapter
+        workspaces = {actor: adapter.registration_descriptor for actor, adapter in self.adapters.items()
+                      if isinstance(adapter, WorkspaceAdapter)}
+        object.__setattr__(self, '_workspace_bindings', canonical(workspaces))
 
     @property
     def verified_implementation(self):
@@ -178,6 +188,35 @@ class Workflow:
     def verify_implementation(self):
         from .implementation import implementation_values
         self._implementation.verify(implementation_values(self))
+        self._verify_workers(self.adapters)
+
+    def _verify_workers(self, adapters):
+        from .executable_worker import ExecutableAdapter, WorkerSpec
+        from .workspaces import WorkspaceAdapter
+        workers = {actor: adapter.spec.descriptor for actor, adapter in adapters.items()
+                   if isinstance(adapter, ExecutableAdapter)}
+        workspaces = {actor: adapter.registration_descriptor for actor, adapter in adapters.items()
+                      if isinstance(adapter, WorkspaceAdapter)}
+        if canonical(workers) != self._worker_bindings or canonical(workspaces) != self._workspace_bindings:
+            raise ServiceError('implementation_worker_binding_mismatch')
+        try:
+            checked = set()
+            for adapter in adapters.values():
+                worker = (adapter.spec if isinstance(adapter, ExecutableAdapter) else
+                          adapter.tool.worker if isinstance(adapter, WorkspaceAdapter) else None)
+                if isinstance(worker, WorkerSpec) and id(worker) not in checked:
+                    worker.verify()
+                    checked.add(id(worker))
+        except RunnerError:
+            raise ServiceError('implementation_worker_unavailable') from None
+
+    def verify_adapters(self, adapters):
+        """A trusted factory may construct adapters, but cannot replace pinned workers."""
+        if (set(adapters) != set(self.adapters)
+                or any(not callable(getattr(adapter, 'handle', None)) for adapter in adapters.values())):
+            raise ServiceError('invalid_adapter_factory')
+        self._implementation.verify_bindings(tuple(adapters.values()))
+        self._verify_workers(adapters)
 
     @property
     def descriptor(self) -> dict:
@@ -189,6 +228,10 @@ class Workflow:
         if self.contract_descriptor is not None:
             descriptor["contract_descriptor"] = _object(self.contract_descriptor)
         descriptor["implementation_digest"] = self._implementation.digest
+        if self._worker_bindings != '{}':
+            descriptor['worker_bindings'] = json.loads(self._worker_bindings)
+        if self._workspace_bindings != '{}':
+            descriptor['workspace_bindings'] = json.loads(self._workspace_bindings)
         if self.retry_policy is not None:
             descriptor["retry_policy"] = self.retry_policy.descriptor
         if self.timing_policy is not None:
@@ -308,7 +351,7 @@ class RunnerExecutor:
 
     def execute(self, workflow, execution, *, cancelled, ownership_descriptor):
         from .runner import Runner
-        from .supervision import InlineExecutor, LinuxProcessExecutor
+        from .executable_worker import ProfileExecutor
         if cancelled():
             from .bootstrap import requires_reconciliation
             if requires_reconciliation(self.state_dir / execution['run_directory'], execution['run_id'],
@@ -325,11 +368,8 @@ class RunnerExecutor:
                 adapters = dict(workflow.adapter_factory(binding))
             except Exception:
                 raise ServiceError("invalid_adapter_factory") from None
-            if (set(adapters) != set(workflow.adapters)
-                    or any(not callable(getattr(adapter, "handle", None)) for adapter in adapters.values())):
-                raise ServiceError("invalid_adapter_factory")
-            workflow.verified_implementation.verify_bindings(tuple(adapters.values()))
-        executor = LinuxProcessExecutor() if self.options["supervised"] else InlineExecutor()
+            workflow.verify_adapters(adapters)
+        executor = ProfileExecutor(supervised=self.options['supervised'], gateway_bin=self.options['gateway_bin'])
         from .operations import DeploymentLedger
         from .principal_quotas import PrincipalAllocation
         allocation = PrincipalAllocation(self.operations or DeploymentLedger(self.state_dir), execution['principal'])

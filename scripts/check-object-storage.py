@@ -7,6 +7,7 @@ endpoint and credentials. The test creates and removes its own random bucket.
 from __future__ import annotations
 
 import argparse
+import base64
 from contextlib import contextmanager
 import hashlib
 import json
@@ -184,6 +185,7 @@ def acceptance(config, root):
 def shared_acceptance(config, root):
     """Use real PostgreSQL metadata and real S3 I/O in the same execution."""
     from mas_host.shared_artifacts import SharedArtifactStore
+    from mas_host.shared_artifact_transfer import SharedArtifactScope, SharedArtifactTransferService
     from mas_host.shared_authority import SharedAuthority
     dsn, binary = os.environ.get('MAS_TEST_POSTGRES_DSN'), os.environ.get('MAS_SHARED_BIN')
     if not dsn or not binary:
@@ -248,6 +250,16 @@ def shared_acceptance(config, root):
         assert writer.status()['content']['objects'] == retained['objects']
         checks.append('real_lost_put_reply_preserves_charge_and_conditional_recovery')
 
+        def transfers():
+            scope = SharedArtifactScope(current, root / ('cache-' + uuid.uuid4().hex),
+                'result', {'alice': 'writer', 'bob': 'reader'}, writer.policy, S3ArtifactContent(config))
+            return SharedArtifactTransferService(root / ('staging-' + uuid.uuid4().hex), {'result': scope})
+        original_transfers = transfers()
+        upload = original_transfers.upload_begin('alice', 'result', ref.sha256, ref.size,
+            ref.media_type, readers=['bob'])['transfer_id']
+        original_transfers.upload_chunk('alice', upload, 0, base64.b64encode(data[:32768]).decode())
+        download = original_transfers.download_begin('bob', 'result', ref.to_dict())['transfer_id']
+
         successor = []
         def handover():
             binding = current.handover('replacement')
@@ -269,6 +281,19 @@ def shared_acceptance(config, root):
         assert store('reader').ensure_link('consumer', [ref])['state'] == 'unresolved'
         assert not list(root.rglob('*.sqlite'))
         checks.append('epoch_fencing_and_original_reference_recovery_without_local_database')
+        replacement_transfers = transfers()
+        assert replacement_transfers.status('alice', upload)['next_offset'] == 32768
+        for offset in range(32768, len(data), 32768):
+            replacement_transfers.upload_chunk('alice', upload, offset,
+                base64.b64encode(data[offset:offset + 32768]).decode())
+        assert replacement_transfers.upload_commit('alice', upload)['reference'] == ref.to_dict()
+        received = b''.join(base64.b64decode(replacement_transfers.download_chunk(
+            'bob', download, offset)['data']) for offset in range(0, len(data), 32768))
+        assert received == data
+        replacement_transfers.close('alice', upload)
+        replacement_transfers.close('bob', download)
+        assert not list(root.rglob('*.part'))
+        checks.append('native_transfer_ids_offsets_and_downloads_survive_empty_replacement_cache')
         replacement.revoke(ref, 'reader')
         try:
             store('reader').read_bytes(ref)

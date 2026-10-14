@@ -6,25 +6,65 @@ The single review is [PR #45](https://github.com/emmett08/mas/pull/45), against
 `main`; PRs #16–44 are superseded. Implementation and fault qualification continue.
 The earlier records below remain historical evidence for their recorded source.
 
-A fixed checkout at `04d10dce9b218e6f3746f27b042c5e4f1f546009` passed **1,140 host tests** in
-256.565 seconds: **1,082 passed and 58 skipped**. The skips are 55 tests requiring
-an actual PostgreSQL fixture and three explicitly enabled real Temporal server
-tests. Installed SDK tests and real Rust process tests ran. The
-[source receipt](verification/host-evolution-source.json) records the exact commit,
-binary digests and log digest. This does not qualify subsequent commits.
+The fixed checkout `c623904660e17c5ce4c552246d67e4fa90bc8290` ran **1,221
+host tests** in 273.931 seconds: **1,119 passed and 102 skipped**. The skips are
+99 actual-PostgreSQL tests and three explicitly enabled real Temporal tests,
+which have separate hosted gates. This run used Python 3.12.14, installed pinned
+SDKs and freshly built Rust 1.99.0 binaries from the same native tree. Native
+checks passed 64 tests, with 13 PostgreSQL and two formal-verifier cases reserved
+for their actual fixtures; 44 script tests passed. The [source receipt](verification/host-evolution-source.json)
+records source, binary and log digests and earlier integrated runs.
+The subsequent local Cursor recovery and locking repairs at `eb4fdb8` passed
+a 44-test supplement in 3.856 seconds, with independent concurrency review.
+The complete published-head CI run covers the combined implementation.
 
-At remote revision `7064567749466168721db184678f1baabcea4aa3`, native PostgreSQL
-protocol and accounting migration checks passed. Its Python shared-backend suite
-passed 50 of 51 tests, including sealed archive/restore/activation; the remaining
-pause/continuation timing case is being corrected and rerun. At
-`6c120aa487546e8d5bd4d63981978c4d168bbe44`, the full installed host step passed on
-amd64 and arm64, and native clients passed on Linux, macOS and Windows. Later
-container, real Temporal, shared backend and VM gates remain separate checks.
+The fixed [two-principal load profile](reference-load.md) passed at
+`c623904660e17c5ce4c552246d67e4fa90bc8290`: 112 tasks completed, 56 per
+principal, over 60.10 seconds of active load. Every callback had one paired
+completion and every observed descendant was reaped. Submission p99 was 26.23 ms,
+inspection p99 6.05 ms and completion-observation p99 450.38 ms. Peak observed
+resource use was five descendant processes and 94.68 MiB summed RSS; retained
+allocated state grew by 12.34 MiB. Deterministic capacity checks exercised all
+four slots and principal/global denials. The paced workload's observed callback
+concurrency was one, so this result does not establish saturated throughput.
+The [aggregate receipt](verification/host-reference-load.json) binds source,
+binaries, limits, raw-report digest and samples. The host regression suite ran
+concurrently. These are fixture measurements, not production SLOs; CI repeats
+the same bounded profile on the published source.
 
-The independent VM gate exposed a real SQLite hot-journal recovery issue after
-hard reset. A successful two-worker case or boot does not qualify that fault
-case. No completed machine-fault or production replication qualification is
-claimed until the full gate passes. The canonical
+At remote revision `6c120aa487546e8d5bd4d63981978c4d168bbe44`, **59 actual
+PostgreSQL Python tests passed**, together with 12 native PostgreSQL conformance
+tests and the native accounting migration test. Five combined PostgreSQL and
+RustFS boundaries passed: verified publication, lost PUT response, epoch
+handover, grant revocation and corrupt bytes. This supersedes the earlier
+50-of-51 PostgreSQL result at `7064567749466168721db184678f1baabcea4aa3` for
+those tests; it does not qualify the later shared jobs, retention and transfers.
+
+At `b7b84f2436a531fcd80ae6d81422c1b935c43867`, the complete installed-image
+workflows passed on **amd64 and arm64**, including standard and Cursor runtimes,
+real Temporal, bridge restart, reconciliation and private credential injection
+without paid calls. Native Linux/macOS/Windows clients, real Linux containment,
+formal checks and dependency/image scans passed. Its PostgreSQL phase ran 89
+Python tests: 88 passed; one transfer-denial test errored because the native fixed
+error code was absent from the public allowlist. The denial held. That repair and
+the subsequent schema/workspace changes need the combined-head rerun; the S3
+phase was skipped after this error.
+
+The same revision passed all five independent-kernel VM cases: two workers,
+lost acknowledgement plus controller restart and worker hard reset, network
+partition, spool loss and artefact loss. The [machine-readable receipt](verification/host-evolution-source.json)
+records the actual tested merge revision and retained CI artifact digest. These
+are two QEMU guests, not physical-host or production-network acceptance. This
+passing run predates the durability repair below and cannot qualify later source.
+
+Independent VM hard resets exposed two real SQLite durability defects: a
+read-only preflight could not recover a hot journal, and `synchronous=FULL`
+with rollback journals could lose the worker's last committed receipt. Writable
+preflight now permits SQLite recovery while prohibiting application writes;
+all Python and Rust write owners use `synchronous=EXTRA`. A separate ledger
+preflight regression verifies preserved identity, policy and allocations. The
+fresh VM rerun retains the original receipt-ID assertion and verifies that QEMU
+honours flushes. The full repaired-source gate remains a separate required rerun. The canonical
 [implementation record](host-evolution-plan.md) retains the acceptance conditions.
 
 ## Host service evolution — 14 October 2026

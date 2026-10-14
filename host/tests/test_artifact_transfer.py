@@ -191,6 +191,16 @@ class ArtifactTransferTests(unittest.TestCase):
         with self.assertRaises(ServiceError):
             ArtifactScope(self.root, 'data', {'alice': 'writer', 'mallory': 'writer'})
 
+    def test_cross_scope_aliases_cannot_share_one_repository_actor(self):
+        original = ArtifactScope(self.root / 'objects', 'data', {'alice': 'writer'})
+        alias = ArtifactScope(self.root / 'objects' / 'unused' / '..', 'data', {'bob': 'writer'})
+        with self.assertRaises(ServiceError):
+            ArtifactTransferService(self.root / 'transfers', {'first': original, 'alias': alias})
+        same_owner = ArtifactScope(self.root / 'objects', 'data', {'alice': 'writer'})
+        ArtifactTransferService(self.root / 'transfers', {'first': original, 'same': same_owner})
+        separate = ArtifactScope(self.root / 'separate', 'data', {'bob': 'writer'})
+        ArtifactTransferService(self.root / 'transfers', {'first': original, 'separate': separate})
+
     def test_producer_revocation_blocks_existing_and_new_download_sessions(self):
         session = self.call('download_begin', {'scope': 'results', 'reference': self.ref.to_dict()}, 'bob')
         with self.assertRaises(ServiceError):

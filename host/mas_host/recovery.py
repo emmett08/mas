@@ -190,14 +190,23 @@ class RecoveryService:
                         "cancel_requested": bool(row["cancel_requested"]), "observed_at_ms": row["updated"] * 1000})
         path = self.state_dir / "cursor-jobs.sqlite"
         if path.exists():
+            from .durable_jobs import JobStore
             with closing(connect(path, JOBS, readonly=True)) as db:
                 for row in db.execute("SELECT * FROM jobs"):
                     reference = row["host_run_dir"]
                     if reference is None or Path(reference).name not in directories:
                         continue
+                    # Reuse the job store's binding and exact agent/run checks
+                    # before treating its retained snapshot as remote evidence.
+                    row = JobStore.row(db, row["job_id"])
+                    snapshot = json.loads(row["snapshot"]) if row["snapshot"] else {}
+                    status = snapshot.get("remote_status")
                     observed.append({"kind": "cursor_job", "key": row["job_id"],
-                        "remote_id": row["run_id"], "state": row["state"],
-                        "uncertain": row["state"] in {"prepared", "launch_unknown"},
+                        "agent_id": row["agent_id"], "remote_id": row["run_id"],
+                        "state": "cancelled" if status == "CANCELLED" else row["state"],
+                        "remote_status": status,
+                        "uncertain": row["state"] in {"prepared", "launch_unknown"} or
+                            (row["state"] != "terminal" and bool(row["cancel_requested"])),
                         "cancel_requested": bool(row["cancel_requested"]), "observed_at_ms": row["updated"] * 1000})
         return observed
 

@@ -224,6 +224,29 @@ impl PostgresRepository {
             Ok(())
         })
     }
+    pub fn install_artifact_retention_repository(&mut self) -> Result<()> {
+        self.transaction(|tx| {
+            let version: i64 = tx
+                .query_one("SELECT version FROM authority WHERE singleton", &[])
+                .map_err(db_error)?
+                .get(0);
+            if version >= 12 {
+                return Ok(());
+            }
+            if version != 11 {
+                return Err("shared transfers must be installed before artifact retention".into());
+            }
+            tx.batch_execute(crate::shared_artifacts::RETENTION_DDL)
+                .map_err(db_error)?;
+            let digest = layout(tx)?;
+            tx.execute(
+                "UPDATE authority SET version=12,layout_digest=$1 WHERE singleton",
+                &[&digest],
+            )
+            .map_err(db_error)?;
+            Ok(())
+        })
+    }
     pub fn host_command(
         &mut self,
         command_id: &str,

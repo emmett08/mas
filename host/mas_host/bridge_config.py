@@ -190,4 +190,5 @@ def _build_shared_service(config, state_dir, workflows, *, plans=None, workflow_
         workflow_versions=workflow_versions, allocation_limits=value['allocation_limits'],
         max_pending=config.get('max_pending', 1000), max_tasks=config.get('max_tasks', 10000),
         scheduler_policy=SchedulerPolicy(**config.get('scheduler', {})),
-        principal_quotas=config.get('principal_quotas'), max_instances=config.get('max_instances', 1000))
+        principal_quotas=config.get('principal_quotas'), max_instances=config.get('max_instances', 1000),
+        gateway_bin=os.environ.get('MAS_GATEWAY_BIN', 'mas-gateway'))

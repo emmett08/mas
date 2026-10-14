@@ -112,8 +112,10 @@ class TaskStore:
         digest = hashlib.sha256(result.encode()).hexdigest() if result is not None else None
         floor = db.execute('SELECT coalesce(max(id),0) FROM events WHERE task_id=?', (task['id'],)).fetchone()[0]
         timestamp = now()
-        db.execute("UPDATE tasks SET input='{}',result=NULL,archived_at=?,result_digest=?,event_floor=?,updated_at=? WHERE id=?",
-                   (timestamp, digest, floor, timestamp, task['id']))
+        archived_error = ({'archived': True, 'sha256': hashlib.sha256(canonical(task['error']).encode()).hexdigest()}
+                          if task.get('error') is not None else None)
+        db.execute("UPDATE tasks SET input='{}',result=NULL,error=?,archived_at=?,result_digest=?,event_floor=?,updated_at=? WHERE id=?",
+                   (canonical(archived_error) if archived_error is not None else None, timestamp, digest, floor, timestamp, task['id']))
         db.execute('DELETE FROM executions WHERE task_id=?', (task['id'],))
         db.execute('DELETE FROM events WHERE task_id=?', (task['id'],))
         event(db, task['id'], 'archived', {'state': task['state'], 'result_available': False})

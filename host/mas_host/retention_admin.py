@@ -20,13 +20,15 @@ def archive(service, operator, payload):
     reason, age = payload['reason'], payload['older_than_seconds']
     if (type(reason) is not str or not reason.strip() or len(reason) > 2048
             or any(ord(c) < 32 for c in reason) or type(age) is not int or not 0 <= age <= (2**63-1)//1000
-            or payload['kind'] not in {'tasks', 'workflows'}):
+            or type(payload['kind']) is not str or payload['kind'] not in {'tasks', 'workflows', 'runs'}):
         raise ServiceError('invalid_retention_request')
-    if (payload['kind'] == 'workflows') != payload['task_id'].startswith('flow-'):
+    if payload['kind'] != 'runs' and (payload['kind'] == 'workflows') != payload['task_id'].startswith('flow-'):
         raise ServiceError('invalid_archive_kind')
     command = {'operator': operator, **payload}
     if hasattr(service, 'authority'):
         return service.authority.command('operator.archive', command)['receipt']
+    if payload['kind'] == 'runs':
+        raise ServiceError('unsupported_capability')
     service.inspect(payload['principal'], payload['task_id'])
     operations, root = service.operations, service.state_dir
     encoded = canonical_json(command)

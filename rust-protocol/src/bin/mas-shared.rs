@@ -95,6 +95,7 @@ fn execute(request: Value) -> Result<Value, String> {
             repository.install_retention_repository()?;
             repository.install_archive_repository()?;
             repository.install_transfer_repository()?;
+            repository.install_artifact_retention_repository()?;
             Ok(json!({"installed":true}))
         }
         "recovery_seal" => repository.recovery_seal(&request["parameters"]),
@@ -239,10 +240,16 @@ fn main() {
                 | "run_not_settled"
                 | "workflow_changed"
                 | "artifact_staging_full"
+                | "artifact_unavailable"
                 | "artifact_chunk_conflict"
                 | "invalid_artifact_chunk"
                 | "artifact_integrity_mismatch"
                 | "artifact_configuration_conflict"
+                | "artifact_target_invalid"
+                | "invalid_artifact_configuration"
+                | "artifact_target_denied"
+                | "artifact_retention_conflict"
+                | "artifact_namespace_retained"
                 | "invalid_command_capacity"
                 | "command_capacity_conflict"
                 | "command_capacity_exhausted"

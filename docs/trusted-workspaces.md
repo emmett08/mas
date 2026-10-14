@@ -78,11 +78,27 @@ adapter = WorkspaceAdapter(
 executor = WorkspaceExecutor(RegisteredProcessExecutor("/srv/mas/bin/mas-gateway"))
 ```
 
-Register `adapter` with `Runner` or a trusted workflow adapter factory and pass
-`executor` to that runner. The workspace is bound to one attempt and one admitted
-tool execution. Use a new attempt identity for a distinct execution; completed
-calls resume through the existing journal checkpoints. Reusing a non-pristine
-workspace cannot authorise another execution.
+For a direct `Runner`, register `adapter` and pass `executor`. Durable local and
+shared services select `WorkspaceExecutor` automatically for `WorkspaceAdapter`
+registrations, including the existing container profile. Other actors can keep
+their own execution profiles and use the same parent-owned context protocol.
+
+A `Workflow` registration freezes the complete workspace tool descriptor,
+policy and output manifest. Its trusted `adapter_factory` uses the assigned
+`ExecutionBinding` principal, run and revision to prepare each attempt's
+workspace. The returned adapter must preserve those approved capabilities;
+changing a tool command, worker configuration, policy or output contract changes
+workflow identity and cannot be substituted during recovery. The manager's
+cache directory and each assigned `WorkspaceRef` are excluded from the static
+workflow binding. The exact workspace, input and context identities are instead
+recorded in that run's admitted invocation.
+
+The workspace is bound to one attempt and one admitted tool execution. Use a new
+attempt identity for a distinct execution; completed calls resume through the
+existing journal checkpoints. A replacement shared controller can materialise
+the original immutable inputs in a new cache and replay the recorded output
+without rerunning the tool or publishing another artefact. Reusing a
+non-pristine workspace cannot authorise another execution.
 
 `WorkerSpec.with_workspace()` preserves the original environment and pinned
 dependencies while binding the private working directory. The executable,

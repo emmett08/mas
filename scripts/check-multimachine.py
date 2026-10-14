@@ -89,7 +89,7 @@ class Guest:
         self.process = subprocess.Popen(['qemu-system-x86_64', '-machine', 'q35,accel=tcg', '-cpu', 'max',
             '-m', '1024', '-smp', '1', '-display', 'none', '-monitor', 'none', '-serial', 'stdio',
             '-qmp', f'tcp:127.0.0.1:{self.qmp_port},server=on,wait=off',
-            '-drive', f'file={self.root}/disk.qcow2,if=virtio,format=qcow2',
+            '-drive', f'file={self.root}/disk.qcow2,if=virtio,format=qcow2,cache=writeback',
             '-drive', f'file={self.root}/seed.img,if=virtio,format=raw,readonly=on',
             '-netdev', f'user,id=net0,restrict=on,hostfwd=tcp:127.0.0.1:{self.ssh_port}-:22',
             '-device', 'virtio-net-pci,netdev=net0,id=nic0'], stdin=subprocess.DEVNULL, stdout=self.log, stderr=subprocess.STDOUT)
@@ -163,6 +163,17 @@ class Guest:
                     if 'return' in response:
                         break
                     require('error' not in response, 'QMP fault injection failed')
+            return response['return']
+
+    def storage(self):
+        writable = [item['inserted'] for item in self.control({'execute': 'query-block'})
+                    if item.get('inserted') and item['inserted']['ro'] is False]
+        require(len(writable) == 1 and writable[0]['file'] == str(self.root/'disk.qcow2'),
+                self.name+' unexpected writable block device')
+        cache = writable[0]['cache']
+        require(cache == {'writeback': True, 'direct': False, 'no-flush': False},
+                self.name+' disk cache must honour guest flushes')
+        return {'driver': writable[0]['drv'], 'cache': cache}
 
     def link(self, up):
         self.control({'execute': 'set_link', 'arguments': {'name': 'nic0', 'up': up}})
@@ -446,6 +457,7 @@ def main():
              for name in ('worker-one', 'worker-two')}
     tokens = {name: secrets.token_urlsafe(32) for name in nodes}
     report = {'format': 'mas-multimachine-qualification/1', 'passed': False, 'profile': 'qemu-tcg-independent-kernels',
+              'disk_cache': 'writeback', 'disk_flush_enabled': True,
               'image_sha256': lock['sha256'], 'controller': machine(),
               'git_revision': subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip(),
               'git_tracked_dirty': bool(subprocess.check_output(
@@ -470,6 +482,7 @@ def main():
         require(descriptions['worker-one']['capabilities'] == descriptions['worker-two']['capabilities'],
                 'guest implementation identities differ')
         report['workers'] = descriptions
+        report['storage'] = {name: node.storage() for name, node in nodes.items()}
         report['cases'] = check_all(nodes, descriptions, tokens, proxy, args, args.state_dir)
         report['passed'] = True
     finally:

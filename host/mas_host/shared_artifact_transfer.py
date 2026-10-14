@@ -6,6 +6,7 @@ import json
 import threading
 from tempfile import TemporaryFile
 import uuid
+import weakref
 
 from .artifacts import ArtifactRef, _hash_source
 from .contracts import RunnerError
@@ -14,6 +15,12 @@ from .bridges.artifact_protocol import CHUNK_BYTES
 from .bridges.artifact_transfer import ArtifactScope, ArtifactTransferService, _ID
 from .service_contracts import ServiceError
 from .shared_artifacts import SharedArtifactStore
+
+
+def _close_snapshots(entries):
+    for entry in entries.values():
+        if entry['source'] is not None:
+            entry['source'].close()
 
 
 class SharedArtifactScope(ArtifactScope):
@@ -28,6 +35,9 @@ class SharedArtifactScope(ArtifactScope):
             'database_namespace': self.authority.namespace, 'namespace': self.namespace,
             'principals': self.principals, 'policy': self.policy.__dict__,
             'content_backend': self.content_backend.descriptor}, sort_keys=True).encode()).hexdigest()
+
+    def authority_key(self):
+        return ('shared', self.authority._binding['deployment'], self.authority.namespace, self.namespace)
 
     def repository(self, principal, *, readonly=False):
         actor = self.principals.get(principal)
@@ -55,6 +65,7 @@ class SharedArtifactTransferService(ArtifactTransferService):
         self._command('configure', configuration, command_id='transfer-config-' + identity)
         self._snapshots = OrderedDict()
         self._snapshot_lock = threading.RLock()
+        self._snapshot_finalizer = weakref.finalize(self, _close_snapshots, self._snapshots)
 
     def _command(self, operation, payload, **options):
         try:

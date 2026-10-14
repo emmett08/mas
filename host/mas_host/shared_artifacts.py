@@ -5,6 +5,7 @@ publication leaves a charged reservation; replacement authority can verify the
 same bytes and publish the original reference. Stale epochs cannot publish.
 """
 from contextlib import contextmanager
+from copy import copy
 from dataclasses import asdict
 import hashlib
 from io import BytesIO
@@ -20,12 +21,13 @@ from .s3_artifacts import S3ArtifactContent
 
 class SharedArtifactStore:
     def __init__(self, authority, *, namespace, principal, content_backend,
-                 policy=None, readonly=False):
+                 policy=None, readonly=False, retention_target=None):
         if not isinstance(content_backend, S3ArtifactContent):
             raise ArtifactError('shared artefacts require the explicit S3 content profile')
         self.authority, self.content_backend = authority, content_backend
         self.namespace, self.principal = _identity(namespace), _principal(principal)
         self.readonly = readonly
+        self.retention_target = self._target(retention_target)
         self.policy = policy or ArtifactPolicy()
         if not isinstance(self.policy, ArtifactPolicy):
             raise ArtifactError('invalid shared artefact policy')
@@ -49,7 +51,8 @@ class SharedArtifactStore:
                 self.policy = ArtifactPolicy(**current['policy'])
                 expected['policy'] = current['policy']
         else:
-            current = self._command('configure', expected, principal=False)
+            identity = hashlib.sha256(_json(expected)).hexdigest()
+            current = self._command('configure', expected, principal=False, command_id='artifact-config-' + identity)
         if any(current.get(k) != v for k, v in expected.items()):
             raise ArtifactError('immutable shared artefact configuration differs')
 
@@ -62,14 +65,14 @@ class SharedArtifactStore:
         except RunnerError:
             raise ArtifactError('shared artefact authority unavailable or access denied') from None
 
-    def _command(self, operation, payload, *, principal=True):
+    def _command(self, operation, payload, *, principal=True, command_id=None):
         if self.readonly:
             raise ArtifactError('shared artefact store is read-only')
         fields = {'namespace': self.namespace, **payload}
         if principal:
             fields['principal'] = self.principal
         try:
-            return self.authority.command('artifact.' + operation, fields)['receipt']
+            return self.authority.command('artifact.' + operation, fields, command_id=command_id)['receipt']
         except RunnerError:
             raise ArtifactError('shared artefact authority unavailable or command rejected') from None
 
@@ -142,12 +145,39 @@ class SharedArtifactStore:
         ref = reference if isinstance(reference, ArtifactRef) else ArtifactRef.from_dict(reference)
         return self._query('inspect', {'reference': ref.to_dict()})
 
+    @staticmethod
+    def _target(target):
+        if target is None:
+            return None
+        if (type(target) is not dict or set(target) != {'kind', 'id', 'principal'}
+                or type(target['kind']) is not str or target['kind'] not in {'run', 'task', 'workflow'}):
+            raise ArtifactError('invalid artefact retention target')
+        return {'kind': target['kind'], 'id': _identity(target['id']),
+                'principal': _principal(target['principal'])}
+
+    def with_retention_target(self, *, kind, id, principal):
+        """Trusted lifecycle binding; native commands validate owner and actor map.
+
+        Reuse creates a distinct link per target; it cannot move an existing
+        consumer edge. The original repository and its default stay unchanged.
+        """
+        bound = copy(self)
+        bound.retention_target = self._target({'kind': kind, 'id': id, 'principal': principal})
+        return bound
+
+    def retention_link_id(self, link_id):
+        original = _identity(link_id)
+        if self.retention_target is None:
+            return original
+        return 'lifecycle-' + hashlib.sha256(_json([original, self.retention_target])).hexdigest()
+
     def link(self, link_id, references, *, state='live', preserve_released=False):
         if type(references) is not list or not 1 <= len(references) <= 64:
             raise ArtifactError('invalid artefact retention references')
-        return self._command('link', {'link_id': _identity(link_id),
+        return self._command('link', {'link_id': self.retention_link_id(link_id),
             'references': [r.to_dict() if isinstance(r, ArtifactRef) else ArtifactRef.from_dict(r).to_dict()
-                           for r in references], 'state': state, 'preserve_released': preserve_released})
+                           for r in references], 'state': state, 'preserve_released': preserve_released,
+            'retention_target': self.retention_target})
 
     def ensure_link(self, link_id, references, *, state='unresolved'):
         return self.link(link_id, references, state=state, preserve_released=True)

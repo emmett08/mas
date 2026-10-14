@@ -35,9 +35,11 @@ fn archived_payload(value: &str) -> Value {
     json!({"format":"mas-archived-payload/1","sha256":Sha256::digest(value.as_bytes()).iter().map(|b|format!("{b:02x}")).collect::<String>()})
 }
 pub(crate) fn archive_run(tx: &mut Transaction<'_>, run: &str) -> Result<Value> {
-    let mut saved = Vec::new();
-    for r in tx.query("SELECT principal,job_id,spec,snapshot,agent_id,run_id,state,archived FROM cloud_jobs WHERE host_run=$1 ORDER BY principal,job_id",&[&run]).map_err(db_error)? {
-        if r.get::<_,bool>(7) { continue }
+    let mut count = 0_i64;
+    let mut summary = Sha256::new();
+    // Fetch one job and bounded evidence pages; never materialise all retained
+    // provider payloads merely to reclaim them.
+    while let Some(r)=tx.query_opt("SELECT principal,job_id,spec,snapshot,agent_id,run_id,state FROM cloud_jobs WHERE host_run=$1 AND NOT archived ORDER BY principal,job_id LIMIT 1",&[&run]).map_err(db_error)? {
         if r.get::<_,&str>(6)!="terminal" { return Err("run_not_settled".into()) }
         let principal:&str=r.get(0); let job:&str=r.get(1);
         let spec=archived_payload(r.get(2));
@@ -47,15 +49,30 @@ pub(crate) fn archive_run(tx: &mut Transaction<'_>, run: &str) -> Result<Value> 
             Ok::<Value,String>(retained)
         }).transpose()?;
         tx.execute("UPDATE cloud_jobs SET spec=$3,snapshot=$4,archived=true WHERE principal=$1 AND job_id=$2",&[&principal,&job,&spec.to_string(),&snapshot.as_ref().map(Value::to_string)]).map_err(db_error)?;
-        for operation in tx.query("SELECT operation_id,request FROM cloud_operations WHERE principal=$1 AND job_id=$2",&[&principal,&job]).map_err(db_error)? {
-            tx.execute("UPDATE cloud_operations SET request=$4 WHERE principal=$1 AND job_id=$2 AND operation_id=$3",&[&principal,&job,&operation.get::<_,&str>(0),&archived_payload(operation.get(1)).to_string()]).map_err(db_error)?;
+        let mut after=String::new();
+        loop {
+            let operations=tx.query("SELECT operation_id,request FROM cloud_operations WHERE principal=$1 AND job_id=$2 AND operation_id>$3 ORDER BY operation_id LIMIT 16",&[&principal,&job,&after]).map_err(db_error)?;
+            if operations.is_empty() { break }
+            for operation in operations {
+                after=operation.get(0);
+                tx.execute("UPDATE cloud_operations SET request=$4 WHERE principal=$1 AND job_id=$2 AND operation_id=$3",&[&principal,&job,&after,&archived_payload(operation.get(1)).to_string()]).map_err(db_error)?;
+            }
         }
-        for event in tx.query("SELECT seq,evidence FROM cloud_audit WHERE principal=$1 AND job_id=$2",&[&principal,&job]).map_err(db_error)? {
-            tx.execute("UPDATE cloud_audit SET evidence=$2 WHERE seq=$1",&[&event.get::<_,i64>(0),&archived_payload(event.get(1)).to_string()]).map_err(db_error)?;
+        let mut after=0_i64;
+        loop {
+            let events=tx.query("SELECT seq,evidence FROM cloud_audit WHERE principal=$1 AND job_id=$2 AND seq>$3 ORDER BY seq LIMIT 16",&[&principal,&job,&after]).map_err(db_error)?;
+            if events.is_empty() { break }
+            for event in events {
+                after=event.get(0);
+                tx.execute("UPDATE cloud_audit SET evidence=$2 WHERE seq=$1",&[&after,&archived_payload(event.get(1)).to_string()]).map_err(db_error)?;
+            }
         }
-        saved.push(json!({"principal":principal,"job_id":job,"agent_id":r.get::<_,String>(4),"run_id":r.get::<_,Option<String>>(5),"spec":spec,"snapshot":snapshot}));
+        let retained=json!({"principal":principal,"job_id":job,"agent_id":r.get::<_,String>(4),"run_id":r.get::<_,Option<String>>(5),"spec":spec,"snapshot":snapshot}).to_string();
+        summary.update((retained.len() as u64).to_be_bytes()); summary.update(retained.as_bytes()); count+=1;
     }
-    Ok(json!(saved))
+    Ok(
+        json!({"jobs":count,"sha256":summary.finalize().iter().map(|b|format!("{b:02x}")).collect::<String>(),"identities_retained":true}),
+    )
 }
 
 fn text<'a>(p: &'a Value, key: &str) -> Result<&'a str> {

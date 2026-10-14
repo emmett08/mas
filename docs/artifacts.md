@@ -362,6 +362,11 @@ again. Each read checks native ownership, scope, expiry, closure, grants and
 controller epoch before returning bytes, including after S3 I/O. Shared transfer
 configuration is immutable within its database namespace; changing it requires
 an explicitly provisioned namespace, rather than silently remapping live sessions.
+Across every configured scope exposing the same repository namespace, an actor
+must map to one authenticated owner. Repeating that owner is allowed; assigning
+the same actor to another owner through a second scope is rejected. Shared reads
+also reject ambiguous mappings retained by an earlier writer before returning
+cached or remote content.
 
 Only the mapped producer can `revoke` future remote downloads for selected
 readers. Revocation persists across restarts and applies to existing download

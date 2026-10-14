@@ -76,7 +76,7 @@ class OperatorService:
                 or set(payload) - contract[0] - contract[1]):
             raise ServiceError("invalid_operator_request")
         integer_json(payload)
-        if operation == 'archive' and (not grant['deployment_admin']
+        if operation in {'archive', 'artifact_links', 'artifact_bind', 'artifact_release'} and (not grant['deployment_admin']
                 or type(payload['principal']) is not str or payload['principal'] not in grant['owners']):
             raise ServiceError('forbidden')
         if operation in OWNER_OPERATIONS:
@@ -131,6 +131,19 @@ class OperatorService:
         if operation == 'archive':
             from .retention_admin import archive
             return archive(service, operator, payload)
+        if operation.startswith('artifact_'):
+            if not hasattr(service, 'authority'):
+                raise ServiceError('unsupported_capability')
+            name = operation.removeprefix('artifact_')
+            if name in {'namespaces', 'links'}:
+                return service.authority.query('artifact.' + name, {'offset': 0, 'limit': 20, **payload})
+            command = {**payload, 'operator': operator}
+            if name == 'bind':
+                service.inspect(payload['principal'], payload['task_id'])
+                task = command.pop('task_id')
+                command['retention_target'] = {'kind': 'workflow' if task.startswith('flow-') else 'task',
+                    'id': task, 'principal': payload['principal']}
+            return service.authority.command('artifact.' + name, command)['receipt']
         if operation in {'command_capacity', 'command_capacity_amend'}:
             if not hasattr(service, 'authority'):
                 raise ServiceError('unsupported_capability')

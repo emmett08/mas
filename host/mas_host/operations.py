@@ -134,7 +134,7 @@ def _db(path: Path, readonly: bool = False):
         raise
     connection.execute("PRAGMA busy_timeout=10000")
     if not readonly:
-        connection.execute("PRAGMA synchronous=FULL")
+        connection.execute("PRAGMA synchronous=EXTRA")
         os.chmod(path, 0o600)
     try:
         with connection:
@@ -218,7 +218,10 @@ class DeploymentLedger:
                 if self.path.is_symlink() or not fresh and not self.path.is_file():
                     raise OperationsError("database must be a regular file")
                 if not fresh:
-                    with closing(sqlite3.connect(self.path.as_uri() + "?mode=ro", uri=True)) as check:
+                    # A writable owner must allow SQLite's native crash rollback
+                    # before the read-only unchanged-layout fast path.
+                    with closing(sqlite3.connect(self.path.as_uri() + "?mode=rw", uri=True)) as check:
+                        check.execute('PRAGMA query_only=ON')
                         fresh = (check.execute("PRAGMA application_id").fetchone()[0] == 0
                                  and check.execute("PRAGMA user_version").fetchone()[0] == 0
                                  and check.execute("SELECT count(*) FROM sqlite_master").fetchone()[0] == 0)

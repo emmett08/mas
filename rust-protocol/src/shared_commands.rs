@@ -199,6 +199,8 @@ pub(crate) fn class(operation: &str) -> &'static str {
         | "artifact.complete"
         | "artifact.revoke"
         | "artifact.release"
+        | "artifact.bind"
+        | "artifact.retire"
         | "transfer.complete"
         | "transfer.close"
         | "worker.receipt"
@@ -211,8 +213,8 @@ pub(crate) fn class(operation: &str) -> &'static str {
         | "operator.archive"
         | "epoch.retire"
         | "event.ack"
-        | "event.complete"
-        | "event.unsubscribe"
+        | "event.stop"
+        | "event.expire"
         | "accounting.record_charge" => "recovery",
         _ => "normal",
     }

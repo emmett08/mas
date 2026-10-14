@@ -131,7 +131,169 @@
         "mas-gateway": "6fb09d0b7476c20abc9232161b5c936eb10f2e0fe4ad6c3d6cab6f8842c7b351"
       },
       "scope": "Immutable source checkout with real Rust binaries and installed SDKs; PostgreSQL and real Temporal server gates are separate hosted checks. Does not qualify later commits."
+    },
+    {
+      "source_commit": "11c2b78f7f57035d0ffaf5d59f36fd6ca3162973",
+      "remote_equivalent": "b7b84f2436a531fcd80ae6d81422c1b935c43867",
+      "status": "PASS",
+      "tests": 1183,
+      "passed": 1094,
+      "skipped": 89,
+      "seconds": 269.001,
+      "skip_reasons": {
+        "set MAS_TEMPORAL_INTEROP=1 for pinned real-server interoperability": 3,
+        "requires actual PostgreSQL backend fixture": 86
+      },
+      "python": "3.14.8",
+      "platform": "Linux x86_64",
+      "evidence_sha256": "a2bf49ca4c80d63d967b396b2c7ce1e5cb224d77712cf377c3c719f6f54291e4",
+      "binary_sha256": {
+        "mas": "fd06dfd2baf885461a4d635ef9fd46585d747240e54a81d58c8cbb98d0ec0d87",
+        "mas-gateway": "6fb09d0b7476c20abc9232161b5c936eb10f2e0fe4ad6c3d6cab6f8842c7b351"
+      },
+      "scope": "Immutable source checkout with real Rust binaries and installed SDKs. PostgreSQL and explicitly enabled real Temporal checks are separate gates; later SQLite, registered-worker and typed-retention changes require rerun."
+    },
+    {
+      "source_commit": "c623904660e17c5ce4c552246d67e4fa90bc8290",
+      "status": "PASS",
+      "tests": 1221,
+      "passed": 1119,
+      "skipped": 102,
+      "seconds": 273.931,
+      "skip_reasons": {
+        "set MAS_TEMPORAL_INTEROP=1 for pinned real-server interoperability": 3,
+        "requires actual PostgreSQL backend fixture": 99
+      },
+      "python": "3.12.14",
+      "platform": "Linux x86_64",
+      "evidence_sha256": "87216acca61c637ed7019c9881db410fe7e6b7854f7ba8a4c76cadf4c0969060",
+      "binary_sha256": {
+        "mas": "c0db2e575fb2570913a92e2ea132d8f6ef13a796bd5f3b61c8ed33978e5df5b7",
+        "mas-gateway": "68a7b691df414796623026177e30af1ca191ac7f8c5db1b42b24b3ad96542e9b"
+      },
+      "scope": "Clean immutable checkout with installed pinned SDKs and Rust binaries built from the same native source tree. PostgreSQL and real Temporal are separate hosted gates. Subsequent local Cursor recovery/locking repairs have focused supplemental tests and require the published combined-source CI run."
     }
   ],
-  "historical_profile": "Top-level source_binding and original host/rust/formal counts describe the earlier diagnostics stack, not the later consolidated PR head."
+  "historical_profile": "Top-level source_binding and original host/rust/formal counts describe the earlier diagnostics stack, not the later consolidated PR head.",
+  "consolidated_backend_checks": [
+    {
+      "remote_commit": "6c120aa487546e8d5bd4d63981978c4d168bbe44",
+      "job_id": 116150410869,
+      "status": "PASS",
+      "python_postgres_tests": 59,
+      "python_postgres_seconds": 389.11,
+      "native_postgres_conformance_tests": 12,
+      "native_accounting_legacy_migration_tests": 1,
+      "combined_postgres_rustfs_boundaries": 5,
+      "scope": "Real PostgreSQL 16.15 and RustFS 1.0.1: verified publication, lost PUT reply, controller handover, grant revocation and tampered content. Does not qualify subsequent schemas or transfers."
+    }
+  ],
+  "consolidated_hosted_checks": [
+    {
+      "remote_commit": "b7b84f2436a531fcd80ae6d81422c1b935c43867",
+      "installed_amd64_job": 116156118495,
+      "installed_arm64_job": 116156118123,
+      "installed_images": "PASS including standard and Cursor runtimes, real Temporal, bridge restart, reconciler and private secret injection without paid calls",
+      "portable_clients": "PASS Linux, macOS and Windows",
+      "real_linux_containment": "PASS",
+      "formal_and_dependency_image_checks": "PASS",
+      "postgres": {
+        "status": "FAIL",
+        "tests": 89,
+        "passed": 88,
+        "errors": 1,
+        "seconds": 735.543,
+        "job": 116155959215,
+        "failure": "Cross-principal transfer was denied; fixed native error code was missing from the public allowlist. Subsequent repair requires rerun.",
+        "combined_s3_stage": "SKIPPED after Python test error"
+      }
+    }
+  ],
+  "consolidated_machine_checks": [
+    {
+      "remote_commit": "b7b84f2436a531fcd80ae6d81422c1b935c43867",
+      "tested_merge_commit": "4627b20e1a00b1d20405263e7f318fa36d205aae",
+      "tracked_dirty": false,
+      "profile": "qemu-tcg-independent-kernels",
+      "status": "PASS",
+      "job": 116155959354,
+      "artifact_url": "https://github.com/emmett08/mas/actions/runs/38652977768/artifacts/11935124723",
+      "artifact_sha256": "3fbe3180601bd0f8859d802291aaf8ce5a6af91e86877c9ec1c4555d646635d9",
+      "cases": [
+        {
+          "case": "twoworkers",
+          "passed": true,
+          "state": "completed",
+          "calls": 2,
+          "reserved_microusd": 10
+        },
+        {
+          "case": "lostack",
+          "passed": true,
+          "state": "completed",
+          "calls": 1,
+          "reserved_microusd": 5
+        },
+        {
+          "case": "partition",
+          "passed": true,
+          "state": "unknown",
+          "calls": 2,
+          "reserved_microusd": 10
+        },
+        {
+          "case": "spoolloss",
+          "passed": true,
+          "state": "unknown",
+          "calls": 2,
+          "reserved_microusd": 10
+        },
+        {
+          "case": "artifactloss",
+          "passed": true,
+          "state": "unknown",
+          "calls": 2,
+          "reserved_microusd": 10
+        }
+      ],
+      "scope": "Two QEMU guests with independent kernels. Lost-ack case preserves the original receipt across controller restart and worker hard reset; partition/spool/artifact-loss cases retain uncertainty and allocations. This predates the EXTRA durability fix; it does not qualify later source or physical hosts."
+    }
+  ],
+  "consolidated_native_check": {
+    "build_source_commit": "c623904660e17c5ce4c552246d67e4fa90bc8290",
+    "native_tree": "8dadc1ed88751277ed0be2d63bbf39a06615c47f",
+    "rust": "1.99.0",
+    "status": "PASS",
+    "tests_passed": 64,
+    "ignored": 15,
+    "ignored_scope": "13 actual PostgreSQL fixture tests and two separately qualified formal-verifier tests",
+    "test_command": "cargo test --locked --offline --manifest-path rust-protocol/Cargo.toml --features postgres-repository",
+    "build_command": "cargo build --locked --release --manifest-path rust-protocol/Cargo.toml --features postgres-repository --bin mas --bin mas-gateway --bin mas-shared",
+    "scope": "Fresh isolated target directory after restoring the toolchain; native tree unchanged through build. Transcript evidence; no separate raw-log digest retained."
+  },
+  "consolidated_scripts_check": {
+    "source_commit": "c623904660e17c5ce4c552246d67e4fa90bc8290",
+    "status": "PASS",
+    "tests": 44,
+    "seconds": 0.287,
+    "evidence_sha256": "ac4c830f48e63008aea0a8084efaf69f5c623815f57ac2f0cf0eda96e67c4d4c"
+  },
+  "consolidated_reference_load": {
+    "receipt": "host-reference-load.json",
+    "source_commit": "c623904660e17c5ce4c552246d67e4fa90bc8290",
+    "status": "PASS",
+    "completed": 112,
+    "minimum_active_load_seconds": 60,
+    "observed_active_load_seconds": 60.09917009199853,
+    "scope": "Fixed equal-leaf regression profile with concurrent host-suite activity, not saturated capacity or production SLO acceptance."
+  },
+  "consolidated_cursor_supplement": {
+    "source_commit": "eb4fdb823e67f282db17a1d958bbe6fdba18eab5",
+    "tests": 44,
+    "passed": 44,
+    "seconds": 3.856,
+    "status": "PASS",
+    "evidence_sha256": "9e32e7dc66f1fe0dfdc0da1626235891bf536fee35d979ebf15be02925bdf71e",
+    "scope": "Local Cursor job per-operation ownership, exact response correlation, lost create/cancel replies, immutable terminal snapshots and truthful cancellation recovery. Runs after the frozen c623904 host suite."
+  }
 }

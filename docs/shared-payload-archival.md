@@ -15,6 +15,14 @@ archive transaction replaces applicable command receipt payloads with
 digest, original receipt digest, targets and archival time. It does not delete
 command identities or release receipt capacity.
 
+Administrative retention receipts remain available after archival. In particular,
+`operator.archive` and `artifact.bind`, `artifact.release` and `artifact.retire`
+retain their operator, reason, request identity and compact lifecycle/reference
+metadata. Their host receipts record the operation but have no payload-compaction
+targets: they contain the evidence authorising the retention change, not copies
+of actor inputs or results. This preserves the audit trail that explains why a
+historical result became unavailable.
+
 Before archival, an exact command retry returns its original receipt. After
 archival, that retry returns the fixed `command_result_archived` error and cannot
 apply the command again. Reusing the same command ID with different parameters

@@ -129,7 +129,7 @@ impl PostgresRepository {
         {
             return Err("stale protocol authority".into());
         }
-        if !matches!(row.get::<_, i64>(3), 1..=11) || row.get::<_, String>(4) != layout(&mut tx)? {
+        if !matches!(row.get::<_, i64>(3), 1..=12) || row.get::<_, String>(4) != layout(&mut tx)? {
             return Err("incompatible PostgreSQL protocol schema".into());
         }
         tx.commit().map_err(db_error)?;
@@ -188,7 +188,7 @@ impl PostgresRepository {
         if row.get::<_, String>(0) != self.binding.deployment
             || row.get::<_, String>(1) != self.binding.controller
             || row.get::<_, i64>(2) != self.binding.epoch
-            || !matches!(row.get::<_, i64>(3), 1..=11)
+            || !matches!(row.get::<_, i64>(3), 1..=12)
         {
             return Err("stale protocol authority".into());
         }
@@ -422,7 +422,7 @@ impl ProtocolRepository for PostgresRepository {
     }
     fn receive(&mut self, id: &str, actor: &str, limit: usize) -> Result<Value> {
         self.reconcile(id)?;
-        if !(1..=110).contains(&limit) {
+        if !(1..=120).contains(&limit) {
             return Err("limit must be 1..100".into());
         }
         self.transaction(|tx| {

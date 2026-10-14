@@ -24,7 +24,7 @@ class SharedTaskService:
     """
     def __init__(self, authority, cache_dir, workflows, grants, *, workflow_versions=None,
                  max_pending=1000, max_tasks=10000, max_revisions=32, supervised=True,
-                 scheduler_policy=None, principal_quotas=None):
+                 scheduler_policy=None, principal_quotas=None, gateway_bin=None):
         self.authority = self.operations = authority
         self.state_dir = Path(cache_dir).absolute()
         self.state_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -33,6 +33,7 @@ class SharedTaskService:
         if any(not is_actor_identity(p) for p in grants):
             raise ServiceError('invalid_principal')
         self.supervised = supervised
+        self.gateway_bin = gateway_bin
         self.definitions = SharedDefinitionRegistry(authority)
         self.identities = {name: workflow.identity for name, workflow in self.workflows.items()}
         self.workflow_versions = {}
@@ -288,7 +289,7 @@ class SharedTaskService:
 
     def execute_assignment(self, workflow, execution, *, ancestors=(), cancelled=None):
         """Execute a stable task or composition run through shared admission."""
-        from .supervision import InlineExecutor, LinuxProcessExecutor
+        from .executable_worker import ProfileExecutor
         workflow.verify_implementation()
         run_id = execution['run_id']
         path = self.state_dir / run_id
@@ -297,13 +298,11 @@ class SharedTaskService:
             binding = ExecutionBinding(execution['principal'], execution['workflow'], workflow.identity,
                 execution['task_id'], execution['revision'], path, self.state_dir)
             adapters = dict(workflow.adapter_factory(binding))
-            if set(adapters) != set(workflow.adapters):
-                raise ServiceError('invalid_adapter_factory')
-            workflow.verified_implementation.verify_bindings(tuple(adapters.values()))
+            workflow.verify_adapters(adapters)
         cancelled = cancelled or (lambda: False)
         # Idempotent create with the original run ID also handles death before
         # bootstrap. Its immutable native receipt is never a new effect grant.
-        executor = LinuxProcessExecutor() if self.supervised else InlineExecutor()
+        executor = ProfileExecutor(supervised=self.supervised, gateway_bin=self.gateway_bin)
         with self.authority.runner(workflow.topology, adapters, self.state_dir,
                 principal=execution['principal'], new_run_id=run_id, ancestors=ancestors,
                 workflow_version=workflow.version, max_depth=workflow.max_depth,

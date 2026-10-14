@@ -627,6 +627,12 @@ class WorkspaceAdapter:
         return {"adapter": "mas-workspace-tool/1", "workspace": self.reference.descriptor,
                 "tool": self.tool.descriptor, "outputs": [asdict(item) for item in self.outputs]}
 
+    @property
+    def registration_descriptor(self):
+        """Static capabilities; assigned workspace/input identity belongs to the run."""
+        return {"adapter": "mas-workspace-tool/1", "policy": self.policy.descriptor,
+                "tool": self.tool.descriptor, "outputs": [asdict(item) for item in self.outputs]}
+
     def handle(self, _context, _request):
         raise WorkspaceError("workspace adapter requires WorkspaceExecutor")
 

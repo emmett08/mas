@@ -84,7 +84,9 @@ impl Store {
         if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) { std::fs::create_dir_all(parent).map_err(err)?; }
         let mut db = Connection::open(path).map_err(err)?;
         db.busy_timeout(Duration::from_secs(10)).map_err(err)?;
-        db.execute_batch("PRAGMA foreign_keys=ON; PRAGMA synchronous=FULL;").map_err(err)?;
+        // EXTRA also syncs journal unlink, preserving committed allocations
+        // across OS/power failure in SQLite's default DELETE journal mode.
+        db.execute_batch("PRAGMA foreign_keys=ON; PRAGMA synchronous=EXTRA;").map_err(err)?;
         // Inspect before creating any tables. In particular, the former Python
         // database is not writable by this schema and requires explicit migration.
         // Serialize initialization so concurrent opens cannot see a partial schema.
@@ -606,6 +608,7 @@ mod tests {
     #[test]
     fn admission_reservations_are_durable_bounded_and_policy_frozen() {
         let p=path();let mut s=Store::open(&p).unwrap();let fingerprint="a".repeat(64);
+        assert_eq!(s.db.query_row("PRAGMA synchronous",[],|r|r.get::<_,i64>(0)).unwrap(),3);
         s.register_admission("gateway/global",&fingerprint,2).unwrap();
         assert_eq!(s.reserve_admission("gateway/global").unwrap(),1);drop(s);
         let mut s=Store::open(&p).unwrap();s.register_admission("gateway/global",&fingerprint,2).unwrap();

@@ -4,6 +4,8 @@ import concurrent.futures
 import hashlib
 import os
 from pathlib import Path
+import shutil
+import subprocess
 import tempfile
 import threading
 import time
@@ -15,6 +17,7 @@ from mas_host.contracts import RunnerError
 from mas_host.service_contracts import ServiceError
 from mas_host.shared_artifact_transfer import SharedArtifactScope, SharedArtifactTransferService
 from mas_host.shared_authority import SharedAuthority
+from mas_host.shared_backup import postgres_environment
 from mas_host.s3_artifacts import S3ArtifactContent
 from mas_host.s3_transport import S3ContentConfig
 import test_s3_artifacts as fixtures
@@ -182,9 +185,11 @@ class SharedTransferTests(unittest.TestCase):
             results = list(pool.map(lambda _: self.chunk(transfer, 0, b'exact bytes'), range(4)))
         self.assertEqual(results, [{'next_offset': 11}] * 4)
         self.assertEqual(self.service.status('alice', transfer)['next_offset'], 11)
-        with self.assertRaises(ServiceError):
+        with self.assertRaises(ServiceError) as rejected:
             self.authority.command('transfer.chunk', {'principal': 'bob', 'transfer_id': transfer,
                 'offset': 0, 'hex': b'exact bytes'.hex()})
+        self.assertEqual(rejected.exception.code, 'artifact_unavailable')
+        self.assertEqual(self.service.status('alice', transfer)['next_offset'], 11)
 
     def test_changed_configuration_and_oversize_native_chunks_are_rejected(self):
         transfer = self.begin(b'valid')
@@ -223,6 +228,58 @@ class SharedTransferTests(unittest.TestCase):
             with self.assertRaises(ServiceError):
                 pending.result(timeout=5)
         self.assertNotIn(slow, self.service._snapshots)
+
+    def test_namespace_retirement_waits_for_transfers_and_rejects_new_uploads(self):
+        upload, reference = self.upload(b'retained readable object')
+        self.service.close('alice', upload)
+        download = self.service.download_begin('bob', 'results', reference)['transfer_id']
+        retirement = {'namespace': 'results', 'operator': 'admin',
+            'request_key': 'retire-results', 'reason': 'Close publication after completed work'}
+        with self.assertRaises(ServiceError):
+            self.authority.command('artifact.retire', retirement)
+        self.service.close('bob', download)
+        self.authority.command('artifact.retire', retirement)
+        with self.assertRaises(ServiceError):
+            self.begin(b'cannot publish after retirement')
+        # Retirement closes publication; retained authorised reads remain valid.
+        download = self.service.download_begin('bob', 'results', reference)['transfer_id']
+        chunk = self.service.download_chunk('bob', download, 0)
+        self.assertEqual(base64.b64decode(chunk['data']), b'retained readable object')
+
+    def test_cross_scope_alias_rejected_before_configuration_and_on_legacy_session_read(self):
+        _, reference = self.upload(b'original owner bytes')
+        session = self.service.download_begin('alice', 'results', reference)['transfer_id']
+        self.service.download_chunk('alice', session, 0)  # populate verified cache
+        original = self.service.scopes['results']
+        escaped = SharedArtifactScope(self.authority, self.root / 'different-disposable-cache',
+            'results', {'bob': 'writer'}, self.policy, self.backend)
+        with self.assertRaises(ServiceError) as caught:
+            SharedArtifactTransferService(self.root / 'replacement', {'results': original, 'escaped': escaped})
+        self.assertEqual(caught.exception.code, 'invalid_artifact_configuration')
+        scopes = {name: {'namespace': scope.namespace, 'principals': scope.principals,
+            'binding': scope.binding(), 'max_artifact_bytes': scope.policy.max_artifact_bytes}
+            for name, scope in {'results': original, 'escaped': escaped}.items()}
+        with self.assertRaises(ServiceError) as caught:
+            self.authority.command('transfer.configure', {'scopes': scopes, 'ttl_seconds': 3600,
+                'max_sessions': self.options['max_sessions'], 'max_staging_bytes': self.options['max_staging_bytes']})
+        self.assertEqual(caught.exception.code, 'invalid_artifact_configuration')
+        # Simulate a retained experimental configuration accepted by an older
+        # writer. Current reads must reject it even without reconstruction.
+        sql = f'''UPDATE {self.schema}.transfer_configuration SET descriptor=jsonb_set(
+            descriptor::jsonb,'{{scopes,escaped}}',
+            (descriptor::jsonb->'scopes'->'results') || '{{"principals":{{"bob":"writer"}}}}'::jsonb)::text;'''
+        psql = shutil.which('psql')
+        self.assertIsNotNone(psql, 'CI must install native PostgreSQL client tools')
+        updated = subprocess.run([psql, '--no-psqlrc', '--no-password', '--set=ON_ERROR_STOP=1'],
+            input=sql, text=True, env=postgres_environment(self.authority),
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=30)
+        self.assertEqual(updated.returncode, 0)
+        with self.assertRaises(ServiceError):
+            self.service.download_chunk('alice', session, 0)
+        with self.assertRaises(ServiceError):
+            self.authority.command('transfer.begin', {'principal': 'bob', 'transfer_id': uuid.uuid4().hex,
+                'scope': 'escaped', 'kind': 'download', 'sha256': reference['sha256'], 'size': reference['size'],
+                'media_type': reference['media_type'], 'input_sha256s': [], 'readers': [], 'reference': reference})
 
 
 if __name__ == '__main__':

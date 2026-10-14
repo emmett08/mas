@@ -21,25 +21,40 @@ pub(crate) const ARCHIVE_DDL: &str =
     "ALTER TABLE remote_effects ADD COLUMN archived boolean NOT NULL DEFAULT false;";
 
 pub(crate) fn archive_run(tx: &mut Transaction<'_>, run: &str) -> Result<Value> {
-    let mut saved = Vec::new();
-    for r in tx.query("SELECT key,input,result,state,remote_id,archived FROM remote_effects WHERE run=$1 ORDER BY key",&[&run]).map_err(db_error)? {
-        if r.get::<_,bool>(5) { continue }
+    let mut count = 0_i64;
+    let mut summary = Sha256::new();
+    while let Some(r)=tx.query_opt("SELECT key,input,result,state,remote_id FROM remote_effects WHERE run=$1 AND NOT archived ORDER BY key LIMIT 1",&[&run]).map_err(db_error)? {
         if !terminal(r.get(3)) { return Err("run_not_settled".into()) }
         let key:&str=r.get(0);
         let input=json!({"format":"mas-archived-payload/1","sha256":digest(r.get(1))});
         let output=r.get::<_,Option<&str>>(2).map(|s|json!({"format":"mas-archived-payload/1","sha256":digest(s)}));
         tx.execute("UPDATE remote_effects SET input=$2,result=$3,archived=true WHERE key=$1",&[&key,&input.to_string(),&output.as_ref().map(Value::to_string)]).map_err(db_error)?;
-        for operation in tx.query("SELECT operation_key,output FROM remote_operations WHERE key=$1 AND output IS NOT NULL",&[&key]).map_err(db_error)? {
-            let retained=json!({"format":"mas-archived-payload/1","sha256":digest(operation.get(1))});
-            tx.execute("UPDATE remote_operations SET output=$3 WHERE key=$1 AND operation_key=$2",&[&key,&operation.get::<_,&str>(0),&retained.to_string()]).map_err(db_error)?;
+        let mut after=String::new();
+        loop {
+            let operations=tx.query("SELECT operation_key,output FROM remote_operations WHERE key=$1 AND output IS NOT NULL AND operation_key>$2 ORDER BY operation_key LIMIT 16",&[&key,&after]).map_err(db_error)?;
+            if operations.is_empty() { break }
+            for operation in operations {
+                after=operation.get(0);
+                let retained=json!({"format":"mas-archived-payload/1","sha256":digest(operation.get(1))});
+                tx.execute("UPDATE remote_operations SET output=$3 WHERE key=$1 AND operation_key=$2",&[&key,&after,&retained.to_string()]).map_err(db_error)?;
+            }
         }
-        for event in tx.query("SELECT seq,evidence FROM remote_audit WHERE key=$1",&[&key]).map_err(db_error)? {
-            let retained=json!({"format":"mas-archived-payload/1","sha256":digest(event.get(1))});
-            tx.execute("UPDATE remote_audit SET evidence=$2 WHERE seq=$1",&[&event.get::<_,i64>(0),&retained.to_string()]).map_err(db_error)?;
+        let mut after=0_i64;
+        loop {
+            let events=tx.query("SELECT seq,evidence FROM remote_audit WHERE key=$1 AND seq>$2 ORDER BY seq LIMIT 16",&[&key,&after]).map_err(db_error)?;
+            if events.is_empty() { break }
+            for event in events {
+                after=event.get(0);
+                let retained=json!({"format":"mas-archived-payload/1","sha256":digest(event.get(1))});
+                tx.execute("UPDATE remote_audit SET evidence=$2 WHERE seq=$1",&[&after,&retained.to_string()]).map_err(db_error)?;
+            }
         }
-        saved.push(json!({"key":key,"remote_id":r.get::<_,Option<String>>(4),"input":input,"result":output}));
+        let retained=json!({"key":key,"remote_id":r.get::<_,Option<String>>(4),"input":input,"result":output}).to_string();
+        summary.update((retained.len() as u64).to_be_bytes()); summary.update(retained.as_bytes()); count+=1;
     }
-    Ok(json!(saved))
+    Ok(
+        json!({"remote_tasks":count,"sha256":summary.finalize().iter().map(|b|format!("{b:02x}")).collect::<String>(),"identities_retained":true}),
+    )
 }
 
 fn text<'a>(v: &'a Value, k: &str) -> Result<&'a str> {

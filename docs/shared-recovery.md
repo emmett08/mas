@@ -3,7 +3,7 @@
 The shared profile uses explicit schema migrations: protocol 1, leaf authority
 2, controller leases 3, service repositories 4, period accounting 5, recovery
 guards 6, Cursor Cloud jobs 7, command capacity 8, lifecycle retention 9, native
-payload archival 10 and artifact transfer sessions 11. Existing versioned state is upgraded; it is never reinitialised or
+payload archival 10, artifact transfer sessions 11 and typed artifact retention 12. Existing versioned state is upgraded; it is never reinitialised or
 silently replaced. The optional private command transport accepts up to 1 MiB
 of strict integer JSON. Native protocol messages retain their 65,536-byte bound.
 

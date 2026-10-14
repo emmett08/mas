@@ -1172,9 +1172,10 @@ pub(crate) fn archive(tx: &mut Transaction<'_>, p: &Value) -> Result<Value> {
         return Err("workflow_not_archivable".into())
     }
     let owned:bool=tx.query_one("SELECT EXISTS(SELECT 1 FROM composition_instances i CROSS JOIN authority a WHERE i.id=$1 AND i.owner IS NOT NULL AND i.owner_epoch=a.epoch)",&[&id]).map_err(db_error)?.get(0);
-    let retained:bool=tx.query_one("SELECT EXISTS(SELECT 1 FROM artifact_links WHERE state<>'released')",&[]).map_err(db_error)?.get(0);
-    if owned || retained {return Err("workflow_not_archivable".into())}
-    for row in tx.query("SELECT run_id,state,latest FROM composition_attempts WHERE instance=$1",&[&id]).map_err(db_error)? {
+    let attempts=tx.query("SELECT run_id,state,latest FROM composition_attempts WHERE instance=$1",&[&id]).map_err(db_error)?;
+    let runs:Vec<String>=attempts.iter().map(|r|r.get(0)).collect();
+    if owned || crate::shared_artifacts::retained_for(tx,"workflow",id,&runs)? {return Err("workflow_not_archivable".into())}
+    for row in attempts {
         let state=row.get::<_,&str>(1);
         let superseded_pause=!row.get::<_,bool>(2)&&matches!(state,"input_required"|"auth_required");
         if (!terminal(state)&&!superseded_pause) || !crate::shared_control::settled_run(tx,row.get(0))? {return Err("workflow_not_archivable".into())}
@@ -1183,9 +1184,11 @@ pub(crate) fn archive(tx: &mut Transaction<'_>, p: &Value) -> Result<Value> {
     let digest=|value:&Value|->String{Sha256::digest(value.to_string().as_bytes()).iter().map(|b|format!("{b:02x}")).collect()};
     let input_digest=digest(&saved["input"]);
     let output_digest=if saved["output"].is_null(){None}else{Some(digest(&saved["output"]))};
+    let error_digest=if saved["error"].is_null(){None}else{Some(digest(&saved["error"]))};
+    let archived_error=error_digest.as_ref().map(|digest|json!({"archived":true,"sha256":digest}).to_string());
     // Compact payloads, never allocation counters, request digests, clocks,
     // amendment audit or the original run and definition identities.
-    tx.execute("UPDATE composition_instances SET input='{}',output=NULL,binding='{}',archived_at=$2,input_digest=$3,output_digest=$4,event_floor=$5,owner=NULL,owner_epoch=NULL WHERE id=$1",&[&id,&current,&input_digest,&output_digest,&floor]).map_err(db_error)?;
+    tx.execute("UPDATE composition_instances SET input='{}',output=NULL,error=$6,binding='{}',archived_at=$2,input_digest=$3,output_digest=$4,event_floor=$5,owner=NULL,owner_epoch=NULL WHERE id=$1",&[&id,&current,&input_digest,&output_digest,&floor,&archived_error]).map_err(db_error)?;
     for row in tx.query("SELECT path,revision,input,output,error FROM composition_attempts WHERE instance=$1",&[&id]).map_err(db_error)? {
         let input_hash=digest(&decoded(row.get(2))?);
         let output=optional(row.get(3))?;let error=optional(row.get(4))?;
@@ -1202,7 +1205,7 @@ pub(crate) fn archive(tx: &mut Transaction<'_>, p: &Value) -> Result<Value> {
     for table in ["composition_nodes","composition_progress","composition_joins","composition_events"] {
         tx.execute(&format!("DELETE FROM {table} WHERE instance=$1"),&[&id]).map_err(db_error)?;
     }
-    let audit=json!({"operator":text(p,"operator")?,"reason":text(p,"reason")?,"request_key":text(p,"request_key")?,"input_digest":input_digest,"output_digest":output_digest,"event_floor":floor,"allocation_changed":false});
+    let audit=json!({"operator":text(p,"operator")?,"reason":text(p,"reason")?,"request_key":text(p,"request_key")?,"input_digest":input_digest,"output_digest":output_digest,"error_digest":error_digest,"event_floor":floor,"allocation_changed":false});
     event(tx,id,None,"archived",saved["state"].as_str().unwrap(),Some(&audit))?;
     instance(tx,id)
 }

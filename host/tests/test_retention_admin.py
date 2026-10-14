@@ -46,6 +46,17 @@ class RetentionAdministrationTests(unittest.TestCase):
             self.operator.dispatch('admin', 'archive', {**self.payload, 'reason': 'Different request'})
         self.assertEqual(conflict.exception.code, 'retention_request_conflict')
 
+    def test_archived_error_retains_digest_without_arbitrary_body(self):
+        import hashlib
+        from mas_host.task_store import canonical
+        error = {'code': 'application_failed', 'detail': 'sensitive classifier output'}
+        with self.service.store.transaction() as db:
+            db.execute('UPDATE tasks SET state=?,error=? WHERE id=?', ('failed', canonical(error), self.first['task_id']))
+        self.operator.dispatch('admin', 'archive', self.payload)
+        saved = self.service.inspect('alice', self.first['task_id'])
+        self.assertEqual(saved['error'], {'archived': True, 'sha256': hashlib.sha256(canonical(error).encode()).hexdigest()})
+        self.assertEqual(saved['state'], 'failed')
+
     def test_pending_webhook_body_blocks_archive_until_acknowledgement(self):
         from mas_host.event_delivery import EventDelivery, WebhookTarget
         token = self.root / 'event-token'

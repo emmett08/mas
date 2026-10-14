@@ -13,7 +13,7 @@ import unittest
 
 from mas_host.admin import main
 from mas_host.journal import Journal, JournalError, inspect_run
-from mas_host.operations import DeploymentLedger, DeploymentPolicy, OperationsError
+from mas_host.operations import DeploymentLedger, DeploymentPolicy, OperationsError, _db
 from mas_host.schema import JOURNAL, LEDGER, LEDGER_V2, Schema, SchemaError, connect
 
 
@@ -84,6 +84,8 @@ class SchemaTests(unittest.TestCase):
             self.assertEqual(before[field], after[field], field)
         data = snapshot(ledger.path)
         self.assertEqual(data[2:], (LEDGER.application_id, LEDGER.version))
+        with _db(ledger.path) as db:
+            self.assertEqual(db.execute('PRAGMA synchronous').fetchone()[0], 3)
         self.assertFalse(ledger.admit_call("r", "c", 100))
 
     def test_legacy_journal_migrates_preserving_checkpoints(self):
@@ -235,6 +237,7 @@ os._exit(0)
         self.assertEqual(caught.exception.sqlite_errorname, 'SQLITE_READONLY_ROLLBACK')
         self.assertEqual(before, (path.read_bytes(), journal.read_bytes()))
         with closing(connect(path, schema)) as db:
+            self.assertEqual(db.execute('PRAGMA synchronous').fetchone()[0], 3)
             self.assertEqual(db.execute('SELECT value FROM durable').fetchone()[0], b'committed' * 16000)
             self.assertEqual(db.execute('PRAGMA integrity_check').fetchone()[0], 'ok')
         self.assertFalse(journal.exists())
@@ -250,6 +253,28 @@ os._exit(0)
             self.assertEqual(db.execute('PRAGMA user_version').fetchone()[0], 77)
             self.assertEqual(db.execute('SELECT value FROM durable').fetchone()[0], b'committed' * 16000)
             self.assertEqual(db.execute('SELECT name FROM sqlite_master').fetchall(), [('durable',)])
+
+    def test_ledger_owner_recovers_interrupted_policy_write_without_losing_allocations(self):
+        state = self.legacy_ledger()
+        owner = DeploymentLedger(state)
+        before = owner.health()
+        child = """import os, sqlite3, sys
+db = sqlite3.connect(sys.argv[1])
+db.execute('PRAGMA cache_size=2')
+db.execute('BEGIN IMMEDIATE')
+db.execute("UPDATE metadata SET value=? WHERE key='policy'", ('uncommitted' * 16000,))
+os._exit(0)
+"""
+        subprocess.run([sys.executable, '-c', child, str(owner.path)], check=True, timeout=20)
+        journal = Path(str(owner.path) + '-journal')
+        raw = (owner.path.read_bytes(), journal.read_bytes())
+        with self.assertRaises(sqlite3.OperationalError):
+            DeploymentLedger(state, readonly=True)
+        self.assertEqual(raw, (owner.path.read_bytes(), journal.read_bytes()))
+        recovered = DeploymentLedger(state).health()
+        for field in ('deployment_id', 'policy', 'usage', 'admission_state', 'retained_runs'):
+            self.assertEqual(before[field], recovered[field], field)
+        self.assertFalse(journal.exists())
 
 
 if __name__ == "__main__":

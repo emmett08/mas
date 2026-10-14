@@ -106,7 +106,7 @@ class SharedWorkflowStore:
 class SharedCompositionService:
     """Trusted composition worker plus protocol-neutral authenticated lifecycle."""
     def __init__(self, authority, cache_dir, plans, workflows, grants, *,
-                 workflow_versions=None, supervised=True, max_instances=1000):
+                 workflow_versions=None, supervised=True, max_instances=1000, gateway_bin=None):
         self.authority = self.operations = authority
         self.state_dir = Path(cache_dir).absolute()
         self.plans = {name: value if isinstance(value, WorkflowPlan) else WorkflowPlan(value)
@@ -119,6 +119,7 @@ class SharedCompositionService:
         for name, versions in (workflow_versions or {}).items():
             self.workflow_versions.update({(name, value.identity): value for value in versions})
         self.supervised = supervised
+        self.gateway_bin = gateway_bin
         from .shared_scheduler import configure_policy
         self.capacity = configure_policy(authority, self.grants, preserve_existing=True)
         self.authority.command('composition.configure', {'max_instances': max_instances},
@@ -356,9 +357,9 @@ class SharedCompositionService:
             binding = ExecutionBinding(item['principal'], attempt['workflow'], workflow.identity,
                 item['id'], attempt['revision'], self.state_dir / attempt['run_id'], self.state_dir)
             adapters = dict(workflow.adapter_factory(binding))
-            workflow.verified_implementation.verify_bindings(tuple(adapters.values()))
+            workflow.verify_adapters(adapters)
         topology = {**workflow.topology, 'wall_seconds': attempt['wall_seconds']}
-        from .supervision import InlineExecutor, LinuxProcessExecutor
+        from .executable_worker import ProfileExecutor
         def stopped():
             saved = store.query('instance', item['id'])
             return (lifetime_fd is not None and bool(select.select([lifetime_fd], [], [], 0)[0])
@@ -381,7 +382,7 @@ class SharedCompositionService:
                     from .task_service import _OwnedContext
                     context = _OwnedContext(context, descriptors)
                 return self.executor.execute(adapter, context, request, deadline=deadline, tick=poll)
-        executor = CancellableExecutor(LinuxProcessExecutor() if self.supervised else InlineExecutor())
+        executor = CancellableExecutor(ProfileExecutor(supervised=self.supervised, gateway_bin=self.gateway_bin))
         scopes = [scope for scope in store.query('scopes', item['id'])
                   if attempt['path'] == scope['path'] or attempt['path'].startswith(scope['path'] + '/')]
         deadline = min([item['deadline'], *[scope['deadline'] for scope in scopes]])

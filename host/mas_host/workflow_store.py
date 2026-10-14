@@ -308,7 +308,7 @@ class WorkflowStore:
         digest = lambda value: hashlib.sha256(encode(value).encode()).hexdigest()
         db.execute('INSERT INTO archives VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
                    (item['id'], item['principal'], item['request_key'], item['plan'], item['identity'],
-                    digest(item['input']), item['state'], encode(item['error']) if item['error'] else None,
+                    digest(item['input']), item['state'], encode({'archived': True, 'sha256': digest(item['error'])}) if item['error'] is not None else None,
                     item['created'], item['deadline'], item['cancel_requested'], int(time.time()),
                     encode(graph['usage']), digest(item['output']) if item['output'] is not None else None, floor,
                     encode(item.get('metadata', {})), encode(item['clock']) if item.get('clock') is not None else None,

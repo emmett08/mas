@@ -166,7 +166,9 @@ def connect(path: Path, schema: Schema, *, readonly: bool = False,
         db = sqlite3.connect(path, timeout=10)
         try:
             db.execute("PRAGMA foreign_keys=ON")
-            db.execute("PRAGMA synchronous=FULL")
+            # DELETE-journal commits also need the journal directory synced:
+            # FULL can lose the last committed transaction after an OS reset.
+            db.execute("PRAGMA synchronous=EXTRA")
             db.execute("BEGIN IMMEDIATE")
             if not fresh:
                 migrate = validate(db, schema)

@@ -43,9 +43,11 @@ class SharedWorkerController(WorkerController):
             raise ServiceError('invalid_worker_grants')
         self.grants = json.loads(integer_json(worker_grants, 1_048_576))
         # The native repository independently validates and freezes this policy.
-        self._command('configure', {'max_outstanding': self.max_outstanding,
+        configuration = {'max_outstanding': self.max_outstanding,
             'per_principal': self.per_principal, 'lease_ms': self.lease_ms,
-            'worker_grants': self.grants, 'artifact_store_id': self.artifact_store_id})
+            'worker_grants': self.grants, 'artifact_store_id': self.artifact_store_id}
+        identity = hashlib.sha256(canonical_json(configuration).encode()).hexdigest()
+        self._command('configure', configuration, command_id='worker-config-' + identity)
 
     def _command(self, operation, payload, *, command_id=None):
         try:
@@ -115,7 +117,8 @@ class SharedWorkerController(WorkerController):
         context = self._query('receipt_context', {'principal': principal, 'receipt': receipt})
         if context.get('archived'):
             return context['acknowledgement']
-        self._verify_artifacts(principal, context['binding'], receipt, retain=not context['prior'])
+        self._verify_artifacts(principal, context['binding'], receipt, retain=not context['prior'],
+                               retention_target=context.get('retention_target'))
         return self._command('receipt', {'principal': principal, 'receipt': receipt,
             'artifacts_verified': receipt['output_profile'] == ARTIFACT_OUTPUT_PROFILE})
 

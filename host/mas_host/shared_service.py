@@ -139,7 +139,7 @@ class SharedTaskFacade:
 def create_shared_service(authority, cache_dir, workflows, grants, *, plans=None,
                           workflow_versions=None, allocation_limits=None,
                           max_pending=1000, max_tasks=10000, max_revisions=32, max_instances=1000,
-                          supervised=True, scheduler_policy=None, principal_quotas=None):
+                          supervised=True, scheduler_policy=None, principal_quotas=None, gateway_bin=None):
     """Install additive repositories and renew this explicitly supplied epoch.
 
     This factory never initialises or takes over a deployment. Provision and
@@ -175,10 +175,11 @@ def create_shared_service(authority, cache_dir, workflows, grants, *, plans=None
         leaves = SharedTaskService(authority, cache_dir, workflows, leaf_grants,
             workflow_versions=workflow_versions, max_pending=max_pending,
             max_tasks=max_tasks, max_revisions=max_revisions, supervised=supervised,
-            scheduler_policy=scheduler_policy, principal_quotas=principal_quotas)
+            scheduler_policy=scheduler_policy, principal_quotas=principal_quotas, gateway_bin=gateway_bin)
         from .shared_composition_service import SharedCompositionService
         compositions = SharedCompositionService(authority, cache_dir, plans, workflows,
-            plan_grants, workflow_versions=workflow_versions, supervised=supervised, max_instances=max_instances)
+            plan_grants, workflow_versions=workflow_versions, supervised=supervised, max_instances=max_instances,
+            gateway_bin=gateway_bin)
         return SharedTaskFacade(leaves, compositions)
     except BaseException:
         authority.close()

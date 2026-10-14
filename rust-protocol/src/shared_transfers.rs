@@ -65,8 +65,23 @@ fn config(tx: &mut Transaction<'_>) -> Result<Value> {
 }
 fn scope<'a>(configuration: &'a Value, principal: &str, name: &str) -> Result<&'a Value> {
     let value = &configuration["scopes"][name];
-    if value["principals"][principal].as_str().is_none() {
+    let Some(actor) = value["principals"][principal].as_str() else {
         return Err("artifact_unavailable".into());
+    };
+    // Check retained configurations too. A previously accepted ambiguous map
+    // must never keep exposing a different authenticated owner's actor grants.
+    for candidate in configuration["scopes"]
+        .as_object()
+        .ok_or_else(err)?
+        .values()
+    {
+        if candidate["namespace"] == value["namespace"] {
+            for (owner, mapped) in candidate["principals"].as_object().ok_or_else(err)? {
+                if mapped.as_str() == Some(actor) && owner != principal {
+                    return Err("artifact_unavailable".into());
+                }
+            }
+        }
     }
     Ok(value)
 }
@@ -182,6 +197,7 @@ pub(crate) fn apply(tx: &mut Transaction<'_>, op: &str, p: &Value) -> Result<Val
             if scopes.is_empty() || scopes.len() > 64 {
                 return Err(err());
             }
+            let mut owners = std::collections::BTreeMap::new();
             for (name, s) in scopes {
                 fields(
                     s,
@@ -206,6 +222,13 @@ pub(crate) fn apply(tx: &mut Transaction<'_>, op: &str, p: &Value) -> Result<Val
                         || !actors.insert(actor)
                     {
                         return Err(err());
+                    }
+                    let namespace = text(s, "namespace")?;
+                    if owners
+                        .insert((namespace, actor), principal)
+                        .is_some_and(|previous| previous != principal)
+                    {
+                        return Err("invalid_artifact_configuration".into());
                     }
                 }
             }
@@ -258,6 +281,17 @@ pub(crate) fn apply(tx: &mut Transaction<'_>, op: &str, p: &Value) -> Result<Val
             let size = number(p, "size", 1_i64 << 40)?;
             if kind == "upload" && size > 65536 * CHUNK {
                 return Err("artifact_size_limit".into());
+            }
+            if kind == "upload"
+                && tx
+                    .query_opt(
+                        "SELECT closed FROM artifact_namespaces WHERE namespace=$1",
+                        &[&text(s, "namespace")?],
+                    )
+                    .map_err(db_error)?
+                    .is_some_and(|row| row.get::<_, bool>(0))
+            {
+                return Err("artifact_unavailable".into());
             }
             if kind == "upload" && !p["reference"].is_null()
                 || kind == "download" && !p["readers"].as_array().ok_or_else(err)?.is_empty()

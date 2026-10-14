@@ -51,6 +51,8 @@ validation. Listing responses include bounded pages and continuation offsets.
 | `charge_record`, `charge_reconcile` | Deployment administrator | Record attributed invoice observations and compare them with an admitted invocation's reservation. |
 | `storage`, `archive_preview` | Deployment administrator | Inspect storage/admission and preview task, workflow or run retention eligibility. |
 | `archive` | Deployment administrator and explicit owner grant | Archive one eligible task or composition under an immutable request key and reason. |
+| `artifact_namespaces`, `artifact_retire` | Deployment administrator | Inspect namespace closure or permanently retire a drained namespace without deleting bytes. |
+| `artifact_links`, `artifact_bind`, `artifact_release` | Deployment administrator and explicit owner grant | Inspect consumer edges, audit a legacy task binding or release an exact link. |
 | `command_capacity`, `command_capacity_amend` | Deployment administrator | Inspect shared command receipt capacity or apply an audited grow-only amendment. |
 | `definition`, `definition_retire` | Deployment administrator | Inspect exact definition availability or retire unused historical identities. |
 | `peer_status` | Deployment administrator or peer manager | Inspect bounded registered peer versions. |
@@ -151,7 +153,7 @@ liveness; current native epoch/lease and admission state remain authoritative.
 
 ### Authorised history archival
 
-`archive` takes `kind` (`tasks` or `workflows`), `principal`, `task_id`,
+`archive` takes `kind` (`tasks`, `workflows`, or shared standalone `runs`), `principal`, `task_id`,
 `request_key`, `reason`, and `older_than_seconds`. The server injects the
 operator identity. Preview is advisory; application rechecks terminal state,
 all execution attempts, effect uncertainty, retention links and unacknowledged
@@ -174,3 +176,19 @@ Historical allocation is unchanged. Archival frees detailed-history capacity;
 it does not refund lifetime or period consumption. Legacy installations with
 unmapped native command receipts reject payload archival until their provenance
 can be established, instead of guessing which active work owns those receipts.
+
+For shared standalone run archival, `task_id` carries the original run ID.
+The authority verifies its principal, age, uncertain effects, artefact links
+and that no unarchived task or composition still owns the run. Native Cursor
+Cloud job runners use this path after confirmed terminal observations. A
+pending historical poll acknowledgement does not prevent archival after an
+independent correlated terminal job observation; uncertain live jobs do.
+
+Artefact administration is available through the same operator HTTP, portable
+CLI and console routes. `artifact_links` takes `principal`, `namespace`,
+`artifact_principal` and pagination. `artifact_bind` additionally takes the
+selected `task_id`, `link_id`, `request_key` and `reason`; the service checks the
+task grant and constructs its target. `artifact_release` uses the same fields
+without `task_id`. `artifact_retire` takes `namespace`, `request_key` and `reason`.
+All mutations inject the authenticated operator; actor mappings and immutable
+link identities are rechecked in the native transaction.

@@ -619,8 +619,12 @@ fn prior_receipt(tx:&mut Transaction, principal:&str, r:&Value)->Result<Option<V
 pub(crate) fn archive_worker_run(tx:&mut Transaction,run:&str)->Result<Value> {
     if tx.query_opt("SELECT 1 FROM worker_jobs WHERE run_id=$1 AND state IN ('pending','claimed','dispatched','unknown')",&[&run]).map_err(db_error)?.is_some() {return err("run_not_archivable");}
     let current=now(tx)?;let mut jobs=0;let mut receipts=0;
-    for row in tx.query("SELECT call_id,binding,output,evidence FROM worker_jobs WHERE run_id=$1 AND archived_at IS NULL ORDER BY call_id",&[&run]).map_err(db_error)? {
-        let call:&str=row.get(0);
+    loop {
+      let pending=tx.query("SELECT call_id FROM worker_jobs WHERE run_id=$1 AND archived_at IS NULL ORDER BY call_id LIMIT 100",&[&run]).map_err(db_error)?;
+      if pending.is_empty(){break}
+      for pending_row in pending {
+        let call:&str=pending_row.get(0);
+        let row=tx.query_one("SELECT call_id,binding,output,evidence FROM worker_jobs WHERE call_id=$1",&[&call]).map_err(db_error)?;
         let binding_digest=hash(&decode(row.get(1))?);
         let output_digest=row.get::<_,Option<&str>>(2).map(decode).transpose()?.as_ref().map(hash);
         let evidence_digest=row.get::<_,Option<&str>>(3).map(decode).transpose()?.as_ref().map(hash);
@@ -630,6 +634,7 @@ pub(crate) fn archive_worker_run(tx:&mut Transaction,run:&str)->Result<Value> {
             tx.execute("UPDATE worker_receipts SET payload=$2,payload_digest=$3,archived_at=$4 WHERE id=$1",&[&receipt_id,&tombstone.to_string(),&digest,&current]).map_err(db_error)?;receipts+=1;
         }
         tx.execute("UPDATE worker_jobs SET binding='{}',output=NULL,evidence=NULL,archived_at=$2,binding_digest=$3,output_digest=$4,evidence_digest=$5 WHERE call_id=$1",&[&call,&current,&binding_digest,&output_digest,&evidence_digest]).map_err(db_error)?;jobs+=1;
+    }
     }
     Ok(json!({"worker_jobs":jobs,"worker_receipts":receipts,"identity_deleted":false}))
 }
@@ -890,7 +895,7 @@ pub(crate) fn query(tx: &mut Transaction, operation: &str, p: &Value) -> Result<
             if row.get::<_,Option<i64>>(11).is_some() {return err("worker_job_archived");}
             let exists=tx.query_opt("SELECT dispatched FROM worker_claims WHERE fence=$1 AND call_id=$2 AND worker=$3 AND boot=$4",&[&num(r,"fence",1,i64::MAX)?,&c,&principal,&id(r,"boot")?]).map_err(db_error)?.ok_or("receipt_without_dispatch")?;
             if !exists.get::<_, bool>(0) && r["status"] != "unknown" { return err("receipt_without_dispatch"); }
-            Ok(json!({"binding":decode(row.get::<_,&str>(3))?,"prior":false}))
+            Ok(json!({"binding":decode(row.get::<_,&str>(3))?,"prior":false,"retention_target":{"kind":"run","id":row.get::<_,&str>(1),"principal":row.get::<_,&str>(2)}}))
         }
         _ => err("unknown shared control query"),
     }
@@ -1322,14 +1327,7 @@ fn archive_preview(tx: &mut Transaction, p: &Value) -> Result<Value> {
     let age = num(p, "older_than_seconds", 0, i64::MAX / 1000)?;
     let (offset, limit) = pagination(p)?;
     let cutoff = now(tx)?.saturating_sub(age * 1000);
-    let retained_links: i64 = tx
-        .query_one(
-            "SELECT count(*) FROM artifact_links WHERE state<>'released'",
-            &[],
-        )
-        .map_err(db_error)?
-        .get(0);
-    let (sql,count_sql,key)=match kind{"tasks"=>("SELECT id,state,updated,owner IS NOT NULL AND owner_epoch=(SELECT epoch FROM authority WHERE singleton),archived_at IS NOT NULL FROM service_tasks ORDER BY created,id OFFSET $1 LIMIT $2","SELECT count(*) FROM service_tasks","task_id"),"workflows"=>("SELECT id,state,updated,owner IS NOT NULL AND owner_epoch=(SELECT epoch FROM authority WHERE singleton),archived_at IS NOT NULL FROM composition_instances ORDER BY created,id OFFSET $1 LIMIT $2","SELECT count(*) FROM composition_instances","instance_id"),"runs"=>("SELECT h.run,'completed',((r.deadline-(r.config::jsonb->>'wall_seconds')::bigint)*1000)::bigint,h.owner IS NOT NULL AND h.owner_epoch=(SELECT epoch FROM authority WHERE singleton),false FROM host_runs h JOIN runs r ON r.id=h.run ORDER BY h.run OFFSET $1 LIMIT $2","SELECT count(*) FROM host_runs","run_id"),_=>return err("invalid_archive_kind")};
+    let (sql,count_sql,key)=match kind{"tasks"=>("SELECT id,state,updated,owner IS NOT NULL AND owner_epoch=(SELECT epoch FROM authority WHERE singleton),archived_at IS NOT NULL FROM service_tasks ORDER BY created,id OFFSET $1 LIMIT $2","SELECT count(*) FROM service_tasks","task_id"),"workflows"=>("SELECT id,state,updated,owner IS NOT NULL AND owner_epoch=(SELECT epoch FROM authority WHERE singleton),archived_at IS NOT NULL FROM composition_instances ORDER BY created,id OFFSET $1 LIMIT $2","SELECT count(*) FROM composition_instances","instance_id"),"runs"=>("SELECT h.run,'completed',((r.deadline-(r.config::jsonb->>'wall_seconds')::bigint)*1000)::bigint,h.owner IS NOT NULL AND h.owner_epoch=(SELECT epoch FROM authority WHERE singleton),EXISTS(SELECT 1 FROM host_run_archives a WHERE a.run=h.run) FROM host_runs h JOIN runs r ON r.id=h.run ORDER BY h.run OFFSET $1 LIMIT $2","SELECT count(*) FROM host_runs","run_id"),_=>return err("invalid_archive_kind")};
     let total: i64 = tx.query_one(count_sql, &[]).map_err(db_error)?.get(0);
     let mut items = Vec::new();
     for row in tx.query(sql, &[&offset, &limit]).map_err(db_error)? {
@@ -1342,8 +1340,6 @@ fn archive_preview(tx: &mut Transaction, p: &Value) -> Result<Value> {
             Some("retention age not reached")
         } else if row.get::<_, bool>(3) {
             Some("current controller still owns work")
-        } else if retained_links > 0 {
-            Some("shared artefact retention links remain")
         } else {
             None
         };
@@ -1364,6 +1360,13 @@ fn archive_preview(tx: &mut Transaction, p: &Value) -> Result<Value> {
                     .map_err(db_error)?,
                 _ => Vec::new(),
             };
+            let runs:Vec<String>=if kind=="runs" {vec![entity.to_owned()]} else {references.iter().map(|r|r.get(0)).collect()};
+            let target_kind=match kind {"tasks"=>"task","workflows"=>"workflow",_=>"run"};
+            if crate::shared_artifacts::retained_for(tx,target_kind,entity,&runs)? {reason=Some("relevant artefact retention links remain");}
+            if kind=="runs" {
+                let parent:bool=tx.query_one("SELECT EXISTS(SELECT 1 FROM service_executions e JOIN service_tasks t ON t.id=e.task WHERE e.run=$1 AND t.archived_at IS NULL) OR EXISTS(SELECT 1 FROM composition_attempts a JOIN composition_instances i ON i.id=a.instance WHERE a.run_id=$1 AND i.archived_at IS NULL)",&[&entity]).map_err(db_error)?.get(0);
+                if parent {reason=Some("parent lifecycle detail remains retained");}
+            }
             if kind == "runs" && !settled_run(tx, entity)? {
                 reason = Some("unsettled invocation or remote effect retained");
             }
@@ -1422,7 +1425,7 @@ fn graph_page(tx: &mut Transaction, p: &Value) -> Result<Value> {
 fn archive_task(tx: &mut Transaction, p: &Value) -> Result<Value> {
     let task = id(p, "task_id")?;
     let principal = id(p, "principal")?;
-    let row = tx.query_opt("SELECT state,input,result,updated,archived_at,input_digest,output_digest,owner IS NOT NULL AND owner_epoch=(SELECT epoch FROM authority WHERE singleton),revision FROM service_tasks WHERE id=$1 AND principal=$2", &[&task,&principal]).map_err(db_error)?.ok_or("not_found")?;
+    let row = tx.query_opt("SELECT state,input,result,updated,archived_at,input_digest,output_digest,owner IS NOT NULL AND owner_epoch=(SELECT epoch FROM authority WHERE singleton),revision,error FROM service_tasks WHERE id=$1 AND principal=$2", &[&task,&principal]).map_err(db_error)?.ok_or("not_found")?;
     if let Some(archived) = row.get::<_,Option<i64>>(4) {
         return Ok(json!({"state":row.get::<_,&str>(0),"archived_at":archived,"input_digest":row.get::<_,Option<&str>>(5),"output_digest":row.get::<_,Option<&str>>(6)}));
     }
@@ -1431,26 +1434,41 @@ fn archive_task(tx: &mut Transaction, p: &Value) -> Result<Value> {
     if !matches!(row.get::<_,&str>(0),"completed"|"failed"|"cancelled") || row.get::<_,i64>(3)>current.saturating_sub(age*1000) || row.get::<_,bool>(7) {
         return err("task_not_archivable");
     }
-    let retained:bool=tx.query_one("SELECT EXISTS(SELECT 1 FROM artifact_links WHERE state<>'released')",&[]).map_err(db_error)?.get(0);
-    if retained { return err("task_not_archivable"); }
-    for execution in tx.query("SELECT run,state,revision FROM service_executions WHERE task=$1",&[&task]).map_err(db_error)? {
+    let executions=tx.query("SELECT run,state,revision FROM service_executions WHERE task=$1",&[&task]).map_err(db_error)?;
+    let runs:Vec<String>=executions.iter().map(|r|r.get(0)).collect();
+    if crate::shared_artifacts::retained_for(tx,"task",task,&runs)? {return err("task_not_archivable");}
+    for execution in executions {
         if !(matches!(execution.get::<_,&str>(1),"completed"|"failed"|"cancelled") || execution.get::<_,i64>(2)<row.get::<_,i64>(8) && matches!(execution.get::<_,&str>(1),"input_required"|"auth_required")) || !settled_run(tx,execution.get(0))? { return err("task_not_archivable"); }
     }
     let input_digest = hash(&decode(row.get(1))?);
     let output_digest = row.get::<_,Option<&str>>(2).map(decode).transpose()?.as_ref().map(hash);
+    let error_digest=row.get::<_,Option<&str>>(9).map(decode).transpose()?.as_ref().map(hash);
+    let archived_error=error_digest.as_ref().map(|digest|json!({"archived":true,"sha256":digest}).to_string());
     let floor:i64=tx.query_one("SELECT coalesce(max(seq),0) FROM service_task_events WHERE task=$1",&[&task]).map_err(db_error)?.get(0);
-    tx.execute("UPDATE service_tasks SET input='{}',result=NULL,archived_at=$2,input_digest=$3,output_digest=$4,event_floor=$5,owner=NULL,owner_epoch=NULL WHERE id=$1",&[&task,&current,&input_digest,&output_digest,&floor]).map_err(db_error)?;
+    tx.execute("UPDATE service_tasks SET input='{}',result=NULL,error=$6,archived_at=$2,input_digest=$3,output_digest=$4,event_floor=$5,owner=NULL,owner_epoch=NULL WHERE id=$1",&[&task,&current,&input_digest,&output_digest,&floor,&archived_error]).map_err(db_error)?;
     tx.execute("UPDATE service_executions SET input='{}' WHERE task=$1",&[&task]).map_err(db_error)?;
     tx.execute("DELETE FROM service_task_events WHERE task=$1",&[&task]).map_err(db_error)?;
-    let evidence=json!({"operator":p["operator"],"reason":p["reason"],"request_key":p["request_key"],"input_digest":input_digest,"output_digest":output_digest,"event_floor":floor,"allocation_changed":false});
+    let evidence=json!({"operator":p["operator"],"reason":p["reason"],"request_key":p["request_key"],"input_digest":input_digest,"output_digest":output_digest,"error_digest":error_digest,"event_floor":floor,"allocation_changed":false});
     tx.execute("INSERT INTO service_task_events(task,event,data,created) VALUES($1,'archived',$2,$3)",&[&task,&evidence.to_string(),&current]).map_err(db_error)?;
     Ok(json!({"state":row.get::<_,&str>(0),"archived_at":current,"input_digest":input_digest,"output_digest":output_digest}))
+}
+
+fn archive_standalone_run(tx:&mut Transaction,p:&Value)->Result<Value> {
+    let run=id(p,"task_id")?;let owner=id(p,"principal")?;
+    let row=tx.query_opt("SELECT h.principal,((r.deadline-(r.config::jsonb->>'wall_seconds')::bigint)*1000)::bigint FROM host_runs h JOIN runs r ON r.id=h.run WHERE h.run=$1",&[&run]).map_err(db_error)?.ok_or("not_found")?;
+    if row.get::<_,&str>(0)!=owner {return err("not_found")}
+    let age=num(p,"older_than_seconds",0,i64::MAX/1000)?;
+    if row.get::<_,i64>(1)>now(tx)?.saturating_sub(age*1000) {return err("run_not_archivable")}
+    let referenced:bool=tx.query_one("SELECT EXISTS(SELECT 1 FROM service_executions e JOIN service_tasks t ON t.id=e.task WHERE e.run=$1 AND t.archived_at IS NULL) OR EXISTS(SELECT 1 FROM composition_attempts a JOIN composition_instances i ON i.id=a.instance WHERE a.run_id=$1 AND i.archived_at IS NULL)",&[&run]).map_err(db_error)?.get(0);
+    if referenced || crate::shared_artifacts::retained_for(tx,"run",run,&[run.to_owned()])? {return err("run_not_archivable")}
+    let archived=crate::shared_archive::archive_run(tx,run)?;
+    Ok(json!({"state":"archived","archived_at":archived["archived_at"],"input_digest":Value::Null,"output_digest":Value::Null}))
 }
 
 fn archive(tx: &mut Transaction, p: &Value) -> Result<Value> {
     fields(p,&["kind","task_id","principal","operator","reason","request_key","older_than_seconds"],&[])?;
     let kind = field(p,"kind")?;
-    if !matches!(kind,"tasks"|"workflows") { return err("invalid_archive_kind"); }
+    if !matches!(kind,"tasks"|"workflows"|"runs") { return err("invalid_archive_kind"); }
     id(p,"task_id")?;id(p,"principal")?;id(p,"operator")?;
     let key=id(p,"request_key")?;
     let reason=field(p,"reason")?;
@@ -1464,8 +1482,8 @@ fn archive(tx: &mut Transaction, p: &Value) -> Result<Value> {
     let task=id(p,"task_id")?;
     if pending_delivery(tx,task)? {return err("pending_delivery_retained");}
     let run_sql=if kind=="tasks" {"SELECT DISTINCT run FROM service_executions WHERE task=$1"} else {"SELECT DISTINCT run_id FROM composition_attempts WHERE instance=$1"};
-    let runs:Vec<String>=tx.query(run_sql,&[&task]).map_err(db_error)?.into_iter().map(|r|r.get(0)).collect();
-    let saved=if kind=="tasks" {archive_task(tx,p)?} else {
+    let runs:Vec<String>=if kind=="runs" {vec![task.to_owned()]} else {tx.query(run_sql,&[&task]).map_err(db_error)?.into_iter().map(|r|r.get(0)).collect()};
+    let saved=if kind=="runs" {archive_standalone_run(tx,p)?} else if kind=="tasks" {archive_task(tx,p)?} else {
         let mut mapped=p.clone();mapped["instance"]=p["task_id"].clone();
         crate::shared_composition::archive(tx,&mapped)?
     };

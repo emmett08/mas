@@ -11,6 +11,86 @@ CREATE TABLE artifact_objects(namespace text NOT NULL REFERENCES artifact_namesp
 CREATE TABLE artifact_manifests(namespace text NOT NULL,identity text NOT NULL,digest text NOT NULL,reference text NOT NULL,readers text NOT NULL,revoked text NOT NULL DEFAULT '[]',PRIMARY KEY(namespace,identity),FOREIGN KEY(namespace,digest) REFERENCES artifact_objects(namespace,digest));
 CREATE TABLE artifact_links(namespace text NOT NULL REFERENCES artifact_namespaces(namespace),identity text NOT NULL,owner text NOT NULL,state text NOT NULL CHECK(state IN ('live','unresolved','released')),refs text NOT NULL,PRIMARY KEY(namespace,identity));
 ";
+pub(crate) const RETENTION_DDL:&str="
+ALTER TABLE artifact_links ADD COLUMN retention_target text;
+CREATE TABLE artifact_retention_commands(request_key text PRIMARY KEY,digest text NOT NULL,receipt text NOT NULL);
+";
+fn hash(v:&Value)->String { Sha256::digest(v.to_string().as_bytes()).iter().map(|b|format!("{b:02x}")).collect() }
+fn target_owner(tx:&mut Transaction<'_>,target:&Value,allow_archived:bool)->Result<String> {
+    fields(target,&["kind","id","principal"])?;
+    let id=identity(target,"id")?;let owner=identity(target,"principal")?;
+    let row=match text(target,"kind")? {
+        "run"=>tx.query_opt("SELECT principal,EXISTS(SELECT 1 FROM host_run_archives WHERE run=$1) FROM host_runs WHERE run=$1",&[&id]),
+        "task"=>tx.query_opt("SELECT principal,archived_at IS NOT NULL FROM service_tasks WHERE id=$1",&[&id]),
+        "workflow"=>tx.query_opt("SELECT principal,archived_at IS NOT NULL FROM composition_instances WHERE id=$1",&[&id]),
+        _=>return Err("artifact_target_invalid".into())
+    }.map_err(db_error)?.ok_or("artifact_target_denied")?;
+    if row.get::<_,&str>(0)!=owner || !allow_archived && row.get::<_,bool>(1) { return Err("artifact_target_denied".into()); }
+    Ok(owner.to_owned())
+}
+fn actor_owner(tx:&mut Transaction<'_>,namespace:&str,actor:&str,owner:&str)->Result<()> {
+    if legacy_owner(tx,namespace,actor,owner)? {Ok(())} else {Err("artifact_target_denied".into())}
+}
+fn legacy_owner(tx:&mut Transaction<'_>,namespace:&str,actor:&str,owner:&str)->Result<bool> {
+    let mut owners=std::collections::BTreeSet::new();
+    if let Some(row)=tx.query_opt("SELECT descriptor FROM transfer_configuration WHERE singleton",&[]).map_err(db_error)? {
+        let config=value(row.get(0))?;
+        if let Some(scopes)=config["scopes"].as_object() {for scope in scopes.values() {
+            if scope["namespace"]==namespace {if let Some(principals)=scope["principals"].as_object() {for (principal,mapped) in principals {if mapped==actor {owners.insert(principal.clone());}}}}
+        }}
+    }
+    if owners.is_empty() {owners.insert(actor.to_owned());}
+    Ok(owners.len()==1 && owners.contains(owner))
+}
+fn validate_target(tx:&mut Transaction<'_>,namespace:&str,actor:&str,target:&Value,allow_archived:bool)->Result<()> {
+    if target.is_null() {return Ok(())}
+    let owner=target_owner(tx,target,allow_archived)?;actor_owner(tx,namespace,actor,&owner)
+}
+/// Legacy unbound links remain conservative; typed edges block only their parent
+/// or a run in that parent's retained execution graph. No opaque ID inference.
+pub(crate) fn retained_for(tx:&mut Transaction<'_>,kind:&str,id:&str,runs:&[String])->Result<bool> {
+    Ok(tx.query_opt("SELECT 1 FROM artifact_links WHERE state<>'released' AND (retention_target IS NULL OR (retention_target::jsonb->>'kind'=$1 AND retention_target::jsonb->>'id'=$2) OR (retention_target::jsonb->>'kind'='run' AND retention_target::jsonb->>'id'=ANY($3))) LIMIT 1",&[&kind,&id,&runs]).map_err(db_error)?.is_some())
+}
+fn retention_command(tx:&mut Transaction<'_>,operation:&str,p:&Value)->Result<Value> {
+    let name=namespace(p)?;
+    let required=match operation {
+        "artifact.retire"=>vec!["namespace","operator","request_key","reason"],
+        "artifact.release"=>vec!["namespace","operator","request_key","reason","principal","artifact_principal","link_id"],
+        "artifact.bind"=>vec!["namespace","operator","request_key","reason","principal","artifact_principal","link_id","retention_target"],
+        _=>return Err(err())
+    };fields(p,&required)?;
+    let operator=identity(p,"operator")?;let key=identity(p,"request_key")?;let reason=text(p,"reason")?;
+    if reason.trim().is_empty() || reason.len()>2048 || reason.chars().any(char::is_control) {return Err(err())}
+    let digest=hash(&json!({"operation":operation,"request":p}));
+    if let Some(row)=tx.query_opt("SELECT digest,receipt FROM artifact_retention_commands WHERE request_key=$1",&[&key]).map_err(db_error)? {
+        if row.get::<_,&str>(0)!=digest {return Err("artifact_retention_conflict".into())}return value(row.get(1));
+    }
+    ns(tx,name)?;
+    if operation=="artifact.retire" {
+        if tx.query_opt("SELECT 1 FROM artifact_links WHERE namespace=$1 AND state<>'released' LIMIT 1",&[&name]).map_err(db_error)?.is_some() {return Err("artifact_namespace_retained".into())}
+        if tx.query_opt("SELECT 1 FROM artifact_transfers t CROSS JOIN transfer_configuration c WHERE c.singleton AND c.descriptor::jsonb->'scopes'->t.scope->>'namespace'=$1 AND t.state='open' AND t.expires_at>floor(extract(epoch FROM clock_timestamp())) LIMIT 1",&[&name]).map_err(db_error)?.is_some() {return Err("artifact_namespace_retained".into())}
+        tx.execute("UPDATE artifact_namespaces SET closed=true WHERE namespace=$1",&[&name]).map_err(db_error)?;
+    } else {
+        let actor=identity(p,"artifact_principal")?;let owner=identity(p,"principal")?;let link=identity(p,"link_id")?;
+        actor_owner(tx,name,actor,owner)?;
+        let row=tx.query_opt("SELECT owner,retention_target FROM artifact_links WHERE namespace=$1 AND identity=$2",&[&name,&link]).map_err(db_error)?.ok_or("artifact_target_denied")?;
+        if row.get::<_,&str>(0)!=actor {return Err("artifact_target_denied".into())}
+        if row.get::<_,Option<&str>>(1).is_none() && !legacy_owner(tx,name,actor,owner)? {return Err("artifact_target_denied".into())}
+        if operation=="artifact.bind" {
+            let target=&p["retention_target"];if target["principal"]!=owner {return Err("artifact_target_denied".into())}
+            validate_target(tx,name,actor,target,false)?;
+            if target.is_null() {return Err("artifact_target_invalid".into())}
+            if let Some(old)=row.get::<_,Option<&str>>(1) {if value(old)?!=*target {return Err("artifact_retention_conflict".into())}}
+            tx.execute("UPDATE artifact_links SET retention_target=$3 WHERE namespace=$1 AND identity=$2",&[&name,&link,&target.to_string()]).map_err(db_error)?;
+        } else {
+            if let Some(target)=row.get::<_,Option<&str>>(1) {if value(target)?["principal"]!=owner {return Err("artifact_target_denied".into())}}
+            tx.execute("UPDATE artifact_links SET state='released' WHERE namespace=$1 AND identity=$2",&[&name,&link]).map_err(db_error)?;
+        }
+    }
+    let timestamp:i64=tx.query_one("SELECT floor(extract(epoch FROM clock_timestamp())*1000)::bigint",&[]).map_err(db_error)?.get(0);
+    let receipt=json!({"format":"mas-artifact-retention/1","operation":operation,"command":p,"operator":operator,"created":timestamp,"content_deleted":false,"allocation_changed":false});
+    tx.execute("INSERT INTO artifact_retention_commands VALUES($1,$2,$3)",&[&key,&digest,&receipt.to_string()]).map_err(db_error)?;Ok(receipt)
+}
 fn err() -> String {
     "invalid shared artefact request".into()
 }
@@ -183,6 +263,7 @@ fn authorised(
     )
 }
 pub(crate) fn apply(tx: &mut Transaction<'_>, operation: &str, p: &Value) -> Result<Value> {
+    if matches!(operation,"artifact.retire"|"artifact.release"|"artifact.bind") {return retention_command(tx,operation,p);}
     let name = namespace(p)?;
     match operation {
         "artifact.configure" => {
@@ -302,8 +383,10 @@ pub(crate) fn apply(tx: &mut Transaction<'_>, operation: &str, p: &Value) -> Res
             )
         }
         "artifact.link" => {
+            let mut lifecycle=p.get("retention_target").cloned().unwrap_or(Value::Null);
+            let mut base=p.clone();base.as_object_mut().ok_or_else(err)?.remove("retention_target");
             fields(
-                p,
+                &base,
                 &[
                     "namespace",
                     "principal",
@@ -331,11 +414,12 @@ pub(crate) fn apply(tx: &mut Transaction<'_>, operation: &str, p: &Value) -> Res
             }
             ids.sort();
             ids.dedup();
-            let current=tx.query_opt("SELECT owner,state,refs FROM artifact_links WHERE namespace=$1 AND identity=$2",&[&name,&link]).map_err(db_error)?;
+            let current=tx.query_opt("SELECT owner,state,refs,retention_target FROM artifact_links WHERE namespace=$1 AND identity=$2",&[&name,&link]).map_err(db_error)?;
             let existed = current.is_some();
             let mut target = state.to_owned();
             if let Some(row) = current {
-                if row.get::<_, String>(0) != principal || value(row.get(2))? != json!(ids) {
+                if state=="released" && lifecycle.is_null() { lifecycle=row.get::<_,Option<&str>>(3).map(value).transpose()?.unwrap_or(Value::Null); }
+                if row.get::<_, String>(0) != principal || value(row.get(2))? != json!(ids) || row.get::<_,Option<&str>>(3).map(value).transpose()?.unwrap_or(Value::Null)!=lifecycle {
                     return Err("artefact retention identity conflict".into());
                 }
                 if row.get::<_, String>(1) == "released" && p["preserve_released"] == true {
@@ -353,6 +437,7 @@ pub(crate) fn apply(tx: &mut Transaction<'_>, operation: &str, p: &Value) -> Res
                     return Err("artefact retention quota exhausted".into());
                 }
             }
+            validate_target(tx,name,principal,&lifecycle,target=="released")?;
             if target != "released" || !existed {
                 if ns(tx, name)?["closed"] == true {
                     return Err("artefact namespace is retired".into());
@@ -368,8 +453,8 @@ pub(crate) fn apply(tx: &mut Transaction<'_>, operation: &str, p: &Value) -> Res
                     }
                 }
             }
-            tx.execute("INSERT INTO artifact_links(namespace,identity,owner,state,refs) VALUES($1,$2,$3,$4,$5) ON CONFLICT(namespace,identity) DO UPDATE SET state=EXCLUDED.state",&[&name,&link,&principal,&target,&json!(ids).to_string()]).map_err(db_error)?;
-            Ok(json!({"link_id":link,"owner":principal,"state":target,"artifacts":ids}))
+            tx.execute("INSERT INTO artifact_links(namespace,identity,owner,state,refs,retention_target) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT(namespace,identity) DO UPDATE SET state=EXCLUDED.state",&[&name,&link,&principal,&target,&json!(ids).to_string(),&if lifecycle.is_null(){None}else{Some(lifecycle.to_string())}]).map_err(db_error)?;
+            Ok(json!({"link_id":link,"owner":principal,"state":target,"artifacts":ids,"retention_target":lifecycle}))
         }
         "artifact.revoke" => {
             fields(p, &["namespace", "principal", "reference", "reader"])?;
@@ -401,6 +486,31 @@ pub(crate) fn apply(tx: &mut Transaction<'_>, operation: &str, p: &Value) -> Res
     }
 }
 pub(crate) fn query(tx: &mut Transaction<'_>, operation: &str, p: &Value) -> Result<Value> {
+    if operation=="artifact.namespaces" {
+        fields(p,&["offset","limit"])?;
+        let offset=p["offset"].as_i64().filter(|n|*n>=0).ok_or_else(err)?;
+        let limit=p["limit"].as_i64().filter(|n|(1..=20).contains(n)).ok_or_else(err)?;
+        let mut items=vec![];
+        for row in tx.query("SELECT namespace,closed FROM artifact_namespaces ORDER BY namespace OFFSET $1 LIMIT $2",&[&offset,&limit]).map_err(db_error)? {
+            let name:&str=row.get(0);let counts=tx.query_one("SELECT count(*),count(*) FILTER(WHERE state<>'released'),count(*) FILTER(WHERE retention_target IS NULL AND state<>'released') FROM artifact_links WHERE namespace=$1",&[&name]).map_err(db_error)?;
+            items.push(json!({"namespace":name,"closed":row.get::<_,bool>(1),"links":counts.get::<_,i64>(0),"retained_links":counts.get::<_,i64>(1),"unmapped_retained_links":counts.get::<_,i64>(2)}));
+        }
+        let total:i64=tx.query_one("SELECT count(*) FROM artifact_namespaces",&[]).map_err(db_error)?.get(0);let next=offset+items.len() as i64;
+        return Ok(json!({"items":items,"total":total,"next_offset":if next<total{Some(next)}else{None}}));
+    }
+    if operation=="artifact.links" {
+        fields(p,&["namespace","principal","artifact_principal","offset","limit"])?;
+        let name=namespace(p)?;let owner=identity(p,"principal")?;let actor=identity(p,"artifact_principal")?;actor_owner(tx,name,actor,owner)?;
+        let legacy=legacy_owner(tx,name,actor,owner)?;
+        let offset=p["offset"].as_i64().filter(|n|*n>=0).ok_or_else(err)?;let limit=p["limit"].as_i64().filter(|n|(1..=20).contains(n)).ok_or_else(err)?;
+        let mut items=vec![];let mut bytes=1024;
+        for row in tx.query("SELECT identity,state,refs,retention_target FROM artifact_links WHERE namespace=$1 AND owner=$2 AND (retention_target::jsonb->>'principal'=$5 OR retention_target IS NULL AND $6) ORDER BY identity OFFSET $3 LIMIT $4",&[&name,&actor,&offset,&limit,&owner,&legacy]).map_err(db_error)? {
+            let item=json!({"link_id":row.get::<_,&str>(0),"state":row.get::<_,&str>(1),"artifacts":value(row.get(2))?,"retention_target":row.get::<_,Option<&str>>(3).map(value).transpose()?});
+            let length=item.to_string().len();if !items.is_empty() && bytes+length>24000 {break}bytes+=length;items.push(item);
+        }
+        let total:i64=tx.query_one("SELECT count(*) FROM artifact_links WHERE namespace=$1 AND owner=$2 AND (retention_target::jsonb->>'principal'=$3 OR retention_target IS NULL AND $4)",&[&name,&actor,&owner,&legacy]).map_err(db_error)?.get(0);let next=offset+items.len() as i64;
+        return Ok(json!({"items":items,"total":total,"next_offset":if next<total{Some(next)}else{None}}));
+    }
     let name = namespace(p)?;
     match operation {
         "artifact.namespace" => {
@@ -448,10 +558,10 @@ pub(crate) fn query(tx: &mut Transaction<'_>, operation: &str, p: &Value) -> Res
                 }
             }
             let mut links = serde_json::Map::new();
-            for row in tx.query("SELECT identity,state,refs FROM artifact_links WHERE namespace=$1 AND owner=$2 ORDER BY identity",&[&name,&principal]).map_err(db_error)?{links.insert(row.get::<_,String>(0),json!({"owner":principal,"state":row.get::<_,String>(1),"artifacts":value(row.get(2))?}));}
+            for row in tx.query("SELECT identity,state,refs,retention_target FROM artifact_links WHERE namespace=$1 AND owner=$2 ORDER BY identity",&[&name,&principal]).map_err(db_error)?{links.insert(row.get::<_,String>(0),json!({"owner":principal,"state":row.get::<_,String>(1),"artifacts":value(row.get(2))?,"retention_target":row.get::<_,Option<&str>>(3).map(value).transpose()?}));}
             let totals=tx.query_one("SELECT count(*),COALESCE(sum(size),0)::bigint,count(*) FILTER (WHERE NOT verified) FROM artifact_objects WHERE namespace=$1",&[&name]).map_err(db_error)?;
             Ok(
-                json!({"namespace":name,"policy":ns(tx,name)?["policy"],"artifacts":refs,"links":links,"content":{"objects":totals.get::<_,i64>(0),"reserved_bytes":totals.get::<_,i64>(1),"unverified":totals.get::<_,i64>(2)}}),
+                json!({"namespace":name,"closed":ns(tx,name)?["closed"],"policy":ns(tx,name)?["policy"],"artifacts":refs,"links":links,"content":{"objects":totals.get::<_,i64>(0),"reserved_bytes":totals.get::<_,i64>(1),"unverified":totals.get::<_,i64>(2)}}),
             )
         }
         _ => Err("unsupported shared artefact query".into()),

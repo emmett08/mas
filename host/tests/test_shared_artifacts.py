@@ -44,6 +44,115 @@ class SharedArtifactTests(unittest.TestCase):
         return SharedArtifactStore(authority or self.authority, namespace='results', principal=principal,
             content_backend=self.backend, policy=policy or self.policy)
 
+    def lifecycle_service(self, owners=('writer',)):
+        from mas_host.shared_task_service import SharedTaskService
+        from mas_host.shared_service import SharedTaskFacade
+        from test_definition_versions import registered
+        return SharedTaskFacade(SharedTaskService(self.authority, self.root / 'lifecycle-cache',
+            {'leaf': registered()}, {owner: {'leaf'} for owner in owners}, supervised=False))
+
+    def test_typed_consumers_scope_archival_and_legacy_binding_is_audited(self):
+        from mas_host.operator_service import OperatorService
+        from mas_host.service_contracts import ServiceError
+        service = self.lifecycle_service()
+        tasks = [service.submit('writer', 'request-' + str(n), 'leaf', {})['task_id'] for n in range(3)]
+        for task in tasks:
+            service.cancel('writer', task)
+        operator = OperatorService(service, operators={'admin': {'owners': ['writer'], 'deployment_admin': True}})
+        reference = self.writer.put_bytes(b'reusable context')
+        first = self.writer.with_retention_target(kind='task', id=tasks[0], principal='writer')
+        second = self.writer.with_retention_target(kind='task', id=tasks[1], principal='writer')
+        a = first.link('context-shared', [reference])
+        b = second.link('context-shared', [reference])
+        self.assertNotEqual(a['link_id'], b['link_id'])
+        self.assertEqual(first.link('context-shared', [reference]), a)
+        def archive(index):
+            return operator.dispatch('admin', 'archive', {'kind': 'tasks', 'principal': 'writer',
+                'task_id': tasks[index], 'request_key': 'archive-' + str(index), 'reason': 'Compact completed history',
+                'older_than_seconds': 0})
+        with self.assertRaises(ServiceError):
+            archive(0)
+        first.link('context-shared', [reference], state='released')
+        self.assertTrue(archive(0)['archived'])  # unrelated second consumer remains retained
+        with self.assertRaises((ArtifactError, ServiceError)):
+            first.link('new-edge-after-archive', [reference])
+        self.writer.link('legacy-edge', [reference])
+        with self.assertRaises(ServiceError):
+            archive(2)  # an unmapped legacy consumer remains conservative
+        payload = {'principal': 'writer', 'task_id': tasks[1], 'namespace': 'results',
+            'artifact_principal': 'writer', 'link_id': 'legacy-edge', 'request_key': 'bind-old',
+            'reason': 'Verified complete owning lifecycle'}
+        bound = operator.dispatch('admin', 'artifact_bind', payload)
+        self.assertEqual(operator.dispatch('admin', 'artifact_bind', payload), bound)
+        self.assertTrue(archive(2)['archived'])
+        retirement = {'namespace': 'results', 'request_key': 'retire-results', 'reason': 'Close completed namespace'}
+        with self.assertRaises(ServiceError):
+            operator.dispatch('admin', 'artifact_retire', retirement)
+        before = self.writer.status()['content']
+        for link in (b['link_id'], 'legacy-edge'):
+            operator.dispatch('admin', 'artifact_release', {'principal': 'writer', 'namespace': 'results',
+                'artifact_principal': 'writer', 'link_id': link, 'request_key': 'release-' + link,
+                'reason': 'Consumer completed and verified'})
+        operator.dispatch('admin', 'artifact_retire', retirement)
+        self.assertTrue(self.writer.status()['closed'])
+        self.assertEqual(self.writer.status()['content'], before)
+        self.assertEqual(self.writer.read_bytes(reference), b'reusable context')
+        with self.assertRaises((ArtifactError, ServiceError)):
+            self.writer.put_bytes(b'closed publication')
+
+    def test_lifecycle_actor_mapping_requires_frozen_service_owner_grant(self):
+        from mas_host.shared_artifact_transfer import SharedArtifactScope, SharedArtifactTransferService
+        from mas_host.service_contracts import ServiceError
+        service = self.lifecycle_service(('alice', 'other'))
+        alice = service.submit('alice', 'request-a', 'leaf', {})['task_id']
+        other = service.submit('other', 'request-b', 'leaf', {})['task_id']
+        scope = SharedArtifactScope(self.authority, self.root / 'objects', 'results', {'alice': 'writer'}, self.policy, self.backend)
+        SharedArtifactTransferService(self.root / 'transfer-cache', {'results': scope})
+        reference = self.writer.put_bytes(b'owner mapping')
+        bound = self.writer.with_retention_target(kind='task', id=alice, principal='alice')
+        self.assertEqual(bound.link('mapped-owner', [reference])['retention_target']['principal'], 'alice')
+        denied = self.writer.with_retention_target(kind='task', id=other, principal='other')
+        with self.assertRaises((ArtifactError, ServiceError)):
+            denied.link('wrong-owner', [reference])
+
+    def test_legacy_shared_actor_configuration_fails_closed_for_all_lifecycle_access(self):
+        import json
+        import shutil
+        import subprocess
+        from mas_host.shared_backup import postgres_environment
+        from mas_host.shared_artifact_transfer import SharedArtifactScope, SharedArtifactTransferService
+        from mas_host.operator_service import OperatorService
+        from mas_host.service_contracts import ServiceError
+        service = self.lifecycle_service(('alice', 'bob'))
+        alice = service.submit('alice', 'request-a', 'leaf', {})['task_id']
+        scope = SharedArtifactScope(self.authority, self.root / 'objects', 'results',
+            {'alice': 'writer'}, self.policy, self.backend)
+        SharedArtifactTransferService(self.root / 'transfer-cache', {'results': scope})
+        reference = self.writer.put_bytes(b'legacy shared actor')
+        a = self.writer.with_retention_target(kind='task', id=alice, principal='alice').link('context', [reference])
+        self.writer.link('unmapped-owner', [reference])
+        # Simulate a pre-fix retained configuration: distinct scopes aliased two
+        # public owners to the same backing namespace/actor. New configuration
+        # rejects this; no normal command is used to manufacture the old state.
+        old_scope = {'namespace': 'results', 'principals': {'bob': 'writer'},
+            'binding': '2' * 64, 'max_artifact_bytes': 1024}
+        source = "SET search_path TO " + self.schema + ",pg_catalog; UPDATE transfer_configuration SET descriptor=jsonb_set(descriptor::jsonb,'{scopes,bob-scope}','" + json.dumps(old_scope).replace("'", "''") + "'::jsonb)::text;"
+        result = subprocess.run([shutil.which('psql'), '--no-psqlrc', '--no-password', '--set=ON_ERROR_STOP=1'],
+            input=source, text=True, env=postgres_environment(self.authority), stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL, timeout=30)
+        self.assertEqual(result.returncode, 0)
+        operator = OperatorService(service, operators={'admin': {'owners': ['alice'], 'deployment_admin': True}})
+        owner = {'principal': 'alice', 'namespace': 'results', 'artifact_principal': 'writer'}
+        with self.assertRaises(ServiceError):
+            operator.dispatch('admin', 'artifact_links', owner)
+        for link in (a['link_id'], 'unmapped-owner'):
+            with self.assertRaises(ServiceError):
+                operator.dispatch('admin', 'artifact_release', {**owner, 'link_id': link,
+                    'request_key': 'release-' + link, 'reason': 'Insufficient owner evidence'})
+        with self.assertRaises(ServiceError):
+            operator.dispatch('admin', 'artifact_bind', {**owner, 'link_id': 'unmapped-owner',
+                'task_id': alice, 'request_key': 'bind-ambiguous', 'reason': 'Cannot prove original owner'})
+
     def test_replacement_cache_grants_hashes_revocation_and_retention(self):
         ref = self.writer.put_bytes(b'precise bytes', readers=('reader',))
         reader = self.store('reader')

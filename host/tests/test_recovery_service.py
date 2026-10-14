@@ -1,5 +1,6 @@
 """Operator evidence, cancellation observations and task recovery stay distinct."""
 from pathlib import Path
+from dataclasses import replace
 import tempfile
 import unittest
 
@@ -9,6 +10,7 @@ from mas_host.recovery import RecoveryService, ReconciliationQuery
 from mas_host.service_contracts import ServiceError
 from mas_host.task_service import DurableTaskService, Workflow
 import test_runner as runner_tests
+import test_cursor_jobs as cloud_tests
 
 
 class RecoveryServiceTests(unittest.TestCase):
@@ -90,6 +92,75 @@ class RecoveryServiceTests(unittest.TestCase):
         with self.assertRaises(ServiceError):
             self.service.recover("alice", self.task)
         self.assertEqual(self.calls, ["sent"])
+
+    def _completed_submission_with_cloud_job(self):
+        from mas_host.cursor_cloud import run_snapshot
+        from mas_host.durable_jobs import DurableJobService, JobStore
+        store = JobStore(self.root)
+        prepared = store.prepare("cloud-job", replace(cloud_tests.SPEC, reservation_microusd=37))
+        client = cloud_tests.FakeCloud()
+        client.agent_id = prepared["agent_id"]
+        cloud = DurableJobService(store, client)
+        with store.open() as db:
+            with db:
+                db.execute("UPDATE jobs SET host_run_dir=?,call_id=? WHERE job_id=?",
+                           (str(self.directory), self.call, "cloud-job"))
+            row = store.row(db, "cloud-job")
+            cloud._snapshot(db, row, run_snapshot(client._run(), client.agent_id, client.run_id),
+                            "submitted", {"run_id": client.run_id})
+        self.recovery.resolve("operator", "alice", self.task, self.call,
+            request_key="submission-receipt", decision="completed", evidence=self.evidence,
+            output={"cursor_agent_id": client.agent_id, "cursor_run_id": client.run_id,
+                    "submission_only": True})
+        return cloud, client
+
+    def test_lost_cloud_cancel_reply_remains_in_recovery_after_submission_completed(self):
+        cloud, client = self._completed_submission_with_cloud_job()
+        client.error = cloud_tests.CloudError("lost cancellation reply")
+        with self.assertRaises(cloud_tests.CloudError):
+            cloud.cancel("cloud-job")
+        calls = list(client.calls)
+        result = self.recovery.inbox("operator", "alice", self.task)
+        self.assertEqual(result["entries"], [])
+        self.assertEqual(result["cancellation"]["effect_reconciliation"], "required")
+        self.assertEqual(result["cancellation"]["remote_cancellation"], "not_established")
+        remote = result["remote_observations"][0]
+        self.assertTrue(remote["uncertain"])
+        self.assertTrue(remote["cancel_requested"])
+        self.assertEqual(remote["remote_id"], client.run_id)
+        self.assertEqual(client.calls, calls)
+
+    def test_cloud_cancellation_requires_exact_terminal_evidence(self):
+        cloud, client = self._completed_submission_with_cloud_job()
+        cloud.cancel("cloud-job")
+        result = self.recovery.inbox("operator", "alice", self.task)
+        self.assertEqual(result["cancellation"]["remote_cancellation"], "not_established")
+        self.assertEqual(result["cancellation"]["effect_reconciliation"], "required")
+        client.status = "CANCELLED"
+        client.wrong_run = True
+        with self.assertRaises(cloud_tests.CloudError):
+            cloud.poll("cloud-job")
+        self.assertEqual(self.recovery.inbox("operator", "alice", self.task), result)
+        client.wrong_run = False
+        cloud.poll("cloud-job")
+        result = self.recovery.inbox("operator", "alice", self.task)
+        self.assertEqual(result["cancellation"]["remote_cancellation"], "acknowledged")
+        self.assertEqual(result["cancellation"]["effect_reconciliation"], "not_required")
+        remote = result["remote_observations"][0]
+        self.assertEqual((remote["agent_id"], remote["remote_id"]), (client.agent_id, client.run_id))
+        self.assertEqual(remote["remote_status"], "CANCELLED")
+        self.assertFalse(remote["uncertain"])
+        self.assertNotIn("Untrusted result text", str(result))
+
+    def test_cloud_completion_racing_cancel_does_not_claim_cancellation(self):
+        cloud, client = self._completed_submission_with_cloud_job()
+        cloud.cancel("cloud-job")
+        client.status = "FINISHED"
+        cloud.poll("cloud-job")
+        result = self.recovery.inbox("operator", "alice", self.task)
+        self.assertEqual(result["cancellation"]["remote_cancellation"], "not_established")
+        self.assertEqual(result["cancellation"]["effect_reconciliation"], "not_required")
+        self.assertEqual(result["remote_observations"][0]["remote_status"], "FINISHED")
 
     def test_live_run_cannot_be_resolved(self):
         with RunLock(self.directory):

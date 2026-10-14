@@ -13,6 +13,7 @@ from mas_host.durable_jobs import CursorCloudJobAdapter
 from mas_host.jobs_cli import submit_job
 from mas_host.shared_authority import SharedAuthority
 from mas_host.shared_jobs import SharedJobStore
+from mas_host.service_contracts import ServiceError
 import test_cursor_jobs as fixtures
 
 
@@ -195,6 +196,39 @@ class SharedCloudJobsTests(unittest.TestCase):
         self.assertEqual(first['submission'], again['submission'])
         self.assertEqual(self.authority.query('scope', {'scope': 'deployment'})['calls'], 1)
         self.assertFalse(list(self.root.rglob('*.sqlite')))
+
+    def test_terminal_standalone_job_archive_keeps_identities_and_allocations(self):
+        runner, _result = self.submit()
+        saved = self.store.status('job-1')
+        runner.close()
+        request = {'kind': 'runs', 'task_id': saved['host_run_dir'], 'principal': 'alice',
+            'operator': 'admin', 'reason': 'Retain terminal identities and compact payloads',
+            'request_key': 'archive-cloud-run', 'older_than_seconds': 0}
+        with self.assertRaises(ServiceError):
+            self.authority.command('operator.archive', request)
+        # A lost read-only poll remains historical evidence. Once the exact
+        # remote job is terminal it cannot block payload reclamation forever.
+        self.client.error = CloudError('lost read-only observation')
+        with self.assertRaises(CloudError):
+            self.service.poll('job-1')
+        self.client.error = None
+        self.client.status = 'FINISHED'
+        self.service.poll('job-1')
+        usage = self.authority.query('scope', {'scope': 'deployment'})
+        archived = self.authority.command('operator.archive', request)['receipt']
+        self.assertTrue(archived['archived'])
+        self.assertEqual(self.authority.query('scope', {'scope': 'deployment'}), usage)
+        self.assertEqual(self.authority.command('operator.archive', request)['receipt'], archived)
+        with self.assertRaises(CloudError):
+            self.store.prepare('job-1', fixtures.SPEC)
+        report = self.authority.query('recovery_snapshot', {
+            'run': saved['host_run_dir'], 'principal': 'alice'})
+        observed = next(item for item in report['remote_observations'] if item['kind'] == 'cursor_job')
+        self.assertEqual(observed['agent_id'], saved['agent_id'])
+        self.assertEqual(observed['remote_id'], saved['run_id'])
+        self.assertEqual(observed['remote_status'], 'FINISHED')
+        self.assertFalse(observed['uncertain'])
+        self.assertEqual(observed['pending_operations'][0]['action'], 'poll')
 
     def test_principal_spec_and_unadmitted_submission_cannot_reuse_job(self):
         saved = self.store.prepare('job-1', fixtures.SPEC)

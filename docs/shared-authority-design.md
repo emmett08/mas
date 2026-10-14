@@ -31,6 +31,7 @@ material come from trusted deployment factories, not service requests.
 | Worker registrations, boot generations, placement, claims, dispatch fences and authoritative/late receipts | `shared_control.rs` and `SharedWorkerController` own placement and receipt authority. Replayed dispatch receipts return no permission to execute again. |
 | Worker-local spool | The worker durably transports already-issued assignment/effect evidence until acknowledgement. It cannot grant fresh admission. Missing unacknowledged evidence remains uncertain. |
 | Artefact content reservations, manifests, grants, provenance and retention links | `shared_artifacts.rs` records reservations before upload and publishes authorised metadata only after complete byte verification. `SharedArtifactStore` retains the same reference across replacement controllers. |
+| Transfer sessions, acknowledged chunks, offsets, expiry and closure | `shared_transfers.rs` retains upload bytes and session identities transactionally. A replacement resumes the same acknowledged offset; published references still use verified S3 content. |
 | Artefact bytes | `S3ArtifactContent` uses immutable derived keys, conditional PUT and full size/SHA-256 verification. A lost reply leaves a charged reservation; the same content can be verified and published under its original identity. |
 | Operator drain, shared recovery, schema version and immutable command receipts | Native epoch-checked commands persist state and audit together. Explicit migrations preserve existing identities and reject incompatible layouts. Recovery retains uncertainty and allocation. |
 | Bootstrap, gateway and secret bindings | Shared run metadata pins run/topology/credential references. Replacement must provide the configured implementation and external secrets; it cannot substitute new authority because a local cache is absent. |
@@ -38,9 +39,10 @@ material come from trusted deployment factories, not service requests.
 The shared service does not create authoritative `state.sqlite`, `host.sqlite`,
 `deployment.sqlite`, task/composition, scheduler, remote or job databases in its
 controller cache. Controller-local directories hold reconstructible workspaces,
-bounded transfer staging, supervised process resources and lossy telemetry.
-Transfer sessions can be restarted from retained references; grants, content
-reservations and retention references remain in PostgreSQL. Worker spool files
+verified download snapshots, supervised process resources and lossy telemetry.
+Acknowledged upload transfer identities, bytes and offsets remain in PostgreSQL;
+download snapshots are disposable and each read rechecks native authorisation.
+Grants, content reservations and retention references also remain shared. Worker spool files
 are a separate evidence-delivery responsibility, not a controller database.
 
 ## Transaction and effect boundary
