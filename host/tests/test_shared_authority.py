@@ -89,3 +89,56 @@ class SharedAuthorityIntegrationTests(unittest.TestCase):
         self.assertEqual(self.effects, [])
         self.assertEqual(resumed.status()['calls'][0]['state'], 'reserved')
         self.assertEqual(self.authority.query('scope', {'scope': 'deployment'})['calls'], 1)
+
+    def test_fixed_creation_id_is_retained_and_does_not_reallocate(self):
+        run_id = 'run-fixed-' + uuid.uuid4().hex
+        first = self.authority.runner(self.topology, self.adapters, Path(self.temp.name) / 'one',
+            principal='alice', new_run_id=run_id, ancestors=('ancestor/parent',),
+            workflow_version='shared-test/1', supervised=False)
+        first.close()
+        second = self.authority.runner(self.topology, self.adapters, Path(self.temp.name) / 'two',
+            principal='alice', new_run_id=run_id, ancestors=('ancestor/parent',),
+            workflow_version='shared-test/1', supervised=False)
+        self.addCleanup(second.close)
+        self.assertEqual(second.run_id, run_id)
+        self.assertEqual(self.authority.query('scope', {'scope': 'deployment'})['runs'], 1)
+
+    def test_operator_resolution_preserves_charge_and_replay_without_provider_call(self):
+        runner = self.runner()
+        original = self.authority._request
+        def lost(operation, **kwargs):
+            result = original(operation, **kwargs)
+            if operation == 'command' and kwargs.get('command') == 'admit_invocation':
+                raise RunnerError('injected lost admission reply')
+            return result
+        with mock.patch.object(self.authority, '_request', side_effect=lost):
+            with self.assertRaises(RecoveryRequired):
+                runner.request('a', 'b', 'work', {'x': 7})
+        run_id = runner.run_id
+        call_id = self.authority.query('invocations', {'run': run_id})[0]['call_id']
+        runner.close()
+        from mas_host.shared_recovery import SharedRecoveryService
+        from mas_host.service_contracts import ServiceError
+        authority = self.authority
+        class Service:
+            def __init__(self): self.authority = authority
+            def recovery_runs(self, principal, task):
+                return [{'run_id': run_id, 'revision': 1, 'state': 'unknown'}]
+            def inspect(self, principal, task):
+                return {'state': 'unknown', 'cancel_requested': False}
+        recovery = SharedRecoveryService(Service(), operators={'operator': {'alice'}})
+        with self.assertRaises(ServiceError): recovery.inbox('other', 'alice', 'task')
+        inbox = recovery.inbox('operator', 'alice', 'task')
+        self.assertEqual(inbox['entries'][0]['call_id'], call_id)
+        self.assertIsNone(inbox['cancellation']['local_execution_stopped'])
+        kwargs = {'operator': 'operator', 'decision': 'completed',
+            'evidence': {'verified_provider_receipt': 'receipt-1'}, 'output': {'answer': 99},
+            'command_id': 'resolve-' + call_id}
+        self.authority.resolve_invocation(run_id, call_id, **kwargs)
+        self.authority.resolve_invocation(run_id, call_id, **kwargs)
+        resumed = self.runner(run_id=run_id, cache='resolved-cache')
+        self.assertEqual(resumed.request('a', 'b', 'work', {'x': 7}).output, {'answer': 99})
+        self.assertEqual(self.effects, [])
+        self.assertEqual(resumed.status()['calls'][0]['state'], 'reserved')
+        self.assertEqual(len(self.authority.query('resolutions', {'run': run_id})), 1)
+        self.assertEqual(self.authority.query('scope', {'scope': 'deployment'})['calls'], 1)

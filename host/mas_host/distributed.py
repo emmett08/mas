@@ -129,6 +129,45 @@ def validate_binding(binding):
     return checked
 
 
+def validate_worker_receipt(receipt):
+    """Validate bounded wire evidence before either persistence strategy."""
+    if type(receipt) is not dict:
+        raise ServiceError("invalid_worker_receipt")
+    fields = {"id", "call_id", "boot", "fence", "status", "output", "evidence", "output_profile"}
+    if receipt.get("output_profile") == ARTIFACT_OUTPUT_PROFILE:
+        fields.add("artifacts")
+    if set(receipt) != fields:
+        raise ServiceError("invalid_worker_receipt")
+    for field in ("id", "call_id", "boot"):
+        _identifier(receipt[field])
+    _integer(receipt["fence"], 1, 2**63 - 1)
+    if (receipt["output_profile"] not in OUTPUT_PROFILES
+            or receipt["status"] not in ("completed", "unknown", "failed_known") or type(receipt["evidence"]) is not dict
+            or (receipt["status"] == "completed" and type(receipt["output"]) is not dict)
+            or (receipt["status"] == "unknown" and receipt["output"] is not None)
+            or (receipt["status"] == "failed_known" and receipt["output"] is not None and type(receipt["output"]) is not dict)):
+        raise ServiceError("invalid_worker_receipt")
+    if receipt["status"] == "failed_known":
+        try:
+            if set(receipt["evidence"]) != {"provider_outcome"}:
+                raise ValueError()
+            checked = validate_provider_outcome(receipt["evidence"]["provider_outcome"])
+            failure = ProviderOutcomeFailure(checked, completed_output=receipt["output"])
+            if failure.completed_output != receipt["output"]:
+                raise ValueError()
+        except (KeyError, ValueError):
+            raise ServiceError("invalid_worker_receipt") from None
+    # Only an explicitly negotiated artefact map denotes stored output.
+    # Reference-shaped objects in ordinary inline JSON remain opaque.
+    try:
+        integer_json(receipt["output"])
+        integer_json(receipt["evidence"])
+        encoded = canonical_json(receipt, 131072 - 128)
+    except RunnerError:
+        raise ServiceError("invalid_worker_receipt") from None
+    return encoded
+
+
 class WorkerController:
     """Durable placement and receipts scoped by administrator-owned grants.
 
@@ -370,40 +409,7 @@ class WorkerController:
         # but has no authority to update the task. Revocation blocks new work;
         # retaining receipts requires an explicitly authenticated worker grant.
         grant = self._grant(principal)
-        if type(receipt) is not dict:
-            raise ServiceError("invalid_worker_receipt")
-        fields = {"id", "call_id", "boot", "fence", "status", "output", "evidence", "output_profile"}
-        if receipt.get("output_profile") == ARTIFACT_OUTPUT_PROFILE:
-            fields.add("artifacts")
-        if set(receipt) != fields:
-            raise ServiceError("invalid_worker_receipt")
-        for field in ("id", "call_id", "boot"):
-            _identifier(receipt[field])
-        _integer(receipt["fence"], 1, 2**63 - 1)
-        if (receipt["output_profile"] not in OUTPUT_PROFILES
-                or receipt["status"] not in ("completed", "unknown", "failed_known") or type(receipt["evidence"]) is not dict
-                or (receipt["status"] == "completed" and type(receipt["output"]) is not dict)
-                or (receipt["status"] == "unknown" and receipt["output"] is not None)
-                or (receipt["status"] == "failed_known" and receipt["output"] is not None and type(receipt["output"]) is not dict)):
-            raise ServiceError("invalid_worker_receipt")
-        if receipt["status"] == "failed_known":
-            try:
-                if set(receipt["evidence"]) != {"provider_outcome"}:
-                    raise ValueError()
-                checked = validate_provider_outcome(receipt["evidence"]["provider_outcome"])
-                failure = ProviderOutcomeFailure(checked, completed_output=receipt["output"])
-                if failure.completed_output != receipt["output"]:
-                    raise ValueError()
-            except (KeyError, ValueError):
-                raise ServiceError("invalid_worker_receipt") from None
-        # Only an explicitly negotiated artefact map denotes stored output.
-        # Reference-shaped objects in ordinary inline JSON remain opaque.
-        try:
-            integer_json(receipt["output"])
-            integer_json(receipt["evidence"])
-            encoded = canonical_json(receipt, 131072 - 128)
-        except RunnerError:
-            raise ServiceError("invalid_worker_receipt") from None
+        encoded = validate_worker_receipt(receipt)
         with self._transaction() as db:
             prior = db.execute("SELECT * FROM receipts WHERE id=?", (receipt["id"],)).fetchone()
             if prior:
@@ -481,7 +487,10 @@ class WorkerController:
                 link = "remote-" + hashlib.sha256(canonical_json({"worker": principal,
                     "receipt": receipt["id"], "call_id": receipt["call_id"], "fence": receipt["fence"],
                     "namespace": namespace}).encode()).hexdigest()
-                repository.link(link, references, state="unresolved")
+                if callable(getattr(repository, "ensure_link", None)):
+                    repository.ensure_link(link, references, state="unresolved")
+                else:
+                    repository.link(link, references, state="unresolved")
         except (ArtifactError, OSError, ValueError, TypeError, AttributeError):
             raise ServiceError("worker_artifact_unavailable") from None
 

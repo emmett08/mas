@@ -8,6 +8,20 @@ pub mod repository;
 pub mod postgres_repository;
 #[cfg(feature = "postgres-repository")]
 pub mod shared_host;
+#[cfg(feature = "postgres-repository")]
+pub mod shared_leadership;
+#[cfg(feature = "postgres-repository")]
+pub mod shared_timing;
+#[cfg(feature = "postgres-repository")]
+pub mod shared_tasks;
+#[cfg(feature = "postgres-repository")]
+pub mod shared_composition;
+#[cfg(feature = "postgres-repository")]
+pub mod shared_remote;
+#[cfg(feature = "postgres-repository")]
+pub mod shared_artifacts;
+#[cfg(feature = "postgres-repository")]
+pub mod shared_control;
 mod store_schema;
 pub mod tasks;
 pub mod examples;

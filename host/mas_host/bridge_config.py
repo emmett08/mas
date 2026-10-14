@@ -29,7 +29,7 @@ def load_config(path: Path) -> dict:
         integer_json(value)
         if (type(value) is not dict or type(value.get("version")) is not int or value.get("version") != 1
                 or set(value) - {"version", "mode", "factory", "grants", "auth", "public_url",
-                                 "allowed_hosts", "allowed_origins", "max_pending", "max_tasks", "max_instances", "scheduler", "artifacts", "principal_quotas", "operators"}
+                                 "allowed_hosts", "allowed_origins", "max_pending", "max_tasks", "max_instances", "scheduler", "artifacts", "principal_quotas", "operators", "shared"}
                 or type(value.get("grants")) is not dict):
             raise ServiceError("invalid_configuration")
         for principal, workflows in value["grants"].items():
@@ -53,6 +53,7 @@ def build_service(config: dict, state_dir: Path):
         scheduler_policy = SchedulerPolicy(**config['scheduler']) if 'scheduler' in config else None
     except (TypeError, ValueError):
         raise ServiceError('invalid_scheduler_policy') from None
+    shared = config.get("shared")
     if "factory" in config:
         target = config["factory"]
         if type(target) is not str or not re.fullmatch(r"[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*:[A-Za-z_]\w*", target):
@@ -65,6 +66,10 @@ def build_service(config: dict, state_dir: Path):
             return replace(workflow, implementation_sources=(*workflow.implementation_sources, factory))
         if (type(workflows) is dict and 'plans' in workflows and 'workflows' in workflows
                 and set(workflows) <= {'plans', 'workflows', 'grants', 'workflow_versions'}):
+            if shared is not None:
+                return _build_shared_service(config, state_dir,
+                    {name: pinned(item) for name, item in workflows['workflows'].items()},
+                    plans=workflows['plans'], workflow_versions=workflows.get('workflow_versions'))
             from .unified_service import UnifiedTaskService
             return UnifiedTaskService(state_dir, {name: pinned(item) for name, item in workflows['workflows'].items()}, workflows['plans'],
                 {principal: set(names) for principal, names in config['grants'].items()},
@@ -76,6 +81,8 @@ def build_service(config: dict, state_dir: Path):
         workflows = {name: pinned(item) for name, item in workflows.items()}
     else:
         workflows = invoice_workflows(mode=config.get("mode", "mock"))
+    if shared is not None:
+        return _build_shared_service(config, state_dir, workflows)
     return DurableTaskService(state_dir, workflows,
         {principal: set(names) for principal, names in config["grants"].items()},
         operations=DeploymentLedger(state_dir, principal_quotas=config.get('principal_quotas')),
@@ -101,7 +108,7 @@ def build_verifier(config: dict):
     raise ServiceError("invalid_auth_configuration")
 
 
-def build_artifact_transfer(config: dict, state_dir: Path):
+def build_artifact_transfer(config: dict, state_dir: Path, *, authority=None):
     """Build only fixed operator-selected repositories; request bodies contain no paths."""
     if 'artifacts' not in config:
         return None
@@ -137,7 +144,40 @@ def build_artifact_transfer(config: dict, state_dir: Path):
                 backend = S3ArtifactContent(S3ContentConfig(**{key: value for key, value in selected.items() if key != 'type'}))
             except (ArtifactError, TypeError):
                 raise ServiceError('invalid_artifact_configuration') from None
-        scopes[name] = ArtifactScope(Path(state_dir) / relative, item['namespace'],
-                                    item['principals'], ArtifactPolicy(**policy), content_backend=backend)
+        if 'shared' in config:
+            from .shared_artifact_transfer import SharedArtifactScope
+            if authority is None:
+                raise ServiceError('shared_authority_required')
+            scopes[name] = SharedArtifactScope(authority, Path(state_dir) / relative,
+                item['namespace'], item['principals'], ArtifactPolicy(**policy), backend)
+        else:
+            scopes[name] = ArtifactScope(Path(state_dir) / relative, item['namespace'],
+                                        item['principals'], ArtifactPolicy(**policy), content_backend=backend)
     options = {key: item for key, item in value.items() if key != 'scopes'}
+    if 'shared' in config:
+        from .shared_artifact_transfer import SharedArtifactTransferService
+        return SharedArtifactTransferService(Path(state_dir) / 'artifact-transfers', scopes, **options)
     return ArtifactTransferService(Path(state_dir) / 'artifact-transfers', scopes, **options)
+
+
+def _build_shared_service(config, state_dir, workflows, *, plans=None, workflow_versions=None):
+    from .bridges.authentication import read_private_file, AuthenticationError
+    from .shared_authority import SharedAuthority
+    from .shared_service import create_shared_service
+    value = config['shared']
+    required = {'binary', 'dsn_file', 'namespace', 'deployment', 'controller', 'epoch',
+                'secret_key_file', 'secret_reference', 'allocation_limits'}
+    if type(value) is not dict or set(value) != required:
+        raise ServiceError('invalid_shared_configuration')
+    try:
+        dsn = read_private_file(value['dsn_file'], max_bytes=8192).decode('utf-8').rstrip('\n')
+        key = read_private_file(value['secret_key_file'], max_bytes=8192)
+        authority = SharedAuthority(binary=value['binary'], dsn=dsn, namespace=value['namespace'],
+            deployment=value['deployment'], controller=value['controller'], epoch=value['epoch'],
+            secret_key=key, secret_reference=value['secret_reference'])
+    except (AuthenticationError, UnicodeError, TypeError, ValueError):
+        raise ServiceError('invalid_shared_configuration') from None
+    return create_shared_service(authority, state_dir, workflows,
+        {principal: set(names) for principal, names in config['grants'].items()}, plans=plans,
+        workflow_versions=workflow_versions, allocation_limits=value['allocation_limits'],
+        max_pending=config.get('max_pending', 1000), max_tasks=config.get('max_tasks', 10000))

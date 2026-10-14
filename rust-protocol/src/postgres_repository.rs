@@ -43,8 +43,8 @@ pub struct AuthorityBinding {
 }
 
 pub struct PostgresRepository {
-    client: RefCell<Client>,
-    binding: AuthorityBinding,
+    pub(crate) client: RefCell<Client>,
+    pub(crate) binding: AuthorityBinding,
 }
 
 fn namespace(name: &str) -> Result<String> {
@@ -129,7 +129,9 @@ impl PostgresRepository {
         {
             return Err("stale protocol authority".into());
         }
-        if !matches!(row.get::<_, i64>(3), 1 | 2) || row.get::<_, String>(4) != layout(&mut tx)? {
+        if !matches!(row.get::<_, i64>(3), 1 | 2 | 3 | 4)
+            || row.get::<_, String>(4) != layout(&mut tx)?
+        {
             return Err("incompatible PostgreSQL protocol schema".into());
         }
         tx.commit().map_err(db_error)?;
@@ -156,6 +158,13 @@ impl PostgresRepository {
                 &[&next_controller, &epoch],
             )
             .map_err(db_error)?;
+            let version: i64 = tx
+                .query_one("SELECT version FROM authority WHERE singleton", &[])
+                .map_err(db_error)?
+                .get(0);
+            if version >= 3 {
+                crate::shared_leadership::handed_over(tx, next_controller, epoch)?;
+            }
             Ok(())
         })?;
         Ok(AuthorityBinding {
@@ -181,9 +190,12 @@ impl PostgresRepository {
         if row.get::<_, String>(0) != self.binding.deployment
             || row.get::<_, String>(1) != self.binding.controller
             || row.get::<_, i64>(2) != self.binding.epoch
-            || !matches!(row.get::<_, i64>(3), 1 | 2)
+            || !matches!(row.get::<_, i64>(3), 1 | 2 | 3 | 4)
         {
             return Err("stale protocol authority".into());
+        }
+        if row.get::<_, i64>(3) >= 3 {
+            crate::shared_leadership::check_lease(&mut tx)?;
         }
         let result = apply(&mut tx)?;
         tx.commit().map_err(db_error)?;
@@ -353,6 +365,7 @@ impl ProtocolRepository for PostgresRepository {
         let config = config(supplied)?;
         let encoded = config.to_string();
         self.transaction(|tx| {
+            crate::shared_leadership::check_admission(tx)?;
             if let Some(row)=tx.query_opt("SELECT config FROM runs WHERE id=$1",&[&id]).map_err(db_error)? {
                 if row.get::<_,String>(0)!=encoded {return Err("frozen run configuration differs".into());}
             } else {
@@ -461,6 +474,7 @@ impl ProtocolRepository for PostgresRepository {
             return Err("invalid call id".into());
         }
         self.transaction(|tx| {
+            crate::shared_leadership::check_admission(tx)?;
             let r = run(tx, id, Some(actor))?;
             if reconcile(tx, id)?.0 {
                 return Ok(Err("wall-clock budget exhausted".into()));

@@ -51,13 +51,20 @@ def main(argv=None):
         command.add_argument("--state-dir", type=Path, required=True)
         command.add_argument("--allow-loopback-http", action="store_true")
     args = parser.parse_args(argv)
+    authority = None
     try:
         config = _configuration(args.config)
         if args.command in {"controller", "reconcile"}:
             if set(config) - {"version", "worker_grants", "auth", "public_url", "allowed_hosts",
-                              "max_outstanding", "per_principal", "lease_ms", "artifact_factory", "artifact_store_id"}:
+                              "max_outstanding", "per_principal", "lease_ms", "artifact_factory", "artifact_store_id", "authority_factory"}:
                 raise ServiceError("invalid_configuration")
-            controller = WorkerController(args.state_dir, config["worker_grants"],
+            authority = _factory(config["authority_factory"]) if "authority_factory" in config else None
+            if authority is not None:
+                from .shared_control import SharedWorkerController
+                controller_type, controller_root = SharedWorkerController, authority
+            else:
+                controller_type, controller_root = WorkerController, args.state_dir
+            controller = controller_type(controller_root, config["worker_grants"],
                 max_outstanding=config.get("max_outstanding", 100),
                 per_principal=config.get("per_principal", 10), lease_ms=config.get("lease_ms", 30000),
                 artifact_repository=_factory(config["artifact_factory"]) if "artifact_factory" in config else None,
@@ -66,6 +73,8 @@ def main(argv=None):
                 print(json.dumps(controller.reconcile(run_id=args.run_id, call_id=args.call_id, operator=args.operator)))
                 return 0
             from .bridges.server import BridgeHTTPServer
+            if authority is not None:
+                authority.start_renewal()
             with BridgeHTTPServer((args.bind, args.port), service=None, verifier=build_verifier(config),
                     public_url=config["public_url"], allowed_hosts=config.get("allowed_hosts"),
                     allow_loopback_http=args.allow_loopback_http, worker_controller=controller) as server:
@@ -106,6 +115,9 @@ def main(argv=None):
     except Exception as error:
         print(json.dumps({"ok": False, "error": error.code if isinstance(error, ServiceError) else "worker_failed"}), file=sys.stderr)
         return 1
+    finally:
+        if authority is not None:
+            authority.close()
 
 
 if __name__ == "__main__":

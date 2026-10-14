@@ -14,6 +14,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import uuid
+import threading
 
 from .codec import integer_json, is_actor_identity
 from .contracts import RunnerError, RecoveryRequired
@@ -25,7 +26,7 @@ class SharedAuthority:
     """Trusted host configuration; never construct from an actor's payload."""
     def __init__(self, *, binary, dsn, namespace, deployment, controller, epoch,
                  secret_key: bytes, secret_reference: str,
-                 default_reservation_microusd=100_000):
+                 default_reservation_microusd=100_000, postgres_ca_file=None):
         executable = shutil.which(str(binary))
         if (not executable or not all(is_actor_identity(x) for x in (deployment, controller))
                 or type(epoch) is not int or epoch <= 0 or type(dsn) is not str or not dsn
@@ -36,10 +37,14 @@ class SharedAuthority:
                 or not 0 <= default_reservation_microusd <= 2**63 - 1):
             raise RunnerError('invalid shared authority configuration')
         self._binary, self._dsn = executable, dsn
+        self._postgres_ca_file = None if postgres_ca_file is None else str(Path(postgres_ca_file).resolve(strict=True))
         self._secret_key, self.secret_reference = secret_key, secret_reference
         self._binding = {'deployment': deployment, 'controller': controller, 'epoch': epoch}
         self.namespace = namespace
         self.default_reservation_microusd = default_reservation_microusd
+        self._renew_stop = threading.Event()
+        self._renew_thread = None
+        self._renew_error = None
 
     def _request(self, operation, *, timeout=10, **fields):
         source = integer_json({'version': 1, 'schema': self.namespace, 'binding': self._binding,
@@ -47,11 +52,17 @@ class SharedAuthority:
         try:
             result = subprocess.run([self._binary], input=source, text=True,
                 stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=timeout,
-                env={'PATH': os.environ.get('PATH', os.defpath), 'MAS_POSTGRES_DSN': self._dsn},
+                env={'PATH': os.environ.get('PATH', os.defpath), 'MAS_POSTGRES_DSN': self._dsn,
+                     **({'MAS_POSTGRES_CA_FILE': self._postgres_ca_file} if self._postgres_ca_file else {})},
                 check=False)
             if len(result.stdout.encode('utf-8')) > 16 * 1024 * 1024:
                 raise ValueError
             decoded = json.loads(result.stdout)
+            if (decoded.get('version') == 1 and decoded.get('ok') is False
+                    and decoded.get('error', {}).get('code') != 'shared_authority_rejected'
+                    and operation in ('command', 'query')):
+                from .service_contracts import ServiceError
+                raise ServiceError(decoded['error']['code'])
             if result.returncode or type(decoded.get('version')) is not int or decoded['version'] != 1 or decoded.get('ok') is not True:
                 raise ValueError
             return decoded['result']
@@ -80,22 +91,85 @@ class SharedAuthority:
     def admission_enabled(self):
         # A successful query validates the bound controller epoch. A stale or
         # inaccessible authority cannot supply an optimistic local fallback.
-        self.query('scope', {'scope': 'deployment'})
-        return True
+        return not self.query('authority.status', {})['draining']
 
-    def runner(self, topology, adapters, cache_dir, *, principal, run_id=None,
+    def circuit_breaker(self, policy):
+        from .shared_remote import SharedCircuitBreaker
+        return SharedCircuitBreaker(self, policy)
+
+    def authority_status(self):
+        return self._request('authority_status')
+
+    def renew(self, *, lease_seconds=60):
+        return self._request('renew', lease_seconds=lease_seconds)
+
+    def start_renewal(self, *, lease_seconds=60):
+        """Maintain the bound epoch; never acquire a replacement epoch implicitly."""
+        if type(lease_seconds) is not int or not 3 <= lease_seconds <= 3600:
+            raise RunnerError('invalid controller lease interval')
+        if self._renew_thread is not None and self._renew_thread.is_alive():
+            return
+        self.renew(lease_seconds=lease_seconds)
+        self._renew_stop.clear()
+        self._renew_error = None
+        def heartbeat():
+            while not self._renew_stop.wait(lease_seconds / 3):
+                try:
+                    self.renew(lease_seconds=lease_seconds)
+                except Exception:
+                    self._renew_error = 'controller lease renewal failed'
+                    self._renew_stop.set()
+        self._renew_thread = threading.Thread(target=heartbeat, name='mas-controller-lease', daemon=True)
+        self._renew_thread.start()
+
+    def close(self):
+        self._renew_stop.set()
+        if self._renew_thread is not None:
+            self._renew_thread.join(timeout=11)
+            self._renew_thread = None
+
+    def handover(self, next_controller):
+        """Explicitly transfer this live database epoch; returns successor binding."""
+        result = self._request('handover', next_controller=next_controller)
+        self.close()
+        return result
+
+    def takeover(self, next_controller, *, lease_seconds=60):
+        """Acquire only after the prior bound lease expires; preserves every identity."""
+        result = self._request('takeover', next_controller=next_controller, lease_seconds=lease_seconds)
+        self.close()
+        return result
+
+    def set_draining(self, draining, *, operator, evidence, command_id=None):
+        return self.command('authority.drain', {'draining': draining, 'operator': operator,
+            'evidence': evidence}, command_id=command_id)['receipt']
+
+    def resolve_invocation(self, run_id, call_id, *, operator, decision, evidence, output=None, command_id=None):
+        """Audited recovery only; never calls a provider or clears its reservation."""
+        command_id = command_id or 'resolve-' + uuid.uuid4().hex
+        owner = 'recovery-' + hashlib.sha256(command_id.encode()).hexdigest()[:48]
+        self.command('claim_run', {'run': run_id, 'owner': owner})
+        try:
+            return self.command('resolve_invocation', {'run': run_id, 'owner': owner,
+                'call_id': call_id, 'operator': operator, 'decision': decision,
+                'evidence': evidence, 'output': output}, command_id=command_id)['receipt']
+        finally:
+            self.command('release_run', {'run': run_id, 'owner': owner})
+
+    def runner(self, topology, adapters, cache_dir, *, principal, run_id=None, new_run_id=None,
                ancestors=(), **options):
         from .runner import Runner
-        if options.get('circuit_breakers'):
-            raise RunnerError('shared provider circuit repository is not installed')
         if any(key in options for key in ('operations', 'protocol_client', 'session_factory', '_resume_dir')):
             raise RunnerError('shared authority owns runner persistence configuration')
-        if not is_actor_identity(principal) or run_id is not None and not is_actor_identity(run_id):
+        if (not is_actor_identity(principal) or run_id is not None and not is_actor_identity(run_id)
+                or new_run_id is not None and not is_actor_identity(new_run_id)
+                or run_id is not None and new_run_id is not None):
             raise RunnerError('invalid shared run principal or identity')
         transport = SharedProtocolTransport(self)
         def session_factory(state_dir, **arguments):
             return SharedRunSession(state_dir, authority=self, transport=transport,
-                principal=principal, retained_run_id=run_id, ancestors=tuple(ancestors), **arguments)
+                principal=principal, retained_run_id=run_id, new_run_id=new_run_id,
+                ancestors=tuple(ancestors), **arguments)
         return Runner(topology, adapters, Path(cache_dir), operations=self,
             protocol_client=transport, session_factory=session_factory, **options)
 
@@ -136,12 +210,12 @@ class SharedProtocolTransport:
 
 class SharedRunSession:
     def __init__(self, state_dir, *, authority, transport, principal, retained_run_id,
-                 ancestors, topology, workflow_version, max_depth, actors,
+                 ancestors, topology, workflow_version, max_depth, actors, new_run_id=None,
                  command_timeout=10, **_local_arguments):
         self.authority = authority
         self.journal = self.lock = None
         self.owner = 'owner-' + uuid.uuid4().hex
-        self.run_id = retained_run_id or 'run-' + uuid.uuid4().hex
+        self.run_id = retained_run_id or new_run_id or 'run-' + uuid.uuid4().hex
         self.run_dir = Path(state_dir) / self.run_id
         self.run_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
         if self.run_dir.is_symlink():

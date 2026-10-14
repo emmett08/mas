@@ -153,7 +153,7 @@ def main(argv=None):
             return 0
         from .bridges.mcp import MCPBridge
         from .bridge_config import build_artifact_transfer
-        artifact_transfer = build_artifact_transfer(config, args.state_dir)
+        artifact_transfer = build_artifact_transfer(config, args.state_dir, authority=getattr(service, 'authority', None))
         mcp = MCPBridge(service, artifact_transfer=artifact_transfer)
         if args.command == "stdio":
             from .bridges.server import serve_stdio

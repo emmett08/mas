@@ -531,3 +531,104 @@ fn shared_host_handover_retains_unknown_effect_and_invalidates_old_run_owner() {
         50
     );
 }
+
+#[test]
+#[ignore = "requires MAS_TEST_POSTGRES_DSN and an actual PostgreSQL server"]
+fn controller_lease_takeover_fences_every_old_handle_and_preserves_unknown_effects() {
+    let fixture = Fixture::new();
+    let mut old = host_setup(&fixture);
+    old.install_controller_repository().unwrap();
+    old.install_service_repository().unwrap();
+    old.renew_authority(30).unwrap();
+    prepare(&mut old, "step-one", "effect-one", 50);
+    old.host_command(
+        "effect-admit",
+        "admit_invocation",
+        &json!({"run":"r","owner":"owner-one","call_id":"effect-one"}),
+    )
+    .unwrap();
+    let mut contender = fixture.open();
+    assert!(contender.takeover("controller-two", 30).is_err());
+    fixture.admin().batch_execute("UPDATE controller_lease SET lease_until=clock_timestamp()-interval '1 second' WHERE singleton").unwrap();
+    assert!(old.inspect("r").is_err());
+    assert!(old.renew_authority(60).is_err());
+    let next = contender.takeover("controller-two", 30).unwrap();
+    assert_eq!(next.epoch, 2);
+    assert!(contender.takeover("controller-three", 30).is_err());
+    let mut current = fixture.open_as(next);
+    current
+        .host_command(
+            "claim-new",
+            "claim_run",
+            &json!({"run":"r","owner":"owner-two"}),
+        )
+        .unwrap();
+    assert_eq!(
+        current.inspect("r").unwrap()["calls"][0]["state"],
+        "reserved"
+    );
+    assert_eq!(
+        current
+            .host_query("invocation", &json!({"run":"r","call_id":"effect-one"}))
+            .unwrap()["state"],
+        "executing"
+    );
+    assert!(old.host_command("old-observe","observe_invocation",&json!({"run":"r","owner":"owner-one","call_id":"effect-one","state":"completed","output":{},"evidence":{}})).is_err());
+    assert_eq!(
+        current.host_query("authority.audit", &json!({})).unwrap()[0]["operation"],
+        "takeover"
+    );
+}
+
+#[test]
+#[ignore = "requires MAS_TEST_POSTGRES_DSN and an actual PostgreSQL server"]
+fn controller_drain_blocks_new_admission_but_retains_observation_and_audited_recovery() {
+    let fixture = Fixture::new();
+    let mut repo = host_setup(&fixture);
+    repo.install_controller_repository().unwrap();
+    repo.install_service_repository().unwrap();
+    prepare(&mut repo, "step-one", "effect-one", 50);
+    repo.host_command(
+        "effect-admit",
+        "admit_invocation",
+        &json!({"run":"r","owner":"owner-one","call_id":"effect-one"}),
+    )
+    .unwrap();
+    repo.host_command(
+        "drain",
+        "authority.drain",
+        &json!({"operator":"operator","draining":true,"evidence":{"change":"maintenance"}}),
+    )
+    .unwrap();
+    assert!(repo.create_run("new-run", &configuration()).is_err());
+    assert!(repo.reserve_call("r", "a", "new-effect").is_err());
+    assert!(repo.host_command("prepare-blocked","prepare_invocation",&json!({"run":"r","owner":"owner-one","step_key":"step-one","actor":"a","call_id":"new-effect","reservation_microusd":1})).is_err());
+    repo.host_command("observe-unknown","observe_invocation",&json!({"run":"r","owner":"owner-one","call_id":"effect-one","state":"unknown","output":null,"evidence":null})).unwrap();
+    let p = json!({"run":"r","owner":"owner-one","call_id":"effect-one","operator":"operator","decision":"completed","evidence":{"provider_receipt":"retained"},"output":{"answer":42}});
+    repo.host_command("resolve", "resolve_invocation", &p)
+        .unwrap();
+    assert_eq!(
+        repo.host_command("resolve", "resolve_invocation", &p)
+            .unwrap()["replayed"],
+        true
+    );
+    assert_eq!(
+        repo.host_query("resolutions", &json!({"run":"r"}))
+            .unwrap()
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
+    assert_eq!(repo.inspect("r").unwrap()["calls"][0]["state"], "reserved");
+    assert_eq!(
+        repo.host_query("scope", &json!({"scope":"deployment"}))
+            .unwrap()["microusd"],
+        50
+    );
+    assert_eq!(
+        repo.host_query("invocation", &json!({"run":"r","call_id":"effect-one"}))
+            .unwrap()["state"],
+        "resolved"
+    );
+}

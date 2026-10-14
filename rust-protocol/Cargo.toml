@@ -13,9 +13,11 @@ serde_json = { version = "=1.0.152", features = ["arbitrary_precision"] }
 sha2 = "=0.11.0"
 subtle = "=2.6.1"
 postgres = { version = "=0.19.12", optional = true }
+postgres-native-tls = { version = "=0.5.3", optional = true }
+native-tls = { version = "=0.2.18", optional = true }
 
 [features]
-postgres-repository = ["dep:postgres"]
+postgres-repository = ["dep:postgres", "dep:postgres-native-tls", "dep:native-tls"]
 
 [target.'cfg(target_os = "linux")'.dependencies]
 libc = "=0.2.190"

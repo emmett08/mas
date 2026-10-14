@@ -8,7 +8,11 @@ use mas_protocol_codec::{
     repository::ProtocolRepository,
     MAX_BYTES, MAX_DEPTH,
 };
-use postgres::{config::Host, Client, Config, NoTls};
+use postgres::{
+    config::{Host, SslMode},
+    Client, Config, NoTls,
+};
+use postgres_native_tls::MakeTlsConnector;
 use serde_json::{json, Value};
 use std::{
     io::{Read, Write},
@@ -23,23 +27,45 @@ fn execute(request: Value) -> Result<Value, String> {
     }
     let dsn =
         std::env::var("MAS_POSTGRES_DSN").map_err(|_| "PostgreSQL connection not configured")?;
-    let config =
+    let mut config =
         Config::from_str(&dsn).map_err(|_| "invalid PostgreSQL connection configuration")?;
-    // NoTls is deliberately restricted to local sockets/loopback. Deployments
-    // requiring direct remote TLS construct a verified Client through the Rust
-    // repository API or place their authenticated TLS tunnel on this boundary.
-    if config.get_hostaddrs().iter().any(|ip| !ip.is_loopback())
+    // Remote endpoints always require verified TLS. A local Unix/loopback
+    // endpoint may be a trusted fixture or authenticated tunnel. No option can
+    // disable certificate or hostname validation on a remote connection.
+    let remote = config.get_hostaddrs().iter().any(|ip| !ip.is_loopback())
         || config.get_hosts().iter().any(|host| match host {
             Host::Tcp(name) => name != "localhost" && name != "127.0.0.1" && name != "::1",
             #[cfg(unix)]
             Host::Unix(_) => false,
-        })
-    {
-        return Err("this command transport requires a local PostgreSQL endpoint".into());
-    }
-    let client: Client = config
-        .connect(NoTls)
-        .map_err(|_| "PostgreSQL unavailable")?;
+        });
+    let client: Client = if remote || config.get_ssl_mode() == SslMode::Require {
+        if remote && config.get_ssl_mode() == SslMode::Disable {
+            return Err("remote PostgreSQL requires TLS".into());
+        }
+        config.ssl_mode(SslMode::Require);
+        let mut tls = native_tls::TlsConnector::builder();
+        if let Ok(path) = std::env::var("MAS_POSTGRES_CA_FILE") {
+            let file = std::fs::File::open(path).map_err(|_| "PostgreSQL CA unavailable")?;
+            let mut bytes = Vec::new();
+            file.take(1_048_577)
+                .read_to_end(&mut bytes)
+                .map_err(|_| "PostgreSQL CA unavailable")?;
+            if bytes.len() > 1_048_576 {
+                return Err("PostgreSQL CA too large".into());
+            }
+            tls.add_root_certificate(
+                native_tls::Certificate::from_pem(&bytes).map_err(|_| "invalid PostgreSQL CA")?,
+            );
+        }
+        let tls = tls.build().map_err(|_| "PostgreSQL TLS unavailable")?;
+        config
+            .connect(MakeTlsConnector::new(tls))
+            .map_err(|_| "PostgreSQL unavailable")?
+    } else {
+        config
+            .connect(NoTls)
+            .map_err(|_| "PostgreSQL unavailable")?
+    };
     let binding = AuthorityBinding {
         deployment: field(&request["binding"], "deployment")?.into(),
         controller: field(&request["binding"], "controller")?.into(),
@@ -57,7 +83,29 @@ fn execute(request: Value) -> Result<Value, String> {
     match operation {
         "initialise" | "install_host" => {
             repository.install_host_repository()?;
+            repository.install_controller_repository()?;
+            repository.install_service_repository()?;
             Ok(json!({"installed":true}))
+        }
+        "authority_status" => repository.authority_status(),
+        "renew" => repository.renew_authority(
+            request["lease_seconds"]
+                .as_i64()
+                .ok_or("invalid lease interval")?,
+        ),
+        "handover" | "takeover" => {
+            let next = field(&request, "next_controller")?;
+            let b = if operation == "handover" {
+                repository.handover(next)?
+            } else {
+                repository.takeover(
+                    next,
+                    request["lease_seconds"]
+                        .as_i64()
+                        .ok_or("invalid lease interval")?,
+                )?
+            };
+            Ok(json!({"deployment":b.deployment,"controller":b.controller,"epoch":b.epoch}))
         }
         "command" => repository.host_command(
             field(&request, "command_id")?,
@@ -102,7 +150,73 @@ fn main() {
     let success = result.is_ok();
     let response = match result {
         Ok(result) => json!({"version":1,"ok":true,"result":result}),
-        Err(_) => json!({"version":1,"ok":false,"error":{"code":"shared_authority_rejected"}}),
+        Err(error) => {
+            let code = match error.as_str() {
+                "controller_admission_closed"
+                | "event_ack_conflict"
+                | "event_policy_changed"
+                | "event_stage_conflict"
+                | "invalid_delivery_body"
+                | "invalid_subscription"
+                | "invalid_worker_control"
+                | "invalid_worker_grants"
+                | "invalid_worker_output_contract"
+                | "invalid_worker_receipt"
+                | "invalid_worker_request"
+                | "invocation_binding_conflict"
+                | "invocation_not_admitted"
+                | "not_found"
+                | "forbidden"
+                | "receipt_conflict"
+                | "receipt_limit"
+                | "receipt_without_dispatch"
+                | "remote_resolution_not_ready"
+                | "stale_worker_assignment"
+                | "stale_worker_epoch"
+                | "subscription_conflict"
+                | "subscription_limit"
+                | "subscription_not_found"
+                | "unsupported_worker_output_contract"
+                | "unsupported_worker_protocol"
+                | "unsupported_worker_runtime"
+                | "worker_artifact_storage_unconfigured"
+                | "worker_artifact_unavailable"
+                | "worker_capability_denied"
+                | "worker_control_conflict"
+                | "worker_control_history_full"
+                | "worker_control_revision_conflict"
+                | "worker_forbidden"
+                | "worker_output_contract_mismatch"
+                | "worker_policy_changed"
+                | "worker_queue_full"
+                | "worker_registration_conflict"
+                | "invalid_definition"
+                | "definition_identity_conflict"
+                | "definition_retired"
+                | "definition_unavailable"
+                | "definition_is_current"
+                | "definition_in_use"
+                | "definition_not_found"
+                | "implementation_digest_mismatch"
+                | "implementation_package_too_large"
+                | "request_conflict"
+                | "request_epoch_retired"
+                | "request_epoch_in_use"
+                | "invalid_request_namespace"
+                | "invalid_task_state"
+                | "task_not_found"
+                | "task_limit"
+                | "queue_full"
+                | "revision_limit"
+                | "workflow_identity_mismatch"
+                | "reconciliation_required"
+                | "service_policy_conflict"
+                | "stale_task_ownership"
+                | "admission_draining" => error.as_str(),
+                _ => "shared_authority_rejected",
+            };
+            json!({"version":1,"ok":false,"error":{"code":code}})
+        }
     };
     let response = response.to_string();
     if response.len() > 16 * 1024 * 1024 {

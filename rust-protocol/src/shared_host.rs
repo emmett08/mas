@@ -80,7 +80,7 @@ impl PostgresRepository {
                 .query_one("SELECT version FROM authority WHERE singleton", &[])
                 .map_err(db_error)?
                 .get(0);
-            if version == 2 {
+            if version >= 2 {
                 return Ok(());
             }
             if version != 1 {
@@ -90,6 +90,39 @@ impl PostgresRepository {
             let digest = layout(tx)?;
             tx.execute(
                 "UPDATE authority SET version=2,layout_digest=$1 WHERE singleton",
+                &[&digest],
+            )
+            .map_err(db_error)?;
+            Ok(())
+        })
+    }
+    pub fn install_service_repository(&mut self) -> Result<()> {
+        self.transaction(|tx| {
+            let version: i64 = tx
+                .query_one("SELECT version FROM authority WHERE singleton", &[])
+                .map_err(db_error)?
+                .get(0);
+            if version == 4 {
+                return Ok(());
+            }
+            if version != 3 {
+                return Err(
+                    "controller repository must be installed before service repositories".into(),
+                );
+            }
+            for ddl in [
+                crate::shared_timing::DDL,
+                crate::shared_tasks::DDL,
+                crate::shared_composition::DDL,
+                crate::shared_remote::DDL,
+                crate::shared_artifacts::DDL,
+                crate::shared_control::DDL,
+            ] {
+                tx.batch_execute(ddl).map_err(db_error)?;
+            }
+            let digest = layout(tx)?;
+            tx.execute(
+                "UPDATE authority SET version=4,layout_digest=$1 WHERE singleton",
                 &[&digest],
             )
             .map_err(db_error)?;
@@ -120,7 +153,7 @@ impl PostgresRepository {
                 .query_one("SELECT version FROM authority WHERE singleton", &[])
                 .map_err(db_error)?
                 .get::<_, i64>(0)
-                != 2
+                < 2
             {
                 return Err("shared host repository not installed".into());
             }
@@ -135,6 +168,36 @@ impl PostgresRepository {
                     return Err("shared command identity conflict".into());
                 }
                 return Ok(json!({"replayed":true,"receipt":decoded(row.get::<_,&str>(1))?}));
+            }
+            if matches!(
+                operation,
+                "create_run"
+                    | "prepare_invocation"
+                    | "admit_invocation"
+                    | "task.submit"
+                    | "task.update"
+                    | "task.claim"
+                    | "task.recover"
+                    | "composition.submit"
+                    | "composition.claim"
+                    | "composition.node"
+                    | "composition.scope"
+                    | "composition.attempt"
+                    | "composition.start_attempt"
+                    | "composition.continue"
+                    | "composition.recover"
+                    | "remote.submit_begin"
+                    | "remote.operation_begin"
+                    | "circuit.admit"
+                    | "peer.register"
+                    | "artifact.configure"
+                    | "artifact.reserve"
+                    | "artifact.link"
+                    | "worker.submit"
+                    | "worker.claim"
+                    | "worker.dispatch"
+            ) {
+                crate::shared_leadership::check_admission(tx)?;
             }
             let receipt = apply(tx, operation, parameters)?;
             tx.execute(
@@ -153,6 +216,14 @@ impl PostgresRepository {
             "step"=>{fields(p,&["run","key"],&[])?;step(tx,id(p,"run")?,text(p,"key")?)},
             "steps"=>{fields(p,&["run"],&[])?;let mut out=Vec::new();for row in tx.query("SELECT key,kind,input,data,revision FROM host_steps WHERE run=$1 ORDER BY seq",&[&id(p,"run")?]).map_err(db_error)? {out.push(json!({"key":row.get::<_,String>(0),"kind":row.get::<_,String>(1),"input":decoded(row.get::<_,&str>(2))?,"data":decoded(row.get::<_,&str>(3))?,"revision":row.get::<_,i64>(4)}));}Ok(json!(out))},
             "invocations"=>{fields(p,&["run"],&[])?;let r=id(p,"run")?;let mut out=Vec::new();for row in tx.query("SELECT call_id FROM host_invocations WHERE run=$1 ORDER BY seq",&[&r]).map_err(db_error)? {out.push(invocation(tx,r,row.get::<_,&str>(0))?);}Ok(json!(out))},
+            "recovery_snapshot"=>recovery_snapshot(tx,p),
+            op if op.starts_with("authority.")=>crate::shared_leadership::query(tx,op,p),
+            "resolutions"=>{fields(p,&["run"],&[])?;let r=id(p,"run")?;let mut out=Vec::new();for row in tx.query("SELECT seq,call_id,principal,decision,evidence,(created*1000)::bigint FROM host_resolutions WHERE run=$1 ORDER BY seq",&[&r]).map_err(db_error)? {out.push(json!({"seq":row.get::<_,i64>(0),"call_id":row.get::<_,String>(1),"principal":row.get::<_,String>(2),"decision":row.get::<_,String>(3),"evidence":decoded(row.get::<_,&str>(4))?,"created_ms":row.get::<_,i64>(5)}));}Ok(json!(out))},
+            op if op.starts_with("task.") || op.starts_with("definition.") || op.starts_with("epoch.")=>crate::shared_tasks::query(tx,op,p),
+            op if op.starts_with("composition.")=>crate::shared_composition::query(tx,op,p),
+            op if op.starts_with("remote.") || op.starts_with("peer.") || op.starts_with("circuit.")=>crate::shared_remote::query(tx,op,p),
+            op if op.starts_with("artifact.")=>crate::shared_artifacts::query(tx,op,p),
+            op if op.starts_with("worker.") || op.starts_with("event.") || op.starts_with("operator.")=>crate::shared_control::query(tx,op,p),
             _=>Err("unknown shared host query".into())
         })
     }
@@ -462,6 +533,88 @@ fn apply(tx: &mut Transaction<'_>, operation: &str, p: &Value) -> Result<Value> 
             tx.execute("UPDATE host_invocations SET state=$1,output=$2,evidence=$3 WHERE run=$4 AND call_id=$5",&[&state,&output,&evidence,&r,&c]).map_err(db_error)?;
             invocation(tx, &r, c)
         }
+        "resolve_invocation" => {
+            fields(
+                p,
+                &[
+                    "run", "owner", "call_id", "operator", "decision", "evidence", "output",
+                ],
+                &[],
+            )?;
+            let r = owner(tx, p)?;
+            let c = id(p, "call_id")?;
+            let operator = id(p, "operator")?;
+            let decision = text(p, "decision")?;
+            let evidence = object(p, "evidence")?;
+            if p["evidence"].as_object().unwrap().is_empty() {
+                return Err("resolution evidence required".into());
+            }
+            let prior = invocation(tx, &r, c)?;
+            if !matches!(prior["state"].as_str(), Some("executing" | "unknown")) {
+                return Err("only an uncertain invocation can be resolved".into());
+            }
+            let (state, output) = match decision {
+                "completed" => ("resolved", Some(object(p, "output")?)),
+                "confirmed_no_effect" if p["output"].is_null() => ("retry_allowed", None),
+                _ => return Err("unsupported resolution decision".into()),
+            };
+            // Operator knowledge never removes the original native reservation
+            // or refunds any allocation. Resolution is a separate audited fact.
+            tx.execute("INSERT INTO host_resolutions(run,call_id,principal,decision,evidence,created) VALUES($1,$2,$3,$4,$5,extract(epoch FROM clock_timestamp())::double precision)",&[&r,&c,&operator,&decision,&evidence]).map_err(db_error)?;
+            tx.execute("UPDATE host_invocations SET state=$1,output=$2,evidence=$3 WHERE run=$4 AND call_id=$5",&[&state,&output,&evidence,&r,&c]).map_err(db_error)?;
+            invocation(tx, &r, c)
+        }
+        op if op.starts_with("authority.") => crate::shared_leadership::apply(tx, op, p),
+        op if op.starts_with("task.")
+            || op.starts_with("definition.")
+            || op.starts_with("epoch.") =>
+        {
+            crate::shared_tasks::apply(tx, op, p)
+        }
+        op if op.starts_with("composition.") => crate::shared_composition::apply(tx, op, p),
+        op if op.starts_with("remote.")
+            || op.starts_with("peer.")
+            || op.starts_with("circuit.") =>
+        {
+            crate::shared_remote::apply(tx, op, p)
+        }
+        op if op.starts_with("artifact.") => crate::shared_artifacts::apply(tx, op, p),
+        op if op.starts_with("worker.")
+            || op.starts_with("event.")
+            || op.starts_with("operator.") =>
+        {
+            crate::shared_control::apply(tx, op, p)
+        }
         _ => Err("unknown shared host command".into()),
     }
+}
+
+fn recovery_snapshot(tx: &mut Transaction<'_>, p: &Value) -> Result<Value> {
+    fields(p, &["run", "principal"], &[])?;
+    let r = id(p, "run")?;
+    let principal = id(p, "principal")?;
+    let Some(binding)=tx.query_opt("SELECT h.principal,h.metadata,h.owner,h.owner_epoch,a.epoch FROM host_runs h CROSS JOIN authority a WHERE h.run=$1 AND a.singleton",&[&r]).map_err(db_error)? else {return Ok(Value::Null)};
+    if binding.get::<_, String>(0) != principal {
+        return Err("task_not_found".into());
+    }
+    let mut calls = Vec::new();
+    for row in tx
+        .query(
+            "SELECT call_id FROM host_invocations WHERE run=$1 ORDER BY seq LIMIT 10001",
+            &[&r],
+        )
+        .map_err(db_error)?
+    {
+        calls.push(invocation(tx, r, row.get::<_, &str>(0))?);
+    }
+    let mut remote = Vec::new();
+    for row in tx.query("SELECT e.logical_key,e.remote_id,e.state,e.cancel_requested,e.updated,(e.pending_action IS NOT NULL OR e.state='unknown' OR EXISTS(SELECT 1 FROM remote_operations o WHERE o.key=e.key AND o.state='unknown')) FROM remote_effects e WHERE e.run=$1 ORDER BY e.key LIMIT 10001",&[&r]).map_err(db_error)?{
+        remote.push(json!({"kind":"remote_task","key":row.get::<_,String>(0),"remote_id":row.get::<_,Option<String>>(1),"state":row.get::<_,String>(2),"cancel_requested":row.get::<_,bool>(3),"observed_at_ms":row.get::<_,i64>(4)*1000,"uncertain":row.get::<_,bool>(5)}));
+    }
+    if calls.len() > 10000 || remote.len() > 10000 {
+        return Err("recovery snapshot capacity exceeded".into());
+    }
+    Ok(
+        json!({"run_id":r,"metadata":decoded(binding.get::<_,&str>(1))?,"owned":binding.get::<_,Option<String>>(2).is_some()&&binding.get::<_,Option<i64>>(3)==Some(binding.get::<_,i64>(4)),"invocations":calls,"remote_observations":remote}),
+    )
 }

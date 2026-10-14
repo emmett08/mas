@@ -91,6 +91,12 @@ class EventDelivery:
     compact, with the latest receipt retained per subscription. Source retention
     can expire a cursor; that stops the subscription for explicit resynchronisation.
     """
+    def __new__(cls, state_dir, service, targets, **options):
+        if cls is EventDelivery and hasattr(service, 'authority'):
+            from .shared_events import SharedEventDelivery
+            return SharedEventDelivery(service.authority, service, targets, **options)
+        return super().__new__(cls)
+
     def __init__(self, state_dir, service, targets, *, max_subscriptions=1000, page_size=100):
         self.state_dir, self.service = _private_dir(Path(state_dir), create=True), service
         self.operations = getattr(service, 'operations', None)
