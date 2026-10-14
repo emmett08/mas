@@ -479,7 +479,10 @@ class DeploymentLedger:
                 raise OperationsError("deployment admission closed: lifetime call limit reached")
             if allocation > self.policy.max_reserved_microusd - usage["reserved_microusd"]:
                 raise OperationsError("deployment admission closed: expenditure allocation exhausted")
-            db.execute("INSERT INTO calls VALUES(?,?,?,?)", (run_id, call_id, allocation, int(time.time())))
+            from .accounting import reserve_periods
+            timestamp = int(time.time())
+            reserve_periods(db, run_id, call_id, binding[0] if binding is not None else None, allocation, timestamp)
+            db.execute("INSERT INTO calls VALUES(?,?,?,?)", (run_id, call_id, allocation, timestamp))
             return True
 
     def has_run(self, run_id: str) -> bool:

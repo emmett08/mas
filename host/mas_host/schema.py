@@ -81,10 +81,16 @@ _PRINCIPAL_QUOTAS = (
     "CREATE TABLE run_principals(run_id TEXT PRIMARY KEY,principal TEXT NOT NULL,FOREIGN KEY(run_id) REFERENCES runs(run_id))",
     "CREATE INDEX run_principal_owner ON run_principals(principal,run_id)",
 )
-LEDGER = Schema("deployment ledger", 0x4D415344, 4, (),
+LEDGER_V4 = Schema("deployment ledger", 0x4D415344, 4, (),
                 (*LEDGER_V3.statements, *_PRINCIPAL_QUOTAS),
                 ((LEDGER_V3, _PRINCIPAL_QUOTAS),
                  (LEDGER_V2, (_BUDGET_AUDIT, *_PRINCIPAL_QUOTAS))))
+from .accounting_schema import ACCOUNTING_TABLES
+LEDGER = Schema('deployment ledger', 0x4D415344, 5, (),
+                (*LEDGER_V4.statements, *ACCOUNTING_TABLES),
+                ((LEDGER_V4, ACCOUNTING_TABLES),
+                 (LEDGER_V3, (*_PRINCIPAL_QUOTAS, *ACCOUNTING_TABLES)),
+                 (LEDGER_V2, (_BUDGET_AUDIT, *_PRINCIPAL_QUOTAS, *ACCOUNTING_TABLES))))
 JOURNAL = Schema("host journal", 0x4D41534A, 2, ((0, 0), (0x4D41534A, 1)), (
     "CREATE TABLE metadata(key TEXT PRIMARY KEY,value TEXT NOT NULL)",
     "CREATE TABLE steps(key TEXT PRIMARY KEY,kind TEXT NOT NULL,input TEXT NOT NULL,data TEXT NOT NULL)",

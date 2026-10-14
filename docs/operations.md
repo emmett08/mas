@@ -401,3 +401,27 @@ Trusted operator code can inspect `ledger.principal_policy(principal)` and
 `unattributed_calls` and `unattributed_reserved_microusd`.
 `principal_quotas.pending_count(ledger, principal)` reports outstanding logical
 submissions. These identities are never emitted as metric labels.
+
+
+## Period allocations and provider charge observations
+
+`AccountingAdministration(ledger)` installs audited fixed UTC allocation
+windows for the deployment or a named principal. `PeriodPolicy` declares
+`period_seconds`, `start_epoch`, `max_calls` and `max_reserved_microusd`.
+Installation backfills retained calls, including conservative attribution of
+legacy calls whose owner is unknown. It requires quiescent maintenance ownership.
+Period policies are immutable; repeated identical administration keys replay.
+All applicable period and lifetime limits commit with the original call
+allocation. Failed checks roll back together. A repeated call identity never
+spends in another period. A backwards clock cannot reopen a previous period.
+
+Provider invoices can be reconciled through attributed `record_charge`
+observations: provider, unique charge ID, original run/call ID, integer
+micro-USD charge, observation time and an evidence reference. Changed content
+under a retained charge identity conflicts. `reconcile` reports observed charges
+against the original reservation and flags excess. A partial invoice is never
+reported complete. Lower observed charges do not refund allocation, and higher
+charges do not erase an already admitted effect. Each invocation retains at most
+1,024 charge observations; new observations also require storage admission.
+The ledger v4-to-v5 migration adds these tables without rewriting old identities
+or lifetime charges. Audit restores remain read-only.
