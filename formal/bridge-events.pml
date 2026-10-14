@@ -64,12 +64,13 @@ active proctype Reader() {
     :: page_pending ->
         atomic {
             if
-            :: received_max < page -> received_max = page
-            :: else -> skip
-            fi;
-            if
-            :: cursor = page /* Caller consumes the returned page, then advances. */
+            :: /* Delivered page: only this branch makes an event observed. */
+                if :: received_max < page -> received_max = page :: else -> skip fi;
+                cursor = page /* Caller consumes the returned page, then advances. */
             :: skip          /* Lost reply: caller retries its previous cursor. */
+#ifdef BUG_BRIDGE_CURSOR_BEFORE_DELIVERY
+                cursor = page /* Defect: advancing after a lost, unobserved page. */
+#endif
             fi;
             page_pending = false;
             invariants()

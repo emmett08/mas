@@ -2,17 +2,32 @@
 
 ## Durable bridge extension — 14 October 2026
 
-The complete formal rerun passed **66 positive checks and 29 expected
-counterexamples across 67 cases**. The counterexamples comprise 27 deliberate
-defects and two explicit failures of eventual acknowledgement under unlimited
-faults. The new bridge models contribute four positive searches, including both
-models without partial-order reduction, and nine detected/replayed defects.
-See the [bridge model contract](../formal/bridge-notes.md) for properties,
-scenario bounds and implementation correspondence.
+The whole-PR recheck found defects despite the earlier green CI. Repairs and
+requirement coverage are recorded in [the independent review](independent-review.md#whole-pr-bridge-and-provider-recheck--14-october-2026).
 
-The local host suite reported **350 tests: 339 passed and 11 optional SDK tests skipped**;
-the separately installed orchestrator environment passed **all 19 tests**,
-including the real Temporal-server exercise. The Rust suite passed 48 tests and
+The strengthened formal rerun passed **90 cases and 118 checks**: **79 complete
+positive checks, 32 deliberate-defect counterexamples, two liveness-assumption
+counterexamples and five reachability witnesses**. Witnesses demonstrate that
+important scenarios are reachable; they are not additional safety proofs.
+The local service model separates worker claim, executor reply and final commit,
+so it includes the cancellation race omitted from the previous models. It
+completes with and without partial-order reduction. Eleven shared traces check
+77 action observations against both those model transitions and the real
+TaskService/SQLite implementation, using an explicitly controlled executor.
+Cursor, bridge and service mutations must fail their named assertions; an
+unrelated counterexample no longer satisfies their gate. See the
+[bridge model contract](../formal/bridge-notes.md) for bounds and correspondence.
+
+An experimental expansion scheduling both task lifecycles exhausted its memory
+budget and is excluded. The accepted model schedules one lifecycle alongside a
+second principal's independent identity. The first stricter verifier run also
+rejected two reachability results because SPIN remapped conditional source lines;
+exact assertion-expression matching corrected the oracle, and the complete rerun
+passed. Both unsuccessful checks remain in the raw evidence archive.
+
+The local host suite reported **400 tests: 386 passed and 14 optional SDK tests skipped**;
+the separately installed orchestrator environment passed **all 22 tests**,
+including the real Temporal-server exercise. The Rust suite passed 50 tests and
 the release-helper suite passed 32. Six dependency-lock groups, containing 120
 package entries in total, were audited with no reported vulnerabilities. Those
 package entries include dependencies repeated across groups; they are not 120
@@ -22,8 +37,10 @@ The implementation suite now covers principal-scoped request conflicts,
 exclusive service scheduling, execution factories with trusted identity,
 crash/replay at the existing Rust boundary, paused local cancellation,
 permission revocation after uncertain dispatch, schema rejection and retention
-of unresolved remote effects. MCP and A2A tests validate checked-in normative
-schema fixtures and exercise real HTTP/stdio exchanges; these provide evidence
+of unresolved remote effects. MCP and A2A tests validate checked-in official
+schema fixtures and exercise real HTTP/stdio exchanges. A2A's generated JSON
+Schema is non-normative; its protocol specification and protobuf definitions
+remain authoritative. These checks provide evidence
 for the declared profiles, not compatibility with every external client.
 Temporal and LangGraph checks are separate optional SDK gates. A skipped SDK
 or real-server test is not a passing interoperability result.
@@ -142,7 +159,7 @@ provider result. See [acceptance scope](deployment-acceptance.md).
 | Evidence | Contents |
 |---|---|
 | [`bridge-acceptance.json`](../evidence/bridge-acceptance.json) | Current bridge implementation and acceptance record, with executed checks distinguished from pending architecture and live-provider gates. |
-| [`bridge-model-checks.json`](../evidence/bridge-model-checks.json) | Current full formal run: 67 cases, 95 checks, including 66 positive checks and 29 expected counterexamples. |
+| [`bridge-model-checks.json`](../evidence/bridge-model-checks.json) | Current full formal run: 90 cases, 118 checks; 79 positive checks, 32 defects, two assumption counterexamples and five reachability witnesses. |
 | [`bridge-model-checks.tar.gz`](../evidence/bridge-model-checks.tar.gz) | Current generated models, raw logs, sampled traces and replayable counterexamples. |
 | [`bridge-host-tests.log`](../evidence/bridge-host-tests.log) | Current local host suite, including its explicit optional-SDK skips. |
 | [`bridge-orchestrator-tests.log`](../evidence/bridge-orchestrator-tests.log) | Separately installed SDK suite, including real Temporal-server interoperability. |
@@ -212,10 +229,13 @@ verification of later source without matching those identities.
 | Task terminal/expiry race model | 1 safety | Complete, zero errors. |
 | Host checkpoint recovery | 1 safety | Complete, zero errors; no liveness claim. |
 | Cursor remote job, reduced and no reduction | 2 safety | Complete, zero errors; no remote liveness claim. |
-| Durable bridge service and event history, each reduced and no reduction | 4 safety | Complete, zero errors within the declared scenario bounds. |
+| Remote bridge service, local task service and event history, each reduced and no reduction | 6 safety | Complete, zero errors within the declared scenario bounds. |
+| Shared local-service action corpus | 11 deterministic trace checks | Complete; 77 selected observations also pass against TaskService/SQLite. |
+| Local-service reachability | 5 witnesses | Named negated-reachability assertions fail and replay at the intended scenarios. |
 | Early ack, forbidden route, missing ack, competing terminals, partial commit, duplicate insertion, expiry overwrite, uncharged host dispatch, unknown replay, stale owner, result overwrite | 11 deliberate defects | Expected violations detected and replayed. |
 | Cursor uncharged dispatch, relaunch, lost identity, wrong run, premature cancellation, timeout cancellation and terminal overwrite | 7 deliberate defects | Expected assertion violations detected and replayed. |
-| Bridge duplicate identity, conflicting content, unadmitted dispatch, unknown replay, premature cancellation, stale terminal, lost event commit, inbox overflow and uncommitted event exposure | 9 deliberate defects | Expected assertion violations detected and replayed. |
+| Bridge duplicate identity, conflicting content, unadmitted dispatch, unknown replay, premature cancellation, stale terminal, lost event commit, inbox overflow, uncommitted event exposure and cursor advancement before delivery | 10 deliberate defects | Named assertion violations detected and replayed. |
+| Local service late cancellation, unscoped owner key, stale revision and lost event commit | 4 deliberate defects | Named assertion violations detected and replayed. |
 | Unlimited faults, with and without weak process fairness | 2 assumption counterexamples | Eventual acknowledgement fails; cycles replayed. |
 
 A counterexample expectation requires the appropriate violation type and a
@@ -256,9 +276,12 @@ Gateway authentication, frame limits and durable global/credential attempt caps
 are exercised by implementation tests and the subprocess example. They are not
 cryptographic or admission-protocol proofs from the Promela models.
 
-Bridge service checking uses one already-authenticated principal, one request
+Remote bridge service checking uses one already-authenticated principal, one request
 key, two payload values, three submissions, one restart and two observations.
 The event model uses two tasks, three events, two reads and one client restart.
+The local service model uses two principals, one task each, one scheduled task
+lifecycle, two revisions and one crash; the shared traces additionally execute
+the second principal. It assumes the separately tested host checkpoint boundary.
 Three events is a scenario bound, not the implementation's event-store capacity.
 The caller owns its cursor; no subscriber acknowledgement or guaranteed push
 delivery is claimed. Authentication, network transports, SDKs and external

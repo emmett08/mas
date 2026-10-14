@@ -13,7 +13,7 @@ adapters remain selectable inside the workflow independently of its bridge.
 | A2A 1.0, schema release 1.0.1 | Agent Card and JSON-RPC SendMessage, GetTask, ListTasks and CancelTask; task/context identity, artifacts, interrupted states, bounded blocking and polling. Outbound delegation and admitted lifecycle operations. |
 | Temporal SDK 1.34.0 | Activities calling MAS; durable outbound workflow starts, exact workflow/run observation, cancellation and memo-checked reconciliation. |
 | LangGraph 1.2.15 | Nodes calling MAS with stable thread/node identities, checkpoint interruption and explicit continuation. |
-| Task service HTTP | Authenticated submit, inspect, result, cancel, update, events and list operations for applications and orchestrator workers. |
+| Task service HTTP | Authenticated submit, inspect, result, cancel, update, events, offset lists and filtered keyset pages for applications and orchestrator workers. |
 
 Streaming subscriptions, push notifications, arbitrary artifact downloads and
 older protocol versions are not advertised. MCP's current profile has no
@@ -89,6 +89,26 @@ if current["state"] == "completed":
 The client never sends its principal as caller-controlled authority. The server
 derives that identity from the token and checks its workflow grants. A changed
 payload under an existing request key fails with `request_conflict`.
+
+`submit` and `update` accept optional integer-JSON `metadata`, which participates
+in request-key identity. Submission metadata remains on the task receipt;
+continuation metadata binds that individual continuation request. The HTTP
+client implements the public `TaskService` contract, including
+`list_task_page(page_size=..., after=..., state=..., metadata=...,
+updated_after=...)`. Its `next` cursor is passed back as `after` until it is
+`None`; metadata filters support up to 64 string-valued predicates.
+Trusted local worker execution is a separate `TaskWorker` capability and has
+no HTTP operation. Orchestration connectors require only `TaskLifecycle`.
+
+The task service allows 65,536 bytes for each application input, metadata
+object and result, within a separate 1 MiB HTTP request/response envelope.
+Task and event lists return a prefix bounded to 512 KiB even when the requested
+item count is larger. For offset lists advance by the number actually returned;
+for events advance `after` to the final event ID. Continue until an empty list,
+since a short list can reflect the byte bound. Filtered pages provide an
+explicit `next` cursor for both item-count and byte truncation. MCP retains its
+separate 65,536-byte whole-message profile and returns a protocol error if a
+response cannot fit; these task-service envelope limits do not enlarge it.
 
 MCP clients use `http://127.0.0.1:8765/mcp`; A2A's card is at
 `http://127.0.0.1:8765/.well-known/agent-card.json`. The checked examples use
@@ -204,8 +224,8 @@ history store and an exclusive `after` cursor; replaying a read is harmless.
 
 ## Design and verification
 
-The service is a Facade over narrow submission, observation and lifecycle
-contracts. Protocol clients adapt their wire semantics; SDK connectors own
+The service is a Facade with separate public lifecycle, public query and trusted
+worker capabilities. Protocol clients adapt their wire semantics; SDK connectors own
 framework integration. Version-aware repositories own persistence, explicit
 state transitions own uncertainty, and execution factories bind authenticated
 service identity to the existing adapter Strategy. Rust's atomic task/message

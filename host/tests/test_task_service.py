@@ -14,8 +14,8 @@ from mas_host import Invocation, Outcome
 from mas_host.journal import inspect_run, resolve_invocation
 from mas_host.operations import backup_state, restore_state
 from mas_host.service_contracts import ServiceError, TaskService
-from mas_host.task_service import DurableTaskService, ExecutionResult, Workflow
-from mas_host.task_store import SERVICE
+from mas_host.task_service import DurableTaskService, ExecutionResult, PAGE_BYTES, Workflow
+from mas_host.task_store import SERVICE, canonical, event
 from test_runner import FunctionAdapter, topology
 import test_runner as runner_tests
 
@@ -109,6 +109,97 @@ class TaskServiceTests(unittest.TestCase):
         self.assertTrue(receipt["cancel_requested"])
         self.assertIsNone(service.run_once())
         self.assertEqual(service.operations.health()["usage"]["runs"], 0)
+
+    def test_cancellation_between_execution_and_commit_closes_paused_work(self):
+        for interrupted in ("input_required", "auth_required"):
+            with self.subTest(interrupted=interrupted):
+                self.state = self.root / interrupted
+                workflow = replace(self.workflow,
+                    classify=lambda _outcome: interrupted,
+                    continue_input=lambda previous, supplied: previous | supplied)
+                service = self.service(workflow=workflow, max_pending=1)
+                task = service.submit("alice", interrupted, "echo", {"remote_receipt": "retained"})
+                execute = service.executor.execute
+
+                def cancel_after_execution(*args, **kwargs):
+                    outcome = execute(*args, **kwargs)
+                    self.assertEqual(outcome.state, interrupted)
+                    pending = service.cancel("alice", task["task_id"])
+                    self.assertEqual(pending["state"], "running")
+                    self.assertTrue(pending["cancel_requested"])
+                    return outcome
+
+                with mock.patch.object(service.executor, "execute", side_effect=cancel_after_execution):
+                    receipt = service.run_once()
+                self.assertEqual(receipt["state"], "cancelled")
+                self.assertEqual(receipt["result"], {"remote_receipt": "retained"})
+                self.assertTrue(receipt["cancel_requested"])
+                self.assertEqual(self.execution(service, task["task_id"])["state"], "cancelled")
+                events = service.events("alice", task["task_id"])
+                self.assertEqual(events[-1]["data"]["state"], "cancelled")
+                self.assertEqual(service.cancel("alice", task["task_id"]), receipt)
+                self.assertEqual(service.events("alice", task["task_id"]), events)
+                self.assertIsNone(service.run_once())
+                next_task = service.submit("alice", "next", "echo", {})
+                self.assertEqual(next_task["state"], "queued")
+
+    def test_repeated_cancellation_repairs_legacy_cancel_requested_pause(self):
+        for interrupted in ("input_required", "auth_required"):
+            with self.subTest(interrupted=interrupted):
+                self.state = self.root / interrupted
+                workflow = replace(self.workflow,
+                    classify=lambda _outcome: interrupted,
+                    continue_input=lambda previous, supplied: previous | supplied)
+                service = self.service(workflow=workflow, max_pending=1)
+                task = service.submit("alice", interrupted, "echo", {"remote_receipt": "retained"})
+                self.assertEqual(service.run_once()["state"], interrupted)
+                # The previous finalisation race persisted this combination.
+                with service.store.transaction() as db:
+                    db.execute("UPDATE tasks SET cancel_requested=1 WHERE id=?", (task["task_id"],))
+                service = self.service(workflow=workflow, max_pending=1)
+                receipt = service.cancel("alice", task["task_id"])
+                self.assertEqual(receipt["state"], "cancelled")
+                self.assertEqual(receipt["result"], {"remote_receipt": "retained"})
+                self.assertEqual(self.execution(service, task["task_id"])["state"], "cancelled")
+                events = service.events("alice", task["task_id"])
+                self.assertEqual(events[-1]["data"], {"state": "cancelled", "confirmed": True,
+                                                      "scope": "local_workflow"})
+                self.assertEqual(service.cancel("alice", task["task_id"]), receipt)
+                self.assertEqual(service.events("alice", task["task_id"]), events)
+                self.assertIsNone(service.run_once())
+                self.assertEqual(service.submit("alice", "next", "echo", {})["state"], "queued")
+
+    def test_cancellation_between_unknown_execution_and_commit_preserves_uncertainty(self):
+        effects = []
+
+        def provider():
+            effects.append(True)
+            raise RuntimeError("lost effect reply")
+
+        workflow = replace(self.workflow, adapters=self.workflow.adapters | {
+            "b": FunctionAdapter(lambda c, r: Outcome(c.invoke(provider, input={"effect": "one"})))})
+        service = self.service(workflow=workflow)
+        task = service.submit("alice", "unknown", "echo", {})
+        execute = service.executor.execute
+
+        def cancel_after_execution(*args, **kwargs):
+            outcome = execute(*args, **kwargs)
+            self.assertEqual(outcome.state, "unknown")
+            service.cancel("alice", task["task_id"])
+            return outcome
+
+        with mock.patch.object(service.executor, "execute", side_effect=cancel_after_execution):
+            receipt = service.run_once()
+        self.assertEqual(receipt["state"], "unknown")
+        self.assertTrue(receipt["cancel_requested"])
+        self.assertEqual(self.execution(service, task["task_id"])["state"], "unknown")
+        events = service.events("alice", task["task_id"])
+        self.assertEqual(service.cancel("alice", task["task_id"]), receipt)
+        self.assertEqual(service.events("alice", task["task_id"]), events)
+        self.assertIsNone(service.run_once())
+        with self.assertRaisesRegex(ServiceError, "reconciliation required"):
+            service.recover("alice", task["task_id"])
+        self.assertEqual(effects, [True])
 
     def test_crash_after_effect_checkpoint_replays_same_run_without_second_effect(self):
         effects, crash = [], [True]
@@ -244,6 +335,62 @@ class TaskServiceTests(unittest.TestCase):
         self.assertIsNone(next_page["next"])
         self.assertEqual({page["tasks"][0]["task_id"], next_page["tasks"][0]["task_id"]}, {first["task_id"], second["task_id"]})
         self.assertEqual(service.list_task_page("alice", state="completed")["total_size"], 0)
+
+    def test_task_pages_bound_bytes_and_preserve_every_cursor(self):
+        service = self.service()
+        expected = {service.submit("alice", str(index), "echo", {},
+                                   metadata={"large": "\N{SNOWMAN}" * 20000})["task_id"]
+                    for index in range(10)}
+        seen, after, pages = [], None, []
+        while True:
+            page = service.list_task_page("alice", page_size=100, after=after)
+            self.assertLessEqual(len(canonical(page).encode("utf-8")), PAGE_BYTES)
+            self.assertEqual(page["total_size"], len(expected))
+            seen.extend(task["task_id"] for task in page["tasks"])
+            pages.append(page)
+            if page["next"] is None:
+                break
+            self.assertTrue(page["tasks"])
+            after = page["next"]
+        self.assertGreater(len(pages), 1)
+        self.assertEqual(set(seen), expected)
+        self.assertEqual(len(seen), len(expected))
+        listed = []
+        while True:
+            batch = service.list_tasks("alice", limit=100, offset=len(listed))
+            self.assertLessEqual(len(canonical(batch).encode("utf-8")), PAGE_BYTES)
+            if not batch:
+                break
+            listed.extend(task["task_id"] for task in batch)
+        self.assertEqual(set(listed), expected)
+        self.assertEqual(len(listed), len(expected))
+
+    def test_task_page_bounds_filter_count_before_sql_expression_limit(self):
+        service = self.service()
+        filters = {f"field_{index}": "value" for index in range(1000)}
+        with self.assertRaises(ServiceError) as raised:
+            service.list_task_page("alice", metadata=filters)
+        self.assertEqual(raised.exception.code, "invalid_metadata_filter")
+        self.assertEqual(service.list_task_page("alice", metadata={
+            f"field_{index}": "value" for index in range(64)})["tasks"], [])
+
+    def test_event_pages_bound_bytes_without_skipping_events(self):
+        service = self.service()
+        task = service.submit("alice", "first", "echo", {})
+        with service.store.transaction() as db:
+            for index in range(10):
+                event(db, task["task_id"], "protocol", {"index": index, "value": "x" * 60000})
+        observed, after, pages = [], 0, 0
+        while True:
+            batch = service.events("alice", task["task_id"], after=after)
+            self.assertLessEqual(len(canonical(batch).encode("utf-8")), PAGE_BYTES)
+            if not batch:
+                break
+            pages += 1
+            observed.extend(item["data"]["index"] for item in batch if item["event"] == "protocol")
+            after = batch[-1]["id"]
+        self.assertGreater(pages, 1)
+        self.assertEqual(observed, list(range(10)))
 
     def test_default_unresolved_is_business_failure_not_request_for_input(self):
         workflow = replace(self.workflow, adapters=self.workflow.adapters | {

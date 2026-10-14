@@ -19,10 +19,11 @@ from ..codec import integer_json
 from ..contracts import RunnerError
 from ..service_contracts import ServiceError
 from .authentication import AuthenticationError, SCOPES, _principal
-from .service_client import decode_integer_json, validate_endpoint
+from .service_client import MAX_WIRE_BYTES, decode_integer_json, validate_endpoint
 
 _SERVICE_SCOPES = {"submit": "mas:submit", "inspect": "mas:read", "result": "mas:read",
-                   "cancel": "mas:cancel", "update": "mas:update", "events": "mas:read", "list": "mas:read"}
+                   "cancel": "mas:cancel", "update": "mas:update", "events": "mas:read",
+                   "list": "mas:read", "page": "mas:read"}
 
 
 class _DeadlineReader:
@@ -82,7 +83,8 @@ class BridgeHTTPServer(ThreadingMixIn, HTTPServer):
 
     def __init__(self, server_address, *, service, verifier, public_url,
                  mcp_bridge=None, a2a_bridge=None, allowed_hosts=None, allowed_origins=(),
-                 request_timeout=30, max_body_bytes=65536, max_header_bytes=16384,
+                 request_timeout=30, max_body_bytes=MAX_WIRE_BYTES, max_response_bytes=MAX_WIRE_BYTES,
+                 max_header_bytes=16384,
                  max_connections=8, allow_loopback_http=False, public_agent_card=True,
                  ssl_context=None):
         parsed = validate_endpoint(public_url, allow_loopback_http=allow_loopback_http)
@@ -90,6 +92,7 @@ class BridgeHTTPServer(ThreadingMixIn, HTTPServer):
             raise ServiceError("invalid_public_url")
         if (type(request_timeout) not in (int, float) or not 0 < request_timeout <= 300
                 or type(max_body_bytes) is not int or not 1024 <= max_body_bytes <= 1048576
+                or type(max_response_bytes) is not int or not 1024 <= max_response_bytes <= MAX_WIRE_BYTES
                 or type(max_header_bytes) is not int or not 1024 <= max_header_bytes <= 65536
                 or type(max_connections) is not int or not 1 <= max_connections <= 64):
             raise ServiceError("invalid_server_configuration")
@@ -107,6 +110,7 @@ class BridgeHTTPServer(ThreadingMixIn, HTTPServer):
                 raise ServiceError("invalid_server_configuration")
         self.request_timeout = request_timeout
         self.max_body_bytes, self.max_header_bytes = max_body_bytes, max_header_bytes
+        self.max_response_bytes = max_response_bytes
         self.public_agent_card = bool(public_agent_card)
         self._slots = threading.BoundedSemaphore(max_connections)
         super().__init__(server_address, _Handler)
@@ -167,7 +171,7 @@ class _Handler(BaseHTTPRequestHandler):
     def _send(self, status, body, *, headers=None):
         self.close_connection = True
         try:
-            raw = integer_json(body, self.server.max_body_bytes).encode("utf-8") if body is not None else b""
+            raw = integer_json(body, self.server.max_response_bytes).encode("utf-8") if body is not None else b""
         except RunnerError:
             status, raw = 500, b'{"error":{"code":"response_too_large"}}'
         self.send_response(status)
@@ -331,11 +335,14 @@ def _service_status(code):
 def _service_call(service, principal, operation, payload):
     required = {"submit": {"request_key", "workflow", "input"}, "inspect": {"task_id"},
                 "result": {"task_id"}, "cancel": {"task_id"},
-                "update": {"task_id", "request_key", "input"}, "events": {"task_id"}, "list": set()}[operation]
-    optional = {"events": {"after"}, "list": {"limit", "offset"}}.get(operation, set())
+                "update": {"task_id", "request_key", "input"}, "events": {"task_id"},
+                "list": set(), "page": set()}[operation]
+    optional = {"submit": {"metadata"}, "update": {"metadata"}, "events": {"after"},
+                "list": {"limit", "offset"},
+                "page": {"page_size", "after", "state", "metadata", "updated_after"}}.get(operation, set())
     if not required.issubset(payload) or set(payload) - required - optional:
         raise ServiceError("invalid_parameters")
-    method = getattr(service, "list_tasks" if operation == "list" else operation)
+    method = getattr(service, {"list": "list_tasks", "page": "list_task_page"}.get(operation, operation))
     return method(principal, **payload)
 
 

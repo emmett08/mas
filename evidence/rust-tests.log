@@ -1,27 +1,27 @@
-    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.02s
-     Running unittests src/lib.rs (rust-protocol/target/debug/deps/mas_protocol_codec-4626d003167bd0e2)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.01s
+     Running unittests src/lib.rs (rust-protocol/target/debug/deps/mas_protocol_codec-89b5765ceed8b072)
 
 running 26 tests
 test store::tests::admission_reservations_are_durable_bounded_and_policy_frozen ... ok
-test store::tests::deadline_and_budget_admission_preserve_existing_delivery ... ok
-test examples::tests::malformed_demo_configuration_is_rejected ... ok
 test store::tests::concurrent_expiry_and_late_terminal_have_one_closure ... ok
+test examples::tests::malformed_demo_configuration_is_rejected ... ok
+test store::tests::deadline_and_budget_admission_preserve_existing_delivery ... ok
 test store::tests::incompatible_databases_are_rejected_without_schema_changes ... ok
 test store::tests::call_evidence_is_bounded_and_integer_exact_before_state_change ... ok
 test store::tests::expiry_bypasses_full_mailbox_and_exhausted_budget_and_survives_rejection ... ok
 test store::tests::mailbox_full_rolls_back_and_ack_releases_capacity ... ok
+test store::tests::gateway_membership_does_not_read_audit_projection_and_still_reconciles ... ok
 test examples::tests::nested_tree_reply_retains_parent_correlation ... ok
 test store::tests::invalid_native_v1_history_leaves_schema_unmodified ... ok
-test store::tests::gateway_membership_does_not_read_audit_projection_and_still_reconciles ... ok
 test store::tests::persistent_call_budget_and_rejected_configuration ... ok
 test store::tests::restart_redelivery_ack_and_frozen_configuration ... ok
-test examples::tests::orchestrator_plan_changes_with_input_requirements ... ok
 test store::tests::task_ledger_and_messages_roll_back_together_on_storage_error ... ok
-test tests::direct_library_validate_rejects_noninteger_payload ... ok
 test tests::bounds_prevent_unbounded_recursion ... ok
+test tests::direct_library_validate_rejects_noninteger_payload ... ok
 test tests::duplicates_malformed_and_trailing_rejected ... ok
 test tests::empty_depth_boundary_and_unpaired_surrogate ... ok
 test tests::exact_unicode_bigint_and_boolean_types ... ok
+test examples::tests::orchestrator_plan_changes_with_input_requirements ... ok
 test store::tests::native_v1_migration_reconstructs_open_and_terminal_tasks ... ok
 test store::tests::terminal_acceptance_survives_expiry_and_lost_response_resend ... ok
 test store::tests::task_terminal_race_and_concurrent_dedup ... ok
@@ -29,46 +29,48 @@ test store::tests::native_v1_migration_accepts_maximal_wire_with_larger_json_env
 test examples::tests::parallel_correlation_and_application_decisions_are_explicit ... ok
 test examples::tests::all_patterns_recover_and_ack_wire_messages ... ok
 
-test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.20s
+test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.23s
 
-     Running unittests src/bin/mas.rs (rust-protocol/target/debug/deps/mas-250c7be7532a89f1)
-
-running 0 tests
-
-test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
-
-     Running unittests src/bin/mas-gateway.rs (rust-protocol/target/debug/deps/mas_gateway-a38608a6381af0c9)
+     Running unittests src/bin/mas.rs (rust-protocol/target/debug/deps/mas-f87218090c89fc31)
 
 running 0 tests
 
 test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
 
-     Running unittests src/main.rs (rust-protocol/target/debug/deps/mas_protocol_codec-4efc865b48f1c91f)
+     Running unittests src/bin/mas-gateway.rs (rust-protocol/target/debug/deps/mas_gateway-55bc934253280ce6)
 
 running 0 tests
 
 test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
 
-     Running unittests src/bin/verify.rs (rust-protocol/target/debug/deps/verify-70a94798bb9fea27)
+     Running unittests src/main.rs (rust-protocol/target/debug/deps/mas_protocol_codec-360349150141221f)
 
-running 3 tests
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/bin/verify.rs (rust-protocol/target/debug/deps/verify-90cfc89cb8158eef)
+
+running 5 tests
 test tests::expected_failures_need_the_right_counterexample_and_replay ... ok
+test tests::replay_binds_the_actual_failed_source_assertion ... ok
+test tests::shared_trace_generation_checks_each_observation ... ok
 test tests::incomplete_logs_never_become_success ... ok
 test tests::invalid_examples_fail_closed ... ok
 
-test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
 
-     Running tests/assumptions.rs (rust-protocol/target/debug/deps/assumptions-1a3a5449bf415436)
+     Running tests/assumptions.rs (rust-protocol/target/debug/deps/assumptions-aafd09f39e2e46c3)
 
 running 4 tests
 test concurrent_gateway_instances_share_one_durable_global_cap ... ok
-test rejected_late_work_latches_expiry_without_capacity_and_delivery_is_not_actionable ... ok
 test reconciliation_preserves_the_first_terminal_and_only_closes_open_tasks ... ok
+test rejected_late_work_latches_expiry_without_capacity_and_delivery_is_not_actionable ... ok
 test forged_identity_and_malformed_attempts_remain_charged_across_gateway_restarts ... ok
 
 test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
 
-     Running tests/cli.rs (rust-protocol/target/debug/deps/cli-317da74fdce9593d)
+     Running tests/cli.rs (rust-protocol/target/debug/deps/cli-7d39744b9154478c)
 
 running 3 tests
 test cli_errors_are_structured ... ok
@@ -77,28 +79,29 @@ test wire_cli_roundtrip_and_restart ... ok
 
 test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
 
-     Running tests/gateway.rs (rust-protocol/target/debug/deps/gateway-bb39ead103baf374)
+     Running tests/gateway.rs (rust-protocol/target/debug/deps/gateway-4d10dc78273c1f55)
 
-running 8 tests
-test stdin_stream_flushes_one_reply_per_frame_then_stops_at_global_cap ... ok
+running 9 tests
 test executable_provisions_private_unique_capabilities_and_rejects_public_credentials ... ok
 test call_reservations_remain_bound_to_the_authenticated_actor ... ok
+test malformed_and_unauthenticated_attempts_survive_restart_and_cap_closes ... ok
+test policy_fingerprint_remains_compatible_with_pre_upgrade_admission_state ... ok
 test rejected_operations_consume_credential_quota_and_configuration_is_frozen ... ok
 test invalid_encoding_duplicate_keys_and_oversize_are_bounded_and_metered ... ok
+test stdin_stream_flushes_one_reply_per_frame_then_stops_at_global_cap ... ok
 test actor_and_run_are_derived_from_capability_and_mailboxes_are_private ... ok
-test malformed_and_unauthenticated_attempts_survive_restart_and_cap_closes ... ok
 test maximum_actor_bindings_remain_valid_with_large_retained_call_history ... ok
 
-test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.53s
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.48s
 
-     Running tests/semantics.rs (rust-protocol/target/debug/deps/semantics-644027bc3414962d)
+     Running tests/semantics.rs (rust-protocol/target/debug/deps/semantics-220a69d603005618)
 
 running 3 tests
 test byte_and_call_limits_preserve_state_and_actor_ownership ... ok
 test ownership_version_and_run_boundaries_survive_acknowledgement ... ok
 test task_correlation_rejects_wrong_runs_participants_and_terminal_reuse ... ok
 
-test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
 
    Doc-tests mas_protocol_codec
 

@@ -160,7 +160,10 @@ def tool_result(value: dict, *, failed=False) -> dict:
             "structuredContent": value, "isError": bool(failed)}
 
 
-def validate_schema(schema: dict, arguments: dict | None = None):
+_NO_INSTANCE = object()
+
+
+def validate_schema(schema: dict, arguments=_NO_INSTANCE):
     """Use the 2020-12 implementation with a closed reference registry.
 
     Configuration is bounded before validator construction. No URI is fetched;
@@ -192,7 +195,7 @@ def validate_schema(schema: dict, arguments: dict | None = None):
     try:
         Draft202012Validator.check_schema(schema)
         validator = Draft202012Validator(schema, registry=Registry())
-        if arguments is not None:
+        if arguments is not _NO_INSTANCE:
             validator.validate(arguments)
     except Exception:
         raise MCPError(-32602, "Invalid tool schema or arguments") from None

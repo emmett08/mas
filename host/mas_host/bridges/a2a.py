@@ -16,7 +16,7 @@ import uuid
 
 from ..contracts import AdapterContext, Outcome, TaskRequest
 from ..service_contracts import ServiceError, TaskService
-from .remote import RemoteSnapshot, RemoteTaskService, bounded, digest, token
+from .remote import RemoteSnapshot, RemoteTaskService, bounded, digest, peer_identifier, token
 from .remote_http import BoundedJSONHTTP, endpoint_url
 
 VERSION = '1.0'
@@ -27,7 +27,9 @@ STATE_TO_WIRE = {
     'cancelled': 'TASK_STATE_CANCELED', 'unknown': 'TASK_STATE_UNSPECIFIED',
 }
 WIRE_TO_STATE = {value: key for key, value in STATE_TO_WIRE.items()} | {'TASK_STATE_REJECTED': 'failed'}
-WAITING = frozenset({'queued', 'running'})
+# An unresolved effect is neither a terminal result nor an interruption. Keep
+# blocking callers behind the same bounded wait until recovery settles it.
+WAITING = frozenset({'queued', 'running', 'unknown'})
 
 
 class A2AError(ServiceError):
@@ -39,6 +41,15 @@ class A2AError(ServiceError):
 def _fields(value, allowed):
     if type(value) is not dict or set(value) - set(allowed):
         raise A2AError(-32602, 'invalid_parameters')
+
+
+def _message_key(identifier):
+    """Preserve legacy keys; encode opaque wire IDs outside the local alphabet."""
+    peer_identifier(identifier)
+    try:
+        return 'a2a:' + token(identifier)
+    except ServiceError:
+        return 'a2a-opaque:' + hashlib.sha256(identifier.encode('utf-8')).hexdigest()
 
 
 def _history(value):
@@ -120,7 +131,8 @@ class A2ABridge:
         _fields(params, ('message', 'configuration', 'metadata'))
         message = params.get('message')
         _fields(message, ('messageId', 'role', 'parts', 'contextId', 'taskId', 'metadata'))
-        message_id = token(message.get('messageId'))
+        message_id = peer_identifier(message.get('messageId'))
+        request_key = _message_key(message_id)
         if message.get('role') != 'ROLE_USER':
             raise A2AError(-32602, 'invalid_message_role')
         parts = _parts(message.get('parts'), application=True)
@@ -156,12 +168,14 @@ class A2ABridge:
             context_id = existing.get('metadata', {}).get('context_id', 'context-' + task_id)
             if message.get('contextId', context_id) != context_id or workflow != existing['workflow']:
                 raise A2AError(-32602, 'task_context_mismatch')
-            receipt = self.service.update(principal, task_id, 'a2a:' + message_id, data['input'], metadata=metadata)
+            receipt = self.service.update(principal, task_id, request_key, data['input'], metadata=metadata)
         else:
-            context_id = message.get('contextId') or ('context-' + hashlib.sha256((principal + '\x00' + message_id).encode()).hexdigest()[:40])
-            token(context_id)
+            context_id = message.get('contextId')
+            if context_id is None:
+                context_id = 'context-' + hashlib.sha256((principal + '\x00' + message_id).encode()).hexdigest()[:40]
+            peer_identifier(context_id)
             metadata['context_id'] = context_id
-            receipt = self.service.submit(principal, 'a2a:' + message_id, workflow, data['input'], metadata=metadata)
+            receipt = self.service.submit(principal, request_key, workflow, data['input'], metadata=metadata)
         if not config.get('returnImmediately', False):
             deadline = time.monotonic() + self.wait_seconds
             while receipt['state'] in WAITING:
@@ -187,7 +201,7 @@ class A2ABridge:
             raise A2AError(-32602, 'invalid_state')
         context = params.get('contextId')
         if context is not None:
-            token(context)
+            peer_identifier(context)
         after_time = params.get('statusTimestampAfter')
         if after_time is not None:
             try:
@@ -240,7 +254,9 @@ class A2ABridge:
                 _history(params.get('historyLength'))
                 result = self._task(self.service.inspect(principal, token(params.get('id'))))
             elif method == 'CancelTask':
-                _fields(params, ('id',))
+                _fields(params, ('id', 'metadata'))
+                if 'metadata' in params:
+                    bounded(params['metadata'], 4096)
                 task_id = token(params.get('id'))
                 receipt = self.service.cancel(principal, task_id)
                 if receipt['state'] != 'cancelled':
@@ -278,28 +294,30 @@ def _remote_task(task: dict) -> RemoteSnapshot:
     state = WIRE_TO_STATE.get(wire_state) if type(wire_state) is str else None
     if state is None:
         raise ServiceError('invalid_remote_task')
-    token(task.get('id'))
-    token(task.get('contextId'))
+    peer_identifier(task.get('id'))
+    context_id = task.get('contextId')
+    if context_id is not None:
+        peer_identifier(context_id)
     if 'artifacts' in task:
         if type(task['artifacts']) is not list or len(task['artifacts']) > 64:
             raise ServiceError('invalid_remote_task')
         for artifact in task['artifacts']:
             if type(artifact) is not dict:
                 raise ServiceError('invalid_remote_task')
-            token(artifact.get('artifactId'))
+            peer_identifier(artifact.get('artifactId'))
             _parts(artifact.get('parts'))
-    return RemoteSnapshot(task['id'], state, bounded({'task': task}), task['contextId']).validate()
+    return RemoteSnapshot(task['id'], state, bounded({'task': task}), context_id).validate()
 
 
 class A2AClient:
     def __init__(self, transport: BoundedJSONHTTP, *, client_identity: str, tenant: str | None = None):
         self.transport, self.client_identity = transport, token(client_identity)
-        self.tenant = token(tenant) if tenant else None
+        self.tenant = peer_identifier(tenant) if tenant is not None else None
 
     def descriptor(self):
         return {'bridge': 'a2a', 'protocol_version': VERSION, 'binding': 'JSONRPC',
                 'client_identity': self.client_identity, 'tenant': self.tenant,
-                'contract': 'bounded-json-polling/1', **self.transport.descriptor()}
+                'contract': 'bounded-json-polling/2', **self.transport.descriptor()}
 
     def _rpc(self, method, params):
         identifier = str(uuid.uuid4())
@@ -320,7 +338,9 @@ class A2AClient:
         message = payload.get('message')
         if type(message) is not dict or message.get('role') != 'ROLE_USER' or message.get('taskId') is not None:
             raise ServiceError('invalid_remote_message')
-        token(message.get('messageId'))
+        peer_identifier(message.get('messageId'))
+        if message.get('contextId') is not None:
+            peer_identifier(message['contextId'])
         _parts(message.get('parts'))
         payload['configuration'] = dict(payload.get('configuration', {})) | {'returnImmediately': True}
         response = self._rpc('SendMessage', payload)
@@ -333,8 +353,8 @@ class A2AClient:
             answer = response['message']
             if type(answer) is not dict or answer.get('role') != 'ROLE_AGENT':
                 raise ServiceError('invalid_remote_message')
-            token(answer.get('messageId'))
-            token(answer.get('contextId'))
+            peer_identifier(answer.get('messageId'))
+            peer_identifier(answer.get('contextId'))
             if message.get('contextId') is not None and answer['contextId'] != message['contextId']:
                 raise ServiceError('remote_identity_conflict')
             _parts(answer.get('parts'))
@@ -342,21 +362,23 @@ class A2AClient:
         raise ServiceError('invalid_remote_response')
 
     def poll(self, remote_id):
-        return _remote_task(self._rpc('GetTask', {'id': token(remote_id), 'historyLength': 0}))
+        return _remote_task(self._rpc('GetTask', {'id': peer_identifier(remote_id), 'historyLength': 0}))
 
     def cancel(self, remote_id):
-        return _remote_task(self._rpc('CancelTask', {'id': token(remote_id)}))
+        return _remote_task(self._rpc('CancelTask', {'id': peer_identifier(remote_id)}))
 
     def update(self, remote_id, payload):
         payload = bounded(payload)
         message = payload.get('message')
         if type(message) is not dict or message.get('role') != 'ROLE_USER':
             raise ServiceError('invalid_remote_message')
-        token(message.get('messageId'))
+        peer_identifier(message.get('messageId'))
+        if message.get('contextId') is not None:
+            peer_identifier(message['contextId'])
         _parts(message.get('parts'))
         if message.get('taskId', remote_id) != remote_id:
             raise ServiceError('remote_identity_conflict')
-        message['taskId'] = token(remote_id)
+        message['taskId'] = peer_identifier(remote_id)
         payload['configuration'] = dict(payload.get('configuration', {})) | {'returnImmediately': True}
         response = self._rpc('SendMessage', payload)
         if set(response) != {'task'}:
@@ -373,6 +395,32 @@ class A2AAdapter:
         self.service, self.host_run_dir = service, host_run_dir
         self.reservation_microusd = reservation_microusd
 
+    def _context_id(self, alias):
+        return 'mas-a2a-v1-context-' + digest({'namespace': self.service.namespace,
+                                             'context': peer_identifier(alias)})
+
+    def _message(self, key, message, *, action, request_key=None):
+        message = bounded(message)
+        if 'referenceTaskIds' in message:
+            raise ServiceError('unsupported_capability')
+        message['messageId'] = 'mas-a2a-v1-message-' + digest({
+            'namespace': self.service.namespace, 'key': key, 'action': action,
+            'message_id': peer_identifier(message.get('messageId')), 'request_key': request_key})
+        supplied_context = message.get('contextId')
+        if action == 'submit':
+            if supplied_context is not None:
+                message['contextId'] = self._context_id(supplied_context)
+        else:
+            # Supplied continuation contexts must resolve to the owned receipt.
+            # Preserve omission so learning a context cannot change retry input.
+            saved_context = self.service.status(key)['context_id']
+            if supplied_context is not None and (peer_identifier(supplied_context) != saved_context
+                    and self._context_id(supplied_context) != saved_context):
+                raise ServiceError('remote_identity_conflict')
+            if supplied_context is not None:
+                message['contextId'] = saved_context
+        return message
+
     def handle(self, context: AdapterContext, request: TaskRequest) -> Outcome:
         if self.host_run_dir is None:
             raise ServiceError('invalid_host_directory')
@@ -381,13 +429,15 @@ class A2AAdapter:
         body = bounded(request.input)
         key = token(body.get('key'))
         if request.operation == 'a2a.submit' and set(body) == {'key', 'message'}:
-            result = self.service.submit(key, {'message': body['message']}, **args)
+            result = self.service.submit(key, {'message': self._message(key, body['message'], action='submit')}, **args)
         elif request.operation == 'a2a.get' and set(body) == {'key'}:
             result = self.service.poll(key, **args)
         elif request.operation == 'a2a.cancel' and set(body) == {'key', 'request_key'}:
             result = self.service.cancel(key, request_key=body['request_key'], **args)
         elif request.operation == 'a2a.update' and set(body) == {'key', 'message', 'request_key'}:
-            result = self.service.update(key, request_key=body['request_key'], payload={'message': body['message']}, **args)
+            request_key = token(body['request_key'])
+            message = self._message(key, body['message'], action='update', request_key=request_key)
+            result = self.service.update(key, request_key=request_key, payload={'message': message}, **args)
         else:
             raise ServiceError('unsupported_operation')
         return Outcome(result)

@@ -68,12 +68,14 @@ class TemporalSDKTests(unittest.TestCase):
         run = "01234567-0123-0123-0123-0123456789ab"
         handle.first_execution_run_id = run
         description = SimpleNamespace(run_id=run, status=WorkflowExecutionStatus.RUNNING,
-                                      workflow_type="Invoice", memo=AsyncMock(return_value={}))
+                                      workflow_type="Invoice", memo=AsyncMock(return_value={}),
+                                      raw_info=SimpleNamespace(first_run_id=run))
         handle.describe.return_value = description
         sdk.start_workflow.return_value = handle
         sdk.get_workflow_handle.return_value = handle
         client = TemporalWorkflowClient(TemporalTarget("localhost:7233", "default", "Invoice", "tasks", "deployment-1", tls=False),
                                         client_factory=AsyncMock(return_value=sdk))
+        description.id = client.workflow_id("job")
         return client, sdk, handle, description
 
     def test_outbound_real_sdk_signatures_and_exact_cancellation_identity(self):
@@ -101,6 +103,26 @@ class TemporalSDKTests(unittest.TestCase):
         description.memo.return_value = {"mas_binding": "other"}
         with self.assertRaisesRegex(ServiceError, "remote identity conflict"):
             client.lookup(payload)
+
+    def test_recovery_requires_original_run_proof_and_checks_its_binding(self):
+        from temporalio.client import WorkflowHandle
+        client, sdk, original, description = self.client()
+        payload = {"request_key": "job", "input": {}}
+        description.memo.return_value = {"mas_binding": "different-original-input"}
+        successor = create_autospec(WorkflowHandle, instance=True)
+        successor.describe.return_value = SimpleNamespace(
+            run_id="99999999-0123-0123-0123-0123456789ab",
+            raw_info=SimpleNamespace(first_run_id=description.run_id),
+            memo=AsyncMock(return_value={"mas_binding": client._binding(payload)}))
+        sdk.get_workflow_handle.side_effect = [successor, original]
+        with self.assertRaisesRegex(ServiceError, "remote identity conflict"):
+            client.lookup(payload)
+        self.assertEqual(sdk.get_workflow_handle.call_args.kwargs["run_id"], description.run_id)
+        successor.describe.return_value.raw_info.first_run_id = ""
+        sdk.get_workflow_handle.side_effect = [successor]
+        with self.assertRaisesRegex(ServiceError, "invalid temporal identity"):
+            client.lookup(payload)
+        sdk.start_workflow.assert_not_awaited()
 
     def test_continue_as_new_and_invalid_results_do_not_claim_success(self):
         from temporalio.client import WorkflowExecutionStatus

@@ -106,21 +106,135 @@ fn generate(path: &Path, root: &Path) -> Result<String> {
 
 fn strings(values: &[&str]) -> Vec<String> { values.iter().map(|s|s.to_string()).collect() }
 
+fn trace_state(value: &Value) -> Result<&'static str> {
+    Ok(match value.as_str().ok_or("trace state must be a string")? {
+        "absent" => "Absent", "queued" => "Queued", "running" => "Running",
+        "input_required" => "Input", "auth_required" => "Auth", "completed" => "Completed",
+        "failed" => "Failed", "cancelled" => "Cancelled", "unknown" => "Unknown",
+        _ => return Err("unknown trace state".into()),
+    })
+}
+
+fn trace_model(source: &str, trace: &Value) -> Result<String> {
+    let mut body = String::from("\ninit { initialise();\n");
+    for (index, action) in trace["actions"].as_array().ok_or("trace actions must be an array")?.iter().enumerate() {
+        let op = action["op"].as_str().ok_or("missing trace operation")?;
+        let args = action["args"].as_array().ok_or("missing trace arguments")?;
+        let arity = match op {"submit" | "inspect" | "cancel" => 2, "update" => 4,
+            "begin" | "answer" => 1, "commit" | "crash" => 0, _ => return Err("unknown trace operation".into())};
+        if args.len() != arity { return Err("invalid trace arity".into()); }
+        let mut values = Vec::new();
+        for value in args {
+            values.push(if op == "answer" {trace_state(value)?.to_owned()} else {
+                let number = value.as_u64().ok_or("trace argument must be an unsigned integer")?;
+                if number > 2 {return Err("trace argument exceeds declared finite values".into());}
+                number.to_string()
+            });
+        }
+        body += &format!("    {op}({});\n", values.join(","));
+        let expected = &action["expect"];
+        if let Some(error) = expected["error"].as_str() {
+            let status = match error {"request_conflict"=>"Conflict", "task_not_found"=>"Forbidden",
+                "invalid_task_state"=>"Invalid", "revision_limit"=>"Limit", _=>return Err("unknown trace error".into())};
+            body += &format!("    assert(result == {status}); /* TRACE_RESPONSE */\n");
+        } else if expected["idle"] == true {
+            body += "    assert(result == Invalid); /* TRACE_RESPONSE */\n";
+        } else if !matches!(op,"answer"|"crash") {
+            body += "    assert(result == Accepted || result == Duplicate); /* TRACE_RESPONSE */\n";
+        }
+        for field in ["state", "revision", "cancelled", "events"] {
+            let observations = expected[field].as_array().ok_or("missing per-step trace observation")?;
+            if observations.len()!=2 {return Err("trace observations require two principals".into());}
+            for (owner,value) in observations.iter().enumerate() {
+                let value = if field=="state" {trace_state(value)?.to_owned()}
+                    else if field=="cancelled" {u8::from(value.as_bool().ok_or("trace cancellation must be boolean")?).to_string()}
+                    else {value.as_u64().ok_or("trace observation must be unsigned")?.to_string()};
+                body += &format!("    assert({field}[{owner}] == {value}); /* TRACE_OBSERVATION */\n");
+            }
+        }
+        body += &format!("    printf(\"TRACE step {index} {op}\\n\");\n");
+    }
+    body += "    assert(!busy); /* TRACE_WORKER_FINISHED */\n}\n";
+    Ok(format!("#define TRACE_ONLY\n{source}{body}"))
+}
+
 #[derive(Default)]
 struct CaseOptions {
     defect: Option<&'static str>, no_reduce: bool, capacity: Option<u64>,
     standalone: bool, unbounded_faults: bool, assumption_witness: bool,
     weak_fairness: bool,
+    reachability_witness: bool,
+}
+
+fn expected_assertion(defect: Option<&str>) -> Option<&'static str> {
+    Some(match defect? {
+        "BUG_CURSOR_UNCHARGED" => "CURSOR_ADMITTED",
+        "BUG_CURSOR_REPLAY_UNKNOWN" => "CURSOR_NO_RELAUNCH",
+        "BUG_CURSOR_LOST_ID" => "CURSOR_ID_RETAINED",
+        "BUG_CURSOR_WRONG_RUN" => "CURSOR_RUN_CORRELATED",
+        "BUG_CURSOR_CANCEL_CONFIRMED" | "BUG_CURSOR_TIMEOUT_CANCELLED" => "CURSOR_TERMINAL_OBSERVED",
+        "BUG_CURSOR_TERMINAL_OVERWRITE" => "CURSOR_TERMINAL_IMMUTABLE",
+        "BUG_BRIDGE_DUPLICATE" => "BRIDGE_KEY_DEDUPLICATED",
+        "BUG_BRIDGE_CONFLICT" => "BRIDGE_KEY_CONTENT_IMMUTABLE",
+        "BUG_BRIDGE_UNADMITTED" => "BRIDGE_ADMISSION_BEFORE_EFFECT",
+        "BUG_BRIDGE_UNKNOWN_REPLAY" => "BRIDGE_UNKNOWN_NOT_REPLAYED",
+        "BUG_BRIDGE_CANCEL_CONFIRMED" => "BRIDGE_CANCEL_NOT_CONFIRMATION",
+        "BUG_BRIDGE_STALE_OVERWRITE" => "BRIDGE_TERMINAL_IMMUTABLE",
+        "BUG_BRIDGE_EVENT_LOST" => "BRIDGE_EVENTS_ATOMIC",
+        "BUG_BRIDGE_INBOX_OVERFLOW" => "BRIDGE_INBOX_BOUND",
+        "BUG_BRIDGE_UNCOMMITTED_EVENT" => "BRIDGE_EVENT_COMMITTED",
+        "BUG_BRIDGE_CURSOR_BEFORE_DELIVERY" => "BRIDGE_CURSOR_OBSERVED",
+        "BUG_SERVICE_CANCEL_PAUSE" => "SERVICE_CANCEL_CLOSES_PAUSE",
+        "BUG_SERVICE_UNSCOPED_KEY" => "SERVICE_OWNER_ISOLATED",
+        "BUG_SERVICE_STALE_REVISION" => "SERVICE_COMMIT_CURRENT_REVISION",
+        "BUG_SERVICE_EVENT_LOST" => "SERVICE_EVENT_ATOMIC",
+        "WITNESS_SERVICE_TWO_OWNERS" => "REACH_SERVICE_TWO_OWNERS",
+        "WITNESS_SERVICE_CANCEL_PAUSE" => "REACH_SERVICE_CANCEL_PAUSE",
+        "WITNESS_SERVICE_REVISION" => "REACH_SERVICE_REVISION",
+        "WITNESS_SERVICE_UNKNOWN_RESTART" => "REACH_SERVICE_UNKNOWN_RESTART",
+        "WITNESS_SERVICE_FOREIGN_REJECTED" => "REACH_SERVICE_FOREIGN_REJECTED",
+        _ => return None,
+    })
+}
+
+// SPIN's replay reports the original model line, including inline assertions.
+// Bind a mutation to that line's stable property marker, not merely any failure.
+fn replay_assertion(model_name: &str, model: &str, replay: &str) -> Option<String> {
+    let prefix = format!("spin: {model_name}:");
+    let failure = replay.lines().find(|line| line.starts_with(&prefix) && line.contains(", Error: assertion violated"))?;
+    // SPIN 6.5.2 can report a collapsed #ifdef line for the later witness
+    // alternatives. Match their exact failed expression instead of guessing
+    // another source line. This remains an assertion-specific, fail-closed gate.
+    let expression = replay.lines().find_map(|line| line.strip_prefix("spin: text of failed assertion: "))?;
+    let witness = match expression {
+        "assert(!((receipts[0]==1)&&(receipts[1]==1)))" => Some("REACH_SERVICE_TWO_OWNERS"),
+        "assert(!(cancelled_pause))" => Some("REACH_SERVICE_CANCEL_PAUSE"),
+        "assert(!(reached_revision))" => Some("REACH_SERVICE_REVISION"),
+        "assert(!(reached_unknown_restart))" => Some("REACH_SERVICE_UNKNOWN_RESTART"),
+        "assert(!(foreign_rejected))" => Some("REACH_SERVICE_FOREIGN_REJECTED"),
+        _ => None,
+    };
+    if let Some(marker) = witness {
+        return model.contains(&format!("/* {marker} */")).then(|| marker.to_owned());
+    }
+    let number = failure.strip_prefix(&prefix)?.split(',').next()?.parse::<usize>().ok()?;
+    let source = model.lines().nth(number.checked_sub(1)?)?;
+    let marker = source.split("/*").nth(1)?.split("*/").next()?.trim();
+    if marker.is_empty() || !marker.bytes().all(|b| b.is_ascii_uppercase() || b.is_ascii_digit() || b == b'_') {
+        return None;
+    }
+    Some(marker.to_owned())
 }
 
 fn expected_check_satisfied(check: &Value, counterexample: bool, cycle: bool) -> bool {
     if !counterexample { return check["status"] == "COMPLETE_NO_ERRORS"; }
     check["status"] == "COUNTEREXAMPLE" && check["counterexample_kind"] == if cycle {"acceptance_cycle"} else {"assertion"}
         && check["replay"]["returncode"] == 0 && check["replay"]["timeout"] == false
+        && (check["expected_assertion_id"].is_null() || check["expected_assertion_id"] == check["replayed_assertion_id"])
 }
 
 fn run_case(source: &Path, dest: &Path, opt: &Options, case: CaseOptions) -> Result<Value> {
-    let CaseOptions {defect,no_reduce,capacity,standalone:task,unbounded_faults,assumption_witness,weak_fairness}=case;
+    let CaseOptions {defect,no_reduce,capacity,standalone:task,unbounded_faults,assumption_witness,weak_fairness,reachability_witness}=case;
     fs::create_dir_all(dest)?;
     // Reject stale verifier/trail output from a previous interrupted invocation.
     for entry in fs::read_dir(dest)? {
@@ -138,7 +252,7 @@ fn run_case(source: &Path, dest: &Path, opt: &Options, case: CaseOptions) -> Res
     let mut commands = Vec::new(); let mut checks = Vec::new();
     let mut simulations_ok = true;
     if task && source.file_name().is_some_and(|name| name == "host-recovery.pml" || name == "cursor-jobs.pml"
-        || name == "bridge-service.pml" || name == "bridge-events.pml") && defect.is_none() {
+        || name == "bridge-service.pml" || name == "bridge-events.pml" || name == "task-service.pml") && defect.is_none() {
         for seed in [17, 29, 53] {
             let command = strings(&["spin", &format!("-n{seed}"), "-u10000", "-p", "-g", "-l", model_name]);
             let mut record = run(&command, dest, &format!("simulation-{seed}"), opt)?;
@@ -193,6 +307,7 @@ fn run_case(source: &Path, dest: &Path, opt: &Options, case: CaseOptions) -> Res
             let raw=fs::read_to_string(dest.join(checked["log"].as_str().unwrap()))?;
             checked["counterexample_kind"]=json!(if raw.contains("acceptance cycle") {"acceptance_cycle"}
                 else if raw.contains("assertion violated") {"assertion"} else {"none_or_other"});
+            checked["expected_assertion_id"] = json!(expected_assertion(defect));
             let trail=dest.join(format!("{model_name}.trail"));
             if trail.exists() {
                 let saved=dest.join(format!("{property}.trail")); fs::rename(trail,&saved)?;
@@ -200,6 +315,8 @@ fn run_case(source: &Path, dest: &Path, opt: &Options, case: CaseOptions) -> Res
                 let mut cmd=strings(&["spin"]);cmd.extend(defs.clone());
                 cmd.extend(strings(&["-t","-k",saved.file_name().unwrap().to_str().unwrap(),"-p","-g","-l",model_name]));
                 checked["replay"]=invoke(&mut commands,cmd,dest,&format!("replay-{property}"),opt)?;
+                let replay = fs::read_to_string(dest.join(checked["replay"]["log"].as_str().ok_or("missing replay log")?))?;
+                checked["replayed_assertion_id"] = json!(replay_assertion(model_name, &fs::read_to_string(&model)?, &replay));
             }
             checks.push(checked);
         }
@@ -218,7 +335,7 @@ fn run_case(source: &Path, dest: &Path, opt: &Options, case: CaseOptions) -> Res
         "model_sha256":sha(&model)?,"defect":defect,"capacity":capacity.unwrap_or(config["mailbox_capacity"].as_u64().unwrap_or(2)),
         "partial_order_reduction":!no_reduce,"weak_process_fairness":weak_fairness,
         "fault_repetition":if unbounded_faults {"unlimited"} else {"bounded_or_not_applicable"},
-        "purpose":if assumption_witness {"assumption_counterexample"} else if defect.is_some() {"deliberate_defect"}
+        "purpose":if reachability_witness {"reachability_witness"} else if assumption_witness {"assumption_counterexample"} else if defect.is_some() {"deliberate_defect"}
             else if task {"standalone_safety"} else if unbounded_faults {"unbounded_fault_safety"} else {"bounded_transport"},
         "expected_result":expected,"expectation_met":ok,
         "commands":commands,"checks":checks,"status":if ok{"PASS"}else{"FAIL_OR_INCONCLUSIVE"}}))
@@ -332,7 +449,13 @@ fn main() -> Result<()> {
         ("bridge-service.pml","negative-bridge-event-lost",Some("BUG_BRIDGE_EVENT_LOST")),
         ("bridge-events.pml","bridge-events",None),
         ("bridge-events.pml","negative-bridge-inbox-overflow",Some("BUG_BRIDGE_INBOX_OVERFLOW")),
-        ("bridge-events.pml","negative-bridge-uncommitted-event",Some("BUG_BRIDGE_UNCOMMITTED_EVENT"))] {
+        ("bridge-events.pml","negative-bridge-uncommitted-event",Some("BUG_BRIDGE_UNCOMMITTED_EVENT")),
+        ("bridge-events.pml","negative-bridge-cursor-before-delivery",Some("BUG_BRIDGE_CURSOR_BEFORE_DELIVERY")),
+        ("task-service.pml","task-service",None),
+        ("task-service.pml","negative-service-cancel-pause",Some("BUG_SERVICE_CANCEL_PAUSE")),
+        ("task-service.pml","negative-service-unscoped-key",Some("BUG_SERVICE_UNSCOPED_KEY")),
+        ("task-service.pml","negative-service-stale-revision",Some("BUG_SERVICE_STALE_REVISION")),
+        ("task-service.pml","negative-service-event-lost",Some("BUG_SERVICE_EVENT_LOST"))] {
         let case=run_case(&opt.root.join("formal").join(model),&opt.out.join(name),&opt,
             CaseOptions{standalone:true,defect,..Default::default()})?;
         println!("{name} {}",case["status"]);cases.push(case);
@@ -340,10 +463,37 @@ fn main() -> Result<()> {
     let case=run_case(&opt.root.join("formal/cursor-jobs.pml"),&opt.out.join("cursor-jobs-no-reduction"),&opt,
         CaseOptions{standalone:true,no_reduce:true,..Default::default()})?;
     println!("cursor-jobs-no-reduction {}",case["status"]);cases.push(case);
-    for name in ["bridge-service", "bridge-events"] {
+    for name in ["bridge-service", "bridge-events", "task-service"] {
         let case=run_case(&opt.root.join(format!("formal/{name}.pml")),&opt.out.join(format!("{name}-no-reduction")),&opt,
             CaseOptions{standalone:true,no_reduce:true,..Default::default()})?;
         println!("{name}-no-reduction {}",case["status"]);cases.push(case);
+    }
+    for (defect,name) in [
+        ("WITNESS_SERVICE_TWO_OWNERS", "reach-service-two-owners"),
+        ("WITNESS_SERVICE_CANCEL_PAUSE", "reach-service-cancel-pause"),
+        ("WITNESS_SERVICE_REVISION", "reach-service-revision"),
+        ("WITNESS_SERVICE_UNKNOWN_RESTART", "reach-service-unknown-restart"),
+        ("WITNESS_SERVICE_FOREIGN_REJECTED", "reach-service-foreign-rejected")] {
+        let case=run_case(&opt.root.join("formal/task-service.pml"),&opt.out.join(name),&opt,
+            CaseOptions{standalone:true,defect:Some(defect),reachability_witness:true,..Default::default()})?;
+        println!("{name} {}",case["status"]);cases.push(case);
+    }
+    let corpus_path = opt.root.join("host/tests/fixtures/task-service-traces.json");
+    let corpus: Value = serde_json::from_str(&fs::read_to_string(&corpus_path)?)?;
+    if corpus["version"] != 1 {return Err("unsupported trace corpus version".into());}
+    let trace_sources = opt.out.join("trace-sources");fs::create_dir_all(&trace_sources)?;
+    let task_model = fs::read_to_string(opt.root.join("formal/task-service.pml"))?;
+    for trace in corpus["traces"].as_array().ok_or("missing shared traces")? {
+        let name=trace["name"].as_str().ok_or("trace needs name")?;
+        if name.is_empty() || !name.bytes().all(|b|b.is_ascii_alphanumeric() || b==b'_') {
+            return Err("invalid trace name".into());
+        }
+        let name=format!("trace-service-{name}");
+        let source=trace_sources.join(format!("{name}.pml"));
+        fs::write(&source,trace_model(&task_model,trace)?)?;
+        let mut case=run_case(&source,&opt.out.join(&name),&opt,CaseOptions{standalone:true,..Default::default()})?;
+        case["purpose"]=json!("shared_trace_conformance");
+        println!("{name} {}",case["status"]);cases.push(case);
     }
     let ok=cases.iter().all(|c|c["status"]=="PASS");
     let summary=json!({"status":if ok{"PASS"}else{"FAIL_OR_INCONCLUSIVE"},"versions":versions,"cases":cases,
@@ -352,7 +502,9 @@ fn main() -> Result<()> {
             "host_recovery":{"logical_calls":1,"attempts":2,"crashes":1,"owners":2},
             "cursor_jobs":{"logical_jobs":1,"remote_run_id_values":2,"crashes":1,"polls":2,"cancellation_requests":1},
             "bridge_service":{"principals":1,"request_keys":1,"payload_values":2,"submissions":3,"crashes":1,"observations":2},
-            "bridge_events":{"tasks":2,"event_slots":3,"reads":2,"client_restarts":1}},
+            "bridge_events":{"tasks":2,"event_slots":3,"reads":2,"client_restarts":1},
+            "task_service":{"principals":2,"tasks":2,"scheduled_tasks":1,"revisions_per_task":2,"workers":1,"crashes":1,
+                "shared_trace_count":corpus["traces"].as_array().unwrap().len()}},
         "limits":{"seconds_per_command":opt.seconds,"memory_mb":opt.memory,"depth":opt.depth},
         "assumptions":["fixed membership and directed ACL","no scheduling fairness required by bounded transport model",
             "bounded faults for positive transport liveness only","SQLite transaction isolation and atomic recovery boundary",
@@ -363,7 +515,10 @@ fn main() -> Result<()> {
             "Cursor provider availability, remote cancellation, billing and local SDK implementation are outside the finite model",
             "Bridge identity scope represents an already authenticated principal; network authentication is not modelled",
             "Bridge task/event commits are atomic; remote dispatch and receipt persistence are distinct transitions",
-            "Bridge event consumers own their cursor; no server acknowledgement, guaranteed delivery or eventual remote completion is claimed"],
+            "Bridge event consumers own their cursor; no server acknowledgement, guaranteed delivery or eventual remote completion is claimed",
+            "Local TaskService checks serialize API transactions, split worker claim/reply/commit, and assume the separately tested host checkpoint contract",
+            "Local remote-evidence separation is an environmental assumption, not a proof of the remote implementation",
+            "Shared finite traces compare model transitions with real TaskService/SQLite and an injected executor, not unrestricted implementation refinement"],
         "runner_sha256":sha(&opt.root.join("rust-protocol/src/bin/verify.rs"))?,
         "template_sha256":sha(&opt.root.join("formal/protocol.pml.in"))?,
         "actions_sha256":sha(&opt.root.join("formal/actions.pml.in"))?,
@@ -372,7 +527,9 @@ fn main() -> Result<()> {
         "host_recovery_model_sha256":sha(&opt.root.join("formal/host-recovery.pml"))?,
         "cursor_jobs_model_sha256":sha(&opt.root.join("formal/cursor-jobs.pml"))?,
         "bridge_service_model_sha256":sha(&opt.root.join("formal/bridge-service.pml"))?,
-        "bridge_events_model_sha256":sha(&opt.root.join("formal/bridge-events.pml"))?});
+        "bridge_events_model_sha256":sha(&opt.root.join("formal/bridge-events.pml"))?,
+        "task_service_model_sha256":sha(&opt.root.join("formal/task-service.pml"))?,
+        "task_service_trace_corpus_sha256":sha(&corpus_path)?});
     fs::write(opt.out.join("summary.json"),format!("{}\n",serde_json::to_string_pretty(&summary)?))?;
     if !ok{return Err(io::Error::other("model verification failed or incomplete; inspect summary.json").into());}
     Ok(())
@@ -427,9 +584,41 @@ mod tests {
         assert!(!expected_check_satisfied(&check,false,false));
         check["counterexample_kind"]=json!("assertion");
         assert!(expected_check_satisfied(&check,true,false));
+        check["expected_assertion_id"]=json!("SERVICE_OWNER_ISOLATED");
+        check["replayed_assertion_id"]=json!("SERVICE_EVENT_ATOMIC");
+        assert!(!expected_check_satisfied(&check,true,false));
+        check["replayed_assertion_id"]=json!("SERVICE_OWNER_ISOLATED");
+        assert!(expected_check_satisfied(&check,true,false));
         check["replay"]["timeout"]=json!(true);
         assert!(!expected_check_satisfied(&check,true,false));
         check["status"]=json!("INCOMPLETE");
         assert!(!expected_check_satisfied(&check,true,false));
+    }
+    #[test]
+    fn replay_binds_the_actual_failed_source_assertion() {
+        let source="assert(true); /* FIRST_PROPERTY */\nassert(false); /* EXPECTED_PROPERTY */\n";
+        let replay="spin: local.pml:2, Error: assertion violated\nspin: text of failed assertion: assert(0)\n";
+        assert_eq!(replay_assertion("local.pml",source,replay).as_deref(),Some("EXPECTED_PROPERTY"));
+        assert_eq!(replay_assertion("different.pml",source,replay),None);
+        assert_eq!(replay_assertion("local.pml",source,"exit code 0"),None);
+        assert_eq!(replay_assertion("local.pml",source,"spin: local.pml:3, Error: assertion violated"),None);
+        let conditional="/* REACH_SERVICE_UNKNOWN_RESTART */\n";
+        let collapsed="spin: local.pml:62, Error: assertion violated\nspin: text of failed assertion: assert(!(reached_unknown_restart))\n";
+        assert_eq!(replay_assertion("local.pml",conditional,collapsed).as_deref(),Some("REACH_SERVICE_UNKNOWN_RESTART"));
+        assert_eq!(replay_assertion("local.pml",source,collapsed),None);
+    }
+    #[test]
+    fn shared_trace_generation_checks_each_observation() {
+        let trace=json!({"actions":[{"op":"submit","args":[0,1],"expect":{
+            "state":["queued","absent"],"revision":[0,0],"cancelled":[false,false],"events":[1,0]}}]});
+        let generated=trace_model("/* model */\n",&trace).unwrap();
+        assert!(generated.starts_with("#define TRACE_ONLY\n"));
+        assert!(generated.contains("submit(0,1)"));
+        assert!(generated.contains("assert(state[0] == Queued)"));
+        assert!(generated.contains("assert(events[1] == 0)"));
+        let mut invalid=trace.clone();invalid["actions"][0]["op"]=json!("unknown");
+        assert!(trace_model("",&invalid).is_err());
+        invalid=trace.clone();invalid["actions"][0]["expect"]["state"][0]=json!("invalid");
+        assert!(trace_model("",&invalid).is_err());
     }
 }

@@ -183,9 +183,9 @@ class JobStore:
         with self.open(readonly=True) as db:
             return self.public(self.row(db, job_id), include_result=include_result)
 
-    def inspect(self, job_id: str) -> dict:
+    def inspect(self, job_id: str, *, include_result=False) -> dict:
         with self.open(readonly=True) as db:
-            result = self.public(self.row(db, job_id))
+            result = self.public(self.row(db, job_id), include_result=include_result)
             result["audit"] = [{"event": row["event"], "created": row["created"],
                                 "evidence": json.loads(row["evidence"])}
                                for row in db.execute("SELECT * FROM audit WHERE job_id=? ORDER BY id", (job_id,))]

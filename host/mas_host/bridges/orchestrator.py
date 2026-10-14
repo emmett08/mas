@@ -11,7 +11,7 @@ import time
 from typing import Callable
 
 from ..codec import integer_json
-from ..service_contracts import ServiceError, TaskService
+from ..service_contracts import ServiceError, TaskLifecycle
 
 STATES = frozenset({"queued", "running", "input_required", "auth_required",
                     "completed", "failed", "cancelled", "unknown"})
@@ -43,7 +43,7 @@ def bounded_seconds(value: float, maximum: int = 3600) -> float:
 
 class OrchestratorConnector:
     """One authenticated principal with narrow, injectable service capabilities."""
-    def __init__(self, service: TaskService, principal: str, *,
+    def __init__(self, service: TaskLifecycle, principal: str, *,
                  clock: Callable[[], float] = time.monotonic,
                  sleep: Callable[[float], None] = time.sleep):
         if type(principal) is not str or not principal:

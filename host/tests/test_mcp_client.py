@@ -12,10 +12,11 @@ import unittest
 from unittest.mock import patch
 
 from mas_host import Outcome, Runner, RecoveryRequired
-from mas_host.bridges.mcp import MCPError, PREFIX, VERSION, metadata, tool_result, validate_request
+from mas_host.bridges.mcp import MCPError, PREFIX, VERSION, decode_header, metadata, tool_result, validate_request
 from mas_host.bridges.mcp_client import MCPClient, MCPRemoteClient, MCPToolAdapter, parameter_headers, validate_schema
 from mas_host.bridges.mcp_transport import StreamableHTTPTransport, StdioTransport, _response_from_sse
 from mas_host.bridges.remote import RemoteTaskService, RemoteTaskStore
+from mas_host.service_contracts import ServiceError
 from mas_host.task_service import DurableTaskService, Workflow
 from test_runner import FunctionAdapter, topology
 import test_runner as runner_tests
@@ -26,6 +27,7 @@ TOOL={'name':'multiply','inputSchema':{'type':'object','properties':{'n':{'type'
 class Peer:
     def __init__(self,mode='immediate'):
         self.mode=mode;self.requests=[];self.status='working';self.fail=False;self.entered=threading.Event()
+        self.task_id='task-remote';self.input_requests=None
         parent=self
         class Handler(BaseHTTPRequestHandler):
             def log_message(self,*_):pass
@@ -49,9 +51,10 @@ class Peer:
                 elif method in ('tasks/cancel','tasks/update'):
                     result={'resultType':'complete'}
                 elif method=='tasks/get' or parent.mode=='task':
-                    result={'resultType':'task' if method=='tools/call' else 'complete','taskId':'task-remote',
+                    result={'resultType':'task' if method=='tools/call' else 'complete','taskId':parent.task_id,
                         'status':parent.status,'createdAt':'2026-10-14T10:00:00Z','lastUpdatedAt':'2026-10-14T10:00:00Z','ttlMs':None}
                     if parent.status=='completed':result['result']=tool_result({'n':10},failed=parent.fail)
+                    if parent.status=='input_required':result['inputRequests']=parent.input_requests
                 else:
                     result=tool_result({'n':message['params']['arguments']['n']*2},failed=parent.fail)
                     if parent.mode=='decimal':result['structuredContent']['n']=.5
@@ -211,6 +214,42 @@ class MCPDurableRunnerTests(unittest.TestCase):
         self.peer.status='completed'
         outcome=self.runner.request('a','b','mcp.poll',{'key':'job1'})
         self.assertEqual(outcome.output['state'],'completed')
+
+    def test_opaque_peer_identity_survives_store_and_lifecycle_header_encoding(self):
+        prefix='tasks/世界\n\0/'
+        opaque=prefix+'x'*(1024-len(prefix.encode('utf-8')))
+        input_id='consent/é\n\0'
+        self.peer.task_id=opaque;self.peer.status='input_required'
+        self.peer.input_requests={input_id:{'method':'elicitation/create','params':{
+            'mode':'form','message':'Continue?',
+            'requestedSchema':{'type':'object','properties':{'yes':{'type':'boolean'}}}}}}
+        self.remote.client.elicitation=True
+        self.service=RemoteTaskService(RemoteTaskStore(self.state),self.remote,namespace='alice:workflow:b')
+        self.adapter.service=self.service
+        submitted=self.runner.request('a','b','mcp.call',{'key':'opaque','arguments':{'n':3}})
+        self.assertEqual(submitted.output['remote_id'],opaque)
+        self.assertIn(input_id,submitted.output['result']['input_requests'])
+        self.service=RemoteTaskService(RemoteTaskStore(self.state),self.remote,namespace='alice:workflow:b')
+        self.adapter.service=self.service
+        self.assertEqual(self.service.status('opaque')['remote_id'],opaque)
+        self.runner.request('a','b','mcp.update',{'key':'opaque','request_key':'answer',
+            'input_responses':{input_id:{'action':'accept','content':{'yes':True}}}})
+        self.peer.status='working'
+        self.runner.request('a','b','mcp.poll',{'key':'opaque'})
+        self.runner.request('a','b','mcp.cancel',{'key':'opaque','request_key':'stop'})
+        lifecycle=self.peer.requests[1:]
+        self.assertEqual([message['method'] for message,_ in lifecycle],
+                         ['tasks/update','tasks/get','tasks/cancel'])
+        for message,headers in lifecycle:
+            self.assertEqual(message['params']['taskId'],opaque)
+            self.assertEqual(decode_header(headers['Mcp-Name']),opaque)
+            self.assertTrue(headers['Mcp-Name'].startswith('=?base64?'))
+            self.assertTrue(all(32<=ord(c)<=126 for c in headers['Mcp-Name']))
+        self.assertIn(input_id,lifecycle[0][0]['params']['inputResponses'])
+        self.assertEqual(self.service.status('opaque')['remote_id'],opaque)
+        self.peer.task_id=opaque+'x'
+        with self.assertRaises(ServiceError):
+            self.remote.submit({'arguments':{'n':3}}).validate()
 
     def test_one_workflow_factory_keeps_owner_namespace_across_call_and_poll(self):
         def factory(binding):

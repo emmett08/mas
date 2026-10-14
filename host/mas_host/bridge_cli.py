@@ -8,6 +8,7 @@ import os
 from pathlib import Path
 import secrets
 import signal
+import stat
 import sys
 import time
 
@@ -17,10 +18,36 @@ from .service_contracts import ServiceError
 
 def _private_create(path: Path, data: bytes):
     fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
-    with os.fdopen(fd, "wb") as stream:
-        stream.write(data)
-        stream.flush()
-        os.fsync(stream.fileno())
+    identity = os.fstat(fd)
+    try:
+        with os.fdopen(fd, "wb") as stream:
+            stream.write(data)
+            stream.flush()
+            os.fsync(stream.fileno())
+    except BaseException:
+        _remove_created(path, identity)
+        raise
+    return identity
+
+
+def _remove_created(path: Path, identity):
+    """Rollback only the owned regular file created by this invocation."""
+    try:
+        current = path.lstat()
+        if (stat.S_ISREG(current.st_mode) and current.st_uid == os.geteuid()
+                and (current.st_dev, current.st_ino) == (identity.st_dev, identity.st_ino)):
+            path.unlink()
+    except FileNotFoundError:
+        pass
+
+
+def _auth_destinations(token_file: Path, verifier_file: Path):
+    if token_file.resolve() == verifier_file.resolve():
+        raise ServiceError("invalid_auth_destination")
+    for path in (token_file, verifier_file):
+        if (path.exists() or path.is_symlink() or not path.parent.is_dir()
+                or not os.access(path.parent, os.W_OK | os.X_OK)):
+            raise ServiceError("invalid_auth_destination")
 
 
 def main(argv=None):
@@ -49,14 +76,16 @@ def main(argv=None):
         if args.command == "init-auth":
             from .bridges.authentication import _principal
             _principal(args.principal)
-            if (not args.principal or len(args.principal) > 256 or args.token_file == args.verifier_file
-                    or args.token_file.exists() or args.verifier_file.exists()):
-                raise ServiceError("invalid_auth_destination")
+            _auth_destinations(args.token_file, args.verifier_file)
             token = secrets.token_urlsafe(48)
             record = {"version": 1, "credentials": [{"sha256": hashlib.sha256(token.encode()).hexdigest(),
                 "principal": args.principal, "scopes": ["mas:submit", "mas:read", "mas:cancel", "mas:update"]}]}
-            _private_create(args.token_file, (token + "\n").encode())
-            _private_create(args.verifier_file, (json.dumps(record) + "\n").encode())
+            token_identity = _private_create(args.token_file, (token + "\n").encode())
+            try:
+                _private_create(args.verifier_file, (json.dumps(record) + "\n").encode())
+            except BaseException:
+                _remove_created(args.token_file, token_identity)
+                raise
             print(json.dumps({"ok": True, "token_file": str(args.token_file), "verifier_file": str(args.verifier_file)}))
             return 0
         config = load_config(args.config)

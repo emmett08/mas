@@ -150,9 +150,11 @@ def _snapshot(result: dict) -> RemoteSnapshot:
             or (result.get("ttlMs") is not None and (type(result["ttlMs"]) is not int or result["ttlMs"] < 0))):
         raise MCPError(1002, "Invalid MCP task response")
     if result.get("resultType") == "task" and ((status == "completed" and "result" not in result)
-                                               or (status == "failed" and "error" not in result)):
-        # CreateTaskResult carries the base Task, so terminal content may be
-        # available only through tasks/get. Persist its identity before polling.
+                                               or (status == "failed" and "error" not in result)
+                                               or (status == "input_required" and "inputRequests" not in result)):
+        # CreateTaskResult carries the base Task, so terminal content or
+        # pending input requests may be available only through tasks/get.
+        # Persist the known identity before observing detailed task state.
         return RemoteSnapshot(task_id, "running", {"mcp_status": status, "result_pending": True,
                               "mcp_task": {k: v for k, v in result.items() if k != "resultType"}})
     if status == "completed":
@@ -198,7 +200,7 @@ class MCPRemoteClient:
     def _validate_output(self, result):
         result = _tool_output(result)
         if "outputSchema" in self.tool and not result.get("isError", False):
-            if type(result.get("structuredContent")) is not dict:
+            if "structuredContent" not in result:
                 raise MCPError(1002, "MCP output does not satisfy its configured schema")
             validate_schema(self.tool["outputSchema"], result["structuredContent"])
         return result
@@ -222,12 +224,16 @@ class MCPRemoteClient:
 
     def poll(self, remote_id: str):
         result = self.client.request("tasks/get", {"taskId": remote_id})
+        if result.get("resultType") != "complete":
+            raise MCPError(1002, "Invalid MCP task observation result")
         if result.get("taskId") != remote_id:
             raise MCPError(1002, "MCP task identity changed")
         return self._snapshot(result)
 
     def cancel(self, remote_id: str):
-        self.client.request("tasks/cancel", {"taskId": remote_id})
+        result = self.client.request("tasks/cancel", {"taskId": remote_id})
+        if result.get("resultType") != "complete":
+            raise MCPError(1002, "Invalid MCP cancellation acknowledgement")
         # An acknowledgement proves intent receipt only. Observation is another
         # admitted action, and might still show successful completion.
         return RemoteSnapshot(remote_id, "running", {"cancel_acknowledged": True})
@@ -235,7 +241,9 @@ class MCPRemoteClient:
     def update(self, remote_id: str, payload: dict):
         if set(payload) != {"input_responses"} or type(payload["input_responses"]) is not dict:
             raise MCPError(-32602, "MCP update requires input_responses")
-        self.client.request("tasks/update", {"taskId": remote_id, "inputResponses": payload["input_responses"]})
+        result = self.client.request("tasks/update", {"taskId": remote_id, "inputResponses": payload["input_responses"]})
+        if result.get("resultType") != "complete":
+            raise MCPError(1002, "Invalid MCP update acknowledgement")
         return RemoteSnapshot(remote_id, "running", {"update_acknowledged": True})
 
 

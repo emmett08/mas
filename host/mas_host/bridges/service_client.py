@@ -19,6 +19,7 @@ from ..contracts import RunnerError
 from ..service_contracts import ServiceError
 from .authentication import _principal, _unique, read_token_file
 
+MAX_WIRE_BYTES = 1_048_576
 
 def validate_endpoint(endpoint, *, allow_loopback_http=False):
     try:
@@ -41,7 +42,8 @@ def validate_endpoint(endpoint, *, allow_loopback_http=False):
 
 
 def http_exchange(endpoint, *, method="POST", body=None, headers=None,
-                  timeout_seconds=5, max_response_bytes=65536, allow_loopback_http=False):
+                  timeout_seconds=5, max_response_bytes=65536, allow_loopback_http=False,
+                  sse_response_id=None):
     """One explicit HTTP request with an absolute, thread-compatible deadline.
 
     A small disposable subprocess prevents socket/DNS implementation details
@@ -52,7 +54,8 @@ def http_exchange(endpoint, *, method="POST", body=None, headers=None,
     if (type(timeout_seconds) not in (int, float) or not 0 < timeout_seconds <= 300
             or type(max_response_bytes) is not int or not 1 <= max_response_bytes <= 1024 * 1024
             or method not in {"GET", "POST", "DELETE", "PUT"}
-            or body is not None and (type(body) is not bytes or len(body) > 1024 * 1024)):
+            or body is not None and (type(body) is not bytes or len(body) > 1024 * 1024)
+            or sse_response_id is not None and type(sse_response_id) not in (int, str)):
         raise ServiceError("invalid_transport_configuration")
     header_map = dict(headers or {})
     for key, value in header_map.items():
@@ -63,7 +66,8 @@ def http_exchange(endpoint, *, method="POST", body=None, headers=None,
             raise ServiceError("invalid_transport_configuration")
     wire = json.dumps({"endpoint": endpoint, "method": method, "headers": header_map,
                        "body": base64.b64encode(body).decode() if body is not None else None,
-                       "timeout_seconds": timeout_seconds, "max_response_bytes": max_response_bytes},
+                       "timeout_seconds": timeout_seconds, "max_response_bytes": max_response_bytes,
+                       "sse_response_id": sse_response_id},
                       separators=(",", ":")).encode()
     process = None
     try:
@@ -131,16 +135,16 @@ class TaskServiceClient:
     def _request(self, principal, operation, payload):
         if principal != self.principal:
             raise ServiceError("principal_mismatch")
-        body = integer_json(payload).encode()
+        body = integer_json(payload, MAX_WIRE_BYTES).encode()
         status, _headers, raw = self._transport(
             self.endpoint + "/service/" + operation, method="POST", body=body,
             headers={"Authorization": "Bearer " + read_token_file(self.token_file),
                      "Content-Type": "application/json", "Accept": "application/json"},
-            timeout_seconds=self.timeout_seconds, max_response_bytes=65536,
+            timeout_seconds=self.timeout_seconds, max_response_bytes=MAX_WIRE_BYTES,
             allow_loopback_http=self.allow_loopback_http)
         if _headers.get("content-type", "").split(";", 1)[0].strip().lower() != "application/json":
             raise ServiceError("invalid_remote_content_type")
-        response = decode_integer_json(raw)
+        response = decode_integer_json(raw, max_bytes=MAX_WIRE_BYTES)
         if type(response) is not dict:
             raise ServiceError("invalid_remote_response")
         if status >= 400:
@@ -160,8 +164,11 @@ class TaskServiceClient:
             raise ServiceError("invalid_remote_response")
         return result
 
-    def submit(self, principal, request_key, workflow, input):
-        return self._request(principal, "submit", {"request_key": request_key, "workflow": workflow, "input": input})
+    def submit(self, principal, request_key, workflow, input, *, metadata=None):
+        payload = {"request_key": request_key, "workflow": workflow, "input": input}
+        if metadata is not None:
+            payload["metadata"] = metadata
+        return self._request(principal, "submit", payload)
 
     def inspect(self, principal, task_id):
         return self._request(principal, "inspect", {"task_id": task_id})
@@ -172,8 +179,11 @@ class TaskServiceClient:
     def cancel(self, principal, task_id):
         return self._request(principal, "cancel", {"task_id": task_id})
 
-    def update(self, principal, task_id, request_key, input):
-        return self._request(principal, "update", {"task_id": task_id, "request_key": request_key, "input": input})
+    def update(self, principal, task_id, request_key, input, *, metadata=None):
+        payload = {"task_id": task_id, "request_key": request_key, "input": input}
+        if metadata is not None:
+            payload["metadata"] = metadata
+        return self._request(principal, "update", payload)
 
     def events(self, principal, task_id, after=0):
         return self._request(principal, "events", {"task_id": task_id, "after": after})
@@ -181,5 +191,8 @@ class TaskServiceClient:
     def list_tasks(self, principal, limit=100, offset=0):
         return self._request(principal, "list", {"limit": limit, "offset": offset})
 
-    def run_once(self):
-        raise ServiceError("remote_worker_execution_forbidden")
+    def list_task_page(self, principal, *, page_size=100, after=None, state=None,
+                       metadata=None, updated_after=None):
+        cursor = list(after) if type(after) is tuple else after
+        return self._request(principal, "page", {"page_size": page_size, "after": cursor,
+            "state": state, "metadata": metadata, "updated_after": updated_after})

@@ -269,6 +269,23 @@ class DurableCloudTests(unittest.TestCase):
         self.assertTrue(value["ok"])
         self.assertNotIn(SPEC.prompt, output.getvalue())
 
+    def test_status_cli_combines_audit_and_result_without_remote_calls(self):
+        self.submit()
+        self.client.status = "FINISHED"
+        self.service.poll("job-1")
+        calls = list(self.client.calls)
+        for flags, include_result in ((["--audit"], False), (["--audit", "--result"], True)):
+            with self.subTest(flags=flags), patch.dict(os.environ, {}, clear=True), \
+                    redirect_stdout(io.StringIO()) as output:
+                self.assertEqual(main(["--state-dir", str(self.root), "status", "job-1", *flags]), 0)
+            value = json.loads(output.getvalue())
+            self.assertTrue(value["ok"])
+            self.assertTrue(value["job"]["audit"])
+            self.assertEqual("result" in value["job"], include_result)
+            if include_result:
+                self.assertEqual(value["job"]["result"], "Untrusted result text")
+        self.assertEqual(self.client.calls, calls)
+
     def test_saved_submission_can_resolve_host_offline_without_api_key(self):
         self.submit()
         evidence = self.root / "evidence.json"

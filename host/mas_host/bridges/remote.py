@@ -37,6 +37,20 @@ def token(value: str) -> str:
     return value
 
 
+def peer_identifier(value: str) -> str:
+    """Keep peer-assigned JSON identities opaque within a UTF-8 byte bound.
+
+    These values are persisted and compared exactly, never used as local paths,
+    call IDs or unescaped HTTP headers. Local operator keys still use ``token``.
+    """
+    try:
+        if type(value) is str and 1 <= len(value.encode('utf-8')) <= 1024:
+            return value
+    except UnicodeEncodeError:
+        pass
+    raise ServiceError('invalid_identifier')
+
+
 def bounded(value: dict, limit: int = 48_000) -> dict:
     if type(value) is not dict:
         raise ServiceError('invalid_payload')
@@ -61,9 +75,9 @@ class RemoteSnapshot:
         if type(self.state) is not str or self.state not in STATES or (self.remote_id is None and self.state not in TERMINAL):
             raise ServiceError('invalid_remote_snapshot')
         if self.remote_id is not None:
-            token(self.remote_id)
+            peer_identifier(self.remote_id)
         if self.context_id is not None:
-            token(self.context_id)
+            peer_identifier(self.context_id)
         if self.result is not None:
             bounded(self.result)
         return self
@@ -161,9 +175,9 @@ class RemoteTaskStore:
                     or result['host_run_dir'] in ('', '.', '..')):
                 raise ValueError()
             if result['remote_id'] is not None:
-                token(result['remote_id'])
+                peer_identifier(result['remote_id'])
             if result['context_id'] is not None:
-                token(result['context_id'])
+                peer_identifier(result['context_id'])
             if result['result'] is not None:
                 bounded(json.loads(result['result']))
         except Exception:
@@ -307,7 +321,7 @@ class RemoteTaskService:
                 if action == 'attach':
                     if selected is not None or not evidence:
                         raise ServiceError('reconciliation_evidence_required')
-                    selected = token(remote_id)
+                    selected = peer_identifier(remote_id)
                 if selected is None:
                     raise ServiceError('remote_outcome_unknown')
                 if action == 'update' and (row['state'] not in ('input_required', 'auth_required') or row['pending_action'] or row['cancel_requested']):

@@ -37,11 +37,13 @@ that loses its saved cursor may receive duplicates. The API does not keep
 subscriber acknowledgements or promise exactly-once event consumption. No
 uncommitted data is exposed in the model even when a stale cursor is reused.
 
-Nine deliberately faulty variants test duplicate insertion, replacement of
+Ten deliberately faulty variants test duplicate insertion, replacement of
 accepted content, dispatch without admission, replay of an unknown operation,
 cancellation treated as confirmation, stale terminal overwrite, a lost event
-commit, inbox overflow and exposure of an uncommitted event. Each must produce
-an assertion counterexample whose trail can be replayed. Positive models run
+commit, inbox overflow, exposure of an uncommitted event and advancing a cursor
+after a lost, unobserved page. Only the delivered-page branch updates the
+reader's observed-event maximum. Each mutation must produce its named assertion
+counterexample in the replay, not merely any assertion failure. Positive models run
 with and without partial-order reduction. Simulations use seeds 17, 29 and 53;
 they supplement the exhaustive finite safety searches, not replace them.
 
@@ -60,11 +62,80 @@ resource bound fails acceptance rather than producing a positive result.
 all continuation run references, schema rejection and audit-only restoration.
 The service and remote-adapter tests exercise identity conflicts, dispatch
 recovery and lifecycle mapping against the implementation. These tests provide
-correspondence evidence; there is no formal refinement proof from Python, Rust,
-SQLite or a remote implementation to the models.
+correspondence evidence. The local-service model below adds executable shared
+traces; there is still no formal refinement proof from Python, Rust, SQLite or
+a remote implementation to the models.
 
 Cross-principal authorisation, OAuth, HTTP framing, SDK behaviour, TLS, provider
 availability, monetary limits and mathematical correctness of returned content
 are outside these models. Local cancellation before any dispatch is also outside
 the remote-operation model; the implementation can confirm that local case
 without claiming that a dispatched remote effect has stopped.
+
+## Local service concurrency and shared traces
+
+`task-service.pml` separately models the local ingress lifecycle. Its exhaustive
+schedule has two authenticated principals sharing one submission key, one task
+per principal, two payload values, one scheduled task with at most two revision
+identities, two competing update keys, one worker and one crash. The other task
+exercises principal isolation and request-key separation; the exhaustive search
+does not schedule both task lifecycles concurrently. Parameterised transitions
+also execute the second principal's lifecycle in the shared trace corpus.
+
+API transactions are indivisible, corresponding to `TaskStore.transaction` and
+its `BEGIN IMMEDIATE`. Worker claim, executor reply and final service commit are
+separate transitions so cancellation can intervene. A final `input_required` or
+`auth_required` reply combined with persisted cancellation closes the local
+continuation. `completed` and `failed` replies can win that race; `unknown`
+remains unresolved. This distinction reproduced the implementation's previous
+late-cancellation defect and is tested by `BUG_SERVICE_CANCEL_PAUSE`.
+Grants remain fixed and each principal owns only one task in this model. Event
+counts cover lifecycle events; extra protocol-event payloads appended in the
+same final transaction are exercised by implementation tests, not represented
+as individual records here.
+
+| Requirement | Model assertion | Concrete boundary and observation |
+| --- | --- | --- |
+| An authenticated principal cannot observe another principal's receipt | `SERVICE_OWNER_ISOLATED` | `_owned`, principal-scoped request lookup, distinct task IDs and rejected foreign reads/cancel/update |
+| A principal's accepted key and content remain stable | `SERVICE_KEY_UNIQUE`, `SERVICE_CONTENT_IMMUTABLE` | `requests` primary key, request digest, repeated and conflicting submission; corpus checks stored task and execution input |
+| Continuation creates one execution identity per revision | `SERVICE_REVISION_UNIQUE` | `executions` uniqueness, `update`; corpus checks revision rows and assigned run IDs |
+| An executing revision cannot be replaced before final commit | `SERVICE_COMMIT_CURRENT_REVISION` | Update only from paused state, one worker; competing updates and update-while-running rejection |
+| Late cancellation cannot strand a paused local continuation | `SERVICE_CANCEL_CLOSES_PAUSE` | `run_once` rereads cancellation inside its final transaction; both paused outcomes and legacy paused cancellation tests |
+| Service changes and durable events agree | `SERVICE_EVENT_ATOMIC` | Service mutations and `event` within the same SQLite transaction; per-step event counts and task identity |
+
+`executions` counts registered execution identities, not physical calls to an
+executor: recovery may invoke an executor again against the same run. The model
+assumes the existing host checkpoint contract: an interrupted run either has a
+retained reply or returns `unknown` without automatically repeating an uncertain
+effect. The host-recovery model and real Rust-runner crash tests supply separate
+evidence for that boundary. `SERVICE_REMOTE_INDEPENDENT` states environmental
+separation: these local transitions do not modify remote evidence. It is not a
+proof of remote cancellation or of the remote store implementation.
+
+Four defect variants remove the paused-cancellation repair, scope a key without
+its principal, permit a continuation during execution, or lose an event commit.
+Each must fail its named assertion. Five separate reachability witnesses require
+counterexamples to the *negation* of reaching both principal receipts, late
+paused cancellation, revision one, unknown recovery after a crash, and a rejected
+foreign lookup. They are evidence that these scenarios occur, not defects or
+positive safety proofs. The ordinary model must complete with and without
+partial-order reduction.
+
+The canonical corpus is
+`host/tests/fixtures/task-service-traces.json`. The verifier generates deterministic
+Promela executions using the same transition inlines; every action checks its
+expected response category, task state, revision, cancellation intent and event
+count. `test_task_service_conformance.py` consumes the exact same JSON against
+the real `DurableTaskService` and SQLite repository, checking public errors and
+receipts, stored inputs, event ordering/ownership and run identities. It uses a
+controlled executor to expose reply/commit/crash schedules. These selected traces
+provide executable finite trace correspondence. They do not establish that all
+implementation traces refine the model, that every model trace is implemented,
+or that an external SDK, process lock or authentication boundary is correct.
+
+Transport authentication, OAuth, HTTP/stdio wire profiles, worker/guardian lock
+ownership, grant revocation, retention and restoration require their own
+implementation tests. No model here establishes arbitrary principal/task counts,
+unbounded revision concurrency, provider progress, or automatic resolution of
+unknown effects. Passing the suite is sufficient only for the explicit finite
+properties and selected implementation traces above.

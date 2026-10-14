@@ -14,18 +14,49 @@ test_outbound_real_sdk_signatures_and_exact_cancellation_identity (test_orchestr
 test_real_activity_conflict_is_non_retryable (test_orchestrator_sdks.TemporalSDKTests.test_real_activity_conflict_is_non_retryable) ... ok
 test_real_activity_environment_retry_has_one_submission (test_orchestrator_sdks.TemporalSDKTests.test_real_activity_environment_retry_has_one_submission) ... ok
 test_real_activity_heartbeat_and_cancellation (test_orchestrator_sdks.TemporalSDKTests.test_real_activity_heartbeat_and_cancellation) ... ok
+test_recovery_requires_original_run_proof_and_checks_its_binding (test_orchestrator_sdks.TemporalSDKTests.test_recovery_requires_original_run_proof_and_checks_its_binding) ... ok
 test_actual_task_service_completed_payload_and_idempotent_retry (test_orchestrator_service.TaskServiceOrchestratorTests.test_actual_task_service_completed_payload_and_idempotent_retry) ... ok
 test_factory_binds_real_admission_directory_and_principal_scoped_jobs (test_orchestrator_service.TaskServiceOrchestratorTests.test_factory_binds_real_admission_directory_and_principal_scoped_jobs) ... ok
-test_real_start_poll_cancel_and_lost_receipt_reconciliation (test_orchestrator_temporal_server.TemporalServerTests.test_real_start_poll_cancel_and_lost_receipt_reconciliation) ... time=2026-10-14T12:24:05.231 level=WARN msg="Cluster Id in Cluster Metadata config is not a valid uuid. Generating a new Cluster Id" component=metadata-initializer
-Executing <Task pending name='Task-35' coro=<TemporalServerTests.test_real_start_poll_cancel_and_lost_receipt_reconciliation() running at /workspace/scratch/137d32550efd/mas/host/tests/test_orchestrator_temporal_server.py:46> wait_for=<Future pending cb=[_chain_future.<locals>._call_check_cancel() at /opt/codex/runtimes/codex-primary-runtime/dependencies/python/lib/python3.12/asyncio/futures.py:389, Task.task_wakeup()] created at /opt/codex/runtimes/codex-primary-runtime/dependencies/python/lib/python3.12/asyncio/base_events.py:448> cb=[_run_until_complete_cb() at /opt/codex/runtimes/codex-primary-runtime/dependencies/python/lib/python3.12/asyncio/base_events.py:181] created at /opt/codex/runtimes/codex-primary-runtime/dependencies/python/lib/python3.12/asyncio/runners.py:100> took 0.131 seconds
+test_lost_start_lookup_recovers_first_run_after_continue_as_new (test_orchestrator_temporal_server.TemporalServerTests.test_lost_start_lookup_recovers_first_run_after_continue_as_new) ... time=2026-10-14T13:27:58.073 level=WARN msg="Cluster Id in Cluster Metadata config is not a valid uuid. Generating a new Cluster Id" component=metadata-initializer
+Executing <Task pending name='Task-41' coro=<TemporalServerTests.test_lost_start_lookup_recovers_first_run_after_continue_as_new() running at /workspace/scratch/137d32550efd/mas/host/tests/test_orchestrator_temporal_server.py:161> wait_for=<Future pending cb=[_chain_future.<locals>._call_check_cancel() at /opt/codex/runtimes/codex-primary-runtime/dependencies/python/lib/python3.12/asyncio/futures.py:389, Task.task_wakeup()] created at /opt/codex/runtimes/codex-primary-runtime/dependencies/python/lib/python3.12/asyncio/base_events.py:448> cb=[_run_until_complete_cb() at /opt/codex/runtimes/codex-primary-runtime/dependencies/python/lib/python3.12/asyncio/base_events.py:181] created at /opt/codex/runtimes/codex-primary-runtime/dependencies/python/lib/python3.12/asyncio/runners.py:100> took 0.123 seconds
+ok
+test_real_activity_worker_http_service_retry_and_exclusive_mas_worker (test_orchestrator_temporal_server.TemporalServerTests.test_real_activity_worker_http_service_retry_and_exclusive_mas_worker) ... time=2026-10-14T13:27:58.432 level=WARN msg="Cluster Id in Cluster Metadata config is not a valid uuid. Generating a new Cluster Id" component=metadata-initializer
+Completing activity as failed ({'activity_id': '1', 'activity_type': 'mas.execute', 'attempt': 1, 'namespace': 'default', 'task_queue': 'mas-inbound-interop', 'workflow_id': 'inbound-retry', 'workflow_run_id': '01a139f4-5dac-7330-aaac-44765e4fd42d', 'workflow_type': 'MASTemporalInboundInterop'})
+Traceback (most recent call last):
+  File "/workspace/scratch/137d32550efd/mas/.venv/lib/python3.12/site-packages/temporalio/worker/_activity.py", line 351, in _handle_start_activity_task
+    result = await self._execute_activity(
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/scratch/137d32550efd/mas/.venv/lib/python3.12/site-packages/temporalio/worker/_activity.py", line 681, in _execute_activity
+    return await impl.execute_activity(input)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/scratch/137d32550efd/mas/.venv/lib/python3.12/site-packages/temporalio/worker/_activity.py", line 884, in execute_activity
+    return await loop.run_in_executor(input.executor, func, *args)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/codex/runtimes/codex-primary-runtime/dependencies/python/lib/python3.12/concurrent/futures/thread.py", line 59, in run
+    result = self.fn(*self.args, **self.kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/scratch/137d32550efd/mas/.venv/lib/python3.12/site-packages/temporalio/worker/_activity.py", line 948, in _execute_sync_activity
+    return fn(*args)
+           ^^^^^^^^^
+  File "/workspace/scratch/137d32550efd/mas/host/mas_host/bridges/temporal.py", line 67, in execute
+    current = submit(request)
+              ^^^^^^^^^^^^^^^
+  File "/workspace/scratch/137d32550efd/mas/host/mas_host/bridges/temporal.py", line 63, in submit
+    return checked(connector.submit, checked(key, request), request["workflow"], request["input"])
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/scratch/137d32550efd/mas/host/mas_host/bridges/temporal.py", line 35, in checked
+    raise ApplicationError(error.code, type="MAS." + error.code,
+temporalio.exceptions.ApplicationError: MAS.discarded_accepted_reply: discarded_accepted_reply
 Temporal CLI 1.9.1 (Server 1.32.0, UI 2.54.1)
 
-Temporal Server:      localhost:43159
+Temporal Server:      localhost:33699
 Temporal Persistence: in-memory
-Temporal Metrics:     http://localhost:36891/metrics
+Temporal Metrics:     http://localhost:35007/metrics
+ok
+test_real_start_poll_cancel_and_lost_receipt_reconciliation (test_orchestrator_temporal_server.TemporalServerTests.test_real_start_poll_cancel_and_lost_receipt_reconciliation) ... time=2026-10-14T13:27:59.702 level=WARN msg="Cluster Id in Cluster Metadata config is not a valid uuid. Generating a new Cluster Id" component=metadata-initializer
 ok
 
 ----------------------------------------------------------------------
-Ran 19 tests in 1.417s
+Ran 22 tests in 2.813s
 
 OK

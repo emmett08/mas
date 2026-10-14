@@ -49,7 +49,7 @@ class StreamableHTTPTransport:
             status, response_headers, body = http_exchange(
                 self.endpoint, method="POST", body=integer_json(bounded(message)).encode(), headers=outgoing,
                 timeout_seconds=self.timeout_seconds, max_response_bytes=MAX_MESSAGE,
-                allow_loopback_http=self.allow_loopback_http)
+                allow_loopback_http=self.allow_loopback_http, sse_response_id=message["id"])
         except Exception:
             raise MCPError(1002, "MCP HTTP failed; external outcome may be unknown") from None
         # Protocol errors on 400/404 still have valuable structured error codes.
@@ -70,7 +70,11 @@ def _response_from_sse(body: bytes, request_id) -> dict:
     """Parse bounded SSE data fields; notifications never complete a request."""
     data, response, notifications = [], None, 0
     try:
-        lines = body.decode("utf-8-sig").splitlines() + [""]
+        # SSE lines end only at CRLF, CR or LF. Unicode separators such as
+        # U+2028 are valid JSON string content and must remain inside data.
+        text = body.decode("utf-8-sig")
+        # EOF cannot synthesize the empty line that completes an SSE event.
+        lines = text.replace("\r\n", "\n").replace("\r", "\n").split("\n")[:-1]
     except UnicodeError:
         raise MCPError(1002, "Invalid MCP event stream") from None
     for line in lines:
@@ -91,8 +95,10 @@ def _response_from_sse(body: bytes, request_id) -> dict:
                 notifications += 1
                 if notifications > 128 or response is not None:
                     raise MCPError(1002, "Unexpected MCP event after final response")
-        elif line.startswith("data:"):
-            data.append(line[5:].removeprefix(" "))
+        else:
+            field, separator, value = line.partition(":")
+            if field == "data":
+                data.append(value.removeprefix(" ") if separator else "")
         # Comments, event, retry, id and unknown fields have no semantic effect.
     if response is None:
         raise MCPError(1002, "MCP stream ended without a receipt; outcome may be unknown")

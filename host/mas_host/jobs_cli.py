@@ -89,7 +89,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         store = JobStore(Path(args.state_dir))
         if args.command == "status":
-            report = {"ok": True, "job": (store.inspect(args.job_id) if args.audit else
+            report = {"ok": True, "job": (store.inspect(args.job_id, include_result=args.result) if args.audit else
                                            store.status(args.job_id, include_result=args.result))}
         else:
             local_resolution = args.command == "reconcile" and args.resolve_host and not args.run_id

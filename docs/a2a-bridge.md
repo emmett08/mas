@@ -59,10 +59,18 @@ authentication, never by a message body. Supplied context identifiers are kept a
 conversation groupings; task ownership is checked independently. Omitting a
 context produces a stable server context. History is omitted in this bounded
 profile; A2A permits a server to return fewer history entries than requested.
+Wire message, context, task and artifact identifiers are opaque nonempty UTF-8
+strings bounded to 1024 bytes; slashes, Unicode and JSON-escaped characters are
+preserved. Internal logical keys and admitted call IDs retain their separate
+restricted local format. Long or otherwise opaque inbound message IDs receive
+stable hashed local request keys, while existing local-format message keys keep
+their prior identity.
 
 `returnImmediately` defaults to false in A2A. The handler then waits, within its
 configured response deadline, for terminal or interrupted state while a separate
 worker executes the task. It never executes the Runner in a request thread.
+A durable unknown outcome remains unresolved during this wait; it is available
+through polling but is not returned as a successful blocking result.
 A response deadline leaves the task and message identity intact. Repeat that
 same message, or poll a previously obtained task ID. An HTTP timeout does not
 cancel the task or authorise another submission identity.
@@ -141,6 +149,39 @@ between principals. It must never come from application input. Remote logical
 keys can therefore be reused by different callers without revealing or
 controlling each other's tasks.
 
+The adapter applies the `mas-a2a-v1` wire identity policy before persisting a
+submission or continuation. Outgoing message IDs are derived from the trusted
+namespace, local task key, operation, original message ID and, for continuation,
+the durable operation request key. Two owners sharing one peer credential therefore
+send distinct identities even when their caller IDs and application input match.
+Exact retries and reopened adapters preserve the same binding. Explicit initial
+context IDs are local conversation aliases: the adapter scopes them by namespace,
+so an alias groups tasks within one owner but cannot select another owner's
+upstream conversation.
+
+A supplied continuation context must either equal the peer identity saved in its
+owned receipt or be the original local alias that maps to it; any other context
+is rejected. An omitted context stays omitted and the exact saved task ID selects
+the task. This preserves the operation binding if a reply first establishes a
+previously absent context. Polling and cancellation also use the exact saved
+peer task ID.
+Supplying a task ID on an initial submission is rejected, and a continuation's
+task ID must match the saved task. The bounded adapter rejects `referenceTaskIds`
+because caller-supplied upstream task references would confer authority through
+the shared peer credential. The lower-level `A2AClient` is a protocol mapper;
+trusted callers using it directly must establish their own ownership policy.
+
+This changes the persisted client profile to `bounded-json-polling/2`. Receipts
+created under `/1` are not silently migrated: the descriptor check rejects their
+polls, cancellations and continuations, and their submission bindings cannot be
+reused with the new wire payload. No rejected operation dispatches to the peer.
+Deploy this pre-merge incompatible profile with an explicit workflow/configuration
+version change. Existing `/1` receipts require operator investigation and evidence
+of the exact task ownership and outstanding effects before any migration or
+reconciliation. A new namespace or key is not permission to resubmit old work;
+historical peer IDs may already be shared across owners. Do not relabel their
+descriptors or blindly retry them under `/2`.
+
 The adapter operations accept these inputs:
 
 | Operation | Input |
@@ -155,6 +196,8 @@ work. A returned receipt does not make the surrounding local submission task a
 completed remote business result. Applications must explicitly classify or
 continue their own workflow accordingly. A direct A2A Message is represented as
 a completed result without a remote task ID.
+Task responses may omit the optional context ID. Once a context is observed,
+later omissions preserve it and conflicting supplied contexts are rejected.
 
 Every submission, observation, cancellation and continuation receives a fresh
 MAS call admission. The configured reservation applies to each invocation and

@@ -186,7 +186,10 @@ the observed running state until the server reports cancellation. Lost initial
 replies remain unknown and cannot trigger another start. For reconciliation,
 `client.lookup(adapter.submission_payload(key, original_input))` performs a
 read-only lookup and verifies the workflow type and original input binding in
-the Temporal memo. Obtain that read under a fresh admitted invocation when
+the Temporal memo. Recovery uses the server's first-run identity and verifies
+that exact run, including after continue-as-new; a successor's inherited memo
+does not make it the admitted execution. Missing original-run history leaves
+recovery unresolved. Obtain that read under a fresh admitted invocation when
 automating reconciliation. An authorised local operator can then invoke
 `RemoteTaskService.attach` with the original trusted namespace, the exact
 `remote_id`, nonempty operator evidence and a fresh admitted context.
@@ -219,10 +222,17 @@ python3.14 scripts/release-locks.py --check
 The real-server test uses Temporal CLI 1.9.1 / Server 1.32.0 and no paid provider.
 Set `MAS_TEMPORAL_SERVER` to an already provisioned CLI binary to avoid downloading
 it. It tests actual workflow completion, cancellation, a discarded accepted
-submission reply, memo-checked recovery and duplicate rejection. Other tests
+submission reply, memo-checked recovery and duplicate rejection. It also covers
+lost-reply recovery after continue-as-new and verifies that cancellation
+of the recovered original does not affect its successor. Other tests
 execute the installed Temporal activity environment, a real LangGraph
 checkpoint/interrupt/resume graph, actual durable MAS service calls and the
-Rust gateway. The optional profiles have their own wheel hashes and CI checks.
+Rust gateway. The inbound real-server case runs a Temporal activity in its
+thread executor, calls the authenticated HTTP service and executes MAS through
+a separate exclusive worker process. Discarding the first accepted submission
+reply forces a real activity retry; both attempts retain one request identity,
+one durable task and one completed result. The optional profiles have their own
+wheel hashes and CI checks.
 
 Primary API references: [Temporal Python SDK](https://github.com/temporalio/sdk-python),
 [Temporal activity failure detection](https://docs.temporal.io/encyclopedia/detecting-activity-failures),

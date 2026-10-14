@@ -1,4 +1,12 @@
 {
+  "accepted_audit_baseline": {
+    "all_three_workflows": "success",
+    "architectures_run": 38545506824,
+    "commit": "0448521633cf7ad8a2c004a511ba463ce5ac3300",
+    "protocol_run": 38545506646,
+    "security_run": 38545506738,
+    "subsequent_audit": "Reproduced defects despite passing CI; baseline acceptance does not close these findings."
+  },
   "base_commit": "b9f715e01def6ee674aed25dfa607737ad4fa678",
   "boundaries": [
     "Finite SPIN checks do not establish unrestricted implementation, authentication, provider correctness, eventual completion or billing limits.",
@@ -6,9 +14,10 @@
     "No paid OpenAI, Cursor or Cloud submissions; provider credentials unavailable.",
     "OAuth resource-server logic tested with controlled introspection responses; enterprise identity-provider acceptance not executed.",
     "No live external MCP or A2A deployment credentials used; schema, controlled HTTP/stdio peers and real local MAS were exercised.",
-    "No streaming subscriptions, push notifications, legacy protocol compatibility, automatic OAuth acquisition, or hosted LangGraph run management is advertised."
+    "No streaming subscriptions, push notifications, legacy protocol compatibility, automatic OAuth acquisition, or hosted LangGraph run management is advertised.",
+    "Existing A2A /1 peer bindings are intentionally fenced by /2; preserve state and reconcile explicitly instead of silently retargeting or resubmitting."
   ],
-  "ci_acceptance": "Repaired head requires final amd64/arm64 acceptance; results recorded in PR metadata to avoid an evidence-only CI retrigger.",
+  "ci_acceptance": "This audit correction requires exact-revision protocol, amd64/arm64 installed-image and security gates; final results are recorded in PR metadata without an evidence-only retrigger.",
   "corrective_ci": {
     "architectures_run": 38544366966,
     "arm64_native_and_both_installed_images": "passed",
@@ -45,6 +54,7 @@
     "actionlint": "passed",
     "compose_configuration": "mock mesh/star/tree and mixed override passed",
     "dependency_audits": {
+      "basis": "Unchanged locks, audited at accepted baseline; current revision is re-audited by security CI.",
       "bridges": 6,
       "build": 4,
       "cursor": 18,
@@ -55,31 +65,47 @@
     },
     "deployment_setup": "Actual init-auth generation, private verifier loading/token verification, mesh/star/tree service construction and both parsed Compose profiles passed",
     "formal": {
-      "cases": 67,
-      "checks": 95,
-      "expected_counterexamples": 29,
-      "positive_checks": 66,
+      "assumption_counterexamples": 2,
+      "cases": 90,
+      "checks": 118,
+      "deliberate_defects": 32,
+      "excluded_checks": [
+        "Expanded two-scheduled-task search reached 480 MiB and 5,725,161 stored states before resource exhaustion; not accepted",
+        "First stricter verifier run rejected two conditional-line witness mappings; corrected exact-expression matching and full rerun passed"
+      ],
+      "expected_counterexamples": 39,
+      "history_in_archive": "audit-history",
+      "local_service_stored_states": 300408,
+      "mutation_oracle": "All Cursor/bridge/service mutations and reachability witnesses match their named replayed assertions",
+      "normal_and_no_reduction": "complete",
+      "positive_checks": 79,
       "raw_evidence": "bridge-model-checks.tar.gz",
+      "reachability_witnesses": 5,
+      "shared_trace_steps": 77,
+      "shared_traces": 11,
       "status": "PASS",
       "summary": "bridge-model-checks.json"
     },
     "host": {
       "log": "bridge-host-tests.log",
-      "optional_sdk_skips": 11,
-      "passed": 339,
-      "tests": 350
+      "optional_sdk_skips": 14,
+      "passed": 386,
+      "tests": 400
     },
     "lock_structure": "passed",
     "network_fixture_regression": "19 network tests pass, including slow headers and deterministic pre-connect timeout with joined peer and reaped child",
+    "opaque_mcp_identity": "Real Runner, HTTP peer and durable reopen preserve1024-byte opaque task ID; lifecycle JSON and routing headers round-trip;1025bytes rejected",
     "orchestrators": {
+      "inbound": "Real workflow/activity worker through authenticated HTTP and separate MAS worker, with lost-reply retry preserving one task",
       "log": "bridge-orchestrator-tests.log",
-      "passed": 19,
+      "outbound": "Exact original-run recovery, including continue-as-new and cancellation target isolation",
+      "passed": 22,
       "real_temporal_server": "CLI 1.9.1 / Server 1.32.0",
       "skipped": 0,
-      "tests": 19
+      "tests": 22
     },
     "release_helper_tests": 32,
-    "rust_tests": 48,
+    "rust_tests": 50,
     "topologies": "mesh, star and tree each verified 5497 invoice total",
     "wire_integration": "authenticated MCP/A2A, separate worker, actual Rust execution, durable replay passed"
   },
@@ -88,5 +114,25 @@
     "langgraph": "SDK 1.2.15, inbound checkpointed nodes and continuation",
     "mcp": "2026-07-28, negotiated Tasks, inbound HTTP/stdio, outbound HTTP JSON/SSE and stdio",
     "temporal": "SDK 1.34.0, inbound activities and outbound exact workflow/run lifecycle"
+  },
+  "whole_pr_audit": {
+    "baseline_commit": "0448521633cf7ad8a2c004a511ba463ce5ac3300",
+    "changed_paths_reviewed": 129,
+    "design": "Selected Facade, Adapter, Strategy, Factory and transactional repository boundaries support the exercised SOLID contracts; no universal architectural certification.",
+    "formal_sufficiency": "Explicit finite properties and selected implementation traces only; not whole-implementation refinement or external-service correctness.",
+    "known_findings": "repaired; exact-revision CI remains the architecture and image acceptance gate",
+    "published_blobs_matched_before_audit": 241,
+    "repairs": [
+      "cancel versus paused final commit and legacy stuck rows",
+      "public service substitution and worker capability separation",
+      "HTTP envelope and byte-aware pagination bounds; bounded metadata filters",
+      "MCP base task seeds, arbitrary structured JSON, complete lifecycle acknowledgements and SSE framing/completion",
+      "A2A optional context, blocking uncertainty and cancellation metadata",
+      "A2A caller-scoped wire identities and versioned legacy-binding fence",
+      "opaque bounded peer identifiers distinct from local keys",
+      "Temporal original-run reconciliation after continue-as-new",
+      "combined job CLI flags and partial credential creation rollback"
+    ],
+    "review": "docs/independent-review.md"
   }
 }

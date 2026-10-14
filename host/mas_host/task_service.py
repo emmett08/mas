@@ -27,6 +27,21 @@ from .task_store import TaskStore, canonical, decoded, event, now
 TERMINAL = frozenset({"completed", "failed", "cancelled"})
 INTERRUPTED = frozenset({"input_required", "auth_required"})
 STATES = TERMINAL | INTERRUPTED | {"queued", "running", "unknown"}
+PAGE_BYTES = 512 * 1024
+
+
+def _bounded_items(values, *, limit=1000, overhead=2):
+    """Consume a bounded JSON prefix, leaving room for its enclosing object."""
+    selected, size = [], overhead
+    for value in values:
+        item_bytes = len(canonical(value).encode("utf-8")) + bool(selected)
+        if len(selected) >= limit or size + item_bytes > PAGE_BYTES:
+            if not selected:
+                raise ServiceError("page_item_too_large")
+            return selected, True
+        selected.append(value)
+        size += item_bytes
+    return selected, False
 
 
 def _text(value, name: str, maximum: int = 256):
@@ -386,9 +401,12 @@ class DurableTaskService:
         """
         with self._mutation() as db:
             task = self._owned(db, principal, task_id)
-            if task["state"] in TERMINAL or task["cancel_requested"]:
+            can_close = task["state"] in {"queued", *INTERRUPTED}
+            if task["state"] in TERMINAL or (task["cancel_requested"] and not can_close):
                 return self._receipt(task)
-            state = "cancelled" if task["state"] in {"queued", *INTERRUPTED} else task["state"]
+            # Repeated cancellation also repairs a paused record written by an
+            # older worker after cancellation intent was already recorded.
+            state = "cancelled" if can_close else task["state"]
             db.execute("UPDATE tasks SET cancel_requested=1,state=?,updated_at=? WHERE id=?", (state, now(), task_id))
             if state == "cancelled":
                 db.execute("UPDATE executions SET state='cancelled' WHERE task_id=? AND revision=?", (task_id, task["revision"]))
@@ -426,14 +444,17 @@ class DurableTaskService:
             return self._receipt(self._owned(db, principal, task_id))
 
     def events(self, principal, task_id, after=0):
+        """Return a byte-bounded prefix; resume after the last returned event ID."""
         if type(after) is not int or not 0 <= after <= 2**63 - 1:
             raise ServiceError("invalid_cursor")
         with self.store.transaction(readonly=True) as db:
             self._owned(db, principal, task_id)
-            return [decoded(row) for row in db.execute(
-                "SELECT * FROM events WHERE task_id=? AND id>? ORDER BY id LIMIT 1000", (task_id, after))]
+            values = (decoded(row) for row in db.execute(
+                "SELECT * FROM events WHERE task_id=? AND id>? ORDER BY id LIMIT 1000", (task_id, after)))
+            return _bounded_items(values)[0]
 
     def list_tasks(self, principal, limit=100, offset=0):
+        """Return a byte-bounded prefix; advance offset by the returned count."""
         self._authorise(principal)
         if type(limit) is not int or not 1 <= limit <= 1000 or type(offset) is not int or not 0 <= offset <= 2**63 - 1:
             raise ServiceError("invalid_pagination")
@@ -443,9 +464,10 @@ class DurableTaskService:
             allowed = sorted(self.grants[principal])
             if not allowed:
                 return []
-            return [self._receipt(decoded(row)) for row in db.execute(
+            values = (self._receipt(decoded(row)) for row in db.execute(
                 "SELECT * FROM tasks WHERE principal=? AND workflow IN (" + ",".join("?" * len(allowed)) + ") ORDER BY created_at,id LIMIT ? OFFSET ?",
-                (principal, *allowed, limit, offset))]
+                (principal, *allowed, limit, offset)))
+            return _bounded_items(values)[0]
 
     def list_task_page(self, principal, *, page_size=100, after=None, state=None,
                        metadata=None, updated_after=None):
@@ -453,7 +475,9 @@ class DurableTaskService:
 
         Cursors identify an observed position, not a historical snapshot: a
         task updated during traversal can move to an earlier page. The
-        ``updated_after`` lower timestamp bound is inclusive.
+        ``updated_after`` lower timestamp bound is inclusive. Pages are bounded
+        by both count and encoded bytes; ``next`` covers either truncation.
+        At most 64 metadata predicates may be supplied in one query.
         """
         self._authorise(principal)
         if type(page_size) is not int or not 1 <= page_size <= 1000:
@@ -467,8 +491,8 @@ class DurableTaskService:
                 or type(after[1]) is not str or not after[1]):
             raise ServiceError("invalid_cursor")
         filters = _object(metadata) if metadata is not None else {}
-        if any(not key or any(c not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_" for c in key)
-               or type(value) is not str for key, value in filters.items()):
+        if len(filters) > 64 or any(not key or any(c not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_" for c in key)
+                                   or type(value) is not str for key, value in filters.items()):
             raise ServiceError("invalid_metadata_filter")
         allowed = sorted(self.grants[principal])
         if not allowed:
@@ -490,10 +514,12 @@ class DurableTaskService:
                 clauses.append("(updated_at<? OR (updated_at=? AND id<?))")
                 values.extend((after[0], after[0], after[1]))
             rows = db.execute("SELECT * FROM tasks WHERE " + " AND ".join(clauses) + " ORDER BY updated_at DESC,id DESC LIMIT ?",
-                              [*values, page_size + 1]).fetchall()
-            selected = rows[:page_size]
-            cursor = [selected[-1]["updated_at"], selected[-1]["id"]] if len(rows) > page_size else None
-            return {"tasks": [self._receipt(decoded(row)) for row in selected], "total_size": total, "next": cursor}
+                              [*values, page_size + 1])
+            # Reserve ample space for total_size and the bounded task cursor.
+            selected, more = _bounded_items((self._receipt(decoded(row)) for row in rows),
+                                           limit=page_size, overhead=1024)
+            cursor = [selected[-1]["updated_at"], selected[-1]["task_id"]] if more else None
+            return {"tasks": selected, "total_size": total, "next": cursor}
 
     def recover(self, principal, task_id):
         """Queue a previously unknown revision after evidenced journal resolution.
@@ -570,13 +596,18 @@ class DurableTaskService:
                 output = _object(outcome.result) if outcome.result is not None else None
                 error = _object(outcome.error) if outcome.error is not None else None
                 with self.store.transaction() as db:
+                    # Cancellation can arrive after the executor returns. A
+                    # paused revision has stopped and can safely lose its future
+                    # continuation, but an uncertain effect remains unknown.
+                    requested = db.execute("SELECT cancel_requested FROM tasks WHERE id=?", (task["id"],)).fetchone()[0]
+                    state = "cancelled" if requested and outcome.state in INTERRUPTED else outcome.state
                     for item in outcome.events:
                         event(db, task["id"], "protocol", _object(item))
                     db.execute("UPDATE tasks SET state=?,result=?,error=?,updated_at=? WHERE id=?", (
-                        outcome.state, canonical(output) if output is not None else None,
+                        state, canonical(output) if output is not None else None,
                         canonical(error) if error is not None else None, now(), task["id"]))
-                    db.execute("UPDATE executions SET state=? WHERE sequence=?", (outcome.state, execution["sequence"]))
-                    event(db, task["id"], "state_changed", {"state": outcome.state, "revision": task["revision"]})
+                    db.execute("UPDATE executions SET state=? WHERE sequence=?", (state, execution["sequence"]))
+                    event(db, task["id"], "state_changed", {"state": state, "revision": task["revision"]})
                     return self._receipt(decoded(db.execute("SELECT * FROM tasks WHERE id=?", (task["id"],)).fetchone()))
         finally:
             # close (rather than LOCK_UN) preserves the inherited lock until a

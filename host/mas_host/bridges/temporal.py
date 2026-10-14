@@ -199,20 +199,30 @@ class TemporalWorkflowClient:
     async def _lookup(self, client, payload: dict) -> str:
         workflow_id = self.workflow_id(payload["request_key"])
         handle = client.get_workflow_handle(workflow_id)
-        description = await handle.describe(rpc_timeout=timedelta(seconds=self.target.rpc_timeout_seconds))
+        latest = await handle.describe(rpc_timeout=timedelta(seconds=self.target.rpc_timeout_seconds))
+        # A lookup without run_id resolves the latest execution. A successor
+        # created by continue-as-new can inherit the same type and memo, so those
+        # fields alone do not prove that it is the execution we admitted.
+        first_run_id = latest.raw_info.first_run_id
+        remote_id = workflow_id + ":" + first_run_id
+        self._parts(remote_id)
+        description = (latest if latest.run_id == first_run_id else
+                       await client.get_workflow_handle(workflow_id, run_id=first_run_id).describe(
+                           rpc_timeout=timedelta(seconds=self.target.rpc_timeout_seconds)))
         memo = await description.memo()
-        if (memo.get("mas_binding") != self._binding(payload)
+        if (description.id != workflow_id or description.run_id != first_run_id
+                or description.raw_info.first_run_id != first_run_id
+                or memo.get("mas_binding") != self._binding(payload)
                 or description.workflow_type != self.target.workflow):
             raise ServiceError("remote_identity_conflict")
-        remote_id = workflow_id + ":" + description.run_id
-        self._parts(remote_id)
         return remote_id
 
     def lookup(self, payload: dict) -> str:
-        """Read-only recovery lookup with memo and workflow-type verification.
+        """Read-only recovery of the first run with memo and type verification.
 
         A not-found or failed read remains uncertainty, never permission to start
-        another workflow. Feed the returned exact ID into durable ``attach``.
+        another workflow. Successor runs are never selected, even when they
+        inherit the original memo. Feed the exact ID into durable ``attach``.
         """
         async def operation():
             return await self._lookup(await self._connect(), bounded(payload))
