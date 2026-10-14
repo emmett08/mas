@@ -7,6 +7,7 @@ proof must come from the configured external fencing authority.
 from __future__ import annotations
 
 import ctypes
+from contextlib import contextmanager
 import ctypes.util
 import hashlib
 import hmac
@@ -16,6 +17,8 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import stat
+import tempfile
 
 from .codec import integer_json
 from .contracts import RunnerError
@@ -160,44 +163,85 @@ class SharedBackupManager:
             os.fsync(output.fileno())
         return manifest
 
-    def _manifest(self, directory):
-        path = Path(directory)
+    @staticmethod
+    def _private_regular(descriptor):
+        info = os.fstat(descriptor)
+        if (not stat.S_ISREG(info.st_mode) or info.st_nlink != 1
+                or info.st_uid != os.geteuid() or info.st_mode & 0o077):
+            raise SharedBackupError('recovery files must be private owned regular files')
+        return info
+
+    @contextmanager
+    def _verified_archive(self, directory):
+        """Hash into a private staging descriptor; pg_restore never reopens a path."""
+        directory_fd = archive_fd = manifest_fd = None
         try:
-            if (path / 'manifest.json').stat().st_size > 16 * 1024 * 1024:
+            directory_fd = os.open(directory, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+            info = os.fstat(directory_fd)
+            if info.st_uid != os.geteuid() or info.st_mode & 0o077:
+                raise SharedBackupError('recovery directory must be private and owned')
+            manifest_fd = os.open('manifest.json', os.O_RDONLY | os.O_NOFOLLOW, dir_fd=directory_fd)
+            info = self._private_regular(manifest_fd)
+            if info.st_size > 16 * 1024 * 1024:
                 raise ValueError
-            manifest = json.loads((path / 'manifest.json').read_text())
+            with os.fdopen(manifest_fd, 'rb') as source:
+                manifest_fd = None
+                data = source.read(16 * 1024 * 1024 + 1)
+            if len(data) > 16 * 1024 * 1024:
+                raise ValueError
+            manifest = json.loads(data)
             payload = manifest['payload']
             if (payload['format'] != 'mas-shared-backup/1' or payload['key_reference'] != self.key_reference
                     or not hmac.compare_digest(manifest['signature'], _signature(payload, self._key))
-                    or payload['archive_sha256'] != _file_digest(path / 'authority.pgdump')
-                    or payload['archive_bytes'] != (path / 'authority.pgdump').stat().st_size
-                    or payload['seal']['payload']['namespace'] != self.authority.namespace):
+                    or payload['seal']['payload']['namespace'] != self.authority.namespace
+                    or type(payload['archive_bytes']) is not int or payload['archive_bytes'] < 0):
                 raise ValueError
-            return payload
+            archive_fd = os.open('authority.pgdump', os.O_RDONLY | os.O_NOFOLLOW, dir_fd=directory_fd)
+            if self._private_regular(archive_fd).st_size != payload['archive_bytes']:
+                raise ValueError
+            with tempfile.TemporaryFile(mode='w+b') as staged:
+                digest, total = hashlib.sha256(), 0
+                with os.fdopen(archive_fd, 'rb') as source:
+                    archive_fd = None
+                    for chunk in iter(lambda: source.read(1024 * 1024), b''):
+                        total += len(chunk)
+                        if total > payload['archive_bytes']:
+                            raise ValueError
+                        digest.update(chunk)
+                        staged.write(chunk)
+                if total != payload['archive_bytes'] or digest.hexdigest() != payload['archive_sha256']:
+                    raise ValueError
+                staged.flush()
+                staged.seek(0)
+                yield payload, staged
         except (OSError, ValueError, TypeError, KeyError):
             raise SharedBackupError('backup manifest or archive verification failed') from None
+        finally:
+            for descriptor in (manifest_fd, archive_fd, directory_fd):
+                if descriptor is not None:
+                    os.close(descriptor)
 
     def restore_audit(self, directory):
-        """Restore only to an empty isolated database; never overwrite or admit."""
-        payload = self._manifest(directory)
-        target = self._request('recovery_target')
-        if target == payload['seal']['payload']['source']:
-            raise SharedBackupError('the original authority cannot be a restore target')
-        env = postgres_environment(self.authority)
-        database = env.get('PGDATABASE')
-        if not database or '=' in database or database.startswith(('postgres://', 'postgresql://')):
-            raise SharedBackupError('restore requires an explicit database name')
-        try:
-            result = subprocess.run([self.pg_restore, '--exit-on-error', '--single-transaction',
-                '--no-owner', '--no-acl', '--dbname', database, str(Path(directory) / 'authority.pgdump')],
-                env=env, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL, timeout=300, check=False)
-            if result.returncode:
-                raise SharedBackupError('native restore failed; target must remain isolated')
-        except (OSError, subprocess.TimeoutExpired):
-            raise SharedBackupError('native restore failed; target must remain isolated') from None
-        return self._request('recovery_audit', parameters={'seal': payload['seal'],
-            'archive_sha256': payload['archive_sha256']})
+        """Restore verified staging bytes into an empty isolated database only."""
+        with self._verified_archive(directory) as (payload, staged):
+            target = self._request('recovery_target')
+            if target == payload['seal']['payload']['source']:
+                raise SharedBackupError('the original authority cannot be a restore target')
+            env = postgres_environment(self.authority)
+            database = env.get('PGDATABASE')
+            if not database or '=' in database or database.startswith(('postgres://', 'postgresql://')):
+                raise SharedBackupError('restore requires an explicit database name')
+            try:
+                result = subprocess.run([self.pg_restore, '--exit-on-error', '--single-transaction',
+                    '--no-owner', '--no-acl', '--dbname', database, '--'], env=env,
+                    stdin=staged, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                    timeout=300, check=False)
+                if result.returncode:
+                    raise SharedBackupError('native restore failed; target must remain isolated')
+            except (OSError, subprocess.TimeoutExpired):
+                raise SharedBackupError('native restore failed; target must remain isolated') from None
+            return self._request('recovery_audit', parameters={'seal': payload['seal'],
+                'archive_sha256': payload['archive_sha256']})
 
     def verify_objects(self, read_object):
         """Read and hash every retained verified object through its trusted port.

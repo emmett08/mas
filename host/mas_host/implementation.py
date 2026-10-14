@@ -111,6 +111,29 @@ def _installed(name):
     return None
 
 
+def _class_functions(cls):
+    """Read method descriptors without evaluating user attributes."""
+    from dataclasses import is_dataclass
+    generated = {'__init__', '__repr__', '__eq__', '__ne__', '__lt__', '__le__',
+                 '__gt__', '__ge__', '__hash__', '__setattr__', '__delattr__'}
+    for base in cls.__mro__:
+        if base.__module__.split('.')[0] in sys.stdlib_module_names:
+            continue
+        for name, item in vars(base).items():
+            functions = ((item,) if inspect.isfunction(item) else
+                         (item.__func__,) if isinstance(item, (staticmethod, classmethod)) else
+                         (item.fget, item.fset, item.fdel) if isinstance(item, property) else ())
+            for function in functions:
+                if function is None:
+                    continue
+                if (function.__code__.co_filename.startswith('<') and is_dataclass(base)
+                        and name in generated):
+                    # Standard dataclass fields are in the pinned class source;
+                    # CPython's generator is bound by the recorded runtime.
+                    continue
+                yield function
+
+
 def _entrypoints(values):
     """Capture callbacks carried by adapters as well as their handle methods."""
     pending, seen, functions = list(values), set(), {}
@@ -124,10 +147,17 @@ def _entrypoints(values):
         if inspect.ismethod(value):
             value = value.__func__
         if inspect.isfunction(value):
+            # Decorators such as dataclasses._recursive_repr copy __module__
+            # from the wrapped class. Their actual globals identify stdlib
+            # machinery; following its synthetic closure is not app code.
+            origin = value.__globals__.get('__name__', '').split('.')[0]
+            if origin in sys.stdlib_module_names:
+                continue
             functions[id(value)] = value
             for name in value.__code__.co_names:
                 referenced = value.__globals__.get(name)
-                if inspect.isfunction(referenced):
+                if inspect.isfunction(referenced) or (isinstance(referenced, type)
+                        and referenced.__module__.split('.')[0] not in sys.stdlib_module_names):
                     pending.append(referenced)
                 elif isinstance(referenced, types.ModuleType):
                     # Module-qualified helpers are already loaded. Reading
@@ -146,19 +176,15 @@ def _entrypoints(values):
                 if inspect.isfunction(item) or inspect.ismethod(item):
                     pending.append(item)
             continue
-        if isinstance(value, dict):
+        if isinstance(value, type):
+            pending.extend(_class_functions(value))
+        elif isinstance(value, dict):
             pending.extend(value.values())
         elif isinstance(value, (tuple, list)):
             pending.extend(value)
         elif not isinstance(value, (str, bytes, int, float, bool, Path, types.ModuleType, type)):
             # Do not evaluate properties or invoke user __getattr__ methods.
-            cls = type(value)
-            for base in cls.__mro__:
-                for item in vars(base).values():
-                    if inspect.isfunction(item) and not item.__code__.co_filename.startswith('<'):
-                        pending.append(item)
-                    elif isinstance(item, (staticmethod, classmethod)):
-                        pending.append(item.__func__)
+            pending.extend(_class_functions(type(value)))
             namespace = getattr(value, '__dict__', {})
             pending.extend(item for item in namespace.values()
                            if inspect.isfunction(item) or inspect.ismethod(item)

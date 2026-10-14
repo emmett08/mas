@@ -10,6 +10,7 @@ import argparse
 from contextlib import contextmanager
 import hashlib
 import json
+import os
 from pathlib import Path
 import shutil
 import socket
@@ -180,6 +181,123 @@ def acceptance(config, root):
         client.close()
 
 
+def shared_acceptance(config, root):
+    """Use real PostgreSQL metadata and real S3 I/O in the same execution."""
+    from mas_host.shared_artifacts import SharedArtifactStore
+    from mas_host.shared_authority import SharedAuthority
+    dsn, binary = os.environ.get('MAS_TEST_POSTGRES_DSN'), os.environ.get('MAS_SHARED_BIN')
+    if not dsn or not binary:
+        raise RuntimeError('shared acceptance requires MAS_TEST_POSTGRES_DSN and MAS_SHARED_BIN')
+    schema = 'mas_objects_' + uuid.uuid4().hex
+    authorities = []
+    def authority(controller, epoch):
+        value = SharedAuthority(binary=binary, dsn=dsn, namespace=schema,
+            deployment='deployment', controller=controller, epoch=epoch,
+            secret_key=b'fixture-only-shared-object-key' * 2, secret_reference='fixture/1')
+        authorities.append(value)
+        return value
+    current = authority('controller', 1)
+    current.initialise()
+    client = create_s3_client(config)
+    create = {'Bucket': config.bucket}
+    if config.region != 'us-east-1':
+        create['CreateBucketConfiguration'] = {'LocationConstraint': config.region}
+    client.create_bucket(**create)
+    checks = []
+    def store(principal, *, selected=None, transport=None):
+        return SharedArtifactStore(selected or current, namespace='result', principal=principal,
+            content_backend=S3ArtifactContent(config, client=transport))
+    try:
+        writer = store('writer')
+        data = bytes(range(256)) * 521
+        ref = writer.put_bytes(data, readers=('reader',))
+        reader = store('reader')
+        assert reader.read_bytes(ref) == data
+        reader.ensure_link('consumer', [ref])
+        assert writer.put_bytes(data, readers=('reader',)) == ref
+        checks.append('shared_metadata_verified_s3_roundtrip_and_retention')
+
+        # The server commits the upload; only its response is discarded. The
+        # next call must reconcile via the real conditional PUT/GET contract.
+        class InterruptedPut:
+            def __init__(self, after_put):
+                self.after_put = after_put
+            def put_object(self, **request):
+                result = client.put_object(**request)
+                self.after_put()
+                return result
+            def get_object(self, **request):
+                return client.get_object(**request)
+        def lose_reply():
+            raise ConnectionError('discarded real accepted PUT response')
+        before = writer.status()['content']
+        interrupted = store('writer', transport=InterruptedPut(lose_reply))
+        lost = b'accepted on real S3 before receipt loss'
+        try:
+            interrupted.put_bytes(lost)
+            raise AssertionError('lost response was not simulated')
+        except ArtifactError:
+            pass
+        retained = writer.status()['content']
+        assert retained['objects'] == before['objects'] + 1
+        assert retained['reserved_bytes'] == before['reserved_bytes'] + len(lost)
+        assert retained['unverified'] == 1
+        assert len(writer.status()['artifacts']) == 1
+        recovered = store('writer').put_bytes(lost)
+        assert writer.read_bytes(recovered) == lost
+        assert writer.status()['content']['objects'] == retained['objects']
+        checks.append('real_lost_put_reply_preserves_charge_and_conditional_recovery')
+
+        successor = []
+        def handover():
+            binding = current.handover('replacement')
+            successor.append(authority('replacement', binding['epoch']))
+        stale = store('writer', transport=InterruptedPut(handover))
+        fenced_data = b'accepted bytes before controller fencing'
+        try:
+            stale.put_bytes(fenced_data)
+            raise AssertionError('stale controller published a manifest')
+        except ArtifactError:
+            pass
+        current = successor[0]
+        replacement = store('writer')
+        assert replacement.status()['content']['unverified'] == 1
+        assert len(replacement.status()['artifacts']) == 2
+        fenced = replacement.put_bytes(fenced_data)
+        assert replacement.read_bytes(fenced) == fenced_data
+        assert store('reader').read_bytes(ref) == data
+        assert store('reader').ensure_link('consumer', [ref])['state'] == 'unresolved'
+        assert not list(root.rglob('*.sqlite'))
+        checks.append('epoch_fencing_and_original_reference_recovery_without_local_database')
+        replacement.revoke(ref, 'reader')
+        try:
+            store('reader').read_bytes(ref)
+            raise AssertionError('revoked reader received content')
+        except ArtifactError:
+            pass
+        checks.append('shared_grant_revocation_survives_controller_replacement')
+
+        key = f'{config.prefix}/{replacement.store_id}/result/{ref.sha256}.blob'
+        client.put_object(Bucket=config.bucket, Key=key, Body=b'corrupt', ContentLength=7)
+        try:
+            replacement.read_bytes(ref)
+            raise AssertionError('changed server bytes were disclosed')
+        except ArtifactError:
+            pass
+        checks.append('real_server_tampering_rejected_before_read')
+        return {'ok': True, 'profile': 'postgres-and-s3-authority/1', 'checks': checks,
+                'database_namespace': schema, 'live_provider_calls': 0,
+                'object_storage': config.descriptor}
+    finally:
+        for value in authorities:
+            value.close()
+        for page in client.get_paginator('list_objects_v2').paginate(Bucket=config.bucket):
+            for item in page.get('Contents', []):
+                client.delete_object(Bucket=config.bucket, Key=item['Key'])
+        client.delete_bucket(Bucket=config.bucket)
+        client.close()
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--local-rustfs", type=Path)
@@ -187,20 +305,23 @@ def main():
     parser.add_argument("--credentials-file", type=Path)
     parser.add_argument("--region", default="us-east-1")
     parser.add_argument("--ca-file", type=Path)
+    parser.add_argument('--shared-authority', action='store_true',
+                        help='exercise real PostgreSQL metadata with the selected S3 server')
     args = parser.parse_args()
     if bool(args.local_rustfs) == bool(args.endpoint) or bool(args.endpoint) != bool(args.credentials_file):
         parser.error("choose --local-rustfs OR --endpoint with --credentials-file")
     with tempfile.TemporaryDirectory(prefix="mas-s3-acceptance-") as tmp:
         root = Path(tmp)
         bucket = "mas-acceptance-" + uuid.uuid4().hex
+        execute = shared_acceptance if args.shared_authority else acceptance
         if args.local_rustfs:
             with local_server(args.local_rustfs, root) as (endpoint, credentials):
                 config = S3ContentConfig(endpoint, bucket, "evidence", "us-east-1", credentials, allow_loopback_http=True)
-                report = acceptance(config, root)
+                report = execute(config, root)
             report["server"] = subprocess.check_output([str(args.local_rustfs.resolve()), "--version"], text=True).strip()
         else:
             config = S3ContentConfig(args.endpoint, bucket, "evidence", args.region, args.credentials_file, ca_file=args.ca_file)
-            report = acceptance(config, root)
+            report = execute(config, root)
         print(json.dumps(report, sort_keys=True))
 
 

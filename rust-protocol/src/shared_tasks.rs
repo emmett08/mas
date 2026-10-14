@@ -146,15 +146,19 @@ pub(crate) fn acquire_slot(tx:&mut Transaction<'_>,assignment:&str,principal:&st
         if row.get::<_,i64>(4)==epoch&&row.get::<_,String>(3)!=owner{return Ok(false);}
         tx.execute("UPDATE service_slots SET owner=$2,epoch=$3 WHERE assignment=$1",&[&assignment,&owner,&epoch]).map_err(db_error)?;return Ok(true);
     }
+    let Some(resources)=available_resources(tx,principal,workflow,identity)? else{return Ok(false)};
+    tx.execute("INSERT INTO service_slots VALUES($1,$2,$3,$4,$5,$6,$7)",&[&assignment,&principal,&workflow,&identity,&json!(resources).to_string(),&owner,&epoch]).map_err(db_error)?;
+    tx.execute("UPDATE service_scheduler SET last_principal=$1 WHERE singleton",&[&principal]).map_err(db_error)?;Ok(true)
+}
+fn available_resources(tx:&mut Transaction<'_>,principal:&str,workflow:&str,identity:&str)->Result<Option<Vec<Value>>> {
     let row=tx.query_one("SELECT policy FROM service_scheduler WHERE singleton",&[]).map_err(db_error)?;let policy=decode(row.get(0))?;
     let active=tx.query("SELECT principal,workflow,resources FROM service_slots",&[]).map_err(db_error)?;
-    if active.len()>=number(&policy,"max_workers",1,256)? as usize||active.iter().filter(|r|r.get::<_,String>(0)==principal).count()>=number(&policy,"max_per_principal",1,256)? as usize||active.iter().filter(|r|r.get::<_,String>(1)==workflow).count()>=policy["workflows"][workflow].as_i64().unwrap_or(number(&policy,"max_workers",1,256)?) as usize{return Ok(false);}
+    if active.len()>=number(&policy,"max_workers",1,256)? as usize||active.iter().filter(|r|r.get::<_,String>(0)==principal).count()>=number(&policy,"max_per_principal",1,256)? as usize||active.iter().filter(|r|r.get::<_,String>(1)==workflow).count()>=policy["workflows"][workflow].as_i64().unwrap_or(number(&policy,"max_workers",1,256)?) as usize{return Ok(None);}
     let def=definition(tx,"workflow",workflow,identity)?;
     if def.is_null()||def["retired"]==true{return Err("definition_unavailable".into());}
     let resources=def["descriptor"]["resource_keys"].as_array().cloned().unwrap_or_default();
-    for key in &resources{let name=key.as_str().ok_or("invalid_resource_keys")?;if let Some(cap)=policy["resources"][name].as_i64(){let mut used=0;for row in &active{if decode(row.get(2))?.as_array().is_some_and(|v|v.contains(key)){used+=1;}}if used>=cap{return Ok(false);}}}
-    tx.execute("INSERT INTO service_slots VALUES($1,$2,$3,$4,$5,$6,$7)",&[&assignment,&principal,&workflow,&identity,&json!(resources).to_string(),&owner,&epoch]).map_err(db_error)?;
-    tx.execute("UPDATE service_scheduler SET last_principal=$1 WHERE singleton",&[&principal]).map_err(db_error)?;Ok(true)
+    for key in &resources{let name=key.as_str().ok_or("invalid_resource_keys")?;if let Some(cap)=policy["resources"][name].as_i64(){let mut used=0;for row in &active{if decode(row.get(2))?.as_array().is_some_and(|v|v.contains(key)){used+=1;}}if used>=cap{return Ok(None);}}}
+    Ok(Some(resources))
 }
 pub(crate) fn release_slot(tx:&mut Transaction<'_>,assignment:&str,owner:&str)->Result<()> {
     let epoch=current_epoch(tx)?;tx.execute("DELETE FROM service_slots WHERE assignment=$1 AND owner=$2 AND epoch=$3",&[&assignment,&owner,&epoch]).map_err(db_error)?;Ok(())
@@ -391,13 +395,7 @@ pub fn apply(tx: &mut Transaction<'_>, op: &str, p: &Value) -> Result<Value> {
             let owner = text(p, "owner")?;
             let requested = p["task"].as_str();
             let epoch = current_epoch(tx)?;
-            let allowed = p["workflows"]
-                .as_array()
-                .ok_or("invalid_workflows")?
-                .iter()
-                .map(|x| x.as_str().map(str::to_owned).ok_or("invalid_workflows"))
-                .collect::<std::result::Result<Vec<String>, _>>()?;
-            let rows=tx.query("SELECT t.id,t.principal,t.workflow,t.identity,e.run FROM service_tasks t JOIN service_executions e ON e.task=t.id AND e.revision=t.revision WHERE e.state IN ('queued','running','blocked') AND (t.owner IS NULL OR t.owner_epoch<>$1) AND ($2::text IS NULL OR t.id=$2) AND t.workflow=ANY($3) ORDER BY e.seq LIMIT 1000",&[&epoch,&requested,&allowed]).map_err(db_error)?;
+            let rows=tx.query("SELECT t.id,t.principal,t.workflow,t.identity,e.run,t.state,t.updated,EXISTS(SELECT 1 FROM host_runs h WHERE h.run=e.run) FROM service_tasks t JOIN service_executions e ON e.task=t.id AND e.revision=t.revision WHERE e.state IN ('queued','running','blocked') AND (t.owner IS NULL OR t.owner_epoch<>$1) AND ($2::text IS NULL OR t.id=$2) ORDER BY e.seq LIMIT 1000",&[&epoch,&requested]).map_err(db_error)?;
             let last:String=tx.query_one("SELECT last_principal FROM service_scheduler WHERE singleton",&[]).map_err(db_error)?.get(0);
             let mut rows=rows;rows.sort_by_key(|row|(row.get::<_,String>(1)<=last,row.get::<_,String>(1)));
             let mut selected=None;
@@ -411,6 +409,7 @@ pub fn apply(tx: &mut Transaction<'_>, op: &str, p: &Value) -> Result<Value> {
             tx.execute("UPDATE service_executions SET state='running' WHERE task=$1 AND revision=(SELECT revision FROM service_tasks WHERE id=$1)",&[&id]).map_err(db_error)?;
             event(tx, &id, "running", json!({"state":"running"}))?;
             let mut saved = task(tx, &principal, &id)?;
+            let original_state:String=r.get(5);let queued_at:i64=r.get(6);let started:bool=r.get(7);
             let r = tx
                 .query_one(
                     "SELECT run,input FROM service_executions WHERE task=$1 AND revision=$2",
@@ -420,6 +419,10 @@ pub fn apply(tx: &mut Transaction<'_>, op: &str, p: &Value) -> Result<Value> {
             saved["run_id"] = json!(r.get::<_, String>(0));
             saved["input"] = decode(r.get::<_, &str>(1))?;
             saved["owner"] = json!(owner);
+            saved["started"] = json!(started);
+            if matches!(original_state.as_str(),"queued"|"blocked") {
+                saved["queue_wait_ms"] = json!((t-queued_at).max(0));
+            }
             Ok(saved)
         }
         "task.protocol" => {
@@ -602,7 +605,8 @@ pub fn apply(tx: &mut Transaction<'_>, op: &str, p: &Value) -> Result<Value> {
         }
         "task.expire" => {
             let epoch=current_epoch(tx)?;
-            let rows=tx.query("SELECT t.id,t.principal,t.revision FROM service_tasks t JOIN service_clocks c ON c.owner=t.id AND c.path='' WHERE t.state IN ('queued','running','blocked','input_required','auth_required') AND (t.owner IS NULL OR t.owner_epoch<>$1)",&[&epoch]).map_err(db_error)?;
+            let targets=p["tasks"].as_array().filter(|v|v.len()<=1000).ok_or("invalid_expiry_batch")?.iter().map(|x|x.as_str().map(str::to_owned).ok_or("invalid_expiry_batch")).collect::<std::result::Result<Vec<_>,_>>()?;
+            let rows=tx.query("SELECT t.id,t.principal,t.revision FROM service_tasks t JOIN service_clocks c ON c.owner=t.id AND c.path='' WHERE t.state IN ('queued','running','blocked','input_required','auth_required') AND (t.owner IS NULL OR t.owner_epoch<>$1) AND t.id=ANY($2)",&[&epoch,&targets]).map_err(db_error)?;
             let mut expired=vec![];
             for row in rows{
                 let id:String=row.get(0);let principal:String=row.get(1);let revision:i64=row.get(2);
@@ -615,7 +619,7 @@ pub fn apply(tx: &mut Transaction<'_>, op: &str, p: &Value) -> Result<Value> {
                 let t=timestamp(tx)?;tx.execute("UPDATE service_tasks SET state=$2,error=$3,updated=$4,owner=NULL,owner_epoch=NULL WHERE id=$1",&[&id,&state,&error.to_string(),&t]).map_err(db_error)?;
                 tx.execute("UPDATE service_executions SET state=$2 WHERE task=$1 AND revision=$3",&[&id,&state,&revision]).map_err(db_error)?;
                 tx.execute("DELETE FROM service_slots WHERE assignment IN (SELECT run FROM service_executions WHERE task=$1 AND revision=$2) AND epoch<>$3",&[&id,&revision,&epoch]).map_err(db_error)?;
-                event(tx,&id,"deadline_expired",error)?;expired.push(task(tx,&principal,&id)?);
+                event(tx,&id,"deadline_expired",error)?;expired.push(json!({"task_id":id,"principal":principal}));
             }Ok(json!(expired))
         }
         "epoch.retire" => {
@@ -638,6 +642,19 @@ pub fn apply(tx: &mut Transaction<'_>, op: &str, p: &Value) -> Result<Value> {
 }
 pub fn query(tx: &mut Transaction<'_>, op: &str, p: &Value) -> Result<Value> {
     match op{
+ "task.expiring"=>{
+    let epoch=current_epoch(tx)?;let after=p["after"].as_str();let requested=p["task"].as_str();
+    let rows=tx.query("SELECT t.id,c.clock FROM service_tasks t JOIN service_clocks c ON c.owner=t.id AND c.path='' WHERE t.state IN ('queued','running','blocked','input_required','auth_required') AND (t.owner IS NULL OR t.owner_epoch<>$1) AND ($2::text IS NULL OR t.id>$2) AND ($3::text IS NULL OR t.id=$3) ORDER BY t.id LIMIT 1001",&[&epoch,&after,&requested]).map_err(db_error)?;
+    let now=timestamp(tx)?;let mut expired=vec![];
+    for row in rows.iter().take(1000){let status=crate::shared_timing::evaluate(&decode(row.get(1))?,now)?;if status["expired"].as_array().is_some_and(|v|!v.is_empty()){expired.push(row.get::<_,String>(0));}}
+    Ok(json!({"tasks":expired,"next":if rows.len()>1000{json!(rows[999].get::<_,String>(0))}else{Value::Null}}))
+ },
+ "task.claimable"=>{
+    let epoch=current_epoch(tx)?;let requested=p["task"].as_str();
+    let rows=tx.query("SELECT t.principal,t.workflow,t.identity,s.epoch FROM service_tasks t JOIN service_executions e ON e.task=t.id AND e.revision=t.revision LEFT JOIN service_slots s ON s.assignment=e.run WHERE e.state IN ('queued','running','blocked') AND (t.owner IS NULL OR t.owner_epoch<>$1) AND ($2::text IS NULL OR t.id=$2) ORDER BY e.seq LIMIT 1000",&[&epoch,&requested]).map_err(db_error)?;
+    for row in rows{let owned:Option<i64>=row.get(3);if owned.is_some_and(|old|old!=epoch)||owned.is_none()&&available_resources(tx,row.get(0),row.get(1),row.get(2))?.is_some(){return Ok(json!(true));}}
+    Ok(json!(false))
+ },
  "definition.inspect"=>definition(tx,text(p,"kind")?,text(p,"name")?,digest(p,"identity")?),
  "definition.current"=>Ok(tx.query_opt("SELECT identity FROM service_aliases WHERE kind=$1 AND name=$2",&[&text(p,"kind")?,&text(p,"name")?]).map_err(db_error)?.map(|r|json!(r.get::<_,String>(0))).unwrap_or(Value::Null)),
  "definition.names"=>Ok(json!(tx.query("SELECT DISTINCT name FROM service_definitions WHERE kind=$1 ORDER BY name",&[&text(p,"kind")?]).map_err(db_error)?.iter().map(|r|r.get::<_,String>(0)).collect::<Vec<_>>())),

@@ -9,6 +9,7 @@ import subprocess
 import tempfile
 import time
 import unittest
+from unittest import mock
 import uuid
 
 from mas_host.contracts import RunnerError
@@ -134,3 +135,45 @@ class SharedBackupIntegrationTests(unittest.TestCase):
         self.restore.restore_audit(valid)
         with self.assertRaises(SharedBackupError): self.restore.restore_audit(valid)
         self.assertEqual(self.restore.inspect()['mode'], 'audit')
+
+    def test_restore_uses_verified_descriptor_after_source_path_changes(self):
+        archive = Path(self.temp.name) / 'backup'
+        self.manager.archive(archive, operator='operator', request_key='final-1', evidence={'ticket': 'fixture'})
+        original = self.restore._request
+        def changed(operation, **fields):
+            result = original(operation, **fields)
+            if operation == 'recovery_target':
+                (archive / 'authority.pgdump').write_bytes(b'unverified replacement is never restored')
+            return result
+        with mock.patch.object(self.restore, '_request', side_effect=changed):
+            self.restore.restore_audit(archive)
+        self.assertEqual(self.restore.inspect()['mode'], 'audit')
+
+    def test_interruption_after_native_restore_remains_permanently_sealed(self):
+        archive = Path(self.temp.name) / 'backup'
+        manifest = self.manager.archive(archive, operator='operator', request_key='final-1', evidence={'ticket': 'fixture'})
+        original = self.restore._request
+        def interrupted(operation, **fields):
+            if operation == 'recovery_audit':
+                raise SharedBackupError('injected postrestore interruption')
+            return original(operation, **fields)
+        with mock.patch.object(self.restore, '_request', side_effect=interrupted):
+            with self.assertRaises(SharedBackupError): self.restore.restore_audit(archive)
+        self.assertEqual(self.restore.inspect()['mode'], 'sealed')
+        with self.assertRaises(RunnerError): self.target.renew()
+        with self.assertRaises(RunnerError): self.target.query('scope', {'scope': 'deployment'})
+        payload = manifest['payload']
+        original('recovery_audit', parameters={'seal': payload['seal'], 'archive_sha256': payload['archive_sha256']})
+        self.assertEqual(self.restore.inspect()['mode'], 'audit')
+
+    def test_symlink_and_shared_mode_archive_files_are_rejected(self):
+        archive = Path(self.temp.name) / 'backup'
+        self.manager.archive(archive, operator='operator', request_key='final-1', evidence={'ticket': 'fixture'})
+        path = archive / 'authority.pgdump'
+        path.chmod(0o644)
+        with self.assertRaises(SharedBackupError): self.restore.restore_audit(archive)
+        path.chmod(0o600)
+        moved = archive / 'real.pgdump'
+        path.rename(moved)
+        path.symlink_to(moved.name)
+        with self.assertRaises(SharedBackupError): self.restore.restore_audit(archive)

@@ -101,6 +101,9 @@ class SharedTaskFacade:
     def run_once(self, task_id=None):
         if task_id is not None:
             return self._owner(task_id).run_once(task_id)
+        self.leaves.expire_pending()
+        if self.compositions is not None:
+            self.compositions.expire_pending()
         for item in self.pending():
             result = self._owner(item['task_id']).run_once(item['task_id'])
             if result is not None:
@@ -108,11 +111,7 @@ class SharedTaskFacade:
         return None
 
     def recovery_runs(self, principal, task_id):
-        owner = self._owner(task_id)
-        if owner is self.leaves:
-            return owner.recovery_runs(principal, task_id)
-        return [{key: row[key] for key in ('revision', 'run_id', 'state', 'path')}
-                for row in owner._graph(principal, task_id)['attempts']]
+        return self._owner(task_id).recovery_runs(principal, task_id)
 
     def request_epoch_status(self, principal, epoch):
         return self.leaves.request_epoch_status(principal, epoch)

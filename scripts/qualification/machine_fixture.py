@@ -108,9 +108,12 @@ def main():
         if (spool / 'worker-spool.sqlite').exists():
             with closing(connect(spool / 'worker-spool.sqlite', SPOOL, readonly=True)) as db:
                 for row in db.execute('SELECT call_id,fence,state,receipt,ack FROM attempts ORDER BY call_id,fence'):
-                    result['attempts'].append({key: json.loads(row[key]) if key in ('receipt', 'ack')
-                        and type(row[key]) is str else row[key] if key not in ('receipt', 'ack') else None
-                        for key in row.keys()})
+                    # DurableWorker reserves a fixed-size BLOB before dispatch,
+                    # then writes padded JSON bytes. Never treat its storage type
+                    # as evidence that an observed receipt is absent.
+                    result['attempts'].append({'call_id': row['call_id'], 'fence': row['fence'], 'state': row['state'],
+                        'receipt': json.loads(row['receipt']) if row['state'] in ('receipt', 'acknowledged') else None,
+                        'ack': json.loads(row['ack']) if row['state'] == 'acknowledged' else None})
     elif args.action == 'lose-spool':
         if spool.exists():
             shutil.rmtree(spool)

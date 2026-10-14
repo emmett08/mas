@@ -1,10 +1,10 @@
 name: Independent machine worker qualification
 on:
   pull_request:
-    paths: ['host/**', 'rust-protocol/**', 'scripts/check-multimachine.py', 'scripts/qualification/**', '.github/workflows/multimachine.yml']
+    paths: ['host/**', 'rust-protocol/**', 'scripts/check-multimachine.py', 'scripts/qualification/**', 'scripts/tests/test_machine_evidence.py', '.github/workflows/multimachine.yml']
   push:
     branches: [main]
-    paths: ['host/**', 'rust-protocol/**', 'scripts/check-multimachine.py', 'scripts/qualification/**', '.github/workflows/multimachine.yml']
+    paths: ['host/**', 'rust-protocol/**', 'scripts/check-multimachine.py', 'scripts/qualification/**', 'scripts/tests/test_machine_evidence.py', '.github/workflows/multimachine.yml']
   workflow_dispatch:
 permissions:
   contents: read
@@ -20,6 +20,8 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: '3.14'
+      - name: Verify durable evidence inspection
+        run: python -m unittest discover -s scripts/tests -p test_machine_evidence.py -v
       - name: Install unprivileged VM prerequisites and pinned Rust
         run: |
           sudo apt-get update
@@ -53,3 +55,5 @@ jobs:
             machine-evidence/worker-one/tunnel.log
             machine-evidence/worker-two/tunnel.log
             machine-evidence/*/controller.log
+            machine-evidence/*/observations.json
+            machine-evidence/*/case.json

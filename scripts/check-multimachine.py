@@ -113,7 +113,7 @@ class Guest:
                 (self.root/'ssh-readiness.log').write_text('SSH handshake exceeded 20 seconds\n')
                 return False
         wait_for(probe, seconds=600, description=self.name+' SSH boot')
-        subprocess.run(self.ssh('sudo -n cloud-init status --wait'), check=True, timeout=90,
+        subprocess.run(self.ssh('sudo -n cloud-init status --wait'), check=True, timeout=300,
                        stdout=subprocess.DEVNULL)
 
     def install(self, archive, token):
@@ -345,8 +345,10 @@ def check_all(nodes, descriptions, tokens, proxy, args, root):
                     finally:
                         nodes['worker-one'].link(True)
                     nodes['worker-one'].connect()
-                execution.result(timeout=60)
+                worker_result = execution.result(timeout=60)
                 snapshot = nodes['worker-one'].call('snapshot', name)
+                (case.root/'observations.json').write_text(json.dumps(
+                    {'worker_result': worker_result, 'spool': snapshot}, indent=2, sort_keys=True)+'\n')
                 receipts = [item['receipt'] for item in snapshot['attempts'] if item['receipt']]
                 if name in ('lostack', 'spoolloss', 'artifactloss'):
                     require(len(receipts) == 1, name+' did not retain unacknowledged receipt')
@@ -404,6 +406,7 @@ def check_all(nodes, descriptions, tokens, proxy, args, root):
                     'reserved_microusd': usage['reserved_microusd'],
                     'receipt_ids': [item['id'] for item in case.authority.evidence('alice', call_id)],
                     'invocations': [inspect_run(item['run_dir'])['invocations'] for item in case.results]})
+                (case.root/'case.json').write_text(json.dumps(evidence[-1], indent=2, sort_keys=True)+'\n')
             finally:
                 case.close()
     return evidence

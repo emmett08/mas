@@ -74,7 +74,7 @@ class SharedWorkflowStore:
 
     def join_drain_state(self, instance, path):
         decision = self.join_decision(instance, path)
-        graph = self.query('graph', instance)
+        graph = self.query('frontier', instance)
         for attempt in graph['attempts']:
             if any(attempt['path'] == prefix or attempt['path'].startswith(prefix + '/')
                    for prefix in decision['obsolete']):
@@ -128,6 +128,12 @@ class SharedCompositionService:
         self._authorise(principal, graph['plan'])
         return graph
 
+    def _frontier(self, principal, instance):
+        self._authorise(principal)
+        value = self.authority.query('composition.frontier', {'instance': instance, 'principal': principal})
+        self._authorise(principal, value['plan'])
+        return value
+
     @staticmethod
     def _receipt(graph):
         paused = [{'path': row['path'], 'revision': row['revision'], 'state': row['state']}
@@ -141,10 +147,10 @@ class SharedCompositionService:
             'cancel_requested': graph['cancel_requested'],
             'result': {'pending_tasks': paused} if paused else graph['output'],
             'error': graph['error'], 'metadata': graph['metadata'],
-            'revision': max((a['revision'] for a in graph.get('attempts', ())), default=0),
+            'revision': graph.get('revision', max((a['revision'] for a in graph.get('attempts', ())), default=0)),
             'capabilities': {'cancel': True, 'update': bool(paused), 'events': True, 'task_detail': True},
-            'progress': {'nodes': len(graph.get('nodes', ())),
-                         'completed_nodes': sum(n['state'] == 'completed' for n in graph.get('nodes', ()))},
+            'progress': graph.get('progress', {'nodes': len(graph.get('nodes', ())),
+                         'completed_nodes': sum(n['state'] == 'completed' for n in graph.get('nodes', ()))}),
             **({'timing': graph['timing']} if graph.get('timing') else {})}
 
     def submit(self, principal, request_key, workflow, input, *, metadata=None,
@@ -188,13 +194,13 @@ class SharedCompositionService:
         return self.inspect(principal, result['id'])
 
     def inspect(self, principal, task_id):
-        return self._receipt(self._graph(principal, task_id))
+        return self._receipt(self._frontier(principal, task_id))
 
     def result(self, principal, task_id):
         result = self.inspect(principal, task_id)
-        if result['state'] not in FINISHED_STATES | PAUSED_STATES:
-            raise ServiceError('result_not_ready')
-        return result
+        if result['state'] != 'completed' or result.get('archived'):
+            raise ServiceError('result_unavailable')
+        return result['result']
 
     def inspect_task(self, principal, task_id, path, revision=None):
         from .workflow_inspection import validate_task_selector
@@ -208,17 +214,17 @@ class SharedCompositionService:
                 'deadline': graph['deadline'], **attempt}
 
     def cancel(self, principal, task_id):
-        self._graph(principal, task_id)
+        self._frontier(principal, task_id)
         self.authority.command('composition.cancel', {'principal': principal, 'instance': task_id})
         return self.inspect(principal, task_id)
 
     def events(self, principal, task_id, after=0):
-        self._graph(principal, task_id)
+        self._frontier(principal, task_id)
         return self.authority.query('composition.events', {'instance': task_id, 'principal': principal,
                                                          'after': after, 'limit': 1000})
 
     def events_page(self, principal, task_id, after=0, limit=100):
-        self._graph(principal, task_id)
+        self._frontier(principal, task_id)
         if type(after) is not int or after < 0 or type(limit) is not int or not 1 <= limit <= 1000:
             raise ServiceError('invalid_cursor')
         events = self.authority.query('composition.events', {'instance': task_id, 'principal': principal,
@@ -359,8 +365,11 @@ class SharedCompositionService:
         deadline = min([item['deadline'], *[scope['deadline'] for scope in scopes]])
         budgets = [entry['timing']['remaining_active_ms'] / 1000 for entry in [item, *scopes] if entry.get('timing')]
         execution_deadline = time.monotonic() + min([max(0, deadline - time.time()), *budgets])
+        from .telemetry import span
         try:
-            with self.authority.runner(topology, adapters, self.state_dir,
+            with span(getattr(self.authority, 'observation_dir', None), 'dispatch',
+                      task_id=item['id'], run_id=attempt['run_id'],
+                      assignment_id=_identity(item['id'], attempt['path'], attempt['revision'])), self.authority.runner(topology, adapters, self.state_dir,
                     principal=item['principal'], new_run_id=attempt['run_id'],
                     ancestors=attempt['ancestors'], workflow_version=workflow.version,
                     max_depth=workflow.max_depth, retry_policy=workflow.retry_policy,
@@ -381,7 +390,7 @@ class SharedCompositionService:
                              state=state, output=output, error=error)
 
     def run(self, principal, task_id):
-        item = self._graph(principal, task_id)
+        item = self._frontier(principal, task_id)
         scopes = self.authority.query('composition.scopes', {'instance': task_id})
         expired = bool(item.get('timing') and item['timing']['expired']) or any(
             scope.get('state') not in FINISHED_STATES and (scope['deadline'] <= time.time()
@@ -414,7 +423,7 @@ class SharedCompositionService:
                     if saved['state'] == 'running':
                         store.command('save_attempt', task_id, path=attempt['path'], run_id=attempt['run_id'],
                             state='unknown', output=None, error={'code': 'worker_interrupted'})
-                item = store.query('graph', task_id)
+                item = store.query('frontier', task_id)
                 scopes = store.query('scopes', task_id)
                 expired = (item['deadline'] <= time.time()
                     or bool(item.get('timing') and item['timing']['expired'])
@@ -454,6 +463,11 @@ class SharedCompositionService:
                     attempt = store.command('start_attempt', task_id, path=candidate['path'], run_id=candidate['run_id'])
                     if attempt is None:
                         continue
+                    from .telemetry import record
+                    record(getattr(self.authority, 'observation_dir', None), 'queue',
+                        (attempt.get('queue_elapsed_ms') or 0) * 1000, outcome='observed',
+                        task_id=task_id, run_id=attempt['run_id'],
+                        assignment_id=_identity(task_id, attempt['path'], attempt['revision']))
                     live[attempt['path']] = attempt
                     ownership.spawn(attempt['path'], lambda lifetime, descriptors, attempt=attempt:
                         self._execute(store, item, attempt, lifetime, descriptors))
@@ -468,23 +482,35 @@ class SharedCompositionService:
         return [{'task_id': item['id'], 'principal': item['principal'], 'created_at': item['created'] * 1000}
                 for item in (self.authority.query('composition.instance', {'instance': identity}) for identity in values)]
 
+    def expire_pending(self, task_id=None):
+        expiry = self.authority.query('composition.expiring', {'instance': task_id,
+            'after': None if task_id else getattr(self, '_expiry_cursor', None)})
+        if task_id is None:
+            self._expiry_cursor = expiry['next']
+        if expiry['instances']:
+            self.authority.command('composition.expire', {'instances': expiry['instances']})
+
     def run_once(self, task_id=None):
-        self.authority.command('composition.expire', {})
+        self.expire_pending(task_id)
         ids = [task_id] if task_id else [item['task_id'] for item in self.pending()]
         if not ids:
             return None
         item = self.authority.query('composition.instance', {'instance': ids[0]})
         return self.run(item['principal'], item['id'])
 
+    def recovery_runs(self, principal, task_id):
+        self._frontier(principal, task_id)
+        return self.authority.query('composition.runs', {'instance': task_id, 'principal': principal})
+
     def recover(self, principal, task_id):
-        item = self._graph(principal, task_id)
+        item = self._frontier(principal, task_id)
         with self._claim(item) as owner:
             SharedWorkflowStore(self.authority, owner, {}).command('recover', task_id)
         return self.inspect(principal, task_id)
 
     def update(self, principal, task_id, request_key, input, *, metadata=None,
                expected_identity=None, expected_deployment_id=None):
-        item = self._graph(principal, task_id)
+        item = self._frontier(principal, task_id)
         if expected_identity is not None and expected_identity != item['identity']:
             raise ServiceError('workflow_identity_mismatch')
         if expected_deployment_id is not None and expected_deployment_id != self.authority._binding['deployment']:

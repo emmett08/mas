@@ -9,9 +9,11 @@ type Result<T> = std::result::Result<T, String>;
 pub(crate) const DDL: &str = "
 CREATE TABLE composition_policy(singleton boolean PRIMARY KEY CHECK(singleton),max_instances bigint NOT NULL CHECK(max_instances>0));
 CREATE TABLE composition_instances(id text PRIMARY KEY,principal text NOT NULL,request_namespace text NOT NULL,request_epoch text NOT NULL,request_key text NOT NULL,plan text NOT NULL,identity text NOT NULL,input text NOT NULL,metadata text NOT NULL,binding text NOT NULL,limits text NOT NULL,state text NOT NULL,output text,error text,created bigint NOT NULL,updated bigint NOT NULL,deadline bigint NOT NULL,cancel_requested boolean NOT NULL DEFAULT false,owner text,owner_epoch bigint,UNIQUE(principal,request_namespace,request_epoch,request_key));
+CREATE TABLE composition_statistics(instance text PRIMARY KEY REFERENCES composition_instances(id),nodes bigint NOT NULL DEFAULT 0,completed bigint NOT NULL DEFAULT 0,revision bigint NOT NULL DEFAULT 0);
 CREATE TABLE composition_nodes(instance text NOT NULL REFERENCES composition_instances(id),path text NOT NULL,kind text NOT NULL,input text NOT NULL,state text NOT NULL,output text,error text,PRIMARY KEY(instance,path));
-CREATE TABLE composition_attempts(instance text NOT NULL REFERENCES composition_instances(id),path text NOT NULL,revision bigint NOT NULL,workflow text NOT NULL,identity text NOT NULL,run_id text UNIQUE NOT NULL,input text NOT NULL,wall_seconds bigint NOT NULL,ancestors text NOT NULL,state text NOT NULL,output text,error text,PRIMARY KEY(instance,path,revision));
-CREATE INDEX composition_ready ON composition_attempts(instance,state,path);
+CREATE TABLE composition_attempts(instance text NOT NULL REFERENCES composition_instances(id),path text NOT NULL,revision bigint NOT NULL,workflow text NOT NULL,identity text NOT NULL,run_id text UNIQUE NOT NULL,input text NOT NULL,wall_seconds bigint NOT NULL,ancestors text NOT NULL,state text NOT NULL,output text,error text,latest boolean NOT NULL DEFAULT true,queued_ms bigint NOT NULL DEFAULT (floor(extract(epoch FROM clock_timestamp())*1000)::bigint),started_ms bigint,PRIMARY KEY(instance,path,revision));
+CREATE INDEX composition_ready ON composition_attempts(instance,latest,state,path);
+CREATE UNIQUE INDEX composition_latest ON composition_attempts(instance,path) WHERE latest;
 CREATE TABLE composition_scopes(instance text NOT NULL REFERENCES composition_instances(id),path text NOT NULL,id text UNIQUE NOT NULL,limits text NOT NULL,deadline bigint NOT NULL,PRIMARY KEY(instance,path));
 CREATE TABLE composition_progress(instance text NOT NULL REFERENCES composition_instances(id),path text NOT NULL,kind text NOT NULL,next_index bigint NOT NULL,output text NOT NULL,consumed bigint NOT NULL,PRIMARY KEY(instance,path));
 CREATE TABLE composition_joins(instance text NOT NULL REFERENCES composition_instances(id),path text NOT NULL,winners text NOT NULL,obsolete text NOT NULL,PRIMARY KEY(instance,path));
@@ -103,7 +105,7 @@ fn attempt_at(
     path: &str,
     revision: Option<i64>,
 ) -> Result<Value> {
-    tx.query_opt("SELECT revision,workflow,identity,run_id,input,wall_seconds,ancestors,state,output,error FROM composition_attempts WHERE instance=$1 AND path=$2 AND ($3::bigint IS NULL OR revision=$3) ORDER BY revision DESC LIMIT 1",&[&id,&path,&revision]).map_err(db_error)?.map(|r|Ok(json!({"instance":id,"path":path,"revision":r.get::<_,i64>(0),"workflow":r.get::<_,&str>(1),"identity":r.get::<_,&str>(2),"run_id":r.get::<_,&str>(3),"run_directory":r.get::<_,&str>(3),"input":decoded(r.get(4))?,"wall_seconds":r.get::<_,i64>(5),"ancestors":decoded(r.get(6))?,"state":r.get::<_,&str>(7),"output":optional(r.get(8))?,"error":optional(r.get(9))?}))).unwrap_or(Ok(Value::Null))
+    tx.query_opt("SELECT revision,workflow,identity,run_id,input,wall_seconds,ancestors,state,output,error,queued_ms,started_ms FROM composition_attempts WHERE instance=$1 AND path=$2 AND ($3::bigint IS NULL OR revision=$3) ORDER BY revision DESC LIMIT 1",&[&id,&path,&revision]).map_err(db_error)?.map(|r|Ok(json!({"instance":id,"path":path,"revision":r.get::<_,i64>(0),"workflow":r.get::<_,&str>(1),"identity":r.get::<_,&str>(2),"run_id":r.get::<_,&str>(3),"run_directory":r.get::<_,&str>(3),"input":decoded(r.get(4))?,"wall_seconds":r.get::<_,i64>(5),"ancestors":decoded(r.get(6))?,"state":r.get::<_,&str>(7),"output":optional(r.get(8))?,"error":optional(r.get(9))?,"queued_at_ms":r.get::<_,i64>(10),"queue_elapsed_ms":r.get::<_,Option<i64>>(11).map(|started|(started-r.get::<_,i64>(10)).max(0))}))).unwrap_or(Ok(Value::Null))
 }
 fn scope(
     tx: &mut Transaction<'_>,
@@ -238,7 +240,9 @@ fn expired(tx: &mut Transaction<'_>, id: &str) -> Result<bool> {
 }
 pub(crate) fn apply(tx: &mut Transaction<'_>, operation: &str, p: &Value) -> Result<Value> {
     if operation == "composition.expire" {
-        let rows=tx.query("SELECT id FROM composition_instances WHERE owner IS NULL AND state IN ('queued','waiting','blocked_definition','input_required','auth_required') ORDER BY created,id LIMIT 1000",&[]).map_err(db_error)?;
+        let candidates = p["instances"].as_array().filter(|v| v.len()<=1000).ok_or("invalid expiry candidates")?;
+        let candidates = candidates.iter().map(|v| v.as_str().map(str::to_owned).ok_or("invalid expiry candidate")).collect::<std::result::Result<Vec<_>,_>>()?;
+        let rows=tx.query("SELECT id FROM composition_instances WHERE id=ANY($1) AND owner IS NULL AND state IN ('queued','waiting','blocked_definition','input_required','auth_required')",&[&candidates]).map_err(db_error)?;
         let mut count = 0;
         for row in rows {
             let id = row.get::<_, &str>(0);
@@ -336,6 +340,11 @@ pub(crate) fn apply(tx: &mut Transaction<'_>, operation: &str, p: &Value) -> Res
         };
         let deadline = timestamp.checked_add(seconds).ok_or("deadline overflow")?;
         tx.execute("INSERT INTO composition_instances(id,principal,request_namespace,request_epoch,request_key,plan,identity,input,metadata,binding,limits,state,created,deadline,updated) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'queued',$12,$13,$14)",&[&id,&principal,&namespace,&epoch,&key,&plan,&identity,&p["input"].to_string(),&p["metadata"].to_string(),&p["binding"].to_string(),&p["limits"].to_string(),&timestamp,&deadline,&(timestamp*1000)]).map_err(db_error)?;
+        tx.execute(
+            "INSERT INTO composition_statistics(instance) VALUES($1)",
+            &[&id],
+        )
+        .map_err(db_error)?;
         crate::shared_tasks::remember_request(
             tx,
             principal,
@@ -375,7 +384,7 @@ pub(crate) fn apply(tx: &mut Transaction<'_>, operation: &str, p: &Value) -> Res
         // Interrupted assignments retain the same run identity. The native leaf
         // checkpoint owner classifies escaped invocation intents before replay.
         tx.execute(
-            "UPDATE composition_attempts SET state='queued' WHERE instance=$1 AND state='running'",
+            "UPDATE composition_attempts SET state='queued',queued_ms=floor(extract(epoch FROM clock_timestamp())*1000)::bigint,started_ms=NULL WHERE instance=$1 AND state='running'",
             &[&id],
         )
         .map_err(db_error)?;
@@ -553,7 +562,7 @@ pub(crate) fn apply(tx: &mut Transaction<'_>, operation: &str, p: &Value) -> Res
             let kind = text(p, "kind")?;
             let count: i64 = tx
                 .query_one(
-                    "SELECT count(*) FROM composition_nodes WHERE instance=$1",
+                    "SELECT nodes FROM composition_statistics WHERE instance=$1",
                     &[&id],
                 )
                 .map_err(db_error)?
@@ -563,6 +572,11 @@ pub(crate) fn apply(tx: &mut Transaction<'_>, operation: &str, p: &Value) -> Res
                 return Err("composition step limit".into());
             }
             tx.execute("INSERT INTO composition_nodes(instance,path,kind,input,state) VALUES($1,$2,$3,$4,'waiting')",&[&id,&path,&kind,&p["input"].to_string()]).map_err(db_error)?;
+            tx.execute(
+                "UPDATE composition_statistics SET nodes=nodes+1 WHERE instance=$1",
+                &[&id],
+            )
+            .map_err(db_error)?;
             node(tx, &id, path)
         }
         "composition.finish_node" => {
@@ -584,6 +598,13 @@ pub(crate) fn apply(tx: &mut Transaction<'_>, operation: &str, p: &Value) -> Res
                 || saved["error"] != p["error"]
             {
                 tx.execute("UPDATE composition_nodes SET state=$3,output=$4,error=$5 WHERE instance=$1 AND path=$2",&[&id,&path,&state,&p["output"].to_string(),&p["error"].to_string()]).map_err(db_error)?;
+                if state == "completed" && saved["state"] != "completed" {
+                    tx.execute(
+                        "UPDATE composition_statistics SET completed=completed+1 WHERE instance=$1",
+                        &[&id],
+                    )
+                    .map_err(db_error)?;
+                }
                 event(tx, &id, Some(path), "node_state", state, None)?;
             }
             let running:i64=tx.query_one("SELECT count(*) FROM composition_attempts WHERE instance=$1 AND state='running' AND (path=$2 OR starts_with(path,$2||'/'))",&[&id,&path]).map_err(db_error)?.get(0);
@@ -707,7 +728,7 @@ pub(crate) fn apply(tx: &mut Transaction<'_>, operation: &str, p: &Value) -> Res
             )? {
                 return Ok(Value::Null);
             }
-            tx.execute("UPDATE composition_attempts SET state='running' WHERE instance=$1 AND path=$2 AND revision=$3",&[&id,&path,&integer(&saved,"revision",0)?]).map_err(db_error)?;
+            tx.execute("UPDATE composition_attempts SET state='running',started_ms=floor(extract(epoch FROM clock_timestamp())*1000)::bigint WHERE instance=$1 AND path=$2 AND revision=$3",&[&id,&path,&integer(&saved,"revision",0)?]).map_err(db_error)?;
             activity(tx, &id)?;
             event(tx, &id, Some(path), "attempt_started", "running", None)?;
             attempt(tx, &id, path)
@@ -805,7 +826,8 @@ pub(crate) fn apply(tx: &mut Transaction<'_>, operation: &str, p: &Value) -> Res
             join(tx, &id, path)
         }
         "composition.finish" => {
-            let state = text(p, "state")?;
+            let requested = text(p, "state")?;
+            let state = requested;
             if !valid_state(state) {
                 return Err("invalid composition state".into());
             }
@@ -814,17 +836,35 @@ pub(crate) fn apply(tx: &mut Transaction<'_>, operation: &str, p: &Value) -> Res
                 return Err("terminal composition immutable".into());
             }
             let uncertain:bool=tx.query_one("SELECT EXISTS(SELECT 1 FROM composition_attempts WHERE instance=$1 AND state IN ('running','unknown'))",&[&id]).map_err(db_error)?.get(0);
+            let close = !terminal(saved["state"].as_str().unwrap_or(""))
+                && (saved["cancel_requested"] == true || expired(tx, &id)?);
+            let state = if close {
+                if uncertain {
+                    "unknown"
+                } else if saved["cancel_requested"] == true {
+                    "cancelled"
+                } else {
+                    "expired"
+                }
+            } else {
+                state
+            };
             if terminal(state) && uncertain {
                 return Err("uncertain attempts cannot be concealed".into());
             }
+            let output = if state == requested {
+                p["output"].clone()
+            } else {
+                Value::Null
+            };
+            let error = if state == requested {
+                p["error"].clone()
+            } else {
+                json!({"code":if uncertain{"reconciliation_required"}else{"deadline_exceeded"}})
+            };
             tx.execute(
                 "UPDATE composition_instances SET state=$2,output=$3,error=$4 WHERE id=$1",
-                &[
-                    &id,
-                    &state,
-                    &p["output"].to_string(),
-                    &p["error"].to_string(),
-                ],
+                &[&id, &state, &output.to_string(), &error.to_string()],
             )
             .map_err(db_error)?;
             shared_timing::transition(
@@ -919,6 +959,12 @@ pub(crate) fn apply(tx: &mut Transaction<'_>, operation: &str, p: &Value) -> Res
             if revision >= integer(&item["limits"], "max_steps", 1)? {
                 return Err("continuation revision limit".into());
             }
+            tx.execute(
+                "UPDATE composition_attempts SET latest=false WHERE instance=$1 AND path=$2",
+                &[&id, &path],
+            )
+            .map_err(db_error)?;
+            tx.execute("UPDATE composition_statistics SET revision=greatest(revision,$2) WHERE instance=$1",&[&id,&revision]).map_err(db_error)?;
             tx.execute("INSERT INTO composition_attempts(instance,path,revision,workflow,identity,run_id,input,wall_seconds,ancestors,state) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,'queued')",&[&id,&path,&revision,&text(&saved,"workflow")?,&text(&saved,"identity")?,&text(p,"run_id")?,&p["input"].to_string(),&integer(&saved,"wall_seconds",1)?,&saved["ancestors"].to_string()]).map_err(db_error)?;
             tx.execute("UPDATE composition_nodes SET state='waiting',output=NULL,error=NULL WHERE instance=$1 AND (path=$2 OR starts_with($2,path||'/'))",&[&id,&path]).map_err(db_error)?;
             tx.execute("UPDATE composition_instances SET state='queued',output=NULL,error=NULL WHERE id=$1",&[&id]).map_err(db_error)?;
@@ -945,6 +991,15 @@ pub(crate) fn apply(tx: &mut Transaction<'_>, operation: &str, p: &Value) -> Res
     }
 }
 pub(crate) fn query(tx: &mut Transaction<'_>, operation: &str, p: &Value) -> Result<Value> {
+    if operation == "composition.expiring" {
+        let after=p["after"].as_str();
+        let instance=p["instance"].as_str();
+        let rows=tx.query("SELECT id FROM composition_instances WHERE owner IS NULL AND state IN ('queued','waiting','blocked_definition','input_required','auth_required') AND ($1::text IS NULL OR id>$1) AND ($2::text IS NULL OR id=$2) ORDER BY id LIMIT 1001",&[&after,&instance]).map_err(db_error)?;
+        let mut candidates=Vec::new();
+        for row in rows.iter().take(1000) { let id=row.get::<_,&str>(0); if expired(tx,id)? { candidates.push(id.to_owned()); } }
+        let next=if rows.len()>1000 { json!(rows[999].get::<_,&str>(0)) } else { Value::Null };
+        return Ok(json!({"instances":candidates,"next":next}));
+    }
     if operation == "composition.pending" {
         let rows=tx.query("SELECT id FROM composition_instances WHERE state IN ('queued','running','waiting') ORDER BY created,id LIMIT 1000",&[]).map_err(db_error)?;
         return Ok(json!(rows
@@ -1014,6 +1069,25 @@ pub(crate) fn query(tx: &mut Transaction<'_>, operation: &str, p: &Value) -> Res
             let mut out = Vec::new();
             for r in tx.query("SELECT s.path,s.id,s.limits,s.deadline,n.state FROM composition_scopes s LEFT JOIN composition_nodes n ON n.instance=s.instance AND n.path=s.path WHERE s.instance=$1 ORDER BY s.path",&[&id]).map_err(db_error)?{out.push(json!({"path":r.get::<_,&str>(0),"id":r.get::<_,&str>(1),"limits":decoded(r.get(2))?,"deadline":r.get::<_,i64>(3),"state":r.get::<_,Option<&str>>(4),"clock":shared_timing::read(tx,id,r.get(0))?,"timing":shared_timing::status(tx,id,r.get(0))?}))}
             Ok(json!(out))
+        }
+        "composition.runs" => {
+            let rows=tx.query("SELECT path,revision,run_id,state FROM composition_attempts WHERE instance=$1 ORDER BY path,revision",&[&id]).map_err(db_error)?;
+            Ok(json!(rows.iter().map(|r|json!({"path":r.get::<_,&str>(0),"revision":r.get::<_,i64>(1),"run_id":r.get::<_,&str>(2),"run_directory":r.get::<_,&str>(2),"state":r.get::<_,&str>(3)})).collect::<Vec<_>>()))
+        }
+        "composition.frontier" => {
+            let mut frontier = item;
+            let stats = tx
+                .query_one(
+                    "SELECT nodes,completed,revision FROM composition_statistics WHERE instance=$1",
+                    &[&id],
+                )
+                .map_err(db_error)?;
+            frontier["progress"] =
+                json!({"nodes":stats.get::<_,i64>(0),"completed_nodes":stats.get::<_,i64>(1)});
+            frontier["revision"] = json!(stats.get::<_, i64>(2));
+            let rows=tx.query("SELECT path,revision,run_id,state FROM composition_attempts WHERE instance=$1 AND latest AND state IN ('queued','running','unknown','input_required','auth_required') ORDER BY path",&[&id]).map_err(db_error)?;
+            frontier["attempts"]=json!(rows.iter().map(|r|json!({"path":r.get::<_,&str>(0),"revision":r.get::<_,i64>(1),"run_id":r.get::<_,&str>(2),"state":r.get::<_,&str>(3)})).collect::<Vec<_>>());
+            Ok(frontier)
         }
         "composition.graph" => {
             let mut graph = item;

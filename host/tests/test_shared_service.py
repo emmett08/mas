@@ -58,10 +58,10 @@ class SharedServiceTests(unittest.TestCase):
                        for name in ('deployment', 'principal/alice', 'principal/bob')}
         self.service = self.build('cache-one')
 
-    def build(self, cache, *, workflow=None, versions=None, authority=None):
+    def build(self, cache, *, workflow=None, versions=None, authority=None, grants=None, supervised=False):
         return create_shared_service(authority or self.authority, Path(self.temp.name) / cache,
-            {'work': workflow or self.workflow}, {'alice': {'work'}, 'bob': {'work'}},
-            workflow_versions=versions, allocation_limits=self.limits, supervised=False)
+            {'work': workflow or self.workflow}, grants or {'alice': {'work'}, 'bob': {'work'}},
+            workflow_versions=versions, allocation_limits=self.limits, supervised=supervised)
 
     def isolated_policy(self, *, quotas=None, scheduler=None, workflow=None):
         authority = SharedAuthority(binary=self.authority._binary, dsn=os.environ['MAS_TEST_POSTGRES_DSN'],
@@ -101,6 +101,9 @@ class SharedServiceTests(unittest.TestCase):
         first = authority.command('task.claim', {'owner': 'a-owner', 'task': a, 'workflows': ['work']})['receipt']
         self.assertIsNotNone(first)
         self.assertIsNone(authority.command('task.claim', {'owner': 'a2-owner', 'task': a2, 'workflows': ['work']})['receipt'])
+        with mock.patch.object(authority, 'command', wraps=authority.command) as command:
+            self.assertIsNone(service.run_once(a2))
+        command.assert_not_called()
         self.assertEqual(service.pending()[0]['principal'], 'bob')
         self.assertIsNotNone(authority.command('task.claim', {'owner': 'b-owner', 'task': b, 'workflows': ['work']})['receipt'])
         self.assertEqual(authority.query('task.scheduler', {})['occupied'], 2)
@@ -123,7 +126,7 @@ class SharedServiceTests(unittest.TestCase):
         self.assertEqual(self.service.run_once(task)['result'], {'answer': 8})
         replacement = self.build('cache-two')
         self.assertEqual(replacement.submit('alice', 'key', 'work', {'x': 7})['task_id'], task)
-        self.assertEqual(replacement.result('alice', task)['result'], {'answer': 8})
+        self.assertEqual(replacement.result('alice', task), {'answer': 8})
         self.assertIsNone(replacement.run_once())
         self.assertEqual(self.effects, [{'x': 7}])
         events = replacement.events('alice', task)
@@ -133,6 +136,18 @@ class SharedServiceTests(unittest.TestCase):
         with self.assertRaises(ServiceError) as denied:
             replacement.inspect('bob', task)
         self.assertEqual(denied.exception.code, 'task_not_found')
+
+    def test_supervised_factory_executes_with_separate_lease_guardian(self):
+        service = self.build('supervised-cache', supervised=True)
+        task = service.submit('alice', 'supervised', 'work', {'x': 3})['task_id']
+        self.assertEqual(service.run_once(task)['state'], 'completed')
+        self.assertEqual(service.result('alice', task), {'answer': 4})
+
+    def test_idle_leaf_poll_does_not_create_command_receipts(self):
+        with mock.patch.object(self.authority, 'command', wraps=self.authority.command) as command:
+            for _ in range(3):
+                self.assertIsNone(self.service.leaves.run_once())
+        command.assert_not_called()
 
     def test_lost_submission_and_completion_replies_reconcile_original_receipt(self):
         original = self.authority.command
@@ -153,7 +168,7 @@ class SharedServiceTests(unittest.TestCase):
         with mock.patch.object(self.authority, 'command', side_effect=lost_complete):
             with self.assertRaises(RunnerError):
                 self.service.run_once(task)
-        self.assertEqual(self.service.result('alice', task)['state'], 'completed')
+        self.assertEqual(self.service.result('alice', task), {'answer': 2})
         self.assertIsNone(self.build('cache-two').run_once(task))
         self.assertEqual(self.effects, [{'x': 1}])
 
@@ -161,6 +176,8 @@ class SharedServiceTests(unittest.TestCase):
         task = self.service.submit('alice', 'key', 'work', {'x': 2})['task_id']
         first = self.authority.command('task.claim', {'owner': 'worker-one', 'task': task, 'workflows': ['work']})['receipt']
         self.assertIsNotNone(first)
+        self.assertGreaterEqual(first['queue_wait_ms'], 0)
+        self.assertFalse(first['started'])
         self.assertIsNone(self.authority.command('task.claim', {'owner': 'worker-two', 'task': task, 'workflows': ['work']})['receipt'])
         binding = self.authority.handover('successor')
         successor = SharedAuthority(binary=self.authority._binary, dsn=os.environ['MAS_TEST_POSTGRES_DSN'],
@@ -174,6 +191,54 @@ class SharedServiceTests(unittest.TestCase):
         self.assertEqual(replacement.run_once(task)['result'], {'answer': 3})
         self.assertEqual(replacement.recovery_runs('alice', task)[0]['run_id'], first['run_id'])
         self.assertEqual(self.effects, [{'x': 2}])
+
+    def test_revoked_queued_assignment_closes_without_dispatch(self):
+        task = self.service.submit('alice', 'revoked', 'work', {'x': 9})['task_id']
+        replacement = self.build('revoked-cache', grants={'alice': set(), 'bob': set()})
+        finished = replacement.run_once(task)
+        self.assertEqual((finished['state'], finished['error']['code']), ('failed', 'permission_revoked'))
+        self.assertEqual(self.effects, [])
+        self.assertNotIn('queue_wait_ms', finished)
+        with self.assertRaises(ServiceError) as unavailable:
+            self.service.result('alice', task)
+        self.assertEqual(unavailable.exception.code, 'result_unavailable')
+        with self.assertRaises(ServiceError) as denied:
+            replacement.inspect('alice', task)
+        self.assertEqual(denied.exception.code, 'forbidden')
+
+    def test_revoked_started_assignment_preserves_original_run_for_reconciliation(self):
+        task = self.service.submit('alice', 'revoked-started', 'work', {'x': 4})['task_id']
+        original = self.authority.command
+        def interrupt_completion(operation, parameters, **kwargs):
+            if operation == 'task.complete':
+                raise RunnerError('injected loss before task completion')
+            return original(operation, parameters, **kwargs)
+        with mock.patch.object(self.authority, 'command', side_effect=interrupt_completion):
+            with self.assertRaises(RunnerError):
+                self.service.run_once(task)
+        run = self.service.recovery_runs('alice', task)[0]['run_id']
+        binding = self.authority.handover('successor')
+        successor = SharedAuthority(binary=self.authority._binary, dsn=os.environ['MAS_TEST_POSTGRES_DSN'],
+            namespace=self.authority.namespace, deployment='deployment', controller='successor', epoch=binding['epoch'],
+            secret_key=b'test-secret-only' * 3, secret_reference='key/1', default_reservation_microusd=1)
+        self.addCleanup(successor.close)
+        replacement = self.build('revoked-started-cache', authority=successor,
+            grants={'alice': set(), 'bob': set()})
+        claims = []
+        command = successor.command
+        def capture_claim(operation, parameters, **kwargs):
+            response = command(operation, parameters, **kwargs)
+            if operation == 'task.claim':
+                claims.append(response['receipt'])
+            return response
+        with mock.patch.object(successor, 'command', side_effect=capture_claim):
+            finished = replacement.run_once(task)
+        self.assertEqual((finished['state'], finished['error']['code']),
+            ('unknown', 'permission_revoked_reconciliation_required'))
+        self.assertEqual(claims[0]['run_id'], run)
+        self.assertTrue(claims[0]['started'])
+        self.assertNotIn('queue_wait_ms', claims[0])
+        self.assertEqual(self.effects, [{'x': 4}])
 
     def test_versioned_epoch_retirement_is_shared_and_owner_scoped(self):
         task = self.service.submit('alice', 'same', 'work', {'x': 3}, request_epoch='spring')['task_id']
@@ -208,6 +273,18 @@ class SharedServiceTests(unittest.TestCase):
         replacement = self.build('clock-two', workflow=timed)
         self.assertEqual(replacement.run_once(task)['error']['code'], 'queue_deadline')
         self.assertEqual(self.effects, [])
+
+    def test_idle_facade_expires_paused_tasks_without_new_provider_calls(self):
+        workflow = replace(self.workflow, classify=paused, continue_input=continued,
+            timing_policy={'format': 'mas-timing-policy/1', 'business_seconds': 30,
+                'active_seconds': 10, 'queue_seconds': 10, 'pause_seconds': 1})
+        service = self.build('paused-expiry', workflow=workflow)
+        task = service.submit('alice', 'pause-expiry', 'work', {'x': 2})['task_id']
+        self.assertEqual(service.run_once(task)['state'], 'input_required')
+        time.sleep(1.05)
+        self.assertIsNone(service.run_once())
+        self.assertEqual(service.inspect('alice', task)['error']['code'], 'pause_deadline')
+        self.assertEqual(self.effects, [{'x': 2}])
 
     def test_paused_clock_and_continuation_share_original_task(self):
         workflow = replace(self.workflow, classify=paused, continue_input=continued,

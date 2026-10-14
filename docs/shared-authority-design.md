@@ -1,147 +1,146 @@
-# Shared authority and high-availability boundary
+# Shared authority and controller replacement
 
-W16 is **not implemented**. The supported storage profile has one controller
-host. Concurrent assignment processes and authenticated remote workers use
-that controller's admission records, journals and SQLite databases. Moving
-only the pending queue to PostgreSQL would leave essential authority on the
-original host and would not support safe controller replacement.
+MAS has two explicit storage profiles. The local profile uses the Rust journal,
+SQLite repositories and single-host process ownership. The shared profile uses
+native Rust PostgreSQL transactions for all controller authority and S3-compatible
+storage for shared artefact bytes. It does not translate SQLite statements or
+upload local databases as a shared-state substitute.
 
-This document records the implementation boundary and the ordered work needed
-to cross it. It does not advertise a PostgreSQL backend, object-storage backend,
-automatic controller promotion or a measured recovery objective.
+`SharedAuthority` is the bound Python command port. `create_shared_service()`
+constructs the shared task and composition service, verifies immutable workflow
+implementations, configures allocation and scheduler policies, and starts the
+controller's renewal subprocess. It accepts an already provisioned controller
+binding; it never elects or silently replaces a controller. Credentials and key
+material come from trusted deployment factories, not service requests.
 
-## Complete state inventory
+## Authoritative state inventory
 
-| Repository or resource | Current authoritative content | Shared-authority requirement |
-| --- | --- | --- |
-| Per-run `state.sqlite`, Rust `Store` | Frozen run topology and limits; message identities, delivery and acknowledgements; task transitions; call reservations/evidence; gateway admission attempts | Shared Rust-owned protocol transactions, stable IDs and epoch-checked writes, including rejected-but-charged gateway attempts |
-| `deployment.sqlite` | Deployment identity/policy, admitted runs/calls, lifetime reserved allocations, purge tombstones and budget amendments | Shared admission ledger; no budget replenishment through deletion, restore or promotion |
-| Per-run `host.sqlite` | Metadata, deterministic step inputs/checkpoints, invocation state/output/evidence and operator resolutions | Shared invocation intent and checkpoint repository with the same replay and uncertainty rules |
-| `task-service.sqlite` | Leaf definitions, tasks, execution revisions, submission/continuation request identities, events and archive tombstones | Shared lifecycle and scheduling intents; atomic state/event transitions |
-| `composition.sqlite` | Plan instances, nodes, attempts, ancestor scopes, allocations, continuations, events and retained archive identities | Shared graph/checkpoint/ancestor accounting and continuation deduplication |
-| `definition-registry.sqlite` | Immutable descriptors and current aliases | Shared version resolution; unavailable code blocks execution while history remains readable |
-| `scheduler-capacity.sqlite` plus capacity locks | Frozen concurrency policy, occupied assignments and principal rotation | Transactional claims and limits with explicit assignment/controller generations; elapsed expiry alone cannot establish effect completion |
-| `cursor-jobs.sqlite` | Cloud job binding, peer/run identity, cancellation intent, observations and audit | Shared remote intent and reconciliation history |
-| `remote-tasks.sqlite` | Federated peer identity, submissions, continuation/cancellation intent and observations | Shared exact peer mappings and unresolved operations |
-| `remote-workers.sqlite` | Worker identities/boot generations, placement, claims, dispatch fences, authoritative and late receipts | Shared placement and receipt authority, bound to controller epochs and original invocations |
-| Worker-local `worker-spool.sqlite` | Already-issued assignment state, effect observations and controller acknowledgements | Durable evidence transport until acknowledgement; never a source of new admission. Missing unacknowledged evidence leaves uncertainty |
-| Per-run bootstrap and gateway files | Bootstrap stage, original identities, credential bindings and frozen gateway configuration | Shared bootstrap intent and secret references; replacement must not silently provision a different identity |
-| Artefact manifests, grants, retention references and transfer records | Authorised reference identity, provenance, visibility, retained consumers and partially completed transfers | Transactional shared metadata and verified object publication, with coordinated retention/backup |
-| Artefact bytes and workspace/context manifests | Content hashes, immutable inputs/context, configured executable dependencies and bounded returned outputs | Verified durable objects where required; reconstructible workspaces remain local caches |
-| Deployment/run/task/capacity/dispatcher/workspace file locks | Single-machine ownership held through process and descendant cleanup | Explicit shared ownership/fencing. File descriptors and local `flock` do not become distributed locks by placing files on another host |
+| State | Shared owner and behaviour |
+| --- | --- |
+| Protocol runs, messages, delivery, acknowledgements, native task transitions and call reservations | `PostgresRepository` preserves the Rust protocol transaction boundary, unique identities and rejected-but-charged gateway attempts. |
+| Host run topology, deterministic step inputs/checkpoints, invocation intents, outputs and evidence | `shared_host.rs` records the invocation and all allocation charges before permission to invoke; `SharedAuthority.runner()` resumes the original run. |
+| Deployment, principal and ancestor allocation | Shared host scopes and `shared_accounting.rs` retain cumulative allocations, period reservations, amendments and observed invoice evidence. Failure, deletion and controller replacement do not replenish reservations. |
+| Leaf submissions, execution revisions, continuations, events, request epochs and retained request identity | `shared_tasks.rs` owns transactional lifecycle changes and cross-kind request arbitration. `SharedTaskService` is the Python lifecycle port. |
+| Composition instances, graph nodes, attempts, scopes, joins and completed-prefix checkpoints | `shared_composition.rs` owns graph transitions, original run IDs, ancestor scopes, exact continuation receipts and persistent frontier statistics. `SharedCompositionService` runs the same evaluator through an explicit shared journal. |
+| Definition descriptors, implementation manifests, versions, current aliases and retirement checks | The shared definition registry resolves pinned identities. Dispatch rechecks installed implementation bytes. Missing code blocks dispatch while retained history stays inspectable. |
+| Queue ownership, principal rotation, resource capacity and assignment occupancy | Shared task scheduler transactions enforce global, principal, workflow and named-resource limits. Composition leaves consume the same assignment pool. Slot release does not establish the outcome of an uncertain external effect. |
+| Business, queue, pause, active and summed-worker clocks; deadline amendments | `shared_timing.rs` uses database time and retained clock history. Extension commands preserve creation and policy identity, require an expected revision and append an idempotent audit receipt. Unknown or expired work cannot be revived by extension. |
+| Cursor Cloud jobs, exact agent/run bindings, launch and cancellation intents, observations and audit | `shared_jobs.rs` and the shared job-store port retain the original logical job identity. A lost launch response becomes an unresolved launch; replacement does not launch another cloud agent. |
+| Federated peer versions and remote task operations | `shared_remote.rs` retains peer identity, original remote IDs, continuation/cancellation intents and operation evidence. Native admission is checked before outward effects; replayed command receipts do not authorise another send. |
+| Provider circuit state and half-open probe ownership | Shared remote transactions use database time and one retained probe permit; process-local cooldown state cannot admit a competing probe. |
+| Worker registrations, boot generations, placement, claims, dispatch fences and authoritative/late receipts | `shared_control.rs` and `SharedWorkerController` own placement and receipt authority. Replayed dispatch receipts return no permission to execute again. |
+| Worker-local spool | The worker durably transports already-issued assignment/effect evidence until acknowledgement. It cannot grant fresh admission. Missing unacknowledged evidence remains uncertain. |
+| Artefact content reservations, manifests, grants, provenance and retention links | `shared_artifacts.rs` records reservations before upload and publishes authorised metadata only after complete byte verification. `SharedArtifactStore` retains the same reference across replacement controllers. |
+| Artefact bytes | `S3ArtifactContent` uses immutable derived keys, conditional PUT and full size/SHA-256 verification. A lost reply leaves a charged reservation; the same content can be verified and published under its original identity. |
+| Operator drain, shared recovery, schema version and immutable command receipts | Native epoch-checked commands persist state and audit together. Explicit migrations preserve existing identities and reject incompatible layouts. Recovery retains uncertainty and allocation. |
+| Bootstrap, gateway and secret bindings | Shared run metadata pins run/topology/credential references. Replacement must provide the configured implementation and external secrets; it cannot substitute new authority because a local cache is absent. |
 
-Readiness files, process IDs and open IPC channels are observations or local
-resources. They must not be imported as replacement authority. The controller
-backup currently covers its state directory; a remote worker's separate spool
-has its own durability boundary.
+The shared service does not create authoritative `state.sqlite`, `host.sqlite`,
+`deployment.sqlite`, task/composition, scheduler, remote or job databases in its
+controller cache. Controller-local directories hold reconstructible workspaces,
+bounded transfer staging, supervised process resources and lossy telemetry.
+Transfer sessions can be restarted from retained references; grants, content
+reservations and retention references remain in PostgreSQL. Worker spool files
+are a separate evidence-delivery responsibility, not a controller database.
 
-## Implementation sequence
+## Transaction and effect boundary
 
-1. **Extract transaction-shaped repositories while retaining SQLite.**
-   Rust `Store` currently owns a concrete `rusqlite::Connection`; `tasks.rs`
-   consumes a concrete `rusqlite::Transaction`, and `Gateway`/`HostSession` own
-   the concrete store. Extract operations that preserve whole invariants:
-   send-plus-task-transition, receive, acknowledgement, call reservation,
-   evidence recording, gateway attempt charge, expiry and inspection. Host
-   repositories similarly need submit, continuation, claim, allocation,
-   checkpoint, receipt and archive operations. A generic CRUD interface that
-   exposes separate unchecked writes would weaken the existing boundary.
-   Run the same identity, quota, rollback and lost-reply traces against the
-   existing implementation before adding another backend.
+The native command channel validates the deployment, controller, epoch, lease,
+schema and recovery/drain state inside the repository transaction. A singleton
+authority row serialises those checks with mutations. Each command identity is
+bound to its operation and canonical parameters. Repeating the same command
+returns its retained receipt; changing its content conflicts. No generic retry
+loop repeats external provider work after a database exception or lost reply.
 
-2. **Specify the shared command and epoch contract.**
-   Every mutating command carries deployment identity, controller epoch,
-   original logical command/invocation identity and canonical content digest.
-   The transaction checks the current epoch and the expected record revision;
-   repeated identity/content returns the prior receipt and changed content
-   conflicts. Leadership selection and renewal must use the same durable
-   authority as these checks. A lease or advisory lock without a write-time
-   epoch predicate is insufficient to reject a stale controller.
+Effect admission checks the current task/composition state, cancellation,
+enclosing deadlines and all relevant allocation scopes before retaining the
+native reservation and invocation intent. The external call happens after that
+transaction. Completion records evidence under the original invocation. Losing
+the admission reply, completion reply or controller does not create permission
+for a fresh invocation. Earlier admitted calls can still finish after fencing;
+unknown outcomes remain charged and require evidence through their original
+recovery path.
 
-3. **Implement PostgreSQL admission and host repositories together.**
-   Keep the Rust gateway authoritative for protocol acceptance. Prefer one
-   Rust-owned admission command that transactionally checks the epoch,
-   deployment/ancestor limits and unique allocation identity, then records
-   the native call reservation and durable invocation intent before returning
-   permission to dispatch. Where an operation necessarily spans authority
-   transactions, record an idempotent intent first, then the downstream
-   receipt, and specify recovery for every interruption between them. Never
-   infer permission from an absent reply or release an allocation because a
-   later step failed. Use transaction retries only for database operations
-   known to have rolled back; external provider dispatch is outside that retry
-   loop. A lost COMMIT reply requires lookup by the original command identity.
+Shared services distinguish a read query from a mutating command. Idle expiry
+polls first select actual candidates with bounded keyset queries; only a real
+candidate creates an expiry command receipt. Read-only inspection does not
+manufacture durable history. Admission rechecks the condition in its own
+transaction, so read selection is an efficiency measure rather than authority.
 
-4. **Replace local ownership and bootstrap assumptions.**
-   Convert run/task claims and shared capacity to bounded, generation-aware
-   records. Reconstruct a replacement controller from retained bootstrap,
-   definitions and secret references; do not copy live lock files. Revalidate
-   an assignment's epoch before issuing any new grant. Earlier issued calls
-   can still have external effects after fencing and remain charged and
-   outstanding until reliable evidence resolves them. Late observations may
-   be retained without overwriting a newer authoritative decision.
+## Composition and scheduling
 
-5. **Add verified object publication and recovery.**
-   Upload immutable content and verify its size/hash before publishing the
-   authorised metadata reference. Retain stable object/version identifiers,
-   grants and consumer references transactionally; collect orphaned uploads
-   without deleting live or unresolved references. Define backup manifests
-   linking the database recovery point to required object versions and key
-   material. Validate restored content before activation.
+Each attempt has a stable run ID, immutable input, workflow identity and ancestor
+scope list. A replacement controller requeues the same unfinished attempt under
+its new owner generation and resumes that original run. A completed provider
+invocation whose composition publication was interrupted is read from its shared
+checkpoint; it is not invoked again. Unknown native invocations prevent automatic
+recovery.
 
-6. **Qualify replicated promotion and disaster recovery.**
-   Test the actual PostgreSQL replication/promotion service and failure domains.
-   Fence the previous database/controller authority before reopening admission.
-   Automatic promotion with open admission requires preservation of every
-   acknowledged request identity, allocation and effect record under the
-   declared failure model. If a recovery point can omit these records, keep
-   the replacement audit-only until complete recovery or conservative
-   reconciliation establishes usable authority and remaining allocation.
+Completed-prefix checkpoints advance only across a verified completed child
+with the same output. Frontier queries use a latest-attempt index and persistent
+node/completion counters, returning unfinished attempts without reloading every
+completed output. Detailed graph and revision queries remain available for
+inspection. Parallel leaves use supervised child processes and respect both
+plan/nested-plan parallelism and the shared capacity pool. Active elapsed time
+counts an overlapping interval once; summed worker time counts that interval for
+each active worker.
 
-PostgreSQL documents that streaming replication is asynchronous by default.
-With configured synchronous standbys, `synchronous_commit=on` waits for durable
-standby WAL; `remote_write` has a weaker durability guarantee and `remote_apply`
-also waits for replay visibility. These settings do not choose a safe promotion
-candidate or fence an old primary. The deployment must qualify that complete
-procedure, including unavailable replicas and lost commit acknowledgements.
-See [synchronous replication](https://www.postgresql.org/docs/current/warm-standby.html#SYNCHRONOUS-REPLICATION)
-and [WAL configuration](https://www.postgresql.org/docs/current/runtime-config-wal.html).
+Local scheduler process ownership protects descendants on a particular host.
+It is not a distributed lease. PostgreSQL owner/epoch checks determine which
+controller can mutate workflow state or grant new work. The private lease
+renewal subprocess preserves the single-threaded process-supervision boundary
+and exits when its parent lifetime pipe closes.
 
-PostgreSQL serializable transactions can require retrying the whole database
-transaction. The retry boundary must preserve command identity and exclude
-external effects; see [transaction isolation](https://www.postgresql.org/docs/current/transaction-iso.html).
-Point-in-time recovery additionally requires a usable base backup and retained
-WAL, with a separate activation policy; see
-[continuous archiving](https://www.postgresql.org/docs/current/continuous-archiving.html).
+## Verified objects and replacement
 
-## Deployment facts and acceptance still required
+Object publication has three durable stages: reserve the immutable content
+identity and quota; upload and verify complete bytes; publish the manifest and
+grants in a current-epoch transaction. No database transaction is held across
+network I/O. A controller fenced after its upload cannot publish metadata. Its
+successor finds the original charged reservation, verifies the same object and
+publishes the original reference. Reads authorise before download and again
+before exposing the verified snapshot, so revocation during transfer is checked.
 
-The implementation session has no configured PostgreSQL server/replication
-cluster, object-storage account or accepted multi-host recovery profile. The
-following facts remain unspecified:
+Shared artifact metadata and controller failover are exercised together by:
 
-- PostgreSQL version/service, promotion manager, database roles and TLS/secret
-  delivery; permitted administrative and application actions.
-- Failure domains, eligible promotion targets, synchronous acknowledgement
-  policy and behavior when the required replicas are unavailable.
-- Workload and bounds: run/message/call rates, concurrent principals and
-  workers, transaction sizes, retained history and artefact sizes.
-- Required availability and recovery-time objective, recovery-point objective
-  for identity/admission/effects versus other data, and acceptable admission
-  downtime during partitions or evidence reconciliation.
-- Object-store conditional-write/versioning/consistency behavior, retention,
-  encryption/key recovery and backup ownership.
-- Upgrade compatibility, deployment drain, stale credential revocation and
-  operator authority to fence/promote or perform conservative reconciliation.
+```sh
+PYTHONPATH=host MAS_SHARED_BIN=rust-protocol/target/debug/mas-shared \
+  python scripts/check-object-storage.py --local-rustfs /path/to/rustfs \
+  --shared-authority
+```
 
-Repository conformance, SQLite migrations, finite fault models and local
-multi-process cleanup tests can run now. PostgreSQL isolation, serialization
-retries, database connection loss and object publication require real backend
-fixtures. Multi-machine partitions, old-controller reappearance, acknowledged
-commit preservation, replica promotion and measured RPO/RTO require the actual
-deployment profile. Passing the first group does not satisfy the latter gates.
+The command also requires `MAS_TEST_POSTGRES_DSN`. It creates a random disposable
+bucket and isolated database schema, and tests real S3 traffic with PostgreSQL
+metadata: immutable publication, retained consumer references, discarded accepted
+PUT replies, fencing between PUT and publication, replacement recovery, grant
+revocation and object tampering. It makes no external model/provider calls.
+The PostgreSQL workflow installs a hash-verified RustFS release and hash-locked
+SDK dependencies before running this gate. The separate content/HTTP profile
+also checks authenticated multi-chunk transfer against a real local S3 server.
 
-The required fault matrix cuts each identity/admission/dispatch/checkpoint and
-receipt/acknowledgement boundary, tests competing stale/current epochs and
-partial object publication, and includes an old backup that omits later charges.
-No failover scenario may turn an unknown effect into a fresh invocation or
-recover historical allocation by forgetting it.
+## Handover, archives and qualification
+
+A live controller can explicitly hand over to a successor; takeover after lease
+expiry uses a compare-and-set against the exact prior binding. Neither path
+recreates run/request/attempt identities or resets cumulative charges. Both old
+reads and writes are fenced. The same-database replacement tests cover lost
+admission/completion replies, unresolved effects, queued and paused work, exact
+continuations, parallel compositions, controller renewal and shared worker and
+remote receipts.
+
+[Shared recovery](shared-recovery.md) documents final-source sealing, native
+PostgreSQL archives, isolated audit restores, complete table/sequence inventory
+verification, retained object verification and externally signed fencing proof.
+A copied backup is not automatically writable authority. Controlled activation
+starts drained after verifying the exact final source state and proof. Missing
+later acknowledgements or unknown effects cannot be repaired by resetting IDs
+or allocations.
+
+The CI PostgreSQL and RustFS services qualify executable repository and transport
+contracts. A production availability claim additionally needs evidence for the
+chosen database/storage replication, failure domains, promotion manager, key
+recovery and fencing integration. That deployment must specify acknowledgement
+preservation, RPO/RTO and behaviour when required replicas are unavailable.
+Automatic database promotion is not performed by the controller lease API.
+Cross-machine partitions or an independently writable old database require
+external fencing; a row lock in one database cannot fence another database.

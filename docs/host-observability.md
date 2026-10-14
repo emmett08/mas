@@ -198,6 +198,8 @@ HTTP response request IDs continue to link requests to safe structured logs.
 Observation storage is a deliberately lossy, controller-local window, bounded to
 two 1 MiB files. A shared-authority controller uses its disposable cache directory;
 these files are neither PostgreSQL authority nor a distributed trace collector.
+Local physical storage accounting includes the bounded observation files, so
+operators must allow up to 2 MiB plus lock files within `max_state_bytes`.
 Each controller's API reports its own retained window. Lock contention, full disks
 or a failed recorder drop observations without changing admission or task results.
 Audit-only copies are readable without recording new spans. Corrupt observations

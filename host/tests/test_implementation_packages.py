@@ -49,6 +49,43 @@ class ImplementationPackageTests(unittest.TestCase):
         return Workflow('stable-label', {'agents': ['a', 'b'], 'application': 'agent-task/1'},
                         {'a': module.Adapter(), 'b': module.Adapter()}, 'a', 'b', 'work')
 
+    def test_standard_dataclass_repr_does_not_require_synthetic_source(self):
+        module, _ = self.load(self.root, SOURCE + """
+from dataclasses import dataclass
+@dataclass
+class Options:
+    label: str
+class Configured:
+    def __init__(self):
+        self.options = Options('fixed')
+    def handle(self, context, request):
+        return repr(self.options)
+""")
+        measured = VerifiedImplementation.capture((module.Configured(),))
+        measured.verify((module.Configured(),))
+
+    def test_factory_constructor_classes_are_pinned_before_first_binding(self):
+        module, _ = self.load(self.root, SOURCE + """
+class Constructed:
+    def handle(self, context, request):
+        return helper()
+def factory(binding):
+    return {'a': Constructed(), 'b': Constructed()}
+""")
+        workflow = Workflow('factory/1', {'agents': ['a', 'b'], 'application': 'agent-task/1'},
+            {'a': module.Adapter(), 'b': module.Adapter()}, 'a', 'b', 'work', adapter_factory=module.factory)
+        names = {item['name'] for item in workflow.verified_implementation.manifest['entrypoints']}
+        self.assertIn('Constructed.handle', names)
+        workflow.verified_implementation.verify_bindings(tuple(module.factory(None).values()))
+
+    def test_dynamic_application_method_cannot_hide_behind_another_adapter(self):
+        module, _ = self.load(self.root)
+        namespace = {'__name__': module.__name__}
+        exec("def handle(self, context, request): return 42", namespace)
+        dynamic = type('Dynamic', (), {'__module__': module.__name__, 'handle': namespace['handle']})
+        with self.assertRaisesRegex(ServiceError, 'source unavailable'):
+            VerifiedImplementation.capture((module.Adapter(), dynamic()))
+
     def test_relocation_preserves_reproducible_identity(self):
         first, _ = self.load(self.root / 'first')
         original = self.workflow(first)

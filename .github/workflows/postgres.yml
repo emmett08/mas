@@ -1,11 +1,14 @@
 name: PostgreSQL protocol repository
 on:
   pull_request:
-    paths: ['rust-protocol/**', 'host/**', '.github/workflows/postgres.yml']
+    paths: ['rust-protocol/**', 'host/**', 'scripts/check-object-storage.py', '.github/workflows/postgres.yml']
   push:
     branches: [main]
-    paths: ['rust-protocol/**', 'host/**', '.github/workflows/postgres.yml']
+    paths: ['rust-protocol/**', 'host/**', 'scripts/check-object-storage.py', '.github/workflows/postgres.yml']
   workflow_dispatch:
+concurrency:
+  group: postgres-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 permissions:
   contents: read
 jobs:
@@ -28,6 +31,9 @@ jobs:
       MAS_TEST_POSTGRES_DSN: host=127.0.0.1 port=5432 user=postgres password=postgres-fixture-only dbname=mas_test
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.14"
       - name: Install pinned Rust
         run: rustup toolchain install 1.99.0 --profile minimal
       - name: Existing native contracts with shared backend compiled
@@ -48,3 +54,18 @@ jobs:
           PYTHONPATH: host
           MAS_SHARED_BIN: ${{ github.workspace }}/rust-protocol/target/debug/mas-shared
         run: python -m unittest discover -s host/tests -p 'test_shared_*.py' -v
+      - name: Install hash-locked object-storage SDK
+        run: python -m pip install --require-hashes -r host/requirements-object-storage.txt
+      - name: Install verified RustFS fixture
+        run: |
+          curl --fail --location --proto '=https' --tlsv1.2 --max-time 180 --retry 2 \
+            https://github.com/rustfs/rustfs/releases/download/1.0.1/rustfs-linux-x86_64-gnu-v1.0.1.zip \
+            --output "$RUNNER_TEMP/rustfs.zip"
+          printf '%s  %s\n' 9742e183cb0dfb0d48fa909797af572fe47b7f827569036baa4156e0d3958ee5 "$RUNNER_TEMP/rustfs.zip" | sha256sum --check
+          unzip -q "$RUNNER_TEMP/rustfs.zip" -d "$RUNNER_TEMP/mas-rustfs"
+          chmod 700 "$RUNNER_TEMP/mas-rustfs/rustfs"
+      - name: Real PostgreSQL and S3 publication and fencing boundaries
+        env:
+          PYTHONPATH: host
+          MAS_SHARED_BIN: ${{ github.workspace }}/rust-protocol/target/debug/mas-shared
+        run: python scripts/check-object-storage.py --local-rustfs "$RUNNER_TEMP/mas-rustfs/rustfs" --shared-authority

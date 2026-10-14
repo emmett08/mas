@@ -77,7 +77,7 @@ class SharedTaskService:
         return item
 
     def _receipt(self, item):
-        value = {k: v for k, v in item.items() if k not in {'input', 'principal', 'owner', 'run_id', 'clock'}}
+        value = {k: v for k, v in item.items() if k not in {'input', 'principal', 'owner', 'run_id', 'clock', 'started', 'queue_wait_ms'}}
         workflow = self.workflow_versions.get((item['workflow'], item['workflow_identity']))
         value['capabilities'] = {'cancel': True, 'events': True,
             'update': workflow is not None and workflow.continue_input is not None}
@@ -133,9 +133,9 @@ class SharedTaskService:
 
     def result(self, principal, task_id):
         receipt = self.inspect(principal, task_id)
-        if receipt['state'] not in TERMINAL | INTERRUPTED:
-            raise ServiceError('result_not_ready')
-        return receipt
+        if receipt['state'] != 'completed' or receipt.get('archived'):
+            raise ServiceError('result_unavailable')
+        return receipt['result']
 
     def cancel(self, principal, task_id):
         self._owned(principal, task_id)
@@ -305,12 +305,22 @@ class SharedTaskService:
                 state = 'unknown' if uncertain or isinstance(error, RecoveryRequired) else 'cancelled' if cancelled() else 'failed'
                 return ExecutionResult(state, error={'code': 'reconciliation_required' if state == 'unknown' else 'workflow_failed'})
 
+    def expire_pending(self, task_id=None):
+        page = self.authority.query('task.expiring', {'task': task_id,
+            'after': None if task_id else getattr(self, '_expiry_cursor', None)})
+        if task_id is None:
+            self._expiry_cursor = page['next']
+        return self._command('task.expire', tasks=page['tasks']) if page['tasks'] else []
+
     def run_once(self, task_id=None):
-        expired = self._command('task.expire')
+        expired = self.expire_pending(task_id)
         if task_id is not None:
             for item in expired:
                 if item['task_id'] == task_id:
-                    return self._receipt(item)
+                    return self._receipt(self.authority.query('task.inspect',
+                        {'principal': item['principal'], 'task': task_id}))
+        if not self.authority.query('task.claimable', {'task': task_id}):
+            return None
         owner = 'worker-' + uuid.uuid4().hex
         claim = self.authority.command('task.claim', {'owner': owner, 'task': task_id,
             'workflows': sorted({name for names in self.grants.values() for name in names})})
@@ -320,6 +330,11 @@ class SharedTaskService:
         if claim['replayed']:
             raise ServiceError('reconciliation_required')
         principal, task = execution['principal'], execution['task_id']
+        if type(execution.get('queue_wait_ms')) is int:
+            from .telemetry import record
+            record(getattr(self.authority, 'observation_dir', None), 'queue',
+                   execution['queue_wait_ms'] * 1000, task_id=task,
+                   run_id=execution['run_id'], assignment_id=owner)
         timing = execution.get('timing')
         if timing:
             import time
@@ -328,7 +343,8 @@ class SharedTaskService:
         execution['event_sink'] = lambda item: self._command('task.protocol', principal=principal,
             task=task, owner=owner, run=execution['run_id'], event=item)
         if execution['workflow'] not in self.grants.get(principal, ()):
-            outcome = ExecutionResult('unknown', error={'code': 'permission_revoked_reconciliation_required'})
+            outcome = ExecutionResult('unknown' if execution['started'] else 'failed', error={
+                'code': 'permission_revoked_reconciliation_required' if execution['started'] else 'permission_revoked'})
         else:
             try:
                 workflow = self._workflow(execution['workflow'], execution['workflow_identity'])
