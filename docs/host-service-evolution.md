@@ -146,7 +146,44 @@ History retention releases retained-detail capacity, not cumulative deployment
 spending. Request and continuation tombstones preserve acknowledgement identity.
 Budget amendments are separate audited management operations.
 
-The local scheduler limits concurrent work; it does not yet implement independent
-per-principal spending grants or weighted priorities. Timing policies are frozen
-with the submitted definition; an audited deadline-extension API and separate
-summed-worker-time metric are not provided by this implementation.
+Clock format `mas-execution-clock/2` also accumulates `worker_ms`: each running
+interval contributes its duration multiplied by the observed running branch
+count. This is a resource measure independent of the `active_ms` budget. Pauses
+charge neither measure; an unobserved running interval is conservatively charged
+through the next observation. Existing format-1 clocks retain their original
+identity, timestamps and active allowance. Their historical worker multiplicities
+cannot be reconstructed: after migration, `worker_ms` is null,
+`worker_ms_lower_bound` records the known lower bound, and
+`worker_time_complete` is false whenever prior active time was present.
+
+`DeadlineService` grants deadline administration separately from task ownership.
+An authenticated operator may increase absolute `business_seconds`,
+`queue_seconds` or `pause_seconds` allowances on open queued, blocked or
+human-paused work. The operation preserves the pinned definition, original
+phase timestamps, accumulated computation and all effect identities. It never
+changes `active_seconds`, resumes execution, revives expired/uncertain work or
+migrates a legacy fixed deadline. Nested scope extensions are explicit; every
+ancestor limit remains enforced.
+
+The owning task/composition store commits the clock, `deadline_extended` event
+and amendment receipt together. Each request key has one immutable receipt;
+changed content conflicts, and `expected_revision` rejects concurrent lost
+updates. Receipts survive event pruning and lifecycle archival. Task and
+composition schemas migrate from versions 1/2 to version 3 without rewriting
+submission or invocation identities. Older executables reject that schema;
+roll forward or restore an appropriate quiescent backup rather than running an
+older binary against it.
+
+The local administration command uses the local operator trust boundary:
+
+```sh
+python -m mas_host admin --state-dir .mas-state extend-deadline \
+  --config deployment.json --operator release-manager --owner alice task-EXAMPLE \
+  --request-key review-extension-1 --reason 'Review window agreed' \
+  --expected-revision 0 --limits extension.json
+```
+
+For example, `extension.json` may contain `{"pause_seconds": 172800}`. Supply
+`--path` for an exact nested composition scope. Network boundaries must derive
+operator identity and independent administrative grants from authenticated
+configuration, never from request body assertions.

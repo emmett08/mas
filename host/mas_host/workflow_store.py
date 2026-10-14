@@ -13,6 +13,7 @@ from .codec import canonical_json
 from .contracts import RunnerError
 from .schema import Schema, SchemaError, connect
 from .service_contracts import ServiceError
+from .deadline_amendments import DEADLINE_AMENDMENTS
 from .workflow_evaluator import FINISHED_STATES
 
 
@@ -36,9 +37,14 @@ _SCOPE_CLOCK = 'ALTER TABLE scopes ADD COLUMN clock TEXT'
 _EVENT_DATA = 'ALTER TABLE events ADD COLUMN data TEXT'
 _V2_MIGRATION = (_METADATA, _CLOCK, _ARCHIVES, _CONTINUATION_TOMBSTONES,
                  _JOIN_DECISIONS, _CANCELLED_SCOPES, _SCOPE_CLOCK, _EVENT_DATA, _CONTINUATION_METADATA)
-COMPOSITION = Schema('workflow composition', 0x4D415357, 2, (),
+COMPOSITION_V2 = Schema('workflow composition', 0x4D415357, 2, (),
                      (*COMPOSITION_V1.statements, *_V2_MIGRATION),
                      ((COMPOSITION_V1, _V2_MIGRATION),))
+
+COMPOSITION = Schema('workflow composition', 0x4D415357, 3, (),
+                     (*COMPOSITION_V2.statements, DEADLINE_AMENDMENTS),
+                     ((COMPOSITION_V1, (*_V2_MIGRATION, DEADLINE_AMENDMENTS)),
+                      (COMPOSITION_V2, (DEADLINE_AMENDMENTS,))))
 
 
 def encode(value):
@@ -67,6 +73,43 @@ class WorkflowStore:
     transaction owns its connection, so no SQLite owner crosses a process fork.
     Read transactions retain one snapshot across related observations.
     """
+    @staticmethod
+    def extend_deadline(db, item, command, timestamp):
+        from .deadline_amendments import apply, replay
+        previous = replay(db, item, command)
+        if previous is not None:
+            return previous
+        if db.execute("SELECT 1 FROM attempts WHERE instance=? AND state IN ('running','unknown') LIMIT 1",
+                      (item['id'],)).fetchone():
+            raise ServiceError('deadline_extension_not_available')
+        from .execution_policy import clock_status
+        # Every ancestor stays authoritative. Extending a child cannot reopen
+        # an expired root or another expired scope in the same composition.
+        scopes = list(db.execute('SELECT clock,deadline FROM scopes WHERE instance=?', (item['id'],)))
+        clocks = [item.get('clock')] + [json.loads(row['clock']) for row in scopes if row['clock']]
+        if (item['deadline'] * 1000 <= timestamp
+                or any(not row['clock'] and row['deadline'] * 1000 <= timestamp for row in scopes)
+                or any(clock and clock['phase'] != 'terminal' and clock_status(clock, timestamp)['expired'] for clock in clocks)):
+            raise ServiceError('deadline_extension_not_available')
+        scope = None
+        if command['path'] is not None:
+            scope = decode(db.execute('SELECT * FROM scopes WHERE instance=? AND path=?',
+                           (item['id'], command['path'])).fetchone())
+            if scope is None:
+                raise ServiceError('deadline_scope_not_found')
+        clock, receipt = apply(db, item, command, timestamp, scope=scope)
+        if clock is not None:
+            deadline = (receipt['business_expires_ms'] + 999) // 1000
+            if scope is None:
+                db.execute('UPDATE instances SET clock=?,deadline=? WHERE id=?',
+                           (encode(clock), deadline, item['id']))
+            else:
+                db.execute('UPDATE scopes SET clock=?,deadline=? WHERE instance=? AND path=?',
+                           (encode(clock), deadline, item['id'], command['path']))
+            db.execute('INSERT INTO events(instance,path,event,state,created,data) VALUES(?,?,?,?,?,?)',
+                       (item['id'], command['path'], 'deadline_extended', item['state'], timestamp // 1000, encode(receipt)))
+        return receipt
+
     def __init__(self, state_dir: Path, *, readonly=False):
         self.path = Path(state_dir) / 'composition.sqlite'
         self.readonly = readonly

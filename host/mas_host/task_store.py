@@ -14,6 +14,7 @@ import time
 
 from .schema import Schema, SchemaError, connect
 from .service_contracts import ServiceError
+from .deadline_amendments import DEADLINE_AMENDMENTS
 
 
 SERVICE_V1 = Schema("task service", 0x4D415354, 1, (), (
@@ -33,9 +34,14 @@ _ARCHIVE_COLUMNS = (
     'ALTER TABLE tasks ADD COLUMN event_floor INTEGER NOT NULL DEFAULT 0',
     'ALTER TABLE tasks ADD COLUMN clock TEXT',
 )
-SERVICE = Schema('task service', 0x4D415354, 2, (),
+SERVICE_V2 = Schema('task service', 0x4D415354, 2, (),
                  (*SERVICE_V1.statements, *_ARCHIVE_COLUMNS),
                  ((SERVICE_V1, _ARCHIVE_COLUMNS),))
+
+SERVICE = Schema('task service', 0x4D415354, 3, (),
+                 (*SERVICE_V2.statements, DEADLINE_AMENDMENTS),
+                 ((SERVICE_V1, (*_ARCHIVE_COLUMNS, DEADLINE_AMENDMENTS)),
+                  (SERVICE_V2, (DEADLINE_AMENDMENTS,))))
 
 
 def canonical(value: object) -> str:
@@ -62,6 +68,16 @@ def decoded(row) -> dict:
 
 
 class TaskStore:
+    @staticmethod
+    def extend_deadline(db, task, command, timestamp):
+        from .deadline_amendments import apply
+        clock, receipt = apply(db, task, command, timestamp)
+        if clock is not None:
+            db.execute('UPDATE tasks SET clock=?,updated_at=? WHERE id=?',
+                       (canonical(clock), timestamp, task['id']))
+            event(db, task['id'], 'deadline_extended', receipt)
+        return receipt
+
     @staticmethod
     def retained_count(db):
         return db.execute('SELECT count(*) FROM tasks WHERE archived_at IS NULL').fetchone()[0]

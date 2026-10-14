@@ -90,9 +90,10 @@ class TimingPolicy:
 
     def start(self, now_ms: int) -> dict:
         _timestamp(now_ms)
-        return {"format": "mas-execution-clock/1", "policy": self.descriptor, "created_ms": now_ms,
+        return {"format": "mas-execution-clock/2", "policy": self.descriptor, "created_ms": now_ms,
                 "observed_ms": now_ms, "phase": "queued", "phase_started_ms": now_ms,
-                "active_ms": 0, "active_branches": 0}
+                "active_ms": 0, "active_branches": 0, "worker_ms": 0,
+                "worker_time_complete": True, "extensions": {}, "deadline_revision": 0}
 
 
 def timing_policy(value: TimingPolicy | dict | None) -> TimingPolicy | None:
@@ -119,9 +120,28 @@ def clock_status(clock: dict, now_ms: int) -> dict:
     _timestamp(now_ms)
     required = {"format", "policy", "created_ms", "observed_ms", "phase", "phase_started_ms",
                 "active_ms", "active_branches"}
-    if type(clock) is not dict or set(clock) != required or clock["format"] != "mas-execution-clock/1":
+    if type(clock) is not dict:
+        raise RunnerError("invalid execution clock")
+    version = clock.get("format")
+    if version == "mas-execution-clock/2":
+        required |= {"worker_ms", "worker_time_complete", "extensions", "deadline_revision"}
+    if set(clock) != required or version not in {"mas-execution-clock/1", "mas-execution-clock/2"}:
         raise RunnerError("invalid execution clock")
     policy = timing_policy(clock["policy"])
+    if policy is None:
+        raise RunnerError("invalid execution clock")
+    if version == "mas-execution-clock/2":
+        _timestamp(clock["active_ms"])
+        _timestamp(clock["worker_ms"])
+        _timestamp(clock["deadline_revision"])
+        if (type(clock["worker_time_complete"]) is not bool or clock["worker_ms"] < clock["active_ms"]
+                or type(clock["extensions"]) is not dict
+                or not set(clock["extensions"]) <= {"business_seconds", "queue_seconds", "pause_seconds"}):
+            raise RunnerError("invalid execution clock accounting")
+        for key, value in clock["extensions"].items():
+            if type(value) is not int or not getattr(policy, key) <= value <= 315_360_000:
+                raise RunnerError("invalid execution clock extension")
+        policy = timing_policy(policy.descriptor | clock["extensions"])
     if policy is None or clock["phase"] not in {"queued", "running", "paused", "terminal"}:
         raise RunnerError("invalid execution clock")
     for field in ("created_ms", "observed_ms", "phase_started_ms", "active_ms", "active_branches"):
@@ -134,7 +154,12 @@ def clock_status(clock: dict, now_ms: int) -> dict:
     # later inspection must not turn a completed task into a deadline failure.
     if clock["phase"] == "terminal":
         now_ms = clock["observed_ms"]
-    active = clock["active_ms"] + (now_ms - clock["observed_ms"] if clock["phase"] == "running" else 0)
+    interval = now_ms - clock["observed_ms"] if clock["phase"] == "running" else 0
+    active = clock["active_ms"] + interval
+    # A v1 record lacks historical branch multiplicities. Its active elapsed
+    # time is a lower bound, never fabricated as exact worker consumption.
+    complete = clock.get("worker_time_complete", clock["active_ms"] == 0)
+    worker = clock.get("worker_ms", clock["active_ms"]) + interval * clock["active_branches"]
     expired = []
     if now_ms - clock["created_ms"] >= policy.business_seconds * 1000:
         expired.append("business_deadline")
@@ -145,6 +170,8 @@ def clock_status(clock: dict, now_ms: int) -> dict:
     if clock["phase"] == "paused" and now_ms - clock["phase_started_ms"] >= policy.pause_seconds * 1000:
         expired.append("pause_deadline")
     return {"expired": expired, "active_ms": active,
+            "worker_ms": worker if complete else None, "worker_ms_lower_bound": worker,
+            "worker_time_complete": complete, "deadline_revision": clock.get("deadline_revision", 0),
             "remaining_active_ms": max(0, policy.active_seconds * 1000 - active),
             "business_expires_ms": clock["created_ms"] + policy.business_seconds * 1000}
 
@@ -162,7 +189,12 @@ def transition_clock(clock: dict, now_ms: int, phase: str, *, active_branches: i
         raise RunnerError("terminal execution clock cannot resume")
     if status["expired"] and phase in {"queued", "running"}:
         raise RunnerError("execution clock expired")
-    updated = {**clock, "observed_ms": now_ms, "active_ms": status["active_ms"], "phase": phase,
+    updated = {**clock, "format": "mas-execution-clock/2",
+               "worker_ms": status["worker_ms_lower_bound"],
+               "worker_time_complete": status["worker_time_complete"],
+               "extensions": clock.get("extensions", {}),
+               "deadline_revision": clock.get("deadline_revision", 0),
+               "observed_ms": now_ms, "active_ms": status["active_ms"], "phase": phase,
                "phase_started_ms": clock["phase_started_ms"] if phase == clock["phase"] else now_ms,
                "active_branches": active_branches}
     clock_status(updated, now_ms)

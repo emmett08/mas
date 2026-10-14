@@ -48,6 +48,16 @@ def parser() -> argparse.ArgumentParser:
     amend.add_argument("--reason", required=True)
     amend.add_argument("--expected-revision", type=int, required=True)
     amend.add_argument("--limits", required=True, help="JSON object of absolute lifetime limits")
+    deadline = commands.add_parser('extend-deadline', help='extend an open waiting clock with a durable operator audit')
+    deadline.add_argument('--config', type=Path, required=True)
+    deadline.add_argument('--operator', required=True, help='trusted local operator attribution')
+    deadline.add_argument('--owner', required=True)
+    deadline.add_argument('task_id')
+    deadline.add_argument('--path', help='exact nested composition scope; omitted for the root clock')
+    deadline.add_argument('--request-key', required=True)
+    deadline.add_argument('--reason', required=True)
+    deadline.add_argument('--expected-revision', type=int, required=True)
+    deadline.add_argument('--limits', required=True, help='JSON file of absolute business/queue/pause seconds')
     inspect = commands.add_parser("inspect", help="inspect durable workflow and invocation checkpoints")
     inspect.add_argument("run_dir")
     reconcile = commands.add_parser("reconcile", help="reconcile protocol expiry for one run or all retained runs")
@@ -165,6 +175,14 @@ def main(argv: list[str] | None = None) -> int:
                 principal=args.principal, reason=args.reason, expected_revision=args.expected_revision,
                 limits=_object_file(args.limits))
             result = {"ok": True, "amendment": receipt}
+        elif args.command == 'extend-deadline':
+            from .bridge_config import build_service, load_config
+            from .deadlines import DeadlineService
+            service = build_service(load_config(args.config), state_dir)
+            deadline = DeadlineService(service, operators={args.operator: {args.owner}})
+            result = {'ok': True, 'amendment': deadline.extend(args.operator, args.owner,
+                args.task_id, request_key=args.request_key, reason=args.reason,
+                expected_revision=args.expected_revision, limits=_object_file(args.limits), path=args.path)}
         elif args.command == "inspect":
             from .journal import inspect_run
             result = {"ok": True, "run": inspect_run(Path(args.run_dir))}
