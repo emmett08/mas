@@ -1,156 +1,533 @@
 #![cfg(feature = "postgres-repository")]
 //! Real backend tests, deliberately opt-in: no mock can qualify PostgreSQL.
-use mas_protocol_codec::{Message, gateway::Gateway, repository::ProtocolRepository,
-    postgres_repository::{AuthorityBinding,PostgresRepository}, store::Store};
-use postgres::{Client,NoTls};
-use serde_json::{json,Value};
-use std::sync::{Arc,Barrier,atomic::{AtomicU64,Ordering}};
+use mas_protocol_codec::{
+    gateway::Gateway,
+    postgres_repository::{AuthorityBinding, PostgresRepository},
+    repository::ProtocolRepository,
+    store::Store,
+    Message,
+};
+use postgres::{Client, NoTls};
+use serde_json::{json, Value};
+use std::sync::{
+    atomic::{AtomicU64, Ordering},
+    Arc, Barrier,
+};
 
-static NEXT:AtomicU64=AtomicU64::new(0);
-struct Fixture {dsn:String,schema:String,binding:AuthorityBinding}
+static NEXT: AtomicU64 = AtomicU64::new(0);
+struct Fixture {
+    dsn: String,
+    schema: String,
+    binding: AuthorityBinding,
+}
 impl Fixture {
-    fn new()->Self {
-        let dsn=std::env::var("MAS_TEST_POSTGRES_DSN").expect("real PostgreSQL test connection required");
-        let schema=format!("mas_test_{}_{}",std::process::id(),NEXT.fetch_add(1,Ordering::Relaxed));
-        let binding=AuthorityBinding {deployment:"test-deployment".into(),controller:"controller-one".into(),epoch:1};
-        PostgresRepository::initialise(Client::connect(&dsn,NoTls).unwrap(),&schema,binding.clone()).unwrap();
-        Self {dsn,schema,binding}
+    fn new() -> Self {
+        let dsn = std::env::var("MAS_TEST_POSTGRES_DSN")
+            .expect("real PostgreSQL test connection required");
+        let schema = format!(
+            "mas_test_{}_{}",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::Relaxed)
+        );
+        let binding = AuthorityBinding {
+            deployment: "test-deployment".into(),
+            controller: "controller-one".into(),
+            epoch: 1,
+        };
+        PostgresRepository::initialise(
+            Client::connect(&dsn, NoTls).unwrap(),
+            &schema,
+            binding.clone(),
+        )
+        .unwrap();
+        Self {
+            dsn,
+            schema,
+            binding,
+        }
     }
-    fn open(&self)->PostgresRepository {self.open_as(self.binding.clone())}
-    fn open_as(&self,binding:AuthorityBinding)->PostgresRepository {
-        PostgresRepository::open(Client::connect(&self.dsn,NoTls).unwrap(),&self.schema,binding).unwrap()
+    fn open(&self) -> PostgresRepository {
+        self.open_as(self.binding.clone())
     }
-    fn admin(&self)->Client {
-        let mut client=Client::connect(&self.dsn,NoTls).unwrap();
-        client.batch_execute(&format!("SET search_path TO {},pg_catalog",self.schema)).unwrap();client
+    fn open_as(&self, binding: AuthorityBinding) -> PostgresRepository {
+        PostgresRepository::open(
+            Client::connect(&self.dsn, NoTls).unwrap(),
+            &self.schema,
+            binding,
+        )
+        .unwrap()
+    }
+    fn admin(&self) -> Client {
+        let mut client = Client::connect(&self.dsn, NoTls).unwrap();
+        client
+            .batch_execute(&format!("SET search_path TO {},pg_catalog", self.schema))
+            .unwrap();
+        client
     }
 }
 impl Drop for Fixture {
-    fn drop(&mut self) {if let Ok(mut c)=Client::connect(&self.dsn,NoTls) {let _=c.batch_execute(&format!("DROP SCHEMA {} CASCADE",self.schema));}}
+    fn drop(&mut self) {
+        if let Ok(mut c) = Client::connect(&self.dsn, NoTls) {
+            let _ = c.batch_execute(&format!("DROP SCHEMA {} CASCADE", self.schema));
+        }
+    }
 }
-fn message(id:&str,from:&str,to:&str,kind:&str,payload:Value)->Message {
-    Message {message_id:id.into(),run_id:"r".into(),sender:from.into(),recipient:to.into(),version:"1".into(),kind:kind.into(),payload:payload.as_object().unwrap().clone()}
+fn message(id: &str, from: &str, to: &str, kind: &str, payload: Value) -> Message {
+    Message {
+        message_id: id.into(),
+        run_id: "r".into(),
+        sender: from.into(),
+        recipient: to.into(),
+        version: "1".into(),
+        kind: kind.into(),
+        payload: payload.as_object().unwrap().clone(),
+    }
 }
-fn request()->Message {message("q","a","b","Request",json!({"task_id":"task","operation":"check","input":{}}))}
-fn result()->Message {message("answer","b","a","Result",json!({"task_id":"task","reply_to":"q","status":"completed","output":{"answer":42}}))}
-fn configuration()->Value {json!({"agents":["a","b"],"edges":[["a","b"],["b","a"]],"application":"agent-task/1","max_calls":2,"mailbox_capacity":2})}
-fn trace<R:ProtocolRepository>(repository:&mut R)->Vec<Value> {
-    let mut output=Vec::new();
-    repository.create_run("r",&configuration()).unwrap();
-    repository.register_admission("gateway/test",&"a".repeat(64),2).unwrap();
+fn request() -> Message {
+    message(
+        "q",
+        "a",
+        "b",
+        "Request",
+        json!({"task_id":"task","operation":"check","input":{}}),
+    )
+}
+fn result() -> Message {
+    message(
+        "answer",
+        "b",
+        "a",
+        "Result",
+        json!({"task_id":"task","reply_to":"q","status":"completed","output":{"answer":42}}),
+    )
+}
+fn configuration() -> Value {
+    json!({"agents":["a","b"],"edges":[["a","b"],["b","a"]],"application":"agent-task/1","max_calls":2,"mailbox_capacity":2})
+}
+fn trace<R: ProtocolRepository>(repository: &mut R) -> Vec<Value> {
+    let mut output = Vec::new();
+    repository.create_run("r", &configuration()).unwrap();
+    repository
+        .register_admission("gateway/test", &"a".repeat(64), 2)
+        .unwrap();
     output.push(json!(repository.reserve_admission("gateway/test").unwrap()));
-    output.push(repository.send(&request(),"a").unwrap());
-    output.push(repository.send(&request(),"a").unwrap());
-    assert!(repository.ack("r","q","b").is_err());
-    output.push(repository.receive("r","b",2).unwrap());
-    output.push(repository.receive("r","b",2).unwrap());
-    output.push(repository.ack("r","q","b").unwrap());
-    output.push(repository.reserve_call("r","b","call").unwrap());
-    assert!(repository.reserve_call("r","b","call").is_err());
-    assert!(repository.finish_call("r","a","call",&json!({"status":"ok"})).is_err());
-    output.push(repository.finish_call("r","b","call",&json!({"status":"ok"})).unwrap());
-    output.push(repository.send(&result(),"b").unwrap());
-    let mut inspection=repository.inspect("r").unwrap();
+    output.push(repository.send(&request(), "a").unwrap());
+    output.push(repository.send(&request(), "a").unwrap());
+    assert!(repository.ack("r", "q", "b").is_err());
+    output.push(repository.receive("r", "b", 2).unwrap());
+    output.push(repository.receive("r", "b", 2).unwrap());
+    output.push(repository.ack("r", "q", "b").unwrap());
+    output.push(repository.reserve_call("r", "b", "call").unwrap());
+    assert!(repository.reserve_call("r", "b", "call").is_err());
+    assert!(repository
+        .finish_call("r", "a", "call", &json!({"status":"ok"}))
+        .is_err());
+    output.push(
+        repository
+            .finish_call("r", "b", "call", &json!({"status":"ok"}))
+            .unwrap(),
+    );
+    output.push(repository.send(&result(), "b").unwrap());
+    let mut inspection = repository.inspect("r").unwrap();
     inspection.as_object_mut().unwrap().remove("deadline");
-    for task in inspection["tasks"].as_array_mut().unwrap() {task.as_object_mut().unwrap().remove("closed_at");}
-    output.push(inspection);output
+    for task in inspection["tasks"].as_array_mut().unwrap() {
+        task.as_object_mut().unwrap().remove("closed_at");
+    }
+    output.push(inspection);
+    output
 }
 
 #[test]
 #[ignore = "requires MAS_TEST_POSTGRES_DSN and an actual PostgreSQL server"]
 fn sqlite_postgres_complete_protocol_trace_agrees() {
-    let fixture=Fixture::new();
-    let path=std::env::temp_dir().join(format!("mas-pg-conformance-{}.sqlite",std::process::id()));
-    let mut local=Store::open(&path).unwrap();
-    assert_eq!(trace(&mut local),trace(&mut fixture.open()));
-    drop(local);std::fs::remove_file(path).unwrap();
-    assert_eq!(fixture.open().inspect("r").unwrap()["calls"][0]["state"],"recorded");
+    let fixture = Fixture::new();
+    let path =
+        std::env::temp_dir().join(format!("mas-pg-conformance-{}.sqlite", std::process::id()));
+    let mut local = Store::open(&path).unwrap();
+    assert_eq!(trace(&mut local), trace(&mut fixture.open()));
+    drop(local);
+    std::fs::remove_file(path).unwrap();
+    assert_eq!(
+        fixture.open().inspect("r").unwrap()["calls"][0]["state"],
+        "recorded"
+    );
 }
 
 #[test]
 #[ignore = "requires MAS_TEST_POSTGRES_DSN and an actual PostgreSQL server"]
 fn concurrent_connections_cannot_over_allocate_or_reuse_identity() {
-    let fixture=Arc::new(Fixture::new());fixture.open().create_run("r",&configuration()).unwrap();
-    let barrier=Arc::new(Barrier::new(9));
-    let threads=(0..8).map(|n| {let f=fixture.clone();let b=barrier.clone();std::thread::spawn(move|| {
-        let mut repo=f.open();b.wait();repo.reserve_call("r","a",&format!("call-{n}")).is_ok()
-    })}).collect::<Vec<_>>();
+    let fixture = Arc::new(Fixture::new());
+    fixture.open().create_run("r", &configuration()).unwrap();
+    let barrier = Arc::new(Barrier::new(9));
+    let threads = (0..8)
+        .map(|n| {
+            let f = fixture.clone();
+            let b = barrier.clone();
+            std::thread::spawn(move || {
+                let mut repo = f.open();
+                b.wait();
+                repo.reserve_call("r", "a", &format!("call-{n}")).is_ok()
+            })
+        })
+        .collect::<Vec<_>>();
     barrier.wait();
-    assert_eq!(threads.into_iter().map(|t|usize::from(t.join().unwrap())).sum::<usize>(),2);
-    let state=fixture.open().inspect("r").unwrap();assert_eq!(state["usage"]["calls"],2);assert_eq!(state["calls"].as_array().unwrap().len(),2);
+    assert_eq!(
+        threads
+            .into_iter()
+            .map(|t| usize::from(t.join().unwrap()))
+            .sum::<usize>(),
+        2
+    );
+    let state = fixture.open().inspect("r").unwrap();
+    assert_eq!(state["usage"]["calls"], 2);
+    assert_eq!(state["calls"].as_array().unwrap().len(), 2);
 }
 
 #[test]
 #[ignore = "requires MAS_TEST_POSTGRES_DSN and an actual PostgreSQL server"]
 fn handover_fences_every_old_handle_and_retains_original_effects() {
-    let fixture=Fixture::new();let mut old=fixture.open();
-    old.create_run("r",&configuration()).unwrap();old.register_admission("gateway/test",&"a".repeat(64),3).unwrap();
-    old.reserve_call("r","a","escaped").unwrap();old.send(&request(),"a").unwrap();
-    let next=fixture.open().handover("controller-two").unwrap();
-    assert_eq!(next.epoch,2);
-    assert!(old.reserve_admission("gateway/test").unwrap_err().contains("stale"));
-    assert!(old.reserve_call("r","a","new").is_err());assert!(old.finish_call("r","a","escaped",&json!({})).is_err());
-    assert!(old.receive("r","b",1).is_err());assert!(old.send(&request(),"a").is_err());assert!(old.inspect("r").is_err());
-    let mut current=fixture.open_as(next);
-    assert_eq!(current.inspect("r").unwrap()["usage"]["calls"],1);
-    assert!(current.reserve_call("r","a","escaped").is_err());
-    current.finish_call("r","a","escaped",&json!({"observed":"completed"})).unwrap();
-    assert_eq!(current.inspect("r").unwrap()["calls"][0]["state"],"recorded");
-    assert!(PostgresRepository::initialise(Client::connect(&fixture.dsn,NoTls).unwrap(),&fixture.schema,fixture.binding.clone()).is_err());
+    let fixture = Fixture::new();
+    let mut old = fixture.open();
+    old.create_run("r", &configuration()).unwrap();
+    old.register_admission("gateway/test", &"a".repeat(64), 3)
+        .unwrap();
+    old.reserve_call("r", "a", "escaped").unwrap();
+    old.send(&request(), "a").unwrap();
+    let next = fixture.open().handover("controller-two").unwrap();
+    assert_eq!(next.epoch, 2);
+    assert!(old
+        .reserve_admission("gateway/test")
+        .unwrap_err()
+        .contains("stale"));
+    assert!(old.reserve_call("r", "a", "new").is_err());
+    assert!(old.finish_call("r", "a", "escaped", &json!({})).is_err());
+    assert!(old.receive("r", "b", 1).is_err());
+    assert!(old.send(&request(), "a").is_err());
+    assert!(old.inspect("r").is_err());
+    let mut current = fixture.open_as(next);
+    assert_eq!(current.inspect("r").unwrap()["usage"]["calls"], 1);
+    assert!(current.reserve_call("r", "a", "escaped").is_err());
+    current
+        .finish_call("r", "a", "escaped", &json!({"observed":"completed"}))
+        .unwrap();
+    assert_eq!(
+        current.inspect("r").unwrap()["calls"][0]["state"],
+        "recorded"
+    );
+    assert!(PostgresRepository::initialise(
+        Client::connect(&fixture.dsn, NoTls).unwrap(),
+        &fixture.schema,
+        fixture.binding.clone()
+    )
+    .is_err());
 }
 
 #[test]
 #[ignore = "requires MAS_TEST_POSTGRES_DSN and an actual PostgreSQL server"]
 fn task_message_and_quota_commit_atomically_and_schema_drift_fails_closed() {
-    let fixture=Fixture::new();let mut repo=fixture.open();repo.create_run("r",&configuration()).unwrap();
+    let fixture = Fixture::new();
+    let mut repo = fixture.open();
+    repo.create_run("r", &configuration()).unwrap();
     fixture.admin().batch_execute("CREATE FUNCTION fail_task() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'injected task insertion failure'; END $$; CREATE TRIGGER fail_task BEFORE INSERT ON tasks FOR EACH ROW EXECUTE FUNCTION fail_task();").unwrap();
-    assert!(repo.send(&request(),"a").is_err());
-    let state=repo.inspect("r").unwrap();assert_eq!(state["usage"]["messages"],0);assert_eq!(state["messages"],json!([]));assert_eq!(state["tasks"],json!([]));
-    assert!(PostgresRepository::open(Client::connect(&fixture.dsn,NoTls).unwrap(),&fixture.schema,fixture.binding.clone()).is_err());
-    fixture.admin().batch_execute("DROP TRIGGER fail_task ON tasks; DROP FUNCTION fail_task();").unwrap();
-    repo.send(&request(),"a").unwrap();assert_eq!(repo.inspect("r").unwrap()["tasks"].as_array().unwrap().len(),1);
-    fixture.admin().batch_execute("ALTER TABLE calls DROP CONSTRAINT calls_state_check").unwrap();
-    assert!(PostgresRepository::open(Client::connect(&fixture.dsn,NoTls).unwrap(),&fixture.schema,fixture.binding.clone()).is_err());
+    assert!(repo.send(&request(), "a").is_err());
+    let state = repo.inspect("r").unwrap();
+    assert_eq!(state["usage"]["messages"], 0);
+    assert_eq!(state["messages"], json!([]));
+    assert_eq!(state["tasks"], json!([]));
+    assert!(PostgresRepository::open(
+        Client::connect(&fixture.dsn, NoTls).unwrap(),
+        &fixture.schema,
+        fixture.binding.clone()
+    )
+    .is_err());
+    fixture
+        .admin()
+        .batch_execute("DROP TRIGGER fail_task ON tasks; DROP FUNCTION fail_task();")
+        .unwrap();
+    repo.send(&request(), "a").unwrap();
+    assert_eq!(
+        repo.inspect("r").unwrap()["tasks"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
+    fixture
+        .admin()
+        .batch_execute("ALTER TABLE calls DROP CONSTRAINT calls_state_check")
+        .unwrap();
+    assert!(PostgresRepository::open(
+        Client::connect(&fixture.dsn, NoTls).unwrap(),
+        &fixture.schema,
+        fixture.binding.clone()
+    )
+    .is_err());
 }
 
 #[test]
 #[ignore = "requires MAS_TEST_POSTGRES_DSN and an actual PostgreSQL server"]
 fn concurrent_terminal_outcomes_leave_one_native_transition() {
-    let fixture=Arc::new(Fixture::new());let mut repo=fixture.open();repo.create_run("r",&configuration()).unwrap();repo.send(&request(),"a").unwrap();repo.receive("r","b",1).unwrap();
-    let cancel=message("cancel","a","b","Cancel",json!({"task_id":"task","reply_to":"q","reason":"stop"}));
-    let barrier=Arc::new(Barrier::new(3));
-    let threads=[(result(),"b"),(cancel,"a")].into_iter().map(|(m,a)| {let f=fixture.clone();let b=barrier.clone();std::thread::spawn(move||{let mut repo=f.open();b.wait();repo.send(&m,a).is_ok()})}).collect::<Vec<_>>();
-    barrier.wait();assert_eq!(threads.into_iter().map(|t|usize::from(t.join().unwrap())).sum::<usize>(),1);
-    let state=repo.inspect("r").unwrap();assert_eq!(state["usage"]["messages"],2);assert_eq!(state["tasks"].as_array().unwrap().len(),1);
-    assert_ne!(state["tasks"][0]["state"],"open");
+    let fixture = Arc::new(Fixture::new());
+    let mut repo = fixture.open();
+    repo.create_run("r", &configuration()).unwrap();
+    repo.send(&request(), "a").unwrap();
+    repo.receive("r", "b", 1).unwrap();
+    let cancel = message(
+        "cancel",
+        "a",
+        "b",
+        "Cancel",
+        json!({"task_id":"task","reply_to":"q","reason":"stop"}),
+    );
+    let barrier = Arc::new(Barrier::new(3));
+    let threads = [(result(), "b"), (cancel, "a")]
+        .into_iter()
+        .map(|(m, a)| {
+            let f = fixture.clone();
+            let b = barrier.clone();
+            std::thread::spawn(move || {
+                let mut repo = f.open();
+                b.wait();
+                repo.send(&m, a).is_ok()
+            })
+        })
+        .collect::<Vec<_>>();
+    barrier.wait();
+    assert_eq!(
+        threads
+            .into_iter()
+            .map(|t| usize::from(t.join().unwrap()))
+            .sum::<usize>(),
+        1
+    );
+    let state = repo.inspect("r").unwrap();
+    assert_eq!(state["usage"]["messages"], 2);
+    assert_eq!(state["tasks"].as_array().unwrap().len(), 1);
+    assert_ne!(state["tasks"][0]["state"], "open");
 }
 
 #[test]
 #[ignore = "requires MAS_TEST_POSTGRES_DSN and an actual PostgreSQL server"]
 fn lost_connection_keeps_acknowledged_allocations_and_expiry_never_refunds() {
-    let fixture=Fixture::new();let mut client=Client::connect(&fixture.dsn,NoTls).unwrap();
-    let pid:i32=client.query_one("SELECT pg_backend_pid()",&[]).unwrap().get(0);
-    let mut repo=PostgresRepository::open(client,&fixture.schema,fixture.binding.clone()).unwrap();
-    repo.create_run("r",&configuration()).unwrap();repo.reserve_call("r","a","escaped").unwrap();repo.send(&request(),"a").unwrap();
-    fixture.admin().query_one("SELECT pg_terminate_backend($1)",&[&pid]).unwrap();
-    assert!(repo.reserve_call("r","a","other").is_err());
-    fixture.admin().execute("UPDATE runs SET deadline=0 WHERE id='r'",&[]).unwrap();
-    let mut recovered=fixture.open();let state=recovered.inspect("r").unwrap();
-    assert_eq!(state["expired"],true);assert_eq!(state["usage"]["calls"],1);assert_eq!(state["calls"][0]["state"],"reserved");assert_eq!(state["tasks"][0]["state"],"expired_outcome_unknown");
-    assert!(recovered.reserve_call("r","a","other").is_err());
-    recovered.finish_call("r","a","escaped",&json!({"observed":"completed"})).unwrap();
-    assert_eq!(recovered.inspect("r").unwrap()["usage"]["calls"],1);
+    let fixture = Fixture::new();
+    let mut client = Client::connect(&fixture.dsn, NoTls).unwrap();
+    let pid: i32 = client
+        .query_one("SELECT pg_backend_pid()", &[])
+        .unwrap()
+        .get(0);
+    let mut repo =
+        PostgresRepository::open(client, &fixture.schema, fixture.binding.clone()).unwrap();
+    repo.create_run("r", &configuration()).unwrap();
+    repo.reserve_call("r", "a", "escaped").unwrap();
+    repo.send(&request(), "a").unwrap();
+    fixture
+        .admin()
+        .query_one("SELECT pg_terminate_backend($1)", &[&pid])
+        .unwrap();
+    assert!(repo.reserve_call("r", "a", "other").is_err());
+    fixture
+        .admin()
+        .execute("UPDATE runs SET deadline=0 WHERE id='r'", &[])
+        .unwrap();
+    let mut recovered = fixture.open();
+    let state = recovered.inspect("r").unwrap();
+    assert_eq!(state["expired"], true);
+    assert_eq!(state["usage"]["calls"], 1);
+    assert_eq!(state["calls"][0]["state"], "reserved");
+    assert_eq!(state["tasks"][0]["state"], "expired_outcome_unknown");
+    assert!(recovered.reserve_call("r", "a", "other").is_err());
+    recovered
+        .finish_call("r", "a", "escaped", &json!({"observed":"completed"}))
+        .unwrap();
+    assert_eq!(recovered.inspect("r").unwrap()["usage"]["calls"], 1);
 }
 
 #[test]
 #[ignore = "requires MAS_TEST_POSTGRES_DSN and an actual PostgreSQL server"]
 fn postgres_gateway_preserves_rejected_but_charged_attempts() {
-    let fixture=Fixture::new();fixture.open().create_run("r",&configuration()).unwrap();
-    let configuration=json!({"gateway_id":"test","max_attempts":2,"credentials":[{"credential_id":"a","token":"aa".repeat(32),"run_id":"r","actor":"a","max_attempts":2}]});
-    let mut gateway=Gateway::open(fixture.open(),&configuration).unwrap();
-    assert_eq!(gateway.handle_frame(b"bad-json").response["ok"],false);
+    let fixture = Fixture::new();
+    fixture.open().create_run("r", &configuration()).unwrap();
+    let configuration = json!({"gateway_id":"test","max_attempts":2,"credentials":[{"credential_id":"a","token":"aa".repeat(32),"run_id":"r","actor":"a","max_attempts":2}]});
+    let mut gateway = Gateway::open(fixture.open(), &configuration).unwrap();
+    assert_eq!(gateway.handle_frame(b"bad-json").response["ok"], false);
     drop(gateway);
-    let mut gateway=Gateway::open(fixture.open(),&configuration).unwrap();
-    assert_eq!(gateway.handle_frame(b"bad-json").response["ok"],false);
-    assert_eq!(gateway.handle_frame(b"bad-json").response["error"]["code"],"admission_closed");
+    let mut gateway = Gateway::open(fixture.open(), &configuration).unwrap();
+    assert_eq!(gateway.handle_frame(b"bad-json").response["ok"], false);
+    assert_eq!(
+        gateway.handle_frame(b"bad-json").response["error"]["code"],
+        "admission_closed"
+    );
+}
+
+fn host_setup(f: &Fixture) -> PostgresRepository {
+    let mut repo = f.open();
+    repo.install_host_repository().unwrap();
+    for scope in ["deployment", "principal/alice", "ancestor/parent"] {
+        repo.host_command(
+            &format!("scope-{}", scope.replace('/', "-")),
+            "configure_scope",
+            &json!({"scope":scope,"max_runs":5,"max_calls":2,"max_microusd":100}),
+        )
+        .unwrap();
+    }
+    let mut c = configuration();
+    c["edges"] = json!([["a", "b"], ["b", "a"]]);
+    // Metadata binds the normalised Rust configuration rather than an alias.
+    let native = repo.create_run("normalisation", &c).unwrap()["config"].clone();
+    repo.host_command("create-host-run","create_run",&json!({"run":"r","principal":"alice","ancestors":["ancestor/parent"],"configuration":c,"metadata":{"run_id":"r","workflow_version":"test/1","topology":native,"max_depth":8,"secret_reference":"secret/1","principal":"alice"}})).unwrap();
+    repo.host_command(
+        "claim-host-run",
+        "claim_run",
+        &json!({"run":"r","owner":"owner-one"}),
+    )
+    .unwrap();
+    repo
+}
+fn prepare(repo: &mut PostgresRepository, key: &str, call: &str, amount: i64) {
+    repo.host_command(
+        &format!("step-{key}"),
+        "step",
+        &json!({"run":"r","owner":"owner-one","key":key,"kind":"invoke","input":{},"initial":{}}),
+    )
+    .unwrap();
+    repo.host_command(&format!("prepare-{call}"),"prepare_invocation",&json!({"run":"r","owner":"owner-one","step_key":key,"actor":"a","call_id":call,"reservation_microusd":amount})).unwrap();
+}
+
+#[test]
+#[ignore = "requires MAS_TEST_POSTGRES_DSN and an actual PostgreSQL server"]
+fn shared_host_admission_and_known_observation_are_atomic_and_replay_safe() {
+    let fixture = Fixture::new();
+    let mut repo = host_setup(&fixture);
+    prepare(&mut repo, "step-one", "effect-one", 60);
+    let p = json!({"run":"r","owner":"owner-one","call_id":"effect-one"});
+    assert_eq!(
+        repo.host_command("admit-effect-one", "admit_invocation", &p)
+            .unwrap()["replayed"],
+        false
+    );
+    assert_eq!(
+        repo.host_command("admit-effect-one", "admit_invocation", &p)
+            .unwrap()["replayed"],
+        true
+    );
+    assert!(repo
+        .host_command("different-admit-id", "admit_invocation", &p)
+        .is_err());
+    assert_eq!(repo.inspect("r").unwrap()["usage"]["calls"], 1);
+    for scope in ["deployment", "principal/alice", "ancestor/parent"] {
+        let state = repo.host_query("scope", &json!({"scope":scope})).unwrap();
+        assert_eq!(state["calls"], 1);
+        assert_eq!(state["microusd"], 60);
+    }
+    let observed = json!({"run":"r","owner":"owner-one","call_id":"effect-one","state":"completed","output":{"answer":1},"evidence":{"certainty":"completed"}});
+    repo.host_command("observe-effect-one", "observe_invocation", &observed)
+        .unwrap();
+    assert_eq!(repo.inspect("r").unwrap()["calls"][0]["state"], "recorded");
+    assert_eq!(
+        repo.host_query("invocation", &json!({"run":"r","call_id":"effect-one"}))
+            .unwrap()["state"],
+        "completed"
+    );
+    prepare(&mut repo, "step-two", "effect-two", 60);
+    assert!(repo
+        .host_command(
+            "admit-effect-two",
+            "admit_invocation",
+            &json!({"run":"r","owner":"owner-one","call_id":"effect-two"})
+        )
+        .is_err());
+    assert_eq!(repo.inspect("r").unwrap()["usage"]["calls"], 1);
+    assert_eq!(
+        repo.host_query("scope", &json!({"scope":"deployment"}))
+            .unwrap()["calls"],
+        1
+    );
+    assert_eq!(
+        repo.host_query("invocation", &json!({"run":"r","call_id":"effect-two"}))
+            .unwrap()["state"],
+        "prepared"
+    );
+}
+
+#[test]
+#[ignore = "requires MAS_TEST_POSTGRES_DSN and an actual PostgreSQL server"]
+fn shared_host_native_failure_rolls_back_all_charges_and_invocation_intent() {
+    let fixture = Fixture::new();
+    let mut repo = host_setup(&fixture);
+    prepare(&mut repo, "step-one", "effect-one", 50);
+    fixture.admin().batch_execute("CREATE FUNCTION fail_call() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'injected native call failure'; END $$; CREATE TRIGGER fail_call BEFORE INSERT ON calls FOR EACH ROW EXECUTE FUNCTION fail_call();").unwrap();
+    assert!(repo
+        .host_command(
+            "admit-effect-one",
+            "admit_invocation",
+            &json!({"run":"r","owner":"owner-one","call_id":"effect-one"})
+        )
+        .is_err());
+    assert_eq!(repo.inspect("r").unwrap()["usage"]["calls"], 0);
+    for scope in ["deployment", "principal/alice", "ancestor/parent"] {
+        assert_eq!(
+            repo.host_query("scope", &json!({"scope":scope})).unwrap()["microusd"],
+            0
+        );
+    }
+    assert_eq!(
+        repo.host_query("invocation", &json!({"run":"r","call_id":"effect-one"}))
+            .unwrap()["state"],
+        "prepared"
+    );
+    let count: i64 = fixture
+        .admin()
+        .query_one(
+            "SELECT count(*) FROM host_commands WHERE id='admit-effect-one'",
+            &[],
+        )
+        .unwrap()
+        .get(0);
+    assert_eq!(count, 0);
+}
+
+#[test]
+#[ignore = "requires MAS_TEST_POSTGRES_DSN and an actual PostgreSQL server"]
+fn shared_host_handover_retains_unknown_effect_and_invalidates_old_run_owner() {
+    let fixture = Fixture::new();
+    let mut old = host_setup(&fixture);
+    prepare(&mut old, "step-one", "effect-one", 50);
+    let p = json!({"run":"r","owner":"owner-one","call_id":"effect-one"});
+    old.host_command("admit-effect-one", "admit_invocation", &p)
+        .unwrap();
+    let binding = old.handover("controller-two").unwrap();
+    let mut replacement = fixture.open_as(binding);
+    replacement
+        .host_command(
+            "claim-replacement",
+            "claim_run",
+            &json!({"run":"r","owner":"owner-two"}),
+        )
+        .unwrap();
+    assert!(old
+        .host_command(
+            "old-mutation",
+            "set_step",
+            &json!({"run":"r","owner":"owner-one","key":"step-one","expected_revision":2,"data":{}})
+        )
+        .is_err());
+    assert!(replacement
+        .host_command(
+            "repeated-dispatch",
+            "admit_invocation",
+            &json!({"run":"r","owner":"owner-two","call_id":"effect-one"})
+        )
+        .is_err());
+    assert_eq!(
+        replacement
+            .host_query("invocation", &json!({"run":"r","call_id":"effect-one"}))
+            .unwrap()["state"],
+        "executing"
+    );
+    assert_eq!(
+        replacement
+            .host_query("scope", &json!({"scope":"deployment"}))
+            .unwrap()["microusd"],
+        50
+    );
 }

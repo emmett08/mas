@@ -34,3 +34,10 @@ jobs:
         run: cargo test --locked --manifest-path rust-protocol/Cargo.toml --features postgres-repository
       - name: Real PostgreSQL conformance and fault boundaries
         run: cargo test --locked --manifest-path rust-protocol/Cargo.toml --features postgres-repository --test postgres_repository -- --ignored --nocapture
+      - name: Build the shared host command channel
+        run: cargo build --locked --manifest-path rust-protocol/Cargo.toml --features postgres-repository --bin mas-shared
+      - name: Run the Python runner against shared Rust and PostgreSQL authority
+        env:
+          PYTHONPATH: host
+          MAS_SHARED_BIN: ${{ github.workspace }}/rust-protocol/target/debug/mas-shared
+        run: python -m unittest discover -s host/tests -p test_shared_authority.py -v

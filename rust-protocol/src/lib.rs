@@ -6,6 +6,8 @@ pub mod store;
 pub mod repository;
 #[cfg(feature = "postgres-repository")]
 pub mod postgres_repository;
+#[cfg(feature = "postgres-repository")]
+pub mod shared_host;
 mod store_schema;
 pub mod tasks;
 pub mod examples;

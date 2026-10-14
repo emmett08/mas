@@ -177,6 +177,18 @@ class Context:
                 "outcome": "not_executed", "reason": "provider_circuit_open",
                 "resource_key": circuit.policy.resource_key})
             raise RunnerError("provider circuit is open")
+        atomic_admission = getattr(runner._session, "admit_invocation", None)
+        if atomic_admission is not None:
+            # Shared authority commits protocol reservation, hierarchical
+            # allocations and executing intent together. A lost/replayed receipt
+            # cannot grant a second provider dispatch.
+            self._pending_invocation_id = call_id
+            try:
+                atomic_admission(call_id)
+            except BaseException:
+                self._recovery_required = True
+                raise RecoveryRequired("shared admission requires reconciliation of the original invocation") from None
+            return InvocationTicket(call_id, None, True, key)
         try:
             runner._operations.admit_call(runner.run_id, call_id, reservation_microusd)
         except Exception:
@@ -357,7 +369,7 @@ class Runner:
                  protocol_client: ProtocolTransport | None = None, _resume_dir: Path | None = None,
                  execution_deadline: float | None = None, protocol_strategy: str = "command",
                  retry_policy: RetryPolicy | dict | None = None, circuit_breakers: dict | None = None,
-                 event_sink: Callable[[dict], None] | None = None):
+                 event_sink: Callable[[dict], None] | None = None, session_factory=None):
         from .operations import DeploymentLedger
         self._retry_policy = load_retry_policy(retry_policy)
         if event_sink is not None and not callable(event_sink):
@@ -408,7 +420,7 @@ class Runner:
             self._circuits = {actor: CircuitBreaker(self._operations, policy) for actor, policy in policies.items()}
             if any(not callable(getattr(adapter, "handle", None)) for adapter in self._adapters.values()):
                 raise RunnerError("every adapter must implement handle")
-            self._session = RunSession(state_dir, operations=self._operations,
+            self._session = (session_factory or RunSession)(state_dir, operations=self._operations,
                 client=self._client, command=self._command, topology=topology,
                 workflow_version=workflow_version, max_depth=max_depth,
                 actors=set(self._adapters), resume_dir=_resume_dir,

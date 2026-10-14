@@ -89,3 +89,57 @@ connection after an acknowledged allocation and preserve rejected gateway
 charges across reconnects. These tests qualify the stated protocol boundaries;
 they do not substitute for multi-machine database replication, full-host
 failover, object storage or production availability acceptance.
+
+## Shared leaf-run authority
+
+The version-two host extension adds native PostgreSQL tables for immutable run
+metadata, deployment/principal/ancestor allowances, run ownership, deterministic
+checkpoints, event outboxes, invocation state and stable command receipts.
+`install_host_repository` performs an explicit additive transaction from protocol
+schema 1 to schema 2. A version-one writer rejects the upgraded schema.
+
+`admit_invocation` checks the current controller and run owner, charges every
+frozen allocation scope, reserves the native Rust call and writes its executing
+intent in **one database transaction**. A rejected native insert or exhausted
+ancestor rolls back all these changes. The command receipt records whether this
+is a replay; a replay supplies no permission for another dispatch. A lost reply
+leaves the original invocation uncertain. Recording a completed observation
+updates the host invocation and native Rust evidence together without releasing
+any charge. Retry eligibility and checkpoint compare-and-set revisions remain
+durable across a fresh controller cache.
+
+The trusted Python API is `mas_host.shared_authority.SharedAuthority`. Its
+`runner(...)` method uses the existing `Runner` through injected session and
+protocol ports. `run_id` resumes an existing run from its shared metadata; a
+replacement cache does not require copied SQLite files. The caller supplies the
+original workflow version, principal and externally retained secret reference.
+Gateway capabilities are derived from a caller-supplied high-entropy key; neither
+that key nor its plaintext capabilities are persisted in public metadata.
+
+Build the private host command executable with:
+
+```sh
+cargo build --locked --release --manifest-path rust-protocol/Cargo.toml \
+  --features postgres-repository --bin mas-shared
+```
+
+The command executable accepts PostgreSQL Unix sockets or loopback endpoints
+only. It does not silently use plaintext for a remote database. Direct remote
+TLS connections can be supplied to the Rust library using a verified PostgreSQL
+client; a separately qualified authenticated TLS tunnel can expose a local
+endpoint to the command transport. The standard images do not yet advertise
+this shared-host profile.
+
+Local guardian locks still protect local process and cache lifetime. PostgreSQL
+run-owner records and controller epochs decide whether shared mutations are
+permitted. A crashed owner is retained until a controlled authority handover;
+this implementation does not infer that a provider effect stopped from a lease
+timeout. Automatic leader election, renewal and replica activation remain open.
+
+The shared leaf-run profile is an operational component, not the completed MAS
+service backend. Task/composition scheduling, definition registration, peer and
+worker intent, provider circuits, shared artefact metadata and administrative
+backup/restore still need their shared repositories and service integration.
+Provider circuit settings are rejected by this profile instead of falling back
+to local durable circuit state. The command ledger also needs a complete
+retention/capacity policy before long-lived deployment acceptance.

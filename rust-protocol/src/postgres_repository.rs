@@ -4,16 +4,24 @@
 //!
 //! This repository covers Rust protocol state; it does not make Python host
 //! journals, artefacts or controller bootstrap highly available.
-use crate::{Message, MAX_BYTES, MAX_DEPTH, parse_message, repository::ProtocolRepository,
-    store::{config, RunMembership}};
+use crate::{
+    parse_message,
+    repository::ProtocolRepository,
+    store::{config, RunMembership},
+    Message, MAX_BYTES, MAX_DEPTH,
+};
 use postgres::{Client, Transaction};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::{cell::RefCell, collections::BTreeSet};
 
 type Result<T> = std::result::Result<T, String>;
-fn db_error(_: postgres::Error) -> String { "PostgreSQL repository operation failed; reconcile the original identity before retry".into() }
-fn json_error(_: serde_json::Error) -> String { "invalid retained protocol JSON".into() }
+pub(crate) fn db_error(_: postgres::Error) -> String {
+    "PostgreSQL repository operation failed; reconcile the original identity before retry".into()
+}
+fn json_error(_: serde_json::Error) -> String {
+    "invalid retained protocol JSON".into()
+}
 
 const DDL: &str = "
 CREATE TABLE authority(singleton boolean PRIMARY KEY DEFAULT true CHECK(singleton), deployment text NOT NULL, controller text NOT NULL, epoch bigint NOT NULL CHECK(epoch>0), version bigint NOT NULL, layout_digest text NOT NULL);
@@ -40,21 +48,30 @@ pub struct PostgresRepository {
 }
 
 fn namespace(name: &str) -> Result<String> {
-    if name.is_empty() || name.len()>63 || !name.as_bytes()[0].is_ascii_lowercase()
-        || !name.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b==b'_')
-        || name.starts_with("pg_") || name=="public" {
+    if name.is_empty()
+        || name.len() > 63
+        || !name.as_bytes()[0].is_ascii_lowercase()
+        || !name
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_')
+        || name.starts_with("pg_")
+        || name == "public"
+    {
         return Err("invalid dedicated PostgreSQL namespace".into());
     }
     Ok(format!("\"{name}\""))
 }
 fn binding_valid(binding: &AuthorityBinding) -> Result<()> {
-    if !crate::identity(&binding.deployment) || !crate::identity(&binding.controller) || binding.epoch<=0 {
+    if !crate::identity(&binding.deployment)
+        || !crate::identity(&binding.controller)
+        || binding.epoch <= 0
+    {
         return Err("invalid protocol authority binding".into());
     }
     Ok(())
 }
-fn layout(tx: &mut Transaction<'_>) -> Result<String> {
-    let mut records=Vec::new();
+pub(crate) fn layout(tx: &mut Transaction<'_>) -> Result<String> {
+    let mut records = Vec::new();
     for row in tx.query("SELECT c.relname,a.attname,format_type(a.atttypid,a.atttypmod),a.attnotnull,coalesce(pg_get_expr(d.adbin,d.adrelid),''),a.attidentity::text FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace JOIN pg_attribute a ON a.attrelid=c.oid LEFT JOIN pg_attrdef d ON d.adrelid=c.oid AND d.adnum=a.attnum WHERE n.nspname=current_schema() AND c.relkind IN ('r','p') AND a.attnum>0 AND NOT a.attisdropped ORDER BY c.relname,a.attnum", &[]).map_err(db_error)? {
         records.push(json!([row.get::<_,String>(0),row.get::<_,String>(1),row.get::<_,String>(2),row.get::<_,bool>(3),row.get::<_,String>(4),row.get::<_,String>(5)]));
     }
@@ -67,7 +84,10 @@ fn layout(tx: &mut Transaction<'_>) -> Result<String> {
     for row in tx.query("SELECT c.relname,t.tgname,pg_get_triggerdef(t.oid) FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname=current_schema() AND NOT t.tgisinternal ORDER BY c.relname,t.tgname", &[]).map_err(db_error)? {
         records.push(json!([row.get::<_,String>(0),row.get::<_,String>(1),row.get::<_,String>(2)]));
     }
-    Ok(Sha256::digest(json!(records).to_string().as_bytes()).iter().map(|b|format!("{b:02x}")).collect())
+    Ok(Sha256::digest(json!(records).to_string().as_bytes())
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect())
 }
 
 impl PostgresRepository {
@@ -75,130 +95,263 @@ impl PostgresRepository {
     /// this operation cannot reset epochs, allocations or retained identities.
     pub fn initialise(mut client: Client, schema: &str, binding: AuthorityBinding) -> Result<Self> {
         binding_valid(&binding)?;
-        if binding.epoch!=1 { return Err("new authority must start at epoch one".into()); }
-        let quoted=namespace(schema)?;
-        let mut tx=client.transaction().map_err(db_error)?;
-        tx.batch_execute(&format!("CREATE SCHEMA {quoted}; SET LOCAL search_path TO {quoted},pg_catalog;")).map_err(db_error)?;
+        if binding.epoch != 1 {
+            return Err("new authority must start at epoch one".into());
+        }
+        let quoted = namespace(schema)?;
+        let mut tx = client.transaction().map_err(db_error)?;
+        tx.batch_execute(&format!(
+            "CREATE SCHEMA {quoted}; SET LOCAL search_path TO {quoted},pg_catalog;"
+        ))
+        .map_err(db_error)?;
         tx.batch_execute(DDL).map_err(db_error)?;
-        let digest=layout(&mut tx)?;
+        let digest = layout(&mut tx)?;
         tx.execute("INSERT INTO authority(singleton,deployment,controller,epoch,version,layout_digest) VALUES(true,$1,$2,$3,1,$4)", &[&binding.deployment,&binding.controller,&binding.epoch,&digest]).map_err(db_error)?;
         tx.commit().map_err(db_error)?;
-        Self::open(client,schema,binding)
+        Self::open(client, schema, binding)
     }
 
     /// Accept an already authenticated PostgreSQL client. The application may
     /// require TLS using its connector; no network credentials are logged.
     pub fn open(mut client: Client, schema: &str, binding: AuthorityBinding) -> Result<Self> {
         binding_valid(&binding)?;
-        client.batch_execute(&format!("SET search_path TO {},pg_catalog;",namespace(schema)?)).map_err(db_error)?;
-        let mut tx=client.transaction().map_err(db_error)?;
+        client
+            .batch_execute(&format!(
+                "SET search_path TO {},pg_catalog;",
+                namespace(schema)?
+            ))
+            .map_err(db_error)?;
+        let mut tx = client.transaction().map_err(db_error)?;
         let row=tx.query_opt("SELECT deployment,controller,epoch,version,layout_digest FROM authority WHERE singleton=true FOR UPDATE",&[]).map_err(db_error)?.ok_or("missing protocol authority")?;
-        if row.get::<_,String>(0)!=binding.deployment || row.get::<_,String>(1)!=binding.controller || row.get::<_,i64>(2)!=binding.epoch {
+        if row.get::<_, String>(0) != binding.deployment
+            || row.get::<_, String>(1) != binding.controller
+            || row.get::<_, i64>(2) != binding.epoch
+        {
             return Err("stale protocol authority".into());
         }
-        if row.get::<_,i64>(3)!=1 || row.get::<_,String>(4)!=layout(&mut tx)? { return Err("incompatible PostgreSQL protocol schema".into()); }
+        if !matches!(row.get::<_, i64>(3), 1 | 2) || row.get::<_, String>(4) != layout(&mut tx)? {
+            return Err("incompatible PostgreSQL protocol schema".into());
+        }
         tx.commit().map_err(db_error)?;
-        Ok(Self {client:RefCell::new(client),binding})
+        Ok(Self {
+            client: RefCell::new(client),
+            binding,
+        })
     }
 
     /// Fence handles bound to the old controller atomically in the same shared
     /// database. This is not backup activation or a replicated promotion policy.
     pub fn handover(&mut self, next_controller: &str) -> Result<AuthorityBinding> {
-        if !crate::identity(next_controller) || next_controller==self.binding.controller {
+        if !crate::identity(next_controller) || next_controller == self.binding.controller {
             return Err("replacement controller identity must differ".into());
         }
-        let epoch=self.binding.epoch.checked_add(1).ok_or("authority epoch exhausted")?;
+        let epoch = self
+            .binding
+            .epoch
+            .checked_add(1)
+            .ok_or("authority epoch exhausted")?;
         self.transaction(|tx| {
-            tx.execute("UPDATE authority SET controller=$1,epoch=$2 WHERE singleton=true",&[&next_controller,&epoch]).map_err(db_error)?;
+            tx.execute(
+                "UPDATE authority SET controller=$1,epoch=$2 WHERE singleton=true",
+                &[&next_controller, &epoch],
+            )
+            .map_err(db_error)?;
             Ok(())
         })?;
-        Ok(AuthorityBinding {deployment:self.binding.deployment.clone(),controller:next_controller.into(),epoch})
+        Ok(AuthorityBinding {
+            deployment: self.binding.deployment.clone(),
+            controller: next_controller.into(),
+            epoch,
+        })
     }
 
-    fn transaction<T>(&self, apply: impl FnOnce(&mut Transaction<'_>) -> Result<T>) -> Result<T> {
-        let mut client=self.client.try_borrow_mut().map_err(|_|"repository transaction already active")?;
-        let mut tx=client.transaction().map_err(db_error)?;
+    pub(crate) fn transaction<T>(
+        &self,
+        apply: impl FnOnce(&mut Transaction<'_>) -> Result<T>,
+    ) -> Result<T> {
+        let mut client = self
+            .client
+            .try_borrow_mut()
+            .map_err(|_| "repository transaction already active")?;
+        let mut tx = client.transaction().map_err(db_error)?;
         // Row ownership serialises all protocol state mutations and rejects an
         // old controller even if its connection survived handover. Database
         // errors are never automatically retried; the caller reconciles IDs.
         let row=tx.query_opt("SELECT deployment,controller,epoch,version FROM authority WHERE singleton=true FOR UPDATE",&[]).map_err(db_error)?.ok_or("missing protocol authority")?;
-        if row.get::<_,String>(0)!=self.binding.deployment || row.get::<_,String>(1)!=self.binding.controller
-            || row.get::<_,i64>(2)!=self.binding.epoch || row.get::<_,i64>(3)!=1 { return Err("stale protocol authority".into()); }
-        let result=apply(&mut tx)?;
+        if row.get::<_, String>(0) != self.binding.deployment
+            || row.get::<_, String>(1) != self.binding.controller
+            || row.get::<_, i64>(2) != self.binding.epoch
+            || !matches!(row.get::<_, i64>(3), 1 | 2)
+        {
+            return Err("stale protocol authority".into());
+        }
+        let result = apply(&mut tx)?;
         tx.commit().map_err(db_error)?;
         Ok(result)
     }
 }
 
-struct Run { config:Value,deadline:f64,messages:i64,bytes:i64,calls:i64,active:String,expired:bool }
-fn run(tx:&mut Transaction<'_>,id:&str,actor:Option<&str>) -> Result<Run> {
+pub(crate) struct Run {
+    pub(crate) config: Value,
+    deadline: f64,
+    messages: i64,
+    bytes: i64,
+    pub(crate) calls: i64,
+    active: String,
+    expired: bool,
+}
+pub(crate) fn run(tx: &mut Transaction<'_>, id: &str, actor: Option<&str>) -> Result<Run> {
     let row=tx.query_opt("SELECT config,deadline,message_count,byte_count,call_count,active,expired FROM runs WHERE id=$1",&[&id]).map_err(db_error)?.ok_or("unknown run")?;
-    let config:Value=serde_json::from_str(row.get::<_,&str>(0)).map_err(json_error)?;
-    if actor.is_some_and(|a| !config["agents"].as_array().is_some_and(|v|v.iter().any(|x|x.as_str()==Some(a)))) { return Err("unregistered worker".into()); }
-    Ok(Run {config,deadline:row.get(1),messages:row.get(2),bytes:row.get(3),calls:row.get(4),active:row.get(5),expired:row.get(6)})
+    let config: Value = serde_json::from_str(row.get::<_, &str>(0)).map_err(json_error)?;
+    if actor.is_some_and(|a| {
+        !config["agents"]
+            .as_array()
+            .is_some_and(|v| v.iter().any(|x| x.as_str() == Some(a)))
+    }) {
+        return Err("unregistered worker".into());
+    }
+    Ok(Run {
+        config,
+        deadline: row.get(1),
+        messages: row.get(2),
+        bytes: row.get(3),
+        calls: row.get(4),
+        active: row.get(5),
+        expired: row.get(6),
+    })
 }
-fn reconcile(tx:&mut Transaction<'_>,id:&str) -> Result<(bool,u64,f64)> {
-    let r=run(tx,id,None)?;
-    let observed:f64=tx.query_one("SELECT extract(epoch from clock_timestamp())::double precision",&[]).map_err(db_error)?.get(0);
-    if r.expired || observed>=r.deadline {
-        tx.execute("UPDATE runs SET expired=true WHERE id=$1",&[&id]).map_err(db_error)?;
+pub(crate) fn reconcile(tx: &mut Transaction<'_>, id: &str) -> Result<(bool, u64, f64)> {
+    let r = run(tx, id, None)?;
+    let observed: f64 = tx
+        .query_one(
+            "SELECT extract(epoch from clock_timestamp())::double precision",
+            &[],
+        )
+        .map_err(db_error)?
+        .get(0);
+    if r.expired || observed >= r.deadline {
+        tx.execute("UPDATE runs SET expired=true WHERE id=$1", &[&id])
+            .map_err(db_error)?;
         let closed=tx.execute("UPDATE tasks SET state='expired_outcome_unknown',closed_at=$1 WHERE run=$2 AND state='open'",&[&observed,&id]).map_err(db_error)?;
-        Ok((true,closed,observed))
-    } else {Ok((false,0,observed))}
+        Ok((true, closed, observed))
+    } else {
+        Ok((false, 0, observed))
+    }
 }
-fn inspect(tx:&mut Transaction<'_>,id:&str) -> Result<Value> {
-    let r=run(tx,id,None)?;
+fn inspect(tx: &mut Transaction<'_>, id: &str) -> Result<Value> {
+    let r = run(tx, id, None)?;
     let messages=tx.query("SELECT id,sender,recipient,received,acked FROM messages WHERE run=$1 ORDER BY seq",&[&id]).map_err(db_error)?.into_iter().map(|row|json!({"id":row.get::<_,String>(0),"sender":row.get::<_,String>(1),"recipient":row.get::<_,String>(2),"received":row.get::<_,bool>(3),"acked":row.get::<_,bool>(4)})).collect::<Vec<_>>();
-    let mut calls=Vec::new();
-    for row in tx.query("SELECT id,actor,state,result FROM calls WHERE run=$1 ORDER BY seq",&[&id]).map_err(db_error)? {
-        let evidence=row.get::<_,Option<String>>(3).map(|s|serde_json::from_str::<Value>(&s)).transpose().map_err(json_error)?;
+    let mut calls = Vec::new();
+    for row in tx
+        .query(
+            "SELECT id,actor,state,result FROM calls WHERE run=$1 ORDER BY seq",
+            &[&id],
+        )
+        .map_err(db_error)?
+    {
+        let evidence = row
+            .get::<_, Option<String>>(3)
+            .map(|s| serde_json::from_str::<Value>(&s))
+            .transpose()
+            .map_err(json_error)?;
         calls.push(json!({"id":row.get::<_,String>(0),"actor":row.get::<_,String>(1),"state":row.get::<_,String>(2),"evidence":evidence}));
     }
     let tasks=tx.query("SELECT id,request_id,state,terminal_id,closed_at FROM tasks WHERE run=$1 ORDER BY seq",&[&id]).map_err(db_error)?.into_iter().map(|row| {
         let state:String=row.get(2);
         json!({"task_id":row.get::<_,String>(0),"request_id":row.get::<_,String>(1),"state":state,"outcome":if state=="open" {Value::Null} else {json!(state)},"terminal_message_id":row.get::<_,Option<String>>(3),"closed_at":row.get::<_,Option<f64>>(4)})
     }).collect::<Vec<_>>();
-    Ok(json!({"run_id":id,"expired":r.expired,"tasks":tasks,"config":r.config,"active_protocol":r.active,"deadline":r.deadline,"usage":{"messages":r.messages,"bytes":r.bytes,"calls":r.calls},"messages":messages,"calls":calls,"protocols":[],"execution_claim":"Host execution requires external agent records; receive and ack alone do not prove cognition."}))
+    Ok(
+        json!({"run_id":id,"expired":r.expired,"tasks":tasks,"config":r.config,"active_protocol":r.active,"deadline":r.deadline,"usage":{"messages":r.messages,"bytes":r.bytes,"calls":r.calls},"messages":messages,"calls":calls,"protocols":[],"execution_claim":"Host execution requires external agent records; receive and ack alone do not prove cognition."}),
+    )
 }
 
 impl ProtocolRepository for PostgresRepository {
-    fn register_admission(&mut self,scope:&str,fingerprint:&str,limit:i64)->Result<()> {
-        if !crate::identity(scope) || limit<=0 || fingerprint.len()!=64 || !fingerprint.bytes().all(|b|b.is_ascii_digit()||(b'a'..=b'f').contains(&b)) { return Err("invalid admission scope, fingerprint or limit".into()); }
+    fn register_admission(&mut self, scope: &str, fingerprint: &str, limit: i64) -> Result<()> {
+        if !crate::identity(scope)
+            || limit <= 0
+            || fingerprint.len() != 64
+            || !fingerprint
+                .bytes()
+                .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+        {
+            return Err("invalid admission scope, fingerprint or limit".into());
+        }
         self.transaction(|tx| {
-            if let Some(row)=tx.query_opt("SELECT policy_fingerprint,limit_count FROM admissions WHERE scope=$1",&[&scope]).map_err(db_error)? {
-                if row.get::<_,String>(0)!=fingerprint || row.get::<_,i64>(1)!=limit {return Err("frozen admission policy differs".into());}
-            } else {tx.execute("INSERT INTO admissions(scope,policy_fingerprint,limit_count) VALUES($1,$2,$3)",&[&scope,&fingerprint,&limit]).map_err(db_error)?;}
+            if let Some(row) = tx
+                .query_opt(
+                    "SELECT policy_fingerprint,limit_count FROM admissions WHERE scope=$1",
+                    &[&scope],
+                )
+                .map_err(db_error)?
+            {
+                if row.get::<_, String>(0) != fingerprint || row.get::<_, i64>(1) != limit {
+                    return Err("frozen admission policy differs".into());
+                }
+            } else {
+                tx.execute(
+                    "INSERT INTO admissions(scope,policy_fingerprint,limit_count) VALUES($1,$2,$3)",
+                    &[&scope, &fingerprint, &limit],
+                )
+                .map_err(db_error)?;
+            }
             Ok(())
         })
     }
-    fn reserve_admission(&mut self,scope:&str)->Result<i64> {
+    fn reserve_admission(&mut self, scope: &str) -> Result<i64> {
         self.transaction(|tx| {
-            let row=tx.query_opt("SELECT attempts,limit_count FROM admissions WHERE scope=$1",&[&scope]).map_err(db_error)?.ok_or("unknown admission scope")?;
-            let used:i64=row.get(0);let limit:i64=row.get(1);
-            if used>=limit {return Err("admission attempt budget exhausted".into());}
-            tx.execute("UPDATE admissions SET attempts=attempts+1 WHERE scope=$1",&[&scope]).map_err(db_error)?;
-            Ok(used+1)
+            let row = tx
+                .query_opt(
+                    "SELECT attempts,limit_count FROM admissions WHERE scope=$1",
+                    &[&scope],
+                )
+                .map_err(db_error)?
+                .ok_or("unknown admission scope")?;
+            let used: i64 = row.get(0);
+            let limit: i64 = row.get(1);
+            if used >= limit {
+                return Err("admission attempt budget exhausted".into());
+            }
+            tx.execute(
+                "UPDATE admissions SET attempts=attempts+1 WHERE scope=$1",
+                &[&scope],
+            )
+            .map_err(db_error)?;
+            Ok(used + 1)
         })
     }
-    fn reconcile(&self,id:&str)->Result<Value> {
-        self.transaction(|tx| {let (expired,closed,_)=reconcile(tx,id)?;Ok(json!({"run_id":id,"expired":expired,"closed_tasks":closed}))})
+    fn reconcile(&self, id: &str) -> Result<Value> {
+        self.transaction(|tx| {
+            let (expired, closed, _) = reconcile(tx, id)?;
+            Ok(json!({"run_id":id,"expired":expired,"closed_tasks":closed}))
+        })
     }
-    fn run_membership(&self,id:&str)->Result<RunMembership> {
+    fn run_membership(&self, id: &str) -> Result<RunMembership> {
         self.reconcile(id)?;
         self.transaction(|tx| {
-            let r=run(tx,id,None)?;
-            let agents=r.config["agents"].as_array().filter(|a|(1..=32).contains(&a.len())).ok_or("invalid registered workers")?;
-            let mut actors=BTreeSet::new();
+            let r = run(tx, id, None)?;
+            let agents = r.config["agents"]
+                .as_array()
+                .filter(|a| (1..=32).contains(&a.len()))
+                .ok_or("invalid registered workers")?;
+            let mut actors = BTreeSet::new();
             for value in agents {
-                let actor=value.as_str().filter(|a|crate::identity(a)).ok_or("invalid registered worker")?;
-                if !actors.insert(actor.into()) {return Err("duplicate registered worker".into());}
+                let actor = value
+                    .as_str()
+                    .filter(|a| crate::identity(a))
+                    .ok_or("invalid registered worker")?;
+                if !actors.insert(actor.into()) {
+                    return Err("duplicate registered worker".into());
+                }
             }
-            Ok(RunMembership {actors})
+            Ok(RunMembership { actors })
         })
     }
-    fn create_run(&mut self,id:&str,supplied:&Value)->Result<Value> {
-        if !crate::identity(id) {return Err("invalid run id".into());}
-        let config=config(supplied)?;let encoded=config.to_string();
+    fn create_run(&mut self, id: &str, supplied: &Value) -> Result<Value> {
+        if !crate::identity(id) {
+            return Err("invalid run id".into());
+        }
+        let config = config(supplied)?;
+        let encoded = config.to_string();
         self.transaction(|tx| {
             if let Some(row)=tx.query_opt("SELECT config FROM runs WHERE id=$1",&[&id]).map_err(db_error)? {
                 if row.get::<_,String>(0)!=encoded {return Err("frozen run configuration differs".into());}
@@ -210,11 +363,12 @@ impl ProtocolRepository for PostgresRepository {
         })?;
         self.inspect(id)
     }
-    fn send(&mut self,message:&Message,actor:&str)->Result<Value> {
+    fn send(&mut self, message: &Message, actor: &str) -> Result<Value> {
         self.reconcile(&message.run_id)?;
-        let wire=message.format().map_err(|e|e.message)?;
-        let message=parse_message(&wire,MAX_BYTES,MAX_DEPTH).map_err(|e|e.message)?;
-        let content=message.to_value().to_string();let size=content.len() as i64;
+        let wire = message.format().map_err(|e| e.message)?;
+        let message = parse_message(&wire, MAX_BYTES, MAX_DEPTH).map_err(|e| e.message)?;
+        let content = message.to_value().to_string();
+        let size = content.len() as i64;
         // Return a committed expiry as an inner error so the deadline observation
         // cannot roll back merely because this message has been refused.
         self.transaction(|tx| {
@@ -251,9 +405,11 @@ impl ProtocolRepository for PostgresRepository {
             Ok(Ok(json!({"accepted":true,"duplicate":false,"sequence":seq})))
         })?
     }
-    fn receive(&mut self,id:&str,actor:&str,limit:usize)->Result<Value> {
+    fn receive(&mut self, id: &str, actor: &str, limit: usize) -> Result<Value> {
         self.reconcile(id)?;
-        if !(1..=100).contains(&limit) {return Err("limit must be 1..100".into());}
+        if !(1..=100).contains(&limit) {
+            return Err("limit must be 1..100".into());
+        }
         self.transaction(|tx| {
             run(tx,id,Some(actor))?;reconcile(tx,id)?;
             let rows=tx.query("SELECT seq,content,received FROM messages WHERE run=$1 AND recipient=$2 AND NOT acked ORDER BY seq LIMIT $3",&[&id,&actor,&(limit as i64)]).map_err(db_error)?;
@@ -274,43 +430,107 @@ impl ProtocolRepository for PostgresRepository {
             Ok(json!(result))
         })
     }
-    fn ack(&mut self,id:&str,message_id:&str,actor:&str)->Result<Value> {
+    fn ack(&mut self, id: &str, message_id: &str, actor: &str) -> Result<Value> {
         self.reconcile(id)?;
         self.transaction(|tx| {
-            run(tx,id,Some(actor))?;
-            let row=tx.query_opt("SELECT recipient,received FROM messages WHERE run=$1 AND id=$2",&[&id,&message_id]).map_err(db_error)?.ok_or("message not addressed to worker")?;
-            if row.get::<_,String>(0)!=actor {return Err("message not addressed to worker".into());}
-            if !row.get::<_,bool>(1) {return Err("message has not been received".into());}
-            tx.execute("UPDATE messages SET acked=true WHERE run=$1 AND id=$2",&[&id,&message_id]).map_err(db_error)?;
+            run(tx, id, Some(actor))?;
+            let row = tx
+                .query_opt(
+                    "SELECT recipient,received FROM messages WHERE run=$1 AND id=$2",
+                    &[&id, &message_id],
+                )
+                .map_err(db_error)?
+                .ok_or("message not addressed to worker")?;
+            if row.get::<_, String>(0) != actor {
+                return Err("message not addressed to worker".into());
+            }
+            if !row.get::<_, bool>(1) {
+                return Err("message has not been received".into());
+            }
+            tx.execute(
+                "UPDATE messages SET acked=true WHERE run=$1 AND id=$2",
+                &[&id, &message_id],
+            )
+            .map_err(db_error)?;
             Ok(json!({"acknowledged":true,"message_id":message_id}))
         })
     }
-    fn reserve_call(&mut self,id:&str,actor:&str,call_id:&str)->Result<Value> {
+    fn reserve_call(&mut self, id: &str, actor: &str, call_id: &str) -> Result<Value> {
         self.reconcile(id)?;
-        if !crate::identity(call_id) {return Err("invalid call id".into());}
+        if !crate::identity(call_id) {
+            return Err("invalid call id".into());
+        }
         self.transaction(|tx| {
-            let r=run(tx,id,Some(actor))?;
-            if reconcile(tx,id)?.0 {return Ok(Err("wall-clock budget exhausted".into()));}
-            if tx.query_opt("SELECT 1 FROM calls WHERE run=$1 AND id=$2",&[&id,&call_id]).map_err(db_error)?.is_some() {return Err("call already reserved; reconcile rather than repeat".into());}
-            if r.calls>=r.config["max_calls"].as_i64().unwrap() {return Err("call budget exhausted".into());}
-            tx.execute("INSERT INTO calls(run,id,actor) VALUES($1,$2,$3)",&[&id,&call_id,&actor]).map_err(db_error)?;
-            tx.execute("UPDATE runs SET call_count=call_count+1 WHERE id=$1",&[&id]).map_err(db_error)?;
+            let r = run(tx, id, Some(actor))?;
+            if reconcile(tx, id)?.0 {
+                return Ok(Err("wall-clock budget exhausted".into()));
+            }
+            if tx
+                .query_opt(
+                    "SELECT 1 FROM calls WHERE run=$1 AND id=$2",
+                    &[&id, &call_id],
+                )
+                .map_err(db_error)?
+                .is_some()
+            {
+                return Err("call already reserved; reconcile rather than repeat".into());
+            }
+            if r.calls >= r.config["max_calls"].as_i64().unwrap() {
+                return Err("call budget exhausted".into());
+            }
+            tx.execute(
+                "INSERT INTO calls(run,id,actor) VALUES($1,$2,$3)",
+                &[&id, &call_id, &actor],
+            )
+            .map_err(db_error)?;
+            tx.execute(
+                "UPDATE runs SET call_count=call_count+1 WHERE id=$1",
+                &[&id],
+            )
+            .map_err(db_error)?;
             Ok(Ok(json!({"reserved":true,"call_id":call_id})))
         })?
     }
-    fn finish_call(&mut self,id:&str,actor:&str,call_id:&str,evidence:&Value)->Result<Value> {
+    fn finish_call(
+        &mut self,
+        id: &str,
+        actor: &str,
+        call_id: &str,
+        evidence: &Value,
+    ) -> Result<Value> {
         self.reconcile(id)?;
-        if !evidence.is_object() {return Err("evidence object required".into());}
-        let mut budget=MAX_BYTES;crate::validate_value(evidence,0,&mut budget).map_err(|e|e.message)?;
-        let encoded=evidence.to_string();crate::parse_json(&encoded).map_err(|e|e.message)?;
+        if !evidence.is_object() {
+            return Err("evidence object required".into());
+        }
+        let mut budget = MAX_BYTES;
+        crate::validate_value(evidence, 0, &mut budget).map_err(|e| e.message)?;
+        let encoded = evidence.to_string();
+        crate::parse_json(&encoded).map_err(|e| e.message)?;
         self.transaction(|tx| {
-            run(tx,id,Some(actor))?;
-            let row=tx.query_opt("SELECT actor,state FROM calls WHERE run=$1 AND id=$2",&[&id,&call_id]).map_err(db_error)?.ok_or("unknown call reservation")?;
-            if row.get::<_,String>(0)!=actor {return Err("call reservation belongs to another worker".into());}
-            if row.get::<_,String>(1)!="reserved" {return Err("call already completed".into());}
-            tx.execute("UPDATE calls SET state='recorded',result=$1 WHERE run=$2 AND id=$3",&[&encoded,&id,&call_id]).map_err(db_error)?;
+            run(tx, id, Some(actor))?;
+            let row = tx
+                .query_opt(
+                    "SELECT actor,state FROM calls WHERE run=$1 AND id=$2",
+                    &[&id, &call_id],
+                )
+                .map_err(db_error)?
+                .ok_or("unknown call reservation")?;
+            if row.get::<_, String>(0) != actor {
+                return Err("call reservation belongs to another worker".into());
+            }
+            if row.get::<_, String>(1) != "reserved" {
+                return Err("call already completed".into());
+            }
+            tx.execute(
+                "UPDATE calls SET state='recorded',result=$1 WHERE run=$2 AND id=$3",
+                &[&encoded, &id, &call_id],
+            )
+            .map_err(db_error)?;
             Ok(json!({"recorded":true}))
         })
     }
-    fn inspect(&self,id:&str)->Result<Value> {self.reconcile(id)?;self.transaction(|tx|inspect(tx,id))}
+    fn inspect(&self, id: &str) -> Result<Value> {
+        self.reconcile(id)?;
+        self.transaction(|tx| inspect(tx, id))
+    }
 }

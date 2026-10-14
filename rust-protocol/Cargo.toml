@@ -23,3 +23,8 @@ libc = "=0.2.190"
 [[bin]]
 name = "mas-protocol-codec"
 path = "src/main.rs"
+
+[[bin]]
+name = "mas-shared"
+path = "src/bin/mas-shared.rs"
+required-features = ["postgres-repository"]
