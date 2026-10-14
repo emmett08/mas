@@ -21,6 +21,7 @@ object-storage = ["boto3==1.43.114"]
 
 [project.scripts]
 mas-host = "mas_host.__main__:main"
+mas-client = "mas_host.client_cli:main"
 
 [tool.setuptools.packages.find]
 where = ["."]
