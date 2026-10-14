@@ -17,7 +17,7 @@ from urllib.parse import urlsplit
 from ..codec import integer_json
 from ..contracts import RunnerError
 from ..service_contracts import ServiceError
-from .authentication import _principal, _unique, read_token_file
+from .authentication import _principal, _unique, read_token_file, validate_token
 
 MAX_WIRE_BYTES = 1_048_576
 
@@ -128,18 +128,32 @@ def decode_integer_json(payload, *, max_bytes=65536):
 
 class TaskServiceClient:
     """TaskService port over authenticated HTTP, bound to one local principal."""
-    def __init__(self, endpoint, *, token_file, principal, timeout_seconds=10,
+    def __init__(self, endpoint, *, token_file=None, token_provider=None, principal, timeout_seconds=10,
                  allow_loopback_http=False, transport=None, transport_policy=None):
         parsed = validate_endpoint(endpoint, allow_loopback_http=allow_loopback_http)
         if parsed.path not in ("", "/", "/service"):
             raise ServiceError("invalid_endpoint")
+        if ((token_file is None) == (token_provider is None)
+                or token_provider is not None and not callable(token_provider)):
+            raise ServiceError("invalid_credential_configuration")
         self.endpoint = endpoint.rstrip("/").removesuffix("/service")
         self.principal = _principal(principal)
         self.token_file = token_file
+        self._token_provider = token_provider
         self.timeout_seconds = timeout_seconds
         self.allow_loopback_http = allow_loopback_http
         self._transport = transport or http_exchange
         self.transport_policy = transport_policy
+
+    def _token(self):
+        if self._token_provider is None:
+            return read_token_file(self.token_file)
+        try:
+            # Resolve for every request so a trusted credential source can
+            # rotate tokens. Never expose provider exceptions or return values.
+            return validate_token(self._token_provider())
+        except Exception:
+            raise ServiceError("credential_provider_failed") from None
 
     def _request(self, principal, operation, payload):
         if principal != self.principal:
@@ -148,7 +162,7 @@ class TaskServiceClient:
         options = {'transport_policy': self.transport_policy} if self.transport_policy is not None else {}
         status, _headers, raw = self._transport(
             self.endpoint + "/service/" + operation, method="POST", body=body,
-            headers={"Authorization": "Bearer " + read_token_file(self.token_file),
+            headers={"Authorization": "Bearer " + self._token(),
                      "Content-Type": "application/json", "Accept": "application/json"},
             timeout_seconds=self.timeout_seconds, max_response_bytes=MAX_WIRE_BYTES,
             allow_loopback_http=self.allow_loopback_http, **options)
@@ -175,7 +189,7 @@ class TaskServiceClient:
         return result
 
     def submit(self, principal, request_key, workflow, input, *, metadata=None, expected_identity=None,
-               expected_deployment_id=None):
+               expected_deployment_id=None, request_epoch=None):
         payload = {"request_key": request_key, "workflow": workflow, "input": input}
         if metadata is not None:
             payload["metadata"] = metadata
@@ -183,6 +197,8 @@ class TaskServiceClient:
             payload["expected_identity"] = expected_identity
         if expected_deployment_id is not None:
             payload["expected_deployment_id"] = expected_deployment_id
+        if request_epoch is not None:
+            payload["request_epoch"] = request_epoch
         return self._request(principal, "submit", payload)
 
     def inspect(self, principal, task_id):
@@ -213,6 +229,30 @@ class TaskServiceClient:
         event_page_arguments(after, limit)
         value = self._request(principal, "events_page", {"task_id": task_id, "after": after, "limit": limit})
         return validate_event_page(value, after=after, limit=limit)
+
+    def events_wait(self, principal, task_id, *, after=0, limit=100, wait_ms=1000):
+        """One resumable long-poll; keep transport timeout longer than wait_ms."""
+        from ..observability import event_page_arguments, validate_event_page
+        event_page_arguments(after, limit)
+        if type(wait_ms) is not int or not 0 <= wait_ms <= 25000:
+            raise ServiceError('invalid_subscription_timeout')
+        value = self._request(principal, 'events_wait',
+                              {'task_id': task_id, 'after': after, 'limit': limit, 'wait_ms': wait_ms})
+        return validate_event_page(value, after=after, limit=limit)
+
+    def subscribe_events(self, principal, task_id, *, after=0, page_size=100,
+                         wait_ms=1000, max_polls=1000):
+        """Yield durable events with bounded lifetime and explicit reconnect cursor.
+
+        A transport error ends the iterator. Resume using the last consumed
+        event ID; duplicate events after an application crash are expected.
+        """
+        if type(max_polls) is not int or not 1 <= max_polls <= 10000:
+            raise ServiceError('invalid_pagination')
+        for _ in range(max_polls):
+            page = self.events_wait(principal, task_id, after=after, limit=page_size, wait_ms=wait_ms)
+            yield from page['events']
+            after = page['next_after']
 
     def inspect_task(self, principal, task_id, path, revision=None):
         payload = {"task_id": task_id, "path": path}
@@ -247,8 +287,15 @@ class TaskServiceClient:
         return self._request(principal, "page", {"page_size": page_size, "after": cursor,
             "state": state, "metadata": metadata, "updated_after": updated_after})
 
+    def operator(self, operator, operation, payload):
+        """Operator identity stays bound to this client's authenticated token."""
+        from ..operator_contracts import OPERATIONS
+        if operation not in OPERATIONS:
+            raise ServiceError("invalid_operator_request")
+        return self._request(operator, "operator/" + operation, payload)
+
     def artifact(self, principal, operation, payload):
-        from .artifact_transfer import OPERATIONS
+        from .artifact_protocol import OPERATIONS
         if operation not in OPERATIONS:
             raise ServiceError("invalid_artifact_request")
         return self._request(principal, "artifact/" + operation, payload)

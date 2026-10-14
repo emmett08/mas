@@ -445,6 +445,19 @@ class DurableTaskService:
     def _mutation(self):
         return service_mutation(self.operations, self.store)
 
+    def definition_status(self, name, identity):
+        """Inspect retained source and registered executables without loading code."""
+        record = self.definitions.inspect("workflow", name, identity)
+        if record is None:
+            raise ServiceError("definition_not_found")
+        registered = (name, identity) in self.workflow_versions
+        return {"kind": "workflow", "name": name, "identity": identity,
+                "current": self.definitions.current("workflow", name) == identity,
+                "retired": bool(record["retired"]), "source_present": record["descriptor"] is not None,
+                "registered": registered, "implementation_provenance": record["implementation_provenance"],
+                "available": registered and not record["retired"] and record["implementation_provenance"] == "verified_source_package",
+                "implementation_reverified_at_dispatch": True}
+
     def retire_definition(self, workflow, identity):
         """Trusted management operation; refuses current or referenced definitions."""
         from .operations import _file_lock

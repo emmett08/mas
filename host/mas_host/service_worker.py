@@ -57,6 +57,8 @@ class ServiceDispatcher:
         self.interval, self.drain_seconds = interval, drain_seconds
         self.children = {}
         self.deferred = {}
+        from .worker_control import WorkerControl
+        self.control = WorkerControl(service.operations)
 
     def _slot(self):
         # The monitor lock permits one active dispatcher. Scan the entire frozen
@@ -88,6 +90,12 @@ class ServiceDispatcher:
             raise
 
     def _launch(self, task_id):
+        with self.control.admission() as allowed:
+            if not allowed:
+                return False
+            return self._launch_admitted(task_id)
+
+    def _launch_admitted(self, task_id):
         slot = self._slot()
         if slot is None:
             return False
@@ -164,7 +172,8 @@ class ServiceDispatcher:
                         if child.process.poll() is None:
                             child.process.kill()
                     stop_at = now + 5
-                if not stopping_now and not (once and dispatched):
+                draining = self.control.status()['draining']
+                if not stopping_now and not draining and not (once and dispatched):
                     monitor.write("polling")
                     rows = self.service.pending()
                     pending_ids = {row["task_id"] for row in rows}
@@ -191,7 +200,7 @@ class ServiceDispatcher:
                         dispatched = True
                         if once:
                             break
-                monitor.write("executing" if self.children else "idle",
+                monitor.write("draining" if draining else "executing" if self.children else "idle",
                               allowance=max(30, self.interval + 5))
                 if (stopping_now or once) and not self.children:
                     return

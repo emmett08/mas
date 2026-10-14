@@ -82,15 +82,37 @@ def main(argv=None):
     auth.add_argument("--token-file", type=Path, required=True)
     auth.add_argument("--verifier-file", type=Path, required=True)
     auth.add_argument("--principal", required=True)
+    auth.add_argument("--scope", action="append", choices=("mas:submit", "mas:read", "mas:cancel", "mas:update", "mas:worker", "mas:admin"),
+                      help="repeat for each permitted scope; defaults to ordinary task access")
+    from .operator_contracts import OPERATIONS
+    operator = sub.add_parser("operator", help="call the authenticated operator API using logical identities")
+    operator.add_argument("operation", choices=tuple(OPERATIONS))
+    operator.add_argument("--endpoint", required=True)
+    operator.add_argument("--token-file", type=Path, required=True)
+    operator.add_argument("--operator", required=True, help="expected token principal")
+    operator.add_argument("--input-file", type=Path, help="JSON request fields; omitted means an empty object")
+    operator.add_argument("--allow-loopback-http", action="store_true")
     args = parser.parse_args(argv)
     try:
+        if args.command == "operator":
+            from .bridges.service_client import TaskServiceClient, decode_integer_json
+            payload = {}
+            if args.input_file is not None:
+                with args.input_file.open("rb") as stream:
+                    payload = decode_integer_json(stream.read(65537))
+                if type(payload) is not dict:
+                    raise ServiceError("invalid_operator_request")
+            client = TaskServiceClient(args.endpoint, token_file=args.token_file, principal=args.operator,
+                                       allow_loopback_http=args.allow_loopback_http)
+            print(json.dumps(client.operator(args.operator, args.operation, payload)), flush=True)
+            return 0
         if args.command == "init-auth":
             from .bridges.authentication import _principal
             _principal(args.principal)
             _auth_destinations(args.token_file, args.verifier_file)
             token = secrets.token_urlsafe(48)
             record = {"version": 1, "credentials": [{"sha256": hashlib.sha256(token.encode()).hexdigest(),
-                "principal": args.principal, "scopes": ["mas:submit", "mas:read", "mas:cancel", "mas:update"]}]}
+                "principal": args.principal, "scopes": sorted(set(args.scope or ["mas:submit", "mas:read", "mas:cancel", "mas:update"]))}]}
             token_identity = _private_create(args.token_file, (token + "\n").encode())
             try:
                 _private_create(args.verifier_file, (json.dumps(record) + "\n").encode())
@@ -143,11 +165,13 @@ def main(argv=None):
         from .bridges.server import BridgeHTTPServer
         public_url = config.get("public_url", "http://127.0.0.1:8765")
         a2a = A2ABridge(service, endpoint=public_url + "/a2a", allow_http=args.allow_loopback_http)
+        from .operator_service import OperatorService
+        operators = OperatorService(service, operators=config["operators"]) if "operators" in config else None
         with BridgeHTTPServer((args.bind, args.port), service=service, verifier=build_verifier(config),
                               public_url=public_url, mcp_bridge=mcp, a2a_bridge=a2a, artifact_transfer=artifact_transfer,
                               allow_loopback_http=args.allow_loopback_http,
                               allowed_hosts=config.get("allowed_hosts"),
-                              allowed_origins=config.get("allowed_origins", ())) as server:
+                              allowed_origins=config.get("allowed_origins", ()), operator_service=operators) as server:
             server.serve_forever()
         return 0
     except KeyboardInterrupt:

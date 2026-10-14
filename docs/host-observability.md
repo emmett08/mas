@@ -64,8 +64,42 @@ submission; use the Python client for integers outside the browser's exact
 range and typed artefacts for scientific values. Evidence-backed resolution
 uses the operator recovery service/CLI, followed by the console's Recover action.
 
-Polling is the supported reconnectable event transport. Push subscriptions,
-webhooks and distributed tracing are not implemented in this increment.
+`POST /service/events_wait` is a bounded long-poll subscription: it accepts
+`task_id`, `after`, `limit` and `wait_ms` (0–25,000), returning the normal event
+page as soon as progress arrives. `TaskServiceClient.subscribe_events` exposes
+an explicitly bounded iterator. Keep the HTTP timeout longer than the wait.
+The server reserves ordinary connection slots for management and rechecks task
+visibility on every read. Expired cursors require resynchronisation; a transport
+failure ends the iterator so its caller can resume from its last processed ID.
+
+Optional webhooks use `mas-host events` with trusted target configuration.
+The target is selected by a registered name; request bodies cannot choose URLs.
+The delivery process stages one immutable page before sending it and advances
+its cursor only after HTTP 200 with `{"ack": "<delivery_id>"}`. A lost response
+repeats the same bytes and ID after durable backoff. The receiver must deduplicate
+that ID. Pending pages and the last acknowledgement survive restart. Reads do
+not wait for network delivery, and source grant revocation blocks future sends.
+Already received bytes cannot be revoked. An expired source cursor stops the
+subscription with `resync_required`, rather than silently skipping events.
+
+The target file has format `mas-webhooks/1` and a `targets` mapping. Each entry
+contains `endpoint` and `token_file`, with optional `timeout_seconds`,
+`allow_loopback_http` (local testing only) and explicit HTTP `transport` policy.
+Endpoint identity is immutable; credentials can rotate in the private file.
+
+```sh
+mas-host events --config bridge.json --state-dir /private/mas \
+  --targets webhooks.json --principal alice --subscription review-progress \
+  subscribe --task-id task-EXISTING --target review-system
+mas-host events --config bridge.json --state-dir /private/mas \
+  --targets webhooks.json --principal alice --subscription review-progress deliver
+```
+
+Run `deliver` from a supervised timer; it sends at most one retained page.
+`inspect` and `stop` use the same arguments. The configured maximum is 1,000
+subscriptions, one page per pending subscription, and 100 events per page by
+default. Audit-only restored deployments cannot deliver or mutate subscriptions.
+Distributed tracing remains separate from this event-delivery contract.
 
 ## Read-only preflight and effective configuration
 

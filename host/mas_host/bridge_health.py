@@ -131,7 +131,7 @@ def worker_health(state_dir: Path, max_age_seconds: float = 30) -> dict:
         age = current - value["observed_monotonic"]
         phase = value["phase"]
         if (value["format"] != "mas-bridge-worker-health/1"
-                or phase not in ("idle", "polling", "executing")
+                or phase not in ("idle", "polling", "executing", "draining")
                 or type(value["completed_polls"]) is not int or value["completed_polls"] < 0
                 or (phase != "executing" and value["completed_polls"] == 0)
                 or not math.isfinite(age) or age < 0
@@ -153,6 +153,6 @@ def worker_health(state_dir: Path, max_age_seconds: float = 30) -> dict:
             raise OperationsError("bridge worker has no scheduling loop owner")
         return {"ok": True, "worker_ready": True, "phase": phase,
                 "age_seconds": round(age, 3), "completed_polls": value["completed_polls"],
-                "admission_open": health["admission_open"]}
+                "admission_open": health["admission_open"] and phase != "draining"}
     except (OSError, KeyError, ValueError, TypeError, IndexError):
         raise OperationsError("bridge worker status is unavailable or invalid") from None

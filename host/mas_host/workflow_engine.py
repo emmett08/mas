@@ -359,6 +359,32 @@ class WorkflowEngine:
                 self.store.block_definition(instance, uncertain=uncertain)
             return self.inspect(principal, instance)
 
+    def definition_status(self, name, identity):
+        """Read source and dependency availability without mutating the evaluator."""
+        record = self.definitions.inspect('plan', name, identity)
+        if record is None:
+            raise ServiceError('definition_not_found')
+        descriptor = record['descriptor']
+        available = descriptor is not None and not record['retired']
+        dependencies = []
+        if descriptor is not None:
+            for leaf, version in descriptor['workflows'].items():
+                retained = self.definitions.inspect('workflow', leaf, version)
+                present = ((leaf, version) in self.workflow_versions and retained is not None
+                    and not retained['retired'] and retained['implementation_provenance'] == 'verified_source_package')
+                dependencies.append({'kind': 'workflow', 'name': leaf, 'identity': version, 'available': present})
+                available = available and present
+            for child, version in descriptor['plans'].items():
+                retained = self.definitions.inspect('plan_source', child, version)
+                present = retained is not None and retained['descriptor'] is not None and not retained['retired']
+                dependencies.append({'kind': 'plan_source', 'name': child, 'identity': version, 'available': present})
+                available = available and present
+        return {'kind': 'plan', 'name': name, 'identity': identity,
+                'current': self.definitions.current('plan', name) == identity,
+                'retired': bool(record['retired']), 'source_present': descriptor is not None,
+                'available': bool(available), 'dependencies': dependencies,
+                'implementation_reverified_at_dispatch': True}
+
     def retire_definition(self, plan, identity):
         """Trusted management operation; current aliases and live work retain definitions."""
         with _file_lock(self.state_dir / '.deployment.lock', True, nonblocking=True):

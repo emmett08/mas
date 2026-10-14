@@ -51,11 +51,17 @@ def _schemas():
     from .task_store import SERVICE
     from .workflow_store import COMPOSITION
     from .bridges.remote import REMOTE_TASKS
+    from .event_delivery import EVENT_DELIVERY
+    from .worker_control import CONTROL
+    from .request_namespaces import EPOCHS
+    from .peer_registry import PEERS
     return {'deployment.sqlite': LEDGER, 'task-service.sqlite': SERVICE,
             'composition.sqlite': COMPOSITION, 'definition-registry.sqlite': DEFINITIONS,
             'scheduler-capacity.sqlite': CAPACITY, 'provider-circuits.sqlite': CIRCUITS,
             'remote-workers.sqlite': REMOTE, 'remote-tasks.sqlite': REMOTE_TASKS,
-            'cursor-jobs.sqlite': JOBS, 'host.sqlite': JOURNAL, 'worker-spool.sqlite': SPOOL}
+            'cursor-jobs.sqlite': JOBS, 'host.sqlite': JOURNAL, 'worker-spool.sqlite': SPOOL,
+            'event-delivery.sqlite': EVENT_DELIVERY, 'worker-control.sqlite': CONTROL,
+            'request-epochs.sqlite': EPOCHS, 'peer-registry.sqlite': PEERS}
 
 
 def _root(path):
@@ -348,7 +354,9 @@ def effective_configuration(config_path):
 
 
 def _binary(command):
-    path = shutil.which(command)
+    # Explicit paths are still inspectable on a noexec mount. which() excludes
+    # those files, hiding their presence and bypassing bounded hash checks.
+    path = str(command) if os.path.dirname(str(command)) and Path(command).is_file() else shutil.which(command)
     if path is None:
         return {'present': False, 'executable': False, 'sha256': None, 'version': None,
                 'version_status': 'not_executed'}

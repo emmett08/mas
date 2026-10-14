@@ -130,6 +130,32 @@ class ServiceDispatcherTests(unittest.TestCase):
         state = self.service.inspect("alice", first["task_id"])["state"]
         self.assertIn(state, {"unknown", "running"})
 
+    def test_operator_drain_survives_restart_and_preserves_active_work(self):
+        from mas_host.worker_control import WorkerControl
+        control = WorkerControl(self.service.operations)
+        def set_state(key, revision, draining):
+            return control.set(operator="operator", request_key=key, reason="Maintenance",
+                               expected_revision=revision, draining=draining)
+        set_state("initial-drain", 0, True)
+        first = self.submit("first")
+        process = self.worker()
+        self.wait(lambda: worker_health(self.state)["phase"] == "draining", process)
+        self.assertFalse(first["started"].exists())
+        self.assertFalse(worker_health(self.state)["admission_open"])
+        set_state("resume", 1, False)
+        self.wait(lambda: first["started"].exists(), process)
+        set_state("drain-active", 2, True)
+        second = self.submit("second")
+        self.wait(lambda: worker_health(self.state)["phase"] == "draining", process)
+        self.assertFalse(second["started"].exists())
+        first["release"].touch()
+        self.wait(lambda: self.completed(first), process)
+        self.assertEqual(self.service.inspect("alice", second["task_id"])["state"], "queued")
+        set_state("resume-again", 3, False)
+        self.wait(lambda: second["started"].exists(), process)
+        second["release"].touch()
+        self.wait(lambda: self.completed(second), process)
+
     def test_configuration_change_prevents_new_child_execution(self):
         item = self.submit("first")
         dispatcher = ServiceDispatcher(self.service, self.path, self.config)

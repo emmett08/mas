@@ -1,0 +1,31 @@
+"""Portable logical contracts for the authenticated operator HTTP API."""
+OPERATIONS = {
+    "capabilities": (set(), set()),
+    "registrations": ({"principal"}, set()),
+    "request_epoch_status": ({"principal", "epoch"}, set()),
+    "request_epoch_retire": ({"principal", "epoch", "reason"}, {"prune"}),
+    "tasks": ({"principal"}, {"page_size", "after", "state", "metadata", "updated_after"}),
+    "task": ({"principal", "task_id"}, {"path", "revision"}),
+    "events": ({"principal", "task_id"}, {"after", "limit"}),
+    "recovery_inbox": ({"principal", "task_id"}, {"offset", "limit"}),
+    "recovery_query": ({"principal", "task_id", "call_id", "query_name", "query_version"}, set()),
+    "recovery_resolve": ({"principal", "task_id", "call_id", "request_key", "decision", "evidence"}, {"output"}),
+    "deadline_extend": ({"principal", "task_id", "request_key", "reason", "expected_revision", "limits"}, {"path"}),
+    "budget": (set(), {"offset", "limit"}),
+    "budget_amend": ({"request_key", "reason", "expected_revision", "limits"}, set()),
+    "periods": (set(), {"offset", "limit"}),
+    "period_configure": ({"scope", "policy", "request_key", "reason"}, set()),
+    "charge_record": ({"provider", "charge_id", "run_id", "call_id", "actual_microusd", "observed_at", "evidence"}, set()),
+    "charge_reconcile": ({"run_id", "call_id"}, {"offset", "limit"}),
+    "storage": (set(), set()),
+    "archive_preview": ({"kind", "older_than_seconds"}, {"offset", "limit"}),
+    "definition": ({"kind", "name", "identity"}, set()),
+    "definition_retire": ({"kind", "name", "identity"}, set()),
+    "peer_status": (set(), {"offset", "limit"}),
+    "peer_register": ({"request_key", "reason", "expected_revision", "registration"}, set()),
+    "peer_revoke": ({"request_key", "reason", "expected_revision", "name", "version"}, set()),
+    "worker_status": (set(), set()),
+    "worker_drain": ({"request_key", "reason", "expected_revision", "draining"}, set()),
+}
+OWNER_OPERATIONS = {"request_epoch_status", "request_epoch_retire", "registrations", "tasks", "task", "events", "recovery_inbox", "recovery_query", "recovery_resolve", "deadline_extend"}
+

@@ -246,7 +246,7 @@ class DiagnosticsTests(unittest.TestCase):
         executable.chmod(0o700)
         before = self.snapshot()
         report = doctor(self.state, self.config, environ={'MAS_BIN': str(executable), 'MAS_GATEWAY_BIN': str(executable)})
-        self.assertTrue(report['ok'], report)
+        self.assertEqual(report['ok'], os.access(executable, os.X_OK), report)
         self.assertTrue(report['advisory'])
         self.assertEqual(report['runtime']['binaries']['mas']['sha256'], hashlib.sha256(executable.read_bytes()).hexdigest())
         self.assertEqual(report['runtime']['binaries']['mas']['version_status'], 'not_executed')

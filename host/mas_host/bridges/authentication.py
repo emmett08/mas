@@ -19,7 +19,7 @@ from urllib.parse import urlencode, urlsplit
 
 from ..service_contracts import ServiceError
 
-SCOPES = frozenset({"mas:submit", "mas:read", "mas:cancel", "mas:update", "mas:worker"})
+SCOPES = frozenset({"mas:submit", "mas:read", "mas:cancel", "mas:update", "mas:worker", "mas:admin"})
 _TOKEN = re.compile(r"[A-Za-z0-9\-._~+/]+=*\Z")
 
 
@@ -53,6 +53,8 @@ def validate_token(token: str) -> str:
 
 def read_private_file(path, *, max_bytes=65536) -> bytes:
     """Read exactly one owned regular file, without a symlink or mode widening."""
+    if os.name != "posix":
+        raise AuthenticationError("invalid_credential_file")
     fd = None
     try:
         fd = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | os.O_NONBLOCK)

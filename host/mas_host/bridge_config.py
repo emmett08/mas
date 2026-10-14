@@ -29,13 +29,16 @@ def load_config(path: Path) -> dict:
         integer_json(value)
         if (type(value) is not dict or type(value.get("version")) is not int or value.get("version") != 1
                 or set(value) - {"version", "mode", "factory", "grants", "auth", "public_url",
-                                 "allowed_hosts", "allowed_origins", "max_pending", "max_tasks", "max_instances", "scheduler", "artifacts", "principal_quotas"}
+                                 "allowed_hosts", "allowed_origins", "max_pending", "max_tasks", "max_instances", "scheduler", "artifacts", "principal_quotas", "operators"}
                 or type(value.get("grants")) is not dict):
             raise ServiceError("invalid_configuration")
         for principal, workflows in value["grants"].items():
             if (not principal or type(workflows) is not list or not workflows
                     or any(type(name) is not str or not name for name in workflows)):
                 raise ServiceError("invalid_grants")
+        if "operators" in value:
+            from .operator_service import operator_grants
+            operator_grants(value["operators"])
         return value
     except (OSError, UnicodeError, ValueError):
         raise ServiceError("invalid_configuration") from None
