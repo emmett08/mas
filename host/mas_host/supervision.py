@@ -8,6 +8,7 @@ Terminating local execution cannot establish cancellation of a remote effect.
 
 from __future__ import annotations
 
+from contextlib import contextmanager, nullcontext
 import json
 import math
 import os
@@ -21,10 +22,11 @@ from typing import Callable
 
 from .codec import integer_json as _json
 from .contracts import (Adapter, AdapterError, AdapterInterrupted, AdapterTimeout,
-                        HostContext, Invocation, Outcome, RecoveryRequired,
+                        HostContext, Invocation, KnownInvocationFailure, Outcome, RecoveryRequired,
                         RunnerError, TaskRequest, invocation_failure_diagnostic,
                         validate_invocation_diagnostic)
 from .process_group import ProcessGroup
+from .provider_outcomes import ProviderOutcomeFailure, validate_provider_outcome, validate_completed_output
 
 
 MAX_FRAME = 65_536
@@ -66,6 +68,16 @@ def _raise_reply_error(frame: dict) -> None:
     """Only public error categories cross IPC; exception text never does."""
     if "error" not in frame:
         return
+    if frame["error"] == "known_invocation_failure":
+        _fields(frame, {"error", "outcome", "call_id"} | ({"completed_output"} if "completed_output" in frame else set()))
+        if type(frame["call_id"]) is not str or not 0 < len(frame["call_id"]) <= 256:
+            _invalid()
+        try:
+            outcome = validate_provider_outcome(frame["outcome"])
+            output = validate_completed_output(outcome, frame.get("completed_output"))
+        except (ValueError, RunnerError):
+            _invalid()
+        raise KnownInvocationFailure(outcome, frame["call_id"], completed_output=output)
     _fields(frame, {"error"})
     if frame["error"] == "adapter_error":
         raise AdapterError("delegated adapter failed; inspect run status")
@@ -80,6 +92,10 @@ def _operation_reply(channel, operation):
         return True, operation()
     except (RecoveryRequired, AdapterInterrupted, AdapterTimeout):
         raise
+    except KnownInvocationFailure as error:
+        channel.send({"error": "known_invocation_failure", "outcome": error.outcome,
+                      "call_id": error.call_id, **({"completed_output": error.completed_output}
+                          if error.completed_output is not None else {})})
     except AdapterError:
         channel.send({"error": "adapter_error"})
     except RunnerError:
@@ -174,9 +190,33 @@ class _ContextProxy:
 
     def invoke(self, call, *, input: dict | None = None,
                reservation_microusd: int | None = None) -> dict:
+        retry_of = None
+        while True:
+            try:
+                return self._invoke_once(call, input=input, reservation_microusd=reservation_microusd,
+                                         retry_of=retry_of)
+            except KnownInvocationFailure as error:
+                self._check()
+                self._channel.send({"op": "retry", "call_id": error.call_id})
+                reply = self._channel.receive()
+                _raise_reply_error(reply)
+                _fields(reply, {"retry"})
+                plan = reply["retry"]
+                if plan is None:
+                    raise
+                if (type(plan) is not dict or type(plan.get("eligible_at_ms")) is not int
+                        or plan.get("previous_call_id") != error.call_id):
+                    _invalid()
+                while time.time() * 1000 < plan["eligible_at_ms"]:
+                    time.sleep(min(0.05, self._channel.remaining(),
+                                   max(0, plan["eligible_at_ms"] / 1000 - time.time())))
+                retry_of = error.call_id
+
+    def _invoke_once(self, call, *, input, reservation_microusd, retry_of=None):
         self._check()
         self._channel.send({"op": "prepare", "input": input,
-                            "reservation_microusd": reservation_microusd})
+                            "reservation_microusd": reservation_microusd,
+                            **({"retry_of": retry_of} if retry_of is not None else {})})
         reply = self._channel.receive()
         _raise_reply_error(reply)
         _fields(reply, {"execute", "output", "call_id"})
@@ -202,6 +242,18 @@ class _ContextProxy:
             if type(result["output"]) is not dict:
                 _invalid()
             return result["output"]
+        except ProviderOutcomeFailure as error:
+            # The parent validates and checkpoints this observation before the
+            # adapter may catch it and continue with application-owned handling.
+            checked = validate_provider_outcome(error.outcome)
+            self._channel.send({"op": "known_failure", "outcome": checked,
+                                **({"completed_output": error.completed_output}
+                                   if error.completed_output is not None else {})})
+            acknowledgement = self._channel.receive()
+            _fields(acknowledgement, {"known_failure"})
+            if acknowledgement["known_failure"] is not True:
+                _invalid()
+            raise KnownInvocationFailure(checked, reply["call_id"], completed_output=error.completed_output) from None
         except Exception as error:
             # No exception text, keys, or provider response bodies become
             # diagnostics. If this frame cannot be sent the parent still holds
@@ -236,6 +288,137 @@ def _child(channel: _Channel, adapter, actor: str, request) -> None:
         os._exit(0)
 
 
+class AdapterProtocolSession:
+    """Parent-owned worker protocol, shared by forked and registered workers.
+
+    The caller owns worker lifetime and must stop/reap it before finish_pending.
+    No signal handler or process creation occurs here. Legacy fork supervision
+    supplies an admission guard for its main-thread shutdown signal handling.
+    """
+
+    def __init__(self, context: HostContext, *, admission_guard=nullcontext):
+        self.context = context
+        self.ticket = None
+        self.diagnostic = None
+        self._admission_guard = admission_guard
+
+    def serve(self, channel, *, tick=None, poll_interval=0.05) -> Outcome:
+        try:
+            while True:
+                frame = channel.receive(tick, poll_interval)
+                operation = frame.get("op")
+                if operation == "complete":
+                    _fields(frame, {"op", "output", "evidence"})
+                    if self.ticket is None or type(frame["output"]) is not dict or type(frame["evidence"]) is not dict:
+                        _invalid()
+                    output = self.context.complete_invocation(self.ticket, Invocation(frame["output"], frame["evidence"]))
+                    self.ticket = None
+                    channel.send({"output": output})
+                elif operation == "known_failure":
+                    _fields(frame, {"op", "outcome"} | ({"completed_output"} if "completed_output" in frame else set()))
+                    if self.ticket is None:
+                        _invalid()
+                    try:
+                        checked = validate_provider_outcome(frame["outcome"])
+                        output = validate_completed_output(checked, frame.get("completed_output"))
+                    except (ValueError, RunnerError):
+                        _invalid()
+                    if output is None:
+                        self.context.reject_invocation(self.ticket, checked)
+                    else:
+                        self.context.reject_invocation(self.ticket, checked, completed_output=output)
+                    self.ticket = None
+                    channel.send({"known_failure": True})
+                elif operation == "failed":
+                    _fields(frame, {"op", "diagnostic"} if "diagnostic" in frame else {"op"})
+                    if self.ticket is None:
+                        _invalid()
+                    if "diagnostic" in frame:
+                        try:
+                            self.diagnostic = validate_invocation_diagnostic(frame["diagnostic"])
+                        except ValueError:
+                            _invalid()
+                    raise AdapterError("adapter invocation failed; outcome may be unknown")
+                elif self.ticket is not None:
+                    _invalid()
+                elif operation == "retry":
+                    _fields(frame, {"op", "call_id"})
+                    if type(frame["call_id"]) is not str or not 0 < len(frame["call_id"]) <= 256:
+                        _invalid()
+                    accepted, plan = _operation_reply(channel, lambda: self.context.retry_invocation(frame["call_id"]))
+                    if accepted:
+                        channel.send({"retry": plan})
+                elif operation == "prepare":
+                    _fields(frame, {"op", "input", "reservation_microusd"}
+                            | ({"retry_of"} if "retry_of" in frame else set()))
+                    amount = frame["reservation_microusd"]
+                    if (frame["input"] is not None and type(frame["input"]) is not dict
+                            or amount is not None and (type(amount) is not int or amount < 0)
+                            or "retry_of" in frame and (type(frame["retry_of"]) is not str
+                                                       or not 0 < len(frame["retry_of"]) <= 256)):
+                        _invalid()
+                    # Install ownership of the ticket before handling shutdown.
+                    # Admission may have committed executing intent when it returns.
+                    with self._admission_guard():
+                        accepted, prepared = _operation_reply(channel, lambda: self.context.prepare_invocation(
+                            input=frame["input"], reservation_microusd=frame["reservation_microusd"],
+                            **({"retry_of": frame["retry_of"]} if "retry_of" in frame else {})))
+                        if accepted and prepared.execute:
+                            self.ticket = prepared
+                    if not accepted:
+                        continue
+                    if prepared.execute:
+                        channel.send({"execute": True, "output": None, "call_id": prepared.call_id})
+                    else:
+                        channel.send({"execute": False, "output": prepared.cached_output,
+                                      "call_id": prepared.call_id})
+                elif operation == "request":
+                    _fields(frame, {"op", "recipient", "operation", "input"})
+                    if (type(frame["recipient"]) is not str or type(frame["operation"]) is not str
+                            or type(frame["input"]) is not dict):
+                        _invalid()
+                    accepted, outcome = _operation_reply(channel, lambda: self.context.request(
+                        frame["recipient"], frame["operation"], frame["input"]))
+                    if not accepted:
+                        continue
+                    channel.send({"output": outcome.output, "status": outcome.status})
+                elif operation == "result":
+                    _fields(frame, {"op", "output", "status"})
+                    if type(frame["output"]) is not dict or frame["status"] not in ("completed", "unresolved"):
+                        _invalid()
+                    return Outcome(frame["output"], frame["status"])
+                elif operation == "error":
+                    _fields(frame, {"op"})
+                    raise AdapterError("adapter execution failed; inspect run status")
+                else:
+                    _invalid()
+        except Exception:
+            if self.ticket is not None:
+                raise RecoveryRequired("adapter invocation interrupted; inspect recovery journal") from None
+            raise
+
+    def finish_pending(self) -> None:
+        """After worker teardown, preserve any unacknowledged effect as unknown."""
+        if self.ticket is not None:
+            try:
+                if self.diagnostic is None:
+                    self.context.fail_invocation(self.ticket)
+                else:
+                    self.context.fail_invocation(self.ticket, diagnostic=self.diagnostic)
+            except Exception:
+                pass  # A durable executing record still requires reconciliation.
+
+
+@contextmanager
+def _admission_signals_blocked():
+    previous = signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGTERM, signal.SIGINT})
+    try:
+        yield
+    finally:
+        signal.pthread_sigmask(signal.SIG_SETMASK, previous)
+
+
+
 def execute(adapter, context, request, *, deadline: float,
             tick: Callable[[], None] | None = None, poll_interval: float = 0.05) -> Outcome:
     """Supervise one handler until an absolute monotonic run deadline.
@@ -259,8 +442,7 @@ def execute(adapter, context, request, *, deadline: float,
     parent_sock, child_sock = socket.socketpair()
     channel = _Channel(parent_sock, deadline)
     group = None
-    ticket = None
-    diagnostic = None
+    session = AdapterProtocolSession(context, admission_guard=_admission_signals_blocked)
     previous = {}
 
     def interrupt(_number, _frame):
@@ -280,79 +462,7 @@ def execute(adapter, context, request, *, deadline: float,
         finally:
             signal.pthread_sigmask(signal.SIG_SETMASK, previous_mask)
         child_sock.close()
-        while True:
-            frame = channel.receive(tick, poll_interval)
-            operation = frame.get("op")
-            if operation == "complete":
-                _fields(frame, {"op", "output", "evidence"})
-                if ticket is None or type(frame["output"]) is not dict or type(frame["evidence"]) is not dict:
-                    _invalid()
-                output = context.complete_invocation(ticket, Invocation(frame["output"], frame["evidence"]))
-                ticket = None
-                channel.send({"output": output})
-            elif operation == "failed":
-                _fields(frame, {"op", "diagnostic"} if "diagnostic" in frame else {"op"})
-                if ticket is None:
-                    _invalid()
-                if "diagnostic" in frame:
-                    try:
-                        diagnostic = validate_invocation_diagnostic(frame["diagnostic"])
-                    except ValueError:
-                        _invalid()
-                raise AdapterError("adapter invocation failed; outcome may be unknown")
-            elif ticket is not None:
-                _invalid()
-            elif operation == "prepare":
-                _fields(frame, {"op", "input", "reservation_microusd"})
-                amount = frame["reservation_microusd"]
-                if (frame["input"] is not None and type(frame["input"]) is not dict
-                        or amount is not None and (type(amount) is not int or amount < 0)):
-                    _invalid()
-                # Install ownership of the ticket before handling shutdown.
-                # Admission may have committed executing intent when it returns.
-                previous_mask = signal.pthread_sigmask(signal.SIG_BLOCK,
-                                                       {signal.SIGTERM, signal.SIGINT})
-                try:
-                    accepted, prepared = _operation_reply(channel, lambda: context.prepare_invocation(
-                        input=frame["input"], reservation_microusd=frame["reservation_microusd"]))
-                    if accepted and prepared.execute:
-                        ticket = prepared
-                finally:
-                    signal.pthread_sigmask(signal.SIG_SETMASK, previous_mask)
-                if not accepted:
-                    continue
-                if prepared.execute:
-                    channel.send({"execute": True, "output": None, "call_id": prepared.call_id})
-                else:
-                    channel.send({"execute": False, "output": prepared.cached_output,
-                                  "call_id": prepared.call_id})
-            elif operation == "request":
-                _fields(frame, {"op", "recipient", "operation", "input"})
-                if (type(frame["recipient"]) is not str or type(frame["operation"]) is not str
-                        or type(frame["input"]) is not dict):
-                    _invalid()
-                accepted, outcome = _operation_reply(channel, lambda: context.request(
-                    frame["recipient"], frame["operation"], frame["input"]))
-                if not accepted:
-                    continue
-                channel.send({"output": outcome.output, "status": outcome.status})
-            elif operation == "result":
-                _fields(frame, {"op", "output", "status"})
-                if type(frame["output"]) is not dict or frame["status"] not in ("completed", "unresolved"):
-                    _invalid()
-                return Outcome(frame["output"], frame["status"])
-            elif operation == "error":
-                _fields(frame, {"op"})
-                raise AdapterError("adapter execution failed; inspect run status")
-            else:
-                _invalid()
-    except Exception:
-        if ticket is not None:
-            # A terminal Failure would prevent an operator from resolving and
-            # resuming this invocation. Keep its workflow open; the finally
-            # block stops local work and marks the ticket unknown first.
-            raise RecoveryRequired("adapter invocation interrupted; inspect recovery journal") from None
-        raise
+        return session.serve(channel, tick=tick, poll_interval=poll_interval)
     finally:
         # Repeated shutdown signals must not interrupt child cleanup. Restore
         # the caller's handlers afterwards, including nested supervision.
@@ -361,14 +471,7 @@ def execute(adapter, context, request, *, deadline: float,
         try:
             if group is not None:
                 group.close()
-            if ticket is not None:
-                try:
-                    if diagnostic is None:
-                        context.fail_invocation(ticket)
-                    else:
-                        context.fail_invocation(ticket, diagnostic=diagnostic)
-                except Exception:
-                    pass  # A durable outstanding reservation is still unknown.
+            session.finish_pending()
         finally:
             parent_sock.close()
             child_sock.close()

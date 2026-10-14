@@ -19,11 +19,14 @@ from .bootstrap import RunSession
 from .codec import ENCODE_ENVELOPE_BYTES, integer_json as _json
 from .contracts import (
     Adapter, AdapterContext, AdapterError, AdapterExecutor, AdapterInterrupted, AdapterTimeout, Invocation,
-    InvocationTicket, Outcome, RecoveryRequired, RunnerError, TaskRequest,
+    InvocationTicket, KnownInvocationFailure, Outcome, RecoveryRequired, RunnerError, TaskRequest,
     invocation_failure_diagnostic, validate_invocation_diagnostic,
 )
 from .journal import JournalError
 from .protocol_client import ProtocolClient, ProtocolTransport
+from .provider_outcomes import ProviderOutcomeFailure, validate_provider_outcome
+from .execution_policy import RetryPolicy, retry_policy as load_retry_policy
+from .circuit_breaker import CircuitBreaker, circuit_policies, failure_observation
 
 
 def _encode_wire(command, mas_bin: str, run_id: str, sender: str, recipient: str,
@@ -71,6 +74,7 @@ class Context:
         self._invocation_id = None
         self._recovery_required = False
         self._pending_invocation_id = None
+        self._last_known_call = None
 
     @property
     def actor(self) -> str:
@@ -118,7 +122,8 @@ class Context:
             raise
 
     def prepare_invocation(self, *, input: dict | None = None,
-                           reservation_microusd: int | None = None) -> InvocationTicket:
+                           reservation_microusd: int | None = None,
+                           retry_of: str | None = None) -> InvocationTicket:
         """Parent-only durable admission. Providers run only after this returns execute=True."""
         self._check()
         if input is not None and type(input) is not dict:
@@ -126,16 +131,36 @@ class Context:
         if reservation_microusd is not None and (type(reservation_microusd) is not int or reservation_microusd < 0):
             raise RunnerError("invocation spending reservation must be a nonnegative integer")
         runner = self._runner
+        inputs = {"input": input, "reservation_microusd": reservation_microusd}
+        if runner._retry_policy.max_attempts > 1:
+            inputs["retry_policy"] = runner._retry_policy.descriptor
+        if self.actor in runner._circuits:
+            inputs["circuit_policy"] = runner._circuits[self.actor].policy.descriptor
+        if retry_of is not None:
+            if type(retry_of) is not str or retry_of != self._last_known_call:
+                raise RunnerError("retry does not match the preceding known failure")
+            inputs["attempt"] = runner._journal.retry_inputs(retry_of, actor=self.actor,
+                step_key=f"{self._request_id}:{self._ordinal}", inputs=inputs,
+                policy=runner._retry_policy, now_ms=int(time.time() * 1000))
+        self._last_known_call = None
         key = self._step_key()
-        data = runner._journal.step(key, "invoke", json.loads(_json({"input": input,
-            "reservation_microusd": reservation_microusd})), {})
+        data = runner._journal.step(key, "invoke", json.loads(_json(inputs)), {})
         call = runner._journal.invocation(data["call_id"]) if data else None
         if call is None or call["state"] == "retry_allowed":
             call = runner._journal.create_invocation(key, self.actor, reservation_microusd)
         call_id = call["call_id"]
         ticket = InvocationTicket(call_id, call["output"], False, key)
+        if call["state"] == "failed_known":
+            self._pending_invocation_id = call_id
+            self._observe_circuit(call_id, "success" if call["evidence"]["provider_outcome"]["certainty"] == "completed" else "aborted")
+            runner._finish_recorded(self.actor, call)
+            self._pending_invocation_id = None
+            self._last_known_call = call_id
+            raise KnownInvocationFailure(call["evidence"]["provider_outcome"], call_id,
+                                         completed_output=call["output"])
         if call["state"] in ("completed", "resolved"):
             self._pending_invocation_id = call_id
+            self._observe_circuit(call_id, "success")
             runner._finish_recorded(self.actor, call)
             self._pending_invocation_id = None
             return ticket
@@ -146,9 +171,17 @@ class Context:
             raise RecoveryRequired("invocation outcome unknown; inspect and resolve before resuming")
         if runner.status()["expired"]:
             raise RunnerError("run deadline expired")
+        circuit = runner._circuits.get(self.actor)
+        if circuit is not None and not circuit.admit(call_id):
+            runner._journal.update_invocation(call_id, "not_executed", evidence={
+                "outcome": "not_executed", "reason": "provider_circuit_open",
+                "resource_key": circuit.policy.resource_key})
+            raise RunnerError("provider circuit is open")
         try:
             runner._operations.admit_call(runner.run_id, call_id, reservation_microusd)
         except Exception:
+            if circuit is not None:
+                circuit.observe(call_id, "aborted")
             runner._journal.update_invocation(call_id, "not_executed", evidence={
                 "outcome": "not_executed", "reason": "deployment_admission_rejected"})
             raise RunnerError("deployment invocation admission rejected") from None
@@ -165,6 +198,8 @@ class Context:
                     self._recovery_required = True
                     raise RecoveryRequired("reservation could not be reconciled; resume this run") from None
                 if not reserved:
+                    if circuit is not None:
+                        circuit.observe(call_id, "aborted")
                     runner._journal.update_invocation(call_id, "not_executed", evidence={
                         "outcome": "not_executed", "reason": "protocol_admission_rejected"})
                     raise
@@ -191,6 +226,7 @@ class Context:
         output = json.loads(_json(invocation.output))
         evidence = json.loads(_json(invocation.evidence))
         runner._journal.update_invocation(ticket.call_id, "completed", output=output, evidence=evidence)
+        self._observe_circuit(ticket.call_id, "success")
         runner._finish_recorded(self.actor, runner._journal.invocation(ticket.call_id))
         self._pending_invocation_id = None
         return output
@@ -206,14 +242,68 @@ class Context:
             if diagnostic is not None:
                 evidence["diagnostic"] = validate_invocation_diagnostic(diagnostic)
             runner._journal.update_invocation(ticket.call_id, "unknown", evidence=evidence)
+            self._observe_circuit(ticket.call_id, failure_observation(diagnostic))
             try:
                 runner._gateway(self.actor, command="finish", call_id=ticket.call_id, evidence=evidence)
             except RunnerError:
                 pass
 
+    def reject_invocation(self, ticket: InvocationTicket, outcome: dict, *,
+                          completed_output: dict | None = None) -> None:
+        """Record known non-execution/completion, preserving every call allocation."""
+        self._check(allow_pending=True)
+        checked = validate_provider_outcome(outcome)
+        runner = self._runner
+        call = runner._journal.invocation(ticket.call_id)
+        if (not ticket.execute or call is None or call["state"] != "executing"
+                or call["actor"] != self.actor or ticket.call_id != self._pending_invocation_id):
+            raise RunnerError("invocation ticket is no longer active")
+        # Validate the complete evidence frame before making it a durable intent.
+        runner._wire(self.actor, self.actor, "Notice", {"provider_outcome": checked},
+                     "validation-" + uuid.uuid4().hex)
+        call = runner._journal.record_known_failure(ticket.call_id, checked, completed_output=completed_output)
+        self._observe_circuit(ticket.call_id, "success" if checked["certainty"] == "completed" else "aborted")
+        runner._finish_recorded(self.actor, call)
+        self._pending_invocation_id = None
+        self._last_known_call = ticket.call_id
+
+    def _observe_circuit(self, call_id, category):
+        circuit = self._runner._circuits.get(self.actor)
+        if circuit is not None:
+            circuit.observe(call_id, category)
+
+    def retry_invocation(self, call_id: str) -> dict | None:
+        self._check()
+        if type(call_id) is not str or call_id != self._last_known_call:
+            raise RunnerError("retry does not match the preceding known failure")
+        runner = self._runner
+        if self.remaining_seconds <= 0:
+            return None
+        return runner._journal.schedule_retry(call_id, runner._retry_policy,
+            next_step_key=f"{self._request_id}:{self._ordinal}", now_ms=int(time.time() * 1000))
+
     def invoke(self, call: Callable[[], Invocation], *, input: dict | None = None,
                reservation_microusd: int | None = None) -> dict:
-        ticket = self.prepare_invocation(input=input, reservation_microusd=reservation_microusd)
+        retry_of = None
+        while True:
+            try:
+                return self._invoke_once(call, input=input, reservation_microusd=reservation_microusd,
+                                         retry_of=retry_of)
+            except KnownInvocationFailure as error:
+                plan = self.retry_invocation(error.call_id)
+                if plan is None:
+                    raise
+                while time.time() * 1000 < plan["eligible_at_ms"]:
+                    if self.remaining_seconds <= 0:
+                        raise AdapterTimeout("retry deadline exceeded") from None
+                    self._runner.status()
+                    time.sleep(min(0.05, self.remaining_seconds,
+                                   max(0, plan["eligible_at_ms"] / 1000 - time.time())))
+                retry_of = error.call_id
+
+    def _invoke_once(self, call, *, input, reservation_microusd, retry_of=None):
+        ticket = self.prepare_invocation(input=input, reservation_microusd=reservation_microusd,
+                                         retry_of=retry_of)
         if not ticket.execute:
             return json.loads(_json(ticket.cached_output))
         runner = self._runner
@@ -226,6 +316,17 @@ class Context:
                 runner._invoking = False
                 self._invocation_id = None
             return self.complete_invocation(ticket, invocation)
+        except ProviderOutcomeFailure as error:
+            try:
+                self.reject_invocation(ticket, error.outcome, completed_output=error.completed_output)
+            except Exception:
+                self._recovery_required = True
+                # A committed failed_known checkpoint survives an interrupted
+                # finish. An uncommitted observation remains uncertain.
+                self.fail_invocation(ticket)
+                raise RecoveryRequired("provider outcome checkpoint interrupted; resume this run") from None
+            raise KnownInvocationFailure(error.outcome, ticket.call_id,
+                                         completed_output=error.completed_output) from None
         except Exception as error:
             self._recovery_required = True
             try:
@@ -254,8 +355,17 @@ class Runner:
                  command_timeout: float = 10, *, workflow_version: str = "unversioned",
                  supervised: bool = True, operations=None, executor: AdapterExecutor | None = None,
                  protocol_client: ProtocolTransport | None = None, _resume_dir: Path | None = None,
-                 execution_deadline: float | None = None):
+                 execution_deadline: float | None = None, protocol_strategy: str = "command",
+                 retry_policy: RetryPolicy | dict | None = None, circuit_breakers: dict | None = None,
+                 event_sink: Callable[[dict], None] | None = None):
         from .operations import DeploymentLedger
+        self._retry_policy = load_retry_policy(retry_policy)
+        if event_sink is not None and not callable(event_sink):
+            raise RunnerError("event sink must be callable")
+        self._event_sink = event_sink
+        policies = circuit_policies(circuit_breakers)
+        if not set(policies) <= set(adapters):
+            raise RunnerError("provider circuit references an unknown actor")
         if type(max_depth) is not int or not 1 <= max_depth <= 64:
             raise RunnerError("max_depth must be an integer from 1 to 64")
         if not isinstance(command_timeout, (int, float)) or not 0 < command_timeout <= 120:
@@ -266,6 +376,14 @@ class Runner:
                 or (type(execution_deadline) is int and abs(execution_deadline) > 10**18)
                 or not math.isfinite(execution_deadline)):
             raise RunnerError("execution deadline must be a finite monotonic timestamp")
+        if protocol_strategy not in ("command", "persistent"):
+            raise RunnerError("protocol strategy must be command or persistent")
+        if protocol_client is not None and protocol_strategy != "command":
+            raise RunnerError("select either an injected protocol client or a protocol strategy")
+        self._owns_client = protocol_client is None
+        if protocol_client is None and protocol_strategy == "persistent":
+            from .protocol_client import PersistentProtocolClient
+            protocol_client = PersistentProtocolClient(mas_bin, gateway_bin)
         self._client = protocol_client if protocol_client is not None else ProtocolClient(mas_bin, gateway_bin)
         self._mas = self._client.mas
         self._gateway_bin = self._client.gateway
@@ -287,6 +405,7 @@ class Runner:
             state_dir = Path(state_dir).absolute()
             state_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
             self._operations = operations if operations is not None else DeploymentLedger(state_dir)
+            self._circuits = {actor: CircuitBreaker(self._operations, policy) for actor, policy in policies.items()}
             if any(not callable(getattr(adapter, "handle", None)) for adapter in self._adapters.values()):
                 raise RunnerError("every adapter must implement handle")
             self._session = RunSession(state_dir, operations=self._operations,
@@ -308,9 +427,23 @@ class Runner:
                 # An enclosing workflow may tighten, but never extend, Rust's
                 # persisted deadline. Adapter timeouts use this same bound.
                 self._deadline = min(self._deadline, execution_deadline)
+            if self._event_sink is not None:
+                accepted = {item["id"] for item in snapshot["messages"]}
+                for envelope in self._journal.recorded_envelopes():
+                    if envelope["message_id"] in accepted:
+                        self._journal.queue_event(self._protocol_event(envelope))
+                self.flush_events()
         except Exception as error:
-            if self._session is not None:
-                self._session.close()
+            try:
+                if self._owns_client:
+                    close = getattr(self._client, "close", None)
+                    if callable(close):
+                        close()
+            except Exception:
+                pass  # Preserve the primary initialisation error and release the run.
+            finally:
+                if self._session is not None:
+                    self._session.close()
             self._closed = True
             if isinstance(error, RunnerError):
                 raise
@@ -362,9 +495,40 @@ class Runner:
             # Exact-envelope retry is safe under Rust's durable identity rule.
             self._gateway(envelope["sender"], command="send", wire=wire)
         if not any(event["message_id"] == envelope["message_id"] for event in self.events):
-            self.events.append({key: envelope[key] for key in ("sender", "recipient", "kind", "message_id")}
-                               | {"task_id": envelope["payload"]["task_id"]})
+            event = ({key: envelope[key] for key in ("sender", "recipient", "kind", "message_id")}
+                     | {"task_id": envelope["payload"]["task_id"]})
+            self.events.append(event)
+        if self._event_sink is not None:
+            try:
+                self._journal.queue_event(self._protocol_event(envelope))
+            except Exception:
+                pass  # Reconstruct from the accepted durable envelope on restart.
+        self.flush_events()
         return envelope["message_id"]
+
+    def _protocol_event(self, envelope):
+        return {"run_id": self.run_id,
+                **{key: envelope[key] for key in ("sender", "recipient", "kind", "message_id")},
+                "task_id": envelope["payload"]["task_id"]}
+
+    def flush_events(self):
+        """Publish accepted identities, never allowing telemetry to change effects.
+
+        Sinks deduplicate (run_id,message_id). An acknowledged message envelope
+        is already durable in Rust and the host journal; replay republishes it
+        after a crash between send and public event storage.
+        """
+        if self._event_sink is None:
+            return
+        for event in self._journal.pending_events():
+            try:
+                self._event_sink(json.loads(_json(event)))
+            except Exception:
+                continue
+            try:
+                self._journal.publish_event(event["message_id"])
+            except Exception:
+                pass  # Sink deduplication makes a lost publication ACK harmless.
 
     def _ack(self, actor, message_id):
         try:
@@ -383,6 +547,7 @@ class Runner:
         except JournalError as error:
             raise RunnerError(str(error)) from None
         finally:
+            self.flush_events()
             self._request_lock.release()
 
     def _exchange(self, sender: str, recipient: str, operation: str, input: dict, key: str) -> Outcome:
@@ -496,7 +661,13 @@ class Runner:
             raise RunnerError("cannot close a runner during adapter execution")
         if not self._closed:
             self._closed = True
-            self._session.close()
+            try:
+                if self._owns_client:
+                    close = getattr(self._client, "close", None)
+                    if callable(close):
+                        close()
+            finally:
+                self._session.close()
 
     def __enter__(self) -> Runner:
         return self

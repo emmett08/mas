@@ -15,6 +15,7 @@ from .codec import canonical_json, integer_json, is_actor_identity
 from .contracts import AdapterContext, Invocation, Outcome, TaskRequest
 from .operation_contracts import JsonObjectSchema, OperationContract
 from .provider_contract import ProviderError
+from .provider_outcomes import completed_unusable, not_sent
 
 IDENTIFIER = re.compile(r"[A-Za-z0-9_.:/-]{1,200}")
 MAX_OUTPUT_BYTES = 32_768
@@ -186,14 +187,20 @@ is checked against its registration snapshot before admission and execution.
         _, reservation = self._binding()
         effect = _copy({"adapter": self.descriptor(), "inference": inference.descriptor})
         def invoke_checked() -> Invocation:
-            self._binding()
+            try:
+                self._binding()
+            except ProviderError:
+                raise not_sent("custom", "invalid_request") from None
             invocation = self.provider.infer(inference, request_id=context.invocation_id)
             self._binding()
             if not isinstance(invocation, Invocation):
                 raise ProviderError("structured provider returned an invalid invocation")
-            checked = inference.validate_output(invocation.output)
             if type(invocation.evidence) is not dict:
                 raise ProviderError("structured provider returned invalid evidence")
+            try:
+                checked = inference.validate_output(invocation.output)
+            except ProviderError:
+                raise completed_unusable("custom", "invalid_output", invocation.evidence) from None
             return Invocation(checked, _copy(invocation.evidence))
 
         output = context.invoke(invoke_checked, input=effect, reservation_microusd=reservation)

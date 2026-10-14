@@ -109,6 +109,33 @@ class Journal:
         row = self.db.execute("SELECT data FROM steps WHERE key=?", (key,)).fetchone()
         return json.loads(row[0]) if row else None
 
+    def queue_event(self, event: dict):
+        """Journal outbox identity shares the existing, versioned step repository."""
+        key, encoded = "event:" + event["message_id"], canonical(event)
+        with self.db:
+            prior = self.db.execute("SELECT kind,data FROM steps WHERE key=?", (key,)).fetchone()
+            if prior is not None:
+                if prior["kind"] not in {"event_pending", "event_published"} or prior["data"] != encoded:
+                    raise JournalError("protocol event identity conflict")
+                return
+            self.db.execute("INSERT INTO steps VALUES(?,'event_pending','{}',?)", (key, encoded))
+
+    def pending_events(self):
+        return [json.loads(row[0]) for row in self.db.execute(
+            "SELECT data FROM steps WHERE kind='event_pending' ORDER BY rowid")]
+
+    def publish_event(self, message_id):
+        with self.db:
+            self.db.execute("UPDATE steps SET kind='event_published' WHERE key=? AND kind='event_pending'",
+                            ("event:" + message_id,))
+
+    def recorded_envelopes(self):
+        for row in self.db.execute("SELECT data FROM steps WHERE kind='request' ORDER BY rowid"):
+            data = json.loads(row[0])
+            for key in ("request", "terminal"):
+                if data.get(key) is not None:
+                    yield data[key]
+
     def child_count(self, request_id):
         prefix = request_id + ":"
         return self.db.execute("SELECT COUNT(*) FROM steps WHERE substr(key,1,?)=?", (len(prefix), prefix)).fetchone()[0]
@@ -137,6 +164,73 @@ class Journal:
                             (state, canonical(output) if output is not None else None,
                              canonical(evidence) if evidence is not None else None, call_id))
 
+    def record_known_failure(self, call_id: str, outcome: dict, *, completed_output: dict | None = None) -> dict:
+        """Checkpoint a trusted terminal observation without releasing allocation.
+
+        Version 2 readers recognise failed_known; old writers reject the schema
+        rather than interpreting an unfamiliar state as permission to dispatch.
+        """
+        from .provider_outcomes import validate_provider_outcome, validate_completed_output
+        checked = validate_provider_outcome(outcome)
+        output = validate_completed_output(checked, completed_output)
+        evidence = {"outcome": "not_executed" if checked["certainty"] == "not_sent" else "completed",
+                    "provider_outcome": checked}
+        with self.db:
+            changed = self.db.execute(
+                "UPDATE invocations SET state='failed_known',output=?,evidence=? "
+                "WHERE call_id=? AND state='executing'",
+                (canonical(output) if output is not None else None, canonical(evidence), call_id))
+            if changed.rowcount != 1:
+                raise JournalError("invocation is not awaiting a provider outcome")
+        return self.invocation(call_id)
+
+    def schedule_retry(self, call_id: str, policy, *, next_step_key: str, now_ms: int) -> dict | None:
+        """Persist one bounded decision; restart never resets backoff or attempts."""
+        with self.db:
+            call = self.invocation(call_id)
+            if call is None or call["state"] != "failed_known":
+                return None
+            row = self.db.execute("SELECT input,data FROM steps WHERE key=?", (call["step_key"],)).fetchone()
+            inputs, data = json.loads(row[0]), json.loads(row[1])
+            if inputs.get("retry_policy") != policy.descriptor:
+                return None
+            attempt = inputs.get("attempt", {}).get("number", 1)
+            if not policy.eligible(call["evidence"]["provider_outcome"], attempt):
+                return None
+            if "retry_decision" in data:
+                plan = data["retry_decision"]
+                if plan["policy"] != policy.descriptor or plan["step_key"] != next_step_key:
+                    raise JournalError("retry policy or step differs from durable decision")
+                return plan
+            retry_after = call["evidence"]["provider_outcome"].get("retry_after_seconds", 0)
+            plan = {"previous_call_id": call_id,
+                    "root_call_id": inputs.get("attempt", {}).get("root_call_id", call_id),
+                    "number": attempt + 1,
+                    "eligible_at_ms": now_ms + max(policy.delay_ms(attempt), retry_after * 1000),
+                    "step_key": next_step_key, "policy": policy.descriptor}
+            if retry_after:
+                plan["retry_after_seconds"] = retry_after
+            data["retry_decision"] = plan
+            self.db.execute("UPDATE steps SET data=? WHERE key=?", (canonical(data), call["step_key"]))
+            return plan
+
+    def retry_inputs(self, call_id: str, *, actor: str, step_key: str, inputs: dict,
+                     policy, now_ms: int) -> dict:
+        """Check a scheduled attempt against original input and parent authority."""
+        call = self.invocation(call_id)
+        if call is None or call["actor"] != actor or call["state"] != "failed_known":
+            raise JournalError("retry does not name a known failed invocation")
+        row = self.db.execute("SELECT input,data FROM steps WHERE key=?", (call["step_key"],)).fetchone()
+        previous, data = json.loads(row[0]), json.loads(row[1])
+        plan = data.get("retry_decision")
+        if (type(plan) is not dict or plan["previous_call_id"] != call_id or plan["step_key"] != step_key
+                or plan["policy"] != policy.descriptor or now_ms < plan["eligible_at_ms"]
+                or not policy.eligible(call["evidence"]["provider_outcome"], plan["number"] - 1)
+                or any(canonical(previous[name]) != canonical(inputs[name])
+                       for name in ("input", "reservation_microusd"))):
+            raise JournalError("retry is not eligible or its binding changed")
+        return {"number": plan["number"], "root_call_id": plan["root_call_id"], "previous_call_id": call_id}
+
     def close(self):
         self.db.close()
 
@@ -159,13 +253,20 @@ def inspect_run(run_dir: Path) -> dict:
             for key in ("output", "evidence"):
                 if item[key] is not None:
                     item[key] = json.loads(item[key])
+            step = db.execute("SELECT input,data FROM steps WHERE key=?", (item["step_key"],)).fetchone()
+            if step is not None:
+                inputs, data = json.loads(step[0]), json.loads(step[1])
+                if "attempt" in inputs:
+                    item["attempt"] = inputs["attempt"]
+                if "retry_decision" in data:
+                    item["retry_decision"] = data["retry_decision"]
             calls.append(item)
         resolutions = [dict(row) for row in db.execute("SELECT * FROM resolutions ORDER BY id")]
         for item in resolutions:
             item["evidence"] = json.loads(item["evidence"])
         return {"run_id": metadata["run_id"], "workflow_version": metadata["workflow_version"],
                 "invocations": calls, "resolutions": resolutions,
-                "steps": db.execute("SELECT COUNT(*) FROM steps").fetchone()[0],
+                "steps": db.execute("SELECT COUNT(*) FROM steps WHERE kind NOT IN ('event_pending','event_published')").fetchone()[0],
                 "recovery_required": any(item["state"] in ("executing", "unknown") for item in calls)}
 
 

@@ -5,21 +5,22 @@ from contextlib import contextmanager
 from typing import Mapping
 
 from .provider_contract import ProviderError
+from .provider_outcomes import ProviderOutcomeFailure, not_sent
 
 
 def create_client(api_key: str):
     """Construct the fixed-endpoint SDK client with bounded, non-retrying calls."""
     if not api_key:
-        raise ProviderError("OpenAI mode requires OPENAI_API_KEY_FILE or OPENAI_API_KEY")
+        raise not_sent("openai", "credentials_unavailable")
     try:
         from openai import OpenAI
     except ImportError:
-        raise ProviderError("OpenAI mode requires the optional openai dependency") from None
+        raise not_sent("openai", "runtime_unavailable") from None
     try:
         return OpenAI(api_key=api_key, base_url="https://api.openai.com/v1",
                       timeout=45.0, max_retries=0)
     except Exception:
-        raise ProviderError("could not initialise the OpenAI client") from None
+        raise not_sent("openai", "client_initialisation_failed") from None
 
 
 @contextmanager
@@ -35,8 +36,11 @@ def response_client(*, client=None, api_key: str | None = None,
         yield client
         return
     if api_key is None:
-        from .provider_credentials import read_api_key
-        api_key = read_api_key("openai", environ=environ)
+        from .provider_credentials import CredentialError, read_api_key
+        try:
+            api_key = read_api_key("openai", environ=environ)
+        except CredentialError:
+            raise not_sent("openai", "credentials_unavailable") from None
     owned = create_client(api_key)
     primary = None
     try:
@@ -50,3 +54,5 @@ def response_client(*, client=None, api_key: str | None = None,
         except BaseException:
             if primary is None:
                 raise
+            if isinstance(primary, ProviderOutcomeFailure):
+                raise primary.with_cleanup_failure() from None
