@@ -1,7 +1,7 @@
 # Trusted workspaces, tools and context snapshots
 
 `mas_host.workspaces` integrates approved input artefacts and explicitly
-registered tools with the Rust executable-worker supervisor. The supported
+registered tools with the Rust executable-worker supervisor. The default
 profiles are **trusted-code-execution** and **trusted-repository-analysis**.
 Existing restricted text-only inference remains available separately.
 
@@ -10,11 +10,10 @@ user. They are **not sandboxes**. They do not confine filesystem syscalls or
 network access, and cannot safely execute arbitrary model-generated code.
 `isolated-untrusted-code` and other unqualified profile names are rejected.
 
-The current qualification environment denied both user/network namespace
-creation and the corresponding bubblewrap setup. An isolated profile requires
-a separately implemented and tested deployment backend. It must enforce
-filesystem, network, device and process access as well as resource limits before
-being advertised for untrusted workloads.
+An optional **isolated-container-execution** strategy is implemented below. It
+requires a separately qualified Linux Docker deployment. The implementation
+environment had no Docker daemon, so its genuine containment gate remains
+unpassed there; deterministic policy tests are not evidence of OS isolation.
 
 ## Authority and resource boundaries
 
@@ -159,5 +158,96 @@ Current tests cover admitted execution, durable replay without another process,
 content and script drift, authorised context reads, principal separation,
 path traversal, symlinks and hardlinks, mutation of source snapshots, allow-list
 and effect-policy rejection, and retention/quiescence rules. A deployment still
-needs its W17 live-provider, capacity and recovery qualification. Untrusted code
-is unsupported until a containment backend passes its adversarial tests.
+needs its W17 live-provider, capacity and recovery qualification. The optional
+container profile additionally requires the real-daemon gate below.
+
+
+## Optional isolated container execution
+
+`ContainerSpec` selects a retained OCI image by `sha256:` image ID or by
+`repository@sha256:` digest and one registered absolute command. The image must
+contain the fixed entrypoint in `Dockerfile.workspace`. Build that image, retain
+its identity, then use it in a trusted registration:
+
+```python
+from mas_host.container_execution import ContainerSpec, DockerRuntime
+
+policy = WorkspacePolicy("isolated-tests", "1", ("tests",),
+                         profile="isolated-container-execution")
+worker = ContainerSpec("tests", "1", retained_image_digest,
+    ("/usr/local/bin/python", "-I", "/workspace/inputs/tests.py"),
+    memory_bytes=256 * 1024 * 1024, cpu_seconds=60, cpus=1, pids=64)
+tool = WorkspaceTool("tests", worker, reservation_microusd=1000)
+reference = manager.prepare(logical_run_id, attempt_id, policy,
+    (WorkspaceInput("tests.py", approved_tests_reference),), context=context)
+adapter = WorkspaceAdapter(manager, reference, policy, tool,
+    (WorkspaceOutput("stdout.txt", "text/plain"),
+     WorkspaceOutput("stderr.txt", "text/plain"),
+     WorkspaceOutput("changes.patch", "text/plain")))
+executor = WorkspaceExecutor(RegisteredProcessExecutor("/srv/mas/bin/mas-gateway"),
+    container_runtime=DockerRuntime("/usr/bin/docker", socket_path="/var/run/docker.sock"))
+```
+
+The application executes as UID/GID 65532 with no supplementary groups or
+capabilities. A trusted root process *inside the container* retains SETUID and
+SETGID to create that application process, CHOWN to transfer work/output directory
+ownership, and DAC_READ_SEARCH to read declared private outputs. It enforces an independent alarm
+that the application cannot signal or change. The container has a read-only
+image, private namespaces, no host mounts, no external network, no privileged
+mode, no-new-privileges and Docker's seccomp policy. Memory/swap, CPU rate/time,
+PID count, per-file size and bounded tmpfs bytes/inodes constrain resource use.
+The tmpfs is `noexec`: interpreted source and image-installed executables are
+supported; newly compiled native binaries in the workspace are not executable.
+The runtime rejects missing cgroup-v2 resource controls and image-declared
+volumes, and never pulls a missing image automatically.
+
+Only authorised input/context bytes enter the container through a bounded binary
+stream. They become root-owned read-only files under `/workspace/inputs` and
+`/workspace/context.json`; request data is `/workspace/request.json`. The
+application writes beneath `/workspace/work` and `/workspace/outputs`. Standard
+output and error are captured as `outputs/stdout.txt` and `outputs/stderr.txt`.
+Declared regular files return through a byte-bounded, hash-checked stream and
+then use the existing artefact publication and provenance rules. Paths, symlinks,
+hardlinks, special files, changed digests and oversized/truncated transfers are
+rejected before usable output publication. No host credentials, daemon socket
+or ambient Docker context enter the application container.
+
+Each container execution remains one `context.invoke` allocation. The host
+records its deterministic container name before creating it, retains the daemon's
+exact container ID when received, and confirms removal before recording completed
+output. A lost start receipt, deadline or failed cleanup leaves the invocation
+unknown; a new host process cannot silently start that workspace again. The
+in-image initial-input timeout and execution alarm also bound containers whose
+attaching host dies. Operators reconcile the retained name against the same
+configured daemon before releasing the workspace. The Docker daemon and Linux
+kernel remain trusted dependencies; this profile makes no VM-level or
+kernel-exploit resistance claim.
+
+External-effect tools remain separate explicitly authorised, metered tool
+registrations. The isolated profile rejects `allow_external_effects=True` and
+provides no option to enable container networking.
+
+Run the real containment gate against the exact retained image:
+
+```sh
+docker build -f Dockerfile.workspace -t mas-workspace:qualification .
+image=$(docker image inspect --format '{{.Id}}' mas-workspace:qualification)
+python scripts/check-container-workspace.py --image "$image" \
+  --mas rust-protocol/target/release/mas \
+  --gateway rust-protocol/target/release/mas-gateway
+```
+
+The gate uses real Rust admission and checks application identity/capabilities,
+protected supervision, immutable inputs, denied host/socket/network access,
+permitted tests, mode0600 output files within mode0700 directories, verified output
+artefacts, replay and cleanup. The `workspace-containment.yml` CI workflow runs
+this gate on relevant pushes and pull requests, including stacked branches,
+against the immutable ID of the image it built. Missing Docker
+fails the gate instead of producing a passing skip. Unit tests separately cover
+policy mismatch, request-selected options, transfers, principal grants and lost
+receipt recovery. Qualify daemon/kernel/runtime versions, timeout/host-death
+faults and configured resource ceilings before advertising this profile.
+
+The runtime controls follow the official [Docker container run reference](https://docs.docker.com/reference/cli/docker/container/run/),
+[container security model](https://docs.docker.com/engine/security/) and
+[seccomp guidance](https://docs.docker.com/engine/security/seccomp/).

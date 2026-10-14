@@ -1,9 +1,9 @@
-"""Pinned workspaces for explicitly trusted Linux executable tools.
+"""Pinned workspaces for trusted processes and explicitly isolated containers.
 
 Filesystem checks protect host-managed materialisation, publication and cleanup.
-They do not confine the worker's own syscalls. Untrusted-code profiles are
-deliberately unsupported; process resource limits are provided by the Rust
-guardian. Authentication belongs to the caller that binds a manager principal.
+Trusted processes are supervised by Rust; the optional container strategy adds
+namespace/resource isolation for network-free untrusted application code.
+Authentication belongs to the caller that binds a manager principal.
 """
 from __future__ import annotations
 
@@ -149,11 +149,13 @@ class WorkspacePolicy:
         _identity(self.name)
         _identity(self.version)
         if (type(self.profile) is not str
-                or self.profile not in {"trusted-code-execution", "trusted-repository-analysis"}
+                or self.profile not in {"trusted-code-execution", "trusted-repository-analysis", "isolated-container-execution"}
                 or type(self.tools) is not tuple or not 1 <= len(self.tools) <= 32
                 or any(not is_actor_identity(name) for name in self.tools)
                 or len(set(self.tools)) != len(self.tools) or type(self.allow_external_effects) is not bool):
             raise WorkspaceError("unsupported workspace trust profile or tool policy")
+        if self.profile == 'isolated-container-execution' and self.allow_external_effects:
+            raise WorkspaceError('isolated container tools cannot enable external effects')
         for name, maximum in (("max_input_files", 32), ("max_output_files", 32),
                               ("max_workspace_files", 4096), ("max_input_bytes", 64*1024*1024),
                               ("max_output_bytes", 64*1024*1024), ("max_workspace_bytes", 256*1024*1024)):
@@ -165,6 +167,9 @@ class WorkspacePolicy:
 
     @property
     def descriptor(self):
+        if self.profile == 'isolated-container-execution':
+            return {**asdict(self), 'tools': list(self.tools), 'containment': 'linux-container-no-network',
+                    'aggregate_storage_enforcement': 'bounded-tmpfs-and-checked-publication'}
         return {**asdict(self), "tools": list(self.tools), "containment": "trusted-process-no-sandbox",
                 "aggregate_storage_enforcement": "preflight-and-postflight"}
 
@@ -256,11 +261,14 @@ class WorkspaceTool:
 
     def __post_init__(self):
         _identity(self.name)
-        if (not isinstance(self.worker, WorkerSpec) or type(self.external_effects) is not bool
+        from .container_execution import ContainerSpec
+        if (not isinstance(self.worker, (WorkerSpec, ContainerSpec)) or type(self.external_effects) is not bool
                 or type(self.reservation_microusd) is not int
                 or not 0 <= self.reservation_microusd <= 100_000_000
                 or "workspace" in self.worker.descriptor["configuration"]):
             raise WorkspaceError("invalid trusted workspace tool")
+        if isinstance(self.worker, ContainerSpec) and self.external_effects:
+            raise WorkspaceError('isolated container tools cannot enable external effects')
 
     @property
     def descriptor(self):
@@ -607,6 +615,9 @@ class WorkspaceAdapter:
                 or len({item.path for item in self.outputs}) != len(self.outputs)):
             raise WorkspaceError("invalid registered workspace adapter")
         self.manager._authorise(self.reference)
+        from .container_execution import ContainerSpec
+        if (self.policy.profile == 'isolated-container-execution') != isinstance(self.tool.worker, ContainerSpec):
+            raise WorkspaceError('workspace tool containment profile mismatch')
         if (self.reference.descriptor["policy"] != self.policy.descriptor
                 or self.tool.name not in self.policy.tools
                 or self.tool.external_effects and not self.policy.allow_external_effects):
@@ -623,12 +634,17 @@ class WorkspaceAdapter:
 class WorkspaceExecutor:
     """One admitted invocation per registered tool execution, including outputs."""
 
-    def __init__(self, executor: RegisteredProcessExecutor):
+    def __init__(self, executor: RegisteredProcessExecutor, *, container_runtime=None):
         self.executor = executor
+        self.container_runtime = container_runtime
 
     def execute(self, adapter, context, request, *, deadline, tick=None):
         if not isinstance(adapter, WorkspaceAdapter):
             return self.executor.execute(adapter, context, request, deadline=deadline, tick=tick)
+        from .container_execution import ContainerSpec, DockerRuntime, execute_workspace
+        if isinstance(adapter.tool.worker, ContainerSpec):
+            return execute_workspace(self.container_runtime or DockerRuntime(), adapter, context, request,
+                                     deadline=deadline, tick=tick)
         manager, reference = adapter.manager, adapter.reference
         with manager.lease(reference) as (directory, lease):
             manager._verify_inputs(reference, directory)
