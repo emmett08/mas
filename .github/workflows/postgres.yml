@@ -1,0 +1,36 @@
+name: PostgreSQL protocol repository
+on:
+  pull_request:
+    paths: ['rust-protocol/**', '.github/workflows/postgres.yml']
+  push:
+    branches: [main]
+    paths: ['rust-protocol/**', '.github/workflows/postgres.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  conformance:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16.15@sha256:ca0bd484cb98bf4b24eb1010e73fb3fcbd6714d240fbc1a10eea5b7dbecb641d
+        env:
+          POSTGRES_PASSWORD: postgres-fixture-only
+          POSTGRES_DB: mas_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      MAS_TEST_POSTGRES_DSN: host=127.0.0.1 port=5432 user=postgres password=postgres-fixture-only dbname=mas_test
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install pinned Rust
+        run: rustup toolchain install 1.99.0 --profile minimal
+      - name: Existing native contracts with shared backend compiled
+        run: cargo test --locked --manifest-path rust-protocol/Cargo.toml --features postgres-repository
+      - name: Real PostgreSQL conformance and fault boundaries
+        run: cargo test --locked --manifest-path rust-protocol/Cargo.toml --features postgres-repository --test postgres_repository -- --ignored --nocapture

@@ -12,6 +12,10 @@ rusqlite = { version = "=0.40.2", features = ["bundled"] }
 serde_json = { version = "=1.0.152", features = ["arbitrary_precision"] }
 sha2 = "=0.11.0"
 subtle = "=2.6.1"
+postgres = { version = "=0.19.12", optional = true }
+
+[features]
+postgres-repository = ["dep:postgres"]
 
 [target.'cfg(target_os = "linux")'.dependencies]
 libc = "=0.2.190"

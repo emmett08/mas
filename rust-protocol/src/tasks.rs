@@ -6,6 +6,17 @@ use rusqlite::{params, OptionalExtension, Transaction};
 use serde_json::{json, Value};
 
 pub(crate) fn validate_transition(db: &Transaction<'_>, message: &Message) -> Result<(), String> {
+    let task_id = message.payload.get("task_id").and_then(Value::as_str).unwrap_or("");
+    let prior:Option<(String,String,bool,String,String)>=db.query_row(
+        "SELECT t.request_id,t.state,m.received,m.sender,m.recipient FROM tasks t JOIN messages m ON m.run=t.run AND m.id=t.request_id WHERE t.run=? AND t.id=?",
+        params![message.run_id,task_id],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?)))
+        .optional().map_err(|e|e.to_string())?;
+    validate_prior(message, prior)
+}
+
+pub(crate) type PriorTask = (String, String, bool, String, String);
+
+pub(crate) fn validate_prior(message: &Message, prior: Option<PriorTask>) -> Result<(), String> {
     let p = &message.payload;
     let fields: &[&str] = match message.kind.as_str() {
         "Request" => &["task_id", "operation", "input"],
@@ -16,12 +27,8 @@ pub(crate) fn validate_transition(db: &Transaction<'_>, message: &Message) -> Re
     if p.len() != fields.len() || fields.iter().any(|k| !p.contains_key(*k)) {
         return Err("unsupported task payload fields".into());
     }
-    let task_id = p["task_id"].as_str().filter(|s| crate::identity(s))
+    let _task_id = p["task_id"].as_str().filter(|s| crate::identity(s))
         .ok_or("invalid task identity")?;
-    let prior:Option<(String,String,bool,String,String)>=db.query_row(
-        "SELECT t.request_id,t.state,m.received,m.sender,m.recipient FROM tasks t JOIN messages m ON m.run=t.run AND m.id=t.request_id WHERE t.run=? AND t.id=?",
-        params![message.run_id,task_id],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?)))
-        .optional().map_err(|e|e.to_string())?;
     if message.kind == "Request" {
         if prior.is_some() { return Err("task identity already used; resend original message identity".into()); }
         if !p["operation"].as_str().is_some_and(crate::identity) { return Err("invalid operation".into()); }

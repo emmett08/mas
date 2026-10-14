@@ -3,6 +3,9 @@
 //! recognised JSON string/number token and serialises lowered typed values.
 
 pub mod store;
+pub mod repository;
+#[cfg(feature = "postgres-repository")]
+pub mod postgres_repository;
 mod store_schema;
 pub mod tasks;
 pub mod examples;

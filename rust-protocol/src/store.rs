@@ -14,10 +14,10 @@ fn now() -> Result<f64> { Ok(SystemTime::now().duration_since(UNIX_EPOCH).map_er
 pub struct Store { db: Connection }
 /// Operational identity projection. Audit history is intentionally absent so
 /// opening an actor session does not decode every retained message and result.
-pub(crate) struct RunMembership { actors: std::collections::BTreeSet<String> }
+pub struct RunMembership { pub(crate) actors: std::collections::BTreeSet<String> }
 
 impl RunMembership {
-    pub(crate) fn contains(&self, actor: &str) -> bool { self.actors.contains(actor) }
+    pub fn contains(&self, actor: &str) -> bool { self.actors.contains(actor) }
 }
 
 struct Run { config: Value, deadline: f64, messages: i64, bytes: i64, calls: i64, active: String, expired: bool }
@@ -41,7 +41,7 @@ fn reconcile_transaction(db:&Transaction<'_>,id:&str) -> Result<(bool,usize,f64)
         Ok((true,closed,observed))
     } else { Ok((false,0,observed)) }
 }
-fn config(source: &Value) -> Result<Value> {
+pub(crate) fn config(source: &Value) -> Result<Value> {
     let supplied = source.as_object().ok_or("configuration must be an object")?;
     let allowed = ["agents","edges","mailbox_capacity","application","max_messages","max_bytes","max_calls","wall_seconds"];
     if supplied.keys().any(|k| !allowed.contains(&k.as_str())) { return Err("unknown configuration field".into()); }

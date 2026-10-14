@@ -3,7 +3,7 @@
 //! A bounded JSON header precedes an exact-length raw body. Headers are strict
 //! protocol JSON; codec and gateway bodies retain their original parsers and
 //! admission behaviour. Incomplete IPC never reaches gateway admission.
-use crate::{encode_message, gateway::{normalise_config, Gateway}, parse_json, store::Store,
+use crate::{encode_message, gateway::{normalise_config, Gateway}, parse_json, store::Store, repository::ProtocolRepository,
             ENCODE_ENVELOPE_ALLOWANCE, MAX_BYTES, MAX_DEPTH};
 use serde_json::{json, Value};
 use std::{io::{BufRead, Write}, path::Path, time::{SystemTime, UNIX_EPOCH}};
@@ -14,9 +14,9 @@ pub const MAX_REQUEST_BYTES: usize = MAX_BYTES + ENCODE_ENVELOPE_ALLOWANCE;
 pub const MAX_RESPONSE_BYTES: usize = 16 * 1024 * 1024;
 
 /// A single run with one retained database connection per authority role.
-pub struct HostSession {
-    store: Store,
-    gateway: Gateway,
+pub struct HostSession<S: ProtocolRepository = Store> {
+    store: S,
+    gateway: Gateway<S>,
     run_id: String,
 }
 
@@ -55,14 +55,21 @@ fn write_response<W: Write>(output: &mut W, request_id: u64, value: Value, close
 
 impl HostSession {
     pub fn open(path: &Path, configuration: &Value, run_id: &str) -> Result<Self, String> {
+        Self::from_repositories(Store::open(path)?, Store::open(path)?, configuration, run_id)
+    }
+}
+
+impl<S: ProtocolRepository> HostSession<S> {
+    /// The caller supplies two handles to the same authoritative repository.
+    /// Their deployment, namespace and epoch must be identical.
+    pub fn from_repositories(store: S, gateway_store: S, configuration: &Value, run_id: &str) -> Result<Self, String> {
         let normal = normalise_config(configuration, true)?;
         if !crate::identity(run_id) || normal["credentials"].as_array().unwrap().iter()
             .any(|credential| credential["run_id"].as_str() != Some(run_id)) {
             return Err("host IPC requires one run".into());
         }
-        let store = Store::open(path)?;
         store.run_membership(run_id)?;
-        let gateway = Gateway::open(Store::open(path)?, configuration)?;
+        let gateway = Gateway::open(gateway_store, configuration)?;
         Ok(Self { store, gateway, run_id: run_id.into() })
     }
 
