@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import base64
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import fcntl
 import hashlib
 import json
@@ -22,6 +22,7 @@ import uuid
 from ..artifacts import (ArtifactError, ArtifactPolicy, ArtifactRef, ArtifactStore,
     _atomic_json, _digest, _hash_source, _identity, _load_json, _open_dir,
     _open_file, _principal as actor_principal, _read_file)
+from ..artifact_content import ArtifactContentBackend
 from ..operations import _file_lock
 from ..service_contracts import ServiceError
 from .authentication import _principal
@@ -48,6 +49,7 @@ class ArtifactScope:
     namespace: str
     principals: dict[str, str]
     policy: ArtifactPolicy = ArtifactPolicy()
+    content_backend: ArtifactContentBackend | None = field(default=None, repr=False)
 
     def __post_init__(self):
         _identity(self.namespace)
@@ -59,7 +61,8 @@ class ArtifactScope:
         # Aliases would silently confer another authenticated user's grants.
         if len(set(self.principals.values())) != len(self.principals):
             raise ServiceError('invalid_artifact_configuration')
-        if not isinstance(self.policy, ArtifactPolicy):
+        if (not isinstance(self.policy, ArtifactPolicy)
+                or self.content_backend is not None and not isinstance(self.content_backend, ArtifactContentBackend)):
             raise ServiceError('invalid_artifact_configuration')
         object.__setattr__(self, 'root', Path(self.root).absolute())
         object.__setattr__(self, 'principals', dict(self.principals))
@@ -67,6 +70,8 @@ class ArtifactScope:
     def binding(self):
         value = {'root': str(self.root), 'namespace': self.namespace,
                  'principals': self.principals, 'policy': self.policy.__dict__}
+        if self.content_backend is not None:
+            value["content_backend"] = self.content_backend.descriptor
         return hashlib.sha256(json.dumps(value, sort_keys=True).encode()).hexdigest()
 
     def repository(self, principal, *, readonly=False):
@@ -74,7 +79,7 @@ class ArtifactScope:
         if actor is None:
             raise ServiceError('artifact_unavailable')
         return ArtifactStore(self.root, namespace=self.namespace, principal=actor,
-                             policy=self.policy, readonly=readonly)
+                             policy=self.policy, readonly=readonly, content_backend=self.content_backend)
 
 
 class ArtifactTransferService:

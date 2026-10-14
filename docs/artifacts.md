@@ -1,8 +1,8 @@
 # Artefact exchange
 
-`mas_host.artifacts` supplies immutable, bounded local file exchange for any
-workflow. Messages carry `ArtifactRef.to_dict()` values; bulk content remains in
-the run's private state directory. Each reference contains its namespace,
+`mas_host.artifacts` supplies immutable, bounded artefact exchange for any
+workflow. Messages carry `ArtifactRef.to_dict()` values; bulk content uses local
+files by default or an explicitly configured S3-compatible backend. Each reference contains its namespace,
 content hash, byte count, media type, producer and input hashes. A second hash
 binds those fields and the publication's read grants into an immutable identity.
 References are limited to 8,192 JSON bytes, below the Rust protocol's complete
@@ -42,7 +42,8 @@ whole object in memory or expose unverified bytes to a consumer.
 `verify(reference)` checks integrity without retaining the content in memory.
 `put_stream(stream)` accepts a trusted seekable binary source with two-pass
 hashing. `put_file(path)` streams a regular source file under the per-object limit;
-symlinks, hard links and special files are rejected. No method fetches a URL.
+symlinks, hard links and special files are rejected. A reference never selects a URL;
+only trusted startup configuration selects the content backend.
 
 `inspect(reference)` returns authorised metadata and associated link identities.
 `status()` lists references readable by the principal, its own retention links
@@ -92,8 +93,9 @@ content.
 
 ## Retention and recovery
 
-Place the root at `<run_dir>/artifacts`. Existing deployment backup includes the
-objects and manifests. Repository operations cooperate with the deployment
+Place the root at `<run_dir>/artifacts`. For the local backend, deployment backup
+includes objects and manifests. For S3, it includes metadata, object reservations
+and exact backend identity; the separately protected bucket retains the bytes. Repository operations cooperate with the deployment
 lock, so backup and run pruning cannot overlap publication or reads. Restored
 stores require `readonly=True`; publication and retention changes are rejected
 in audit-only restored deployments.
@@ -111,8 +113,9 @@ store.link("check-task-17", [reference], state="released")
 
 Ordinary `prune_runs` retains a run containing any live or unresolved link and
 blocks deletion when artefact retention metadata cannot be verified. Releasing
-a link does not delete an object. Objects disappear only when the containing
-run becomes eligible for explicit operational retention. Unlinked objects do
+a link does not delete an object. Local objects disappear when the containing run becomes eligible for explicit
+operational retention. S3 objects remain retained in their bucket; run pruning
+does not issue remote deletion commands. Unlinked objects do
 not extend a terminal run's lifetime. Applications remain responsible for
 establishing and releasing links; the store does not infer lifecycle decisions
 from model responses or elapsed time. Composition history also retains its
@@ -120,10 +123,127 @@ referenced run directories through the composition-store retention guard.
 
 Standalone roots can be useful in embedding applications, but they do not
 receive deployment backup or run-retention management automatically. The
-`ArtifactRepository` protocol permits alternative storage implementations;
-the committed backend remains local. Distributed consumers can use the
-authenticated bounded transfer below. This is not an S3-compatible object-store
-backend or a replicated metadata authority.
+`ArtifactRepository` is the common contract used by transfer, context selection
+and workspace consumers. `ArtifactStore` owns grants and reference metadata for
+both content strategies. Distributed consumers use authenticated bounded transfer;
+S3 content storage retains the single-controller metadata ownership model.
+
+
+## S3-compatible content storage
+
+Install the optional, hash-locked SDK profile:
+
+```sh
+python -m pip install --require-hashes -r host/requirements-object-storage.txt
+```
+
+A trusted application selects the backend before constructing its repository:
+
+```python
+from mas_host.s3_artifacts import S3ArtifactContent
+from mas_host.s3_transport import S3ContentConfig
+
+backend = S3ArtifactContent(S3ContentConfig(
+    endpoint="https://s3.eu-west-2.amazonaws.com",
+    bucket="organisation-mas-artifacts",
+    prefix="production",
+    region="eu-west-2",
+    credentials_file=Path("/run/secrets/mas-object-storage.json"),
+))
+store = ArtifactStore(Path(run_dir) / "artifacts", namespace="analysis-v1",
+                      principal="analyst", content_backend=backend)
+```
+
+The credentials file is a private regular file owned by the service user, with
+JSON fields `access_key_id`, `secret_access_key` and optional `session_token`.
+The client reads it when accessing content, allowing credential rotation without
+changing the object binding. Credentials, their path and SDK error bodies never
+enter references, backend descriptors or general diagnostics. Management-only
+inspection needs no SDK or credentials. The client uses the selected region,
+path-style addressing, TLS verification, bounded connection/read timeouts, no
+ambient proxies and no SDK retries. Cross-origin redirects are rejected before
+sending credentials. An optional `ca_file` pins a private CA file by SHA-256.
+Plain HTTP is available only with `allow_loopback_http=True` and a numeric
+loopback endpoint for local tests. Other corporate transport profiles need
+separate qualification.
+
+The metadata owner pins the backend identity, a random repository identity and
+per-content byte reservations in `object-content.json`. No configured backend
+can silently replace an existing local namespace or another object-store
+binding. Publication performs these ordered steps under the namespace lock:
+
+1. Persist the content identity and byte reservation before any upload.
+2. Copy the bounded source to a private snapshot and verify its complete SHA-256.
+3. Conditionally create its derived S3 key with `If-None-Match: *` and SHA-256.
+4. Read the full object back, check exact size/hash, then mark the reservation
+   verified and publish the ordinary immutable reference.
+
+A lost upload response leaves a charged reservation and no usable reference.
+Repeating the same publication uses the same key; an existing key must pass full
+content verification. An existing corrupt object is never overwritten. Different
+principals/grants can reference the same immutable bytes without sharing access.
+Reads authorise against the retained metadata before fetching content and expose
+only a verified disk-backed snapshot. No object listing is needed for admission
+or reads. The backend uses single-object PUT, capped at 5 GiB and the configured
+per-object bound, so it creates no multipart-upload cleanup obligations. Existing
+transfer-session expiry removes incomplete local transfer bytes.
+
+Reserved and verified objects both consume namespace byte/count quota, including
+uploads whose outcome or later metadata commit is uncertain. Reservations are
+not erased automatically. Bucket credentials should permit only the configured
+prefix, and bucket policy should prevent unrelated writers from mutating content.
+The backend deliberately does not delete remote objects during run pruning:
+retain the bucket, its access configuration and local manifests together; retire
+an entire old repository prefix only after its consumers and recovery horizon
+have ended. Do not configure an object expiry shorter than the host's retained
+references. Deleting a retained object causes integrity/read failure, never
+fallback to different bytes or an implicit provider rerun. Backup restoration
+preserves exact object keys and stays audit-only; object-store replication and
+controller failover remain separately qualified deployment responsibilities.
+
+A bridge scope selects the same backend through `content_backend`:
+
+```json
+{
+  "namespace": "analysis-v1",
+  "principals": {"alice": "analyst", "bob": "checker"},
+  "content_backend": {
+    "type": "s3",
+    "endpoint": "https://s3.eu-west-2.amazonaws.com",
+    "bucket": "organisation-mas-artifacts",
+    "prefix": "production",
+    "region": "eu-west-2",
+    "credentials_file": "/run/secrets/mas-object-storage.json"
+  }
+}
+```
+
+Changing the backend invalidates outstanding transfer sessions. Callers continue
+to use the same HTTP/MCP chunk API; they receive no bucket credentials or signed
+storage URLs. The workflow, workspace and scientific-array APIs are unchanged.
+
+Source tests cover byte/grant equivalence with local storage, corrupt/oversized
+reads, lost accepted uploads, metadata-commit crashes, quota preservation,
+rebind rejection, context/workspace use and audit-only restore. A repeatable
+integration harness creates and removes its own disposable bucket:
+
+```sh
+PYTHONPATH=host python scripts/check-object-storage.py --local-rustfs /path/to/rustfs
+# An explicitly authorised isolated remote test account can instead run:
+PYTHONPATH=host python scripts/check-object-storage.py \
+  --endpoint https://objects.test.example --region eu-west-2 \
+  --credentials-file /run/secrets/object-storage-test.json
+```
+
+The local integration passed with RustFS 1.0.1 and boto3/botocore 1.43.114:
+conditional-write recovery after a lost response, complete hash checking,
+authenticated multi-chunk HTTP upload/download, cross-principal denial,
+revocation, restored metadata and server-side corruption rejection. This is
+single-machine source-profile evidence. The deployment's AWS/vendor service,
+TLS/private CA, replication, lifecycle and retained installed images still need
+their declared W17 acceptance. The transport uses the official
+[PutObject conditional-write contract](https://docs.aws.amazon.com/AmazonS3/latest/API/API_PutObject.html)
+and [GetObject response contract](https://docs.aws.amazon.com/AmazonS3/latest/API/API_GetObject.html).
 
 
 ## Authenticated cross-host transfer

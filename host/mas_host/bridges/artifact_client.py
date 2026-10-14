@@ -7,7 +7,7 @@ import json
 from tempfile import TemporaryFile
 import time
 
-from ..artifacts import ArtifactError, ArtifactRef, ArtifactStore
+from ..artifacts import ArtifactError, ArtifactRef, ArtifactRepository
 from ..codec import integer_json
 from ..service_contracts import ServiceError
 from .artifact_transfer import CHUNK_BYTES, OPERATIONS
@@ -103,7 +103,7 @@ class ArtifactTransferClient:
             # TTL bounds abandoned server snapshots, including lost close acks.
             pass
 
-    def materialize(self, scope, reference, repository: ArtifactStore, *, readers=()):
+    def materialize(self, scope, reference, repository: ArtifactRepository, *, readers=()):
         """Verify bytes, then publish a local object and durable source receipt.
 
         The returned live link protects both objects from run retention. The
@@ -150,7 +150,7 @@ class ArtifactTransferClient:
         finally:
             self._close(transfer_id, deadline)
 
-    def publish(self, scope, repository: ArtifactStore, reference, *, readers=()):
+    def publish(self, scope, repository: ArtifactRepository, reference, *, readers=()):
         ref = reference if isinstance(reference, ArtifactRef) else ArtifactRef.from_dict(reference)
         if ref.size > self.max_bytes:
             raise ServiceError('artifact_size_limit')

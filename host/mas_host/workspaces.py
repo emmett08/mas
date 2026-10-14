@@ -19,7 +19,7 @@ import stat
 from types import MappingProxyType
 import uuid
 
-from .artifacts import ArtifactError, ArtifactRef, ArtifactStore
+from .artifacts import ArtifactError, ArtifactRef, ArtifactRepository
 from .codec import canonical_json, integer_json, is_actor_identity
 from .contracts import Invocation, Outcome, RunnerError
 from .executable_worker import ExecutableAdapter, RegisteredProcessExecutor, WorkerSpec
@@ -293,9 +293,9 @@ class WorkspaceTools:
 class WorkspaceManager:
     """Principal-bound input/output management, distinct from worker containment."""
 
-    def __init__(self, root: Path, *, principal: str, artifacts: ArtifactStore):
+    def __init__(self, root: Path, *, principal: str, artifacts: ArtifactRepository):
         self.root, self.principal = Path(root).absolute(), _identity(principal)
-        if not isinstance(artifacts, ArtifactStore) or artifacts.principal != principal:
+        if not isinstance(artifacts, ArtifactRepository) or artifacts.principal != principal:
             raise WorkspaceError("workspace artefact repository principal does not match")
         self.artifacts = artifacts
         with self._mutation():

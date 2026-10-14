@@ -112,7 +112,7 @@ def build_artifact_transfer(config: dict, state_dir: Path):
     scopes = {}
     for name, item in value['scopes'].items():
         if (type(item) is not dict or not {'namespace', 'principals'} <= set(item)
-                or set(item) - {'namespace', 'principals', 'path', 'policy'}):
+                or set(item) - {'namespace', 'principals', 'path', 'policy', 'content_backend'}):
             raise ServiceError('invalid_artifact_configuration')
         relative = item.get('path', 'shared-artifacts/' + name)
         if (type(relative) is not str or not relative or Path(relative).is_absolute()
@@ -122,7 +122,19 @@ def build_artifact_transfer(config: dict, state_dir: Path):
         policy = item.get('policy', {})
         if type(policy) is not dict or set(policy) - set(ArtifactPolicy.__dataclass_fields__):
             raise ServiceError('invalid_artifact_configuration')
+        backend = None
+        if 'content_backend' in item:
+            from .s3_artifacts import S3ArtifactContent
+            from .s3_transport import S3ContentConfig
+            from .artifacts import ArtifactError
+            selected = item['content_backend']
+            if type(selected) is not dict or selected.get('type') != 's3':
+                raise ServiceError('invalid_artifact_configuration')
+            try:
+                backend = S3ArtifactContent(S3ContentConfig(**{key: value for key, value in selected.items() if key != 'type'}))
+            except (ArtifactError, TypeError):
+                raise ServiceError('invalid_artifact_configuration') from None
         scopes[name] = ArtifactScope(Path(state_dir) / relative, item['namespace'],
-                                    item['principals'], ArtifactPolicy(**policy))
+                                    item['principals'], ArtifactPolicy(**policy), content_backend=backend)
     options = {key: item for key, item in value.items() if key != 'scopes'}
     return ArtifactTransferService(Path(state_dir) / 'artifact-transfers', scopes, **options)

@@ -4,7 +4,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from typing import Callable
 
-from .artifacts import ArtifactRef, ArtifactStore
+from .artifacts import ArtifactRef, ArtifactRepository
 from .codec import integer_json, is_actor_identity
 from .workspaces import WorkspaceError
 
@@ -46,7 +46,7 @@ class ContextPolicy:
                 raise WorkspaceError("invalid context budget")
 
 
-def build_context(store: ArtifactStore, references: tuple[ArtifactRef, ...], *,
+def build_context(store: ArtifactRepository, references: tuple[ArtifactRef, ...], *,
                   policy: ContextPolicy, tokeniser: TokenCounter) -> ArtifactRef:
     """Select an ordered whole-item prefix and publish the exact resulting input.
 
@@ -54,7 +54,7 @@ def build_context(store: ArtifactStore, references: tuple[ArtifactRef, ...], *,
     caller must use a tokeniser appropriate to its model and version its changes.
     Reading the returned artefact on recovery supplies the same text and policy.
     """
-    if (not isinstance(store, ArtifactStore) or not isinstance(policy, ContextPolicy)
+    if (not isinstance(store, ArtifactRepository) or not isinstance(policy, ContextPolicy)
             or not isinstance(tokeniser, TokenCounter) or type(references) is not tuple
             or len(references) > 64 or any(not isinstance(ref, ArtifactRef) for ref in references)):
         raise WorkspaceError("invalid context snapshot request")
