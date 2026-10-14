@@ -410,7 +410,7 @@ class WorkerController:
                 if prior["worker"] != principal or prior["payload"] != encoded:
                     raise ServiceError("receipt_conflict")
                 job = db.execute("SELECT binding FROM jobs WHERE call_id=?", (receipt["call_id"],)).fetchone()
-                self._verify_artifacts(principal, json.loads(job["binding"]), receipt)
+                self._verify_artifacts(principal, json.loads(job["binding"]), receipt, retain=False)
                 return {"stored": True, "receipt_id": prior["id"], "authoritative": bool(prior["authoritative"])}
             claim = db.execute("SELECT * FROM claims WHERE fence=? AND call_id=? AND worker=? AND boot=?",
                 (receipt["fence"], receipt["call_id"], principal, receipt["boot"])).fetchone()
@@ -446,7 +446,7 @@ class WorkerController:
                                         if receipt["output_profile"] == ARTIFACT_OUTPUT_PROFILE else {})}), receipt["call_id"]))
             return {"stored": True, "receipt_id": receipt["id"], "authoritative": authoritative}
 
-    def _verify_artifacts(self, principal, binding, receipt):
+    def _verify_artifacts(self, principal, binding, receipt, *, retain=True):
         if receipt["output_profile"] != ARTIFACT_OUTPUT_PROFILE:
             return
         artifacts = receipt["artifacts"]
@@ -472,6 +472,8 @@ class WorkerController:
                 if consumer.verify(ref) is not True:  # Full bytes/hash and consumer grant.
                     raise ArtifactError("artefact content integrity mismatch")
                 groups.setdefault(ref.namespace, (consumer, []))[1].append(ref)
+            if not retain:
+                return  # An acknowledged replay cannot reopen released retention.
             for namespace, (repository, references) in groups.items():
                 # A crash between link and receipt leaves conservative retention.
                 # Retrying the same receipt is idempotent; stale observations are

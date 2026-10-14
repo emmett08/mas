@@ -112,7 +112,12 @@ class DurableOutputTests(unittest.TestCase):
             self.assertTrue(ack["authoritative"])
             self.assertEqual(self.controller.receipt("worker-one", receipt=good), ack)
             self.assertEqual(self.controller.inspect("alice", call_id)["output"], good["output"])
-            self.assertTrue(self.repository("results", "alice").inspect(reference)["links"])
+            store = self.repository("results", "alice")
+            links = store.inspect(reference)["links"]
+            self.assertTrue(links)
+            store.link(links[0], [reference], state="released")
+            self.controller.receipt("worker-one", receipt=good)
+            self.assertEqual(store.status()["links"][links[0]]["state"], "released")
             self.assertEqual(self.controller.evidence("alice", call_id), [good])
             with self.assertRaisesRegex(ServiceError, "receipt conflict"):
                 self.controller.receipt("worker-one", receipt={**good, "evidence": {"changed": True}})
