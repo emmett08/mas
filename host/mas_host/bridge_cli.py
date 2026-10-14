@@ -1,0 +1,139 @@
+"""Run the bridge server, exclusive worker or trusted local MCP stdio endpoint."""
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import os
+from pathlib import Path
+import secrets
+import signal
+import stat
+import sys
+import time
+
+from .bridge_config import load_config, build_service, build_verifier
+from .service_contracts import ServiceError
+
+
+def _private_create(path: Path, data: bytes):
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+    identity = os.fstat(fd)
+    try:
+        with os.fdopen(fd, "wb") as stream:
+            stream.write(data)
+            stream.flush()
+            os.fsync(stream.fileno())
+    except BaseException:
+        _remove_created(path, identity)
+        raise
+    return identity
+
+
+def _remove_created(path: Path, identity):
+    """Rollback only the owned regular file created by this invocation."""
+    try:
+        current = path.lstat()
+        if (stat.S_ISREG(current.st_mode) and current.st_uid == os.geteuid()
+                and (current.st_dev, current.st_ino) == (identity.st_dev, identity.st_ino)):
+            path.unlink()
+    except FileNotFoundError:
+        pass
+
+
+def _auth_destinations(token_file: Path, verifier_file: Path):
+    if token_file.resolve() == verifier_file.resolve():
+        raise ServiceError("invalid_auth_destination")
+    for path in (token_file, verifier_file):
+        if (path.exists() or path.is_symlink() or not path.parent.is_dir()
+                or not os.access(path.parent, os.W_OK | os.X_OK)):
+            raise ServiceError("invalid_auth_destination")
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__)
+    sub = parser.add_subparsers(dest="command", required=True)
+    for name in ("serve", "worker", "stdio"):
+        command = sub.add_parser(name)
+        command.add_argument("--config", type=Path, required=True)
+        command.add_argument("--state-dir", type=Path, required=True)
+        if name == "serve":
+            command.add_argument("--bind", default="127.0.0.1")
+            command.add_argument("--port", type=int, default=8765)
+            command.add_argument("--allow-loopback-http", action="store_true",
+                                 help="explicit local development profile; public URL must be loopback")
+        elif name == "worker":
+            command.add_argument("--once", action="store_true")
+            command.add_argument("--interval", type=float, default=0.25)
+        else:
+            command.add_argument("--principal", required=True)
+    auth = sub.add_parser("init-auth", help="create a private bearer secret and hashed verifier file")
+    auth.add_argument("--token-file", type=Path, required=True)
+    auth.add_argument("--verifier-file", type=Path, required=True)
+    auth.add_argument("--principal", required=True)
+    args = parser.parse_args(argv)
+    try:
+        if args.command == "init-auth":
+            from .bridges.authentication import _principal
+            _principal(args.principal)
+            _auth_destinations(args.token_file, args.verifier_file)
+            token = secrets.token_urlsafe(48)
+            record = {"version": 1, "credentials": [{"sha256": hashlib.sha256(token.encode()).hexdigest(),
+                "principal": args.principal, "scopes": ["mas:submit", "mas:read", "mas:cancel", "mas:update"]}]}
+            token_identity = _private_create(args.token_file, (token + "\n").encode())
+            try:
+                _private_create(args.verifier_file, (json.dumps(record) + "\n").encode())
+            except BaseException:
+                _remove_created(args.token_file, token_identity)
+                raise
+            print(json.dumps({"ok": True, "token_file": str(args.token_file), "verifier_file": str(args.verifier_file)}))
+            return 0
+        config = load_config(args.config)
+        service = build_service(config, args.state_dir)
+        if args.command == "worker":
+            if not 0.01 <= args.interval <= 30:
+                raise ServiceError("invalid_interval")
+            stopping = False
+            def stop(_signal, _frame):
+                nonlocal stopping
+                stopping = True
+            signal.signal(signal.SIGTERM, stop)
+            signal.signal(signal.SIGINT, stop)
+            while not stopping:
+                result = service.run_once()
+                if result is not None:
+                    print(json.dumps({"task_id": result["task_id"], "state": result["state"]}), flush=True)
+                if args.once:
+                    return 0
+                if result is None:
+                    time.sleep(args.interval)
+            return 0
+        from .bridges.mcp import MCPBridge
+        mcp = MCPBridge(service)
+        if args.command == "stdio":
+            from .bridges.server import serve_stdio
+            if args.principal not in config["grants"]:
+                raise ServiceError("forbidden")
+            serve_stdio(mcp, principal=args.principal)
+            return 0
+        from .bridges.a2a import A2ABridge
+        from .bridges.server import BridgeHTTPServer
+        public_url = config.get("public_url", "http://127.0.0.1:8765")
+        a2a = A2ABridge(service, endpoint=public_url + "/a2a", allow_http=args.allow_loopback_http)
+        with BridgeHTTPServer((args.bind, args.port), service=service, verifier=build_verifier(config),
+                              public_url=public_url, mcp_bridge=mcp, a2a_bridge=a2a,
+                              allow_loopback_http=args.allow_loopback_http,
+                              allowed_hosts=config.get("allowed_hosts"),
+                              allowed_origins=config.get("allowed_origins", ())) as server:
+            server.serve_forever()
+        return 0
+    except KeyboardInterrupt:
+        return 130
+    except Exception as error:
+        code = error.code if isinstance(error, ServiceError) else "bridge_failed"
+        print(json.dumps({"ok": False, "error": code}), file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

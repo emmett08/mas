@@ -267,3 +267,63 @@ runner errors. A regression preserves the premature-recovery rejection and
 then verifies one resumed invocation without a duplicate effect. No runtime
 locking behaviour was weakened. The complete local host suite now passes 132
 tests; the new candidate still requires fresh architecture and release gates.
+
+## Whole-PR bridge and provider recheck — 14 October 2026
+
+The review began at PR #11 head
+`0448521633cf7ad8a2c004a511ba463ce5ac3300`, after its three CI workflows had
+passed. All 241 published files matched the local review tree. Six review
+assignments covered all 129 changed paths, including the earlier provider,
+runtime, packaging and security changes. Reviewers checked different implementation
+areas from their original assignments; the coordinating reviewer independently
+reproduced the cancellation failure and inspected the repaired public contracts
+and new model. Passing CI did not prevent the defects below.
+
+| Observed defect | Repair and retained evidence |
+| --- | --- |
+| Cancellation between executor return and service commit left an interrupted task permanently stuck. | Final commit rereads cancellation intent in its transaction; only paused local outcomes become cancelled. Repeated cancellation repairs existing stuck rows; unknown outcomes stay unknown. Deterministic input/auth regressions reproduce the original failure. |
+| The HTTP client lacked metadata and keyset paging required by its advertised service port, while that port also required privileged worker execution. | Public `TaskService`, narrower `TaskLifecycle` and separate `TaskWorker` contracts; real HTTP substitution through A2A, continuation and paging tests. |
+| A valid application result could exceed the smaller enclosing HTTP receipt budget; large pages and metadata filters could fail internally. | Separate bounded wire envelopes, byte-bounded pages with resumable cursors, and a 64-predicate filter limit. Large UTF-8 records and rejection tests exercise these limits. |
+| MCP rejected valid task seeds without detailed state and non-object structured results, but accepted invalid lifecycle acknowledgements. | Separate seed/detail handling, schema-directed JSON values and complete-result checks. Regressions validate against official core and Tasks extension fixtures. |
+| SSE parsing split Unicode separators, accepted incomplete events and waited for stream closure after a complete final response. | CR/LF framing, final-event delimiter checks and bounded completion at the correlated response; a real chunked peer tests response delivery before EOF. |
+| A2A required optional context identity, rejected valid cancellation metadata and returned successful blocking responses for unknown outcomes. | Preserve optional context while rejecting supplied conflicts; accept valid metadata; return a deadline error when blocking work remains unresolved. Official-schema witnesses and durable lifecycle tests cover the repairs. |
+| Two local principals could share an upstream A2A task under one peer credential by submitting the same message ID. | Namespace upstream message/conversation identities from the trusted execution binding; a real-peer regression verifies distinct tasks and that one caller's cancellation cannot affect the other. Changed bindings must not silently retarget existing receipts. |
+| Opaque peer task/context IDs were incorrectly restricted to the alphabet used for local command keys. | Separate bounded UTF-8 peer identifiers from local keys; preserve returned IDs across storage and lifecycle operations. Protocol-schema witnesses include slash and Unicode identifiers. |
+| Combined Cursor job `--audit --result` flags silently omitted the result. | Forward both independent options; offline inspection regression. |
+| Credential initialisation could leave an unusable partial pair after the second file failed. | Prevalidate both destinations and roll back only files created by this invocation; failure/retry and replacement-file preservation tests. |
+| Lost Temporal start replies could reconcile to a continue-as-new successor carrying the same memo. | Resolve and validate the original run identity and its original binding; a real-server regression confirms cancellation does not target its successor. |
+
+The requirements are assessed by behaviour, rather than by counting patterns:
+
+| Requirement | Implementation boundary and evidence |
+| --- | --- |
+| Interchangeable OpenAI, Cursor and deterministic actors | Narrow provider Strategy, validated configuration Factory and SDK Adapters; provider contracts, actual native bridge cleanup and mixed recovery tests. |
+| Durable ingress, recovery and continuation | Principal-scoped request repository, revision-specific execution identity and exclusive worker; Rust-backed replay, cancellation races, continuation conflicts and state/event tests. |
+| MCP and A2A interoperability | Protocol-specific Adapters over the public service; official schema fixtures and actual HTTP/stdio exchanges within the documented profiles. |
+| Durable remote operations and orchestration | Namespaced remote repository, admitted lifecycle commands and exact peer identities; lost-reply, stale observation, SDK and real Temporal-server tests. |
+| Authenticated, bounded deployment | Scope and grant checks, private credentials and bounded transports; owner-isolation, OAuth introspection, network-limit and architecture CI gates. |
+| Maintenance and recovery controls | Stores participate in retention, backup, audit-only restoration and evidenced resolution; unresolved work retains its dependent records. |
+| Formal safety evidence | Finite transport, host, remote-job, service and event models; named defect counterexamples, reachability witnesses and selected action traces replayed against the service. See the model contracts for bounds and assumptions. |
+
+The Facade, Strategy, Adapter, Factory and transactional repository boundaries
+have concrete reasons to vary. The repaired public client is substitutable in
+the exercised consumers, and orchestration code does not require worker powers.
+This supports the selected SOLID design; it is not a claim that every class is
+maximally decoupled. Service construction still chooses concrete storage, and
+maintenance intentionally knows the stores it must preserve. Additional generic
+frameworks or mechanical class splitting would not resolve an observed defect.
+
+Formal checking establishes the stated finite-model properties. It does not
+prove Python or Rust refinement, cryptographic authentication, operating-system
+cleanup, physical storage durability or external-provider behaviour. Shared
+action traces strengthen implementation correspondence without proving all
+execution traces equivalent. Executed local checks and exact-revision CI belong
+in the current acceptance record; credential-dependent live acceptance remains
+separate.
+
+The real Temporal inbound exercise uses a registered workflow and activity
+worker, authenticated HTTP service client, separate exclusive MAS worker and
+actual Rust binaries. Discarding an accepted submission reply triggers an actual
+Temporal activity retry with the same request key and task ID, and produces one
+completed durable invoice task. Outbound real-server checks separately cover
+start, polling, cancellation and original-run recovery after continue-as-new.

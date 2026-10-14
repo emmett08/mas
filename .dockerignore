@@ -1,10 +1,16 @@
 # Allow only the runtime sources into the build context.
 **
 !Dockerfile
+!Dockerfile.cursor
 !docker/
 !docker/alpine-packages.json
+!docker/wolfi-packages.json
+!docker/wolfi-indexes/
+!docker/wolfi-indexes/**
 !scripts/
 !scripts/release-apk.py
+!scripts/release-wolfi.py
+!scripts/install-cursor-runtime.py
 !LICENSE
 !THIRD_PARTY_LICENSE.txt
 !rust-protocol/
@@ -15,12 +21,16 @@
 !host/
 !host/pyproject.toml
 !host/requirements-openai.txt
+!host/requirements-cursor.txt
+!host/requirements-bridges.txt
 !host/requirements-build.txt
 !host/mas_host/
 !host/mas_host/**
 !examples/
 !examples/host/
 !examples/host/mesh.json
+!examples/bridges/
+!examples/bridges/*.json
 **/__pycache__/
 **/*.pyc
 **/.env

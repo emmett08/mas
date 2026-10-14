@@ -1,0 +1,104 @@
+{
+  "base_commit": "c5adf0f558095f3b06b45cb6f751fa3e64724620",
+  "cloud_live_acceptance": "not_executed_missing_credential_and_authorised_repository",
+  "container_acceptance": "Initial revision passed both architectures but failed optional-image security. Repaired revision requires exact-head GitHub Actions acceptance; no local Docker daemon.",
+  "date": "2026-10-14",
+  "initial_ci": {
+    "amd64_conclusion": "success",
+    "architectures": "https://github.com/emmett08/mas/actions/runs/38532999935",
+    "arm64_conclusion": "success",
+    "commit": "0b19ae9061612ceb39f4596186364d99c13ebca1",
+    "dependency_audit_conclusion": "success",
+    "image_audit_conclusion": "failure",
+    "initial_cursor_findings": {
+      "debian_packages": 44,
+      "javascript_packages": 4
+    },
+    "initial_cursor_image_high_findings": 48,
+    "protocol": "https://github.com/emmett08/mas/actions/runs/38532999975",
+    "protocol_conclusion": "success",
+    "security": "https://github.com/emmett08/mas/actions/runs/38532999772",
+    "standard_image_high_critical_findings": 0,
+    "subsequent_repairs": [
+      "Replace SDK Node24.5.0 with verified Node24.21.0",
+      "Remove obsolete Headers compatibility dependencies through verified source repair",
+      "Use pinned Wolfi runtime with signed repository snapshots and package hashes",
+      "Remove unused bootstrap installer payloads; preserve package inventory and enforce runtime absence"
+    ]
+  },
+  "live_acceptance": {
+    "cursor": {
+      "paid_provider_submissions": 0,
+      "run_count": 0,
+      "status": "blocked_missing_credential"
+    },
+    "mixed": {
+      "paid_provider_submissions": 0,
+      "run_count": 0,
+      "status": "blocked_missing_credential"
+    },
+    "openai": {
+      "paid_provider_submissions": 0,
+      "run_count": 0,
+      "status": "blocked_missing_credential"
+    }
+  },
+  "local_checks": {
+    "actionlint": "passed",
+    "bridge_repair": {
+      "architectures_preimages_verified": [
+        "x86_64",
+        "aarch64"
+      ],
+      "native_sdk_lifecycle": "passed",
+      "patch": "native-headers/1",
+      "regressions_passed": 10
+    },
+    "cargo_fmt": "pre-existing repository-wide differences; no formatting gate added",
+    "compose_configuration": "passed",
+    "dependency_locks": "passed",
+    "host_tests": {
+      "cursor_sdk": "1.0.37",
+      "node_runtime": "24.21.0",
+      "openai_sdk": "3.29.0",
+      "passed": 208,
+      "python": "3.14.8",
+      "skipped": 0
+    },
+    "mock_deployment": {
+      "elapsed_ms": 595,
+      "error_count": 0,
+      "ok": true,
+      "run_count": 12,
+      "success_count": 12
+    },
+    "release_helper_tests": {
+      "passed": 32
+    },
+    "rust_tests": {
+      "passed": 48,
+      "toolchain": "1.99.0"
+    },
+    "spin": {
+      "all_passed": true,
+      "cases": 54,
+      "cursor_no_reduction_transitions": 48051,
+      "cursor_states": 24927,
+      "cursor_transitions": 39457,
+      "expected_counterexamples": 20,
+      "positive_checks": 62
+    },
+    "wolfi_packages": {
+      "expected_final_os_inventory": 35,
+      "missing_signing_key": "rejected_without_installation",
+      "packages_per_architecture": 33,
+      "signed_offline_install": [
+        "x86_64",
+        "aarch64"
+      ]
+    }
+  },
+  "schema": "mas-cursor-acceptance/1",
+  "scope": "Offline implementation and finite-model evidence only; no live account, provider billing, remote cancellation or unrestricted correctness claim.",
+  "source_manifest_sha256": "9c19dc68a4479e48776d9103e67abc00df71720e3ecaa91dc01ce4d14a801fc4"
+}

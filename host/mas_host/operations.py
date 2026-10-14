@@ -20,7 +20,7 @@ import tempfile
 import time
 import uuid
 
-from .schema import JOURNAL, LEDGER, SchemaError, connect, validate
+from .schema import JOBS, JOURNAL, LEDGER, SchemaError, connect, validate
 
 
 class OperationsError(RuntimeError):
@@ -103,7 +103,17 @@ def _db(path: Path, readonly: bool = False):
     connection = sqlite3.connect(path.as_uri() + "?mode=ro", uri=True, timeout=10) if readonly else sqlite3.connect(path, timeout=10)
     connection.row_factory = sqlite3.Row
     try:
-        known = {"deployment.sqlite": LEDGER, "host.sqlite": JOURNAL}.get(path.name)
+        known = {"deployment.sqlite": LEDGER, "host.sqlite": JOURNAL,
+                 "cursor-jobs.sqlite": JOBS}.get(path.name)
+        # Import boundary repositories only when inspected. Their runtime
+        # services use the operational locks, so importing them at module load
+        # would introduce a circular dependency.
+        if path.name == "task-service.sqlite":
+            from .task_store import SERVICE
+            known = SERVICE
+        elif path.name == "remote-tasks.sqlite":
+            from .bridges.remote import REMOTE_TASKS
+            known = REMOTE_TASKS
         if known and existed:
             validate(connection, known)
     except SchemaError as error:
@@ -186,6 +196,15 @@ class DeploymentLedger:
     def admission_enabled(self) -> bool:
         with _db(self.path, readonly=True) as db:
             return self._admission_enabled(db)
+
+    @property
+    def deployment_id(self) -> str:
+        """Read identity without scanning unrelated operational repositories."""
+        with _db(self.path, readonly=True) as db:
+            row = db.execute("SELECT value FROM metadata WHERE key='deployment_id'").fetchone()
+            if row is None:
+                raise OperationsError("deployment identity is missing")
+            return row[0]
 
     def _admission_enabled(self, db: sqlite3.Connection) -> bool:
         row = db.execute("SELECT value FROM metadata WHERE key='admission_state'").fetchone()
@@ -274,6 +293,9 @@ class DeploymentLedger:
         return {"deployment_id": identity, "policy": asdict(self.policy), "usage": usage,
                 "admission_state": "active" if enabled else "restored_audit_only",
                 "retained_runs": retained, "state_bytes": size, "free_bytes": free,
+                "cursor_jobs": cursor_job_counts(self.state_dir),
+                "task_service": task_service_counts(self.state_dir),
+                "remote_tasks": remote_task_counts(self.state_dir),
                 "admission_open": enabled and usage["runs"] < self.policy.max_runs and usage["calls"] < self.policy.max_calls
                 and usage["reserved_microusd"] < self.policy.max_reserved_microusd
                 and size < self.policy.max_state_bytes and free >= self.policy.min_free_bytes,
@@ -284,6 +306,105 @@ def retained_runs(state_dir: Path) -> list[dict]:
     state_dir = _private_dir(Path(state_dir))
     with _db(state_dir / "deployment.sqlite", readonly=True) as db:
         return [dict(row) for row in db.execute("SELECT * FROM runs WHERE purged_at IS NULL ORDER BY admitted_at,run_id")]
+
+
+def cursor_job_counts(state_dir: Path) -> dict[str, int]:
+    """Inspect local job observations without implying a fresh provider scan."""
+    counts = {state: 0 for state in ("prepared", "launch_unknown", "active", "terminal")}
+    path = state_dir / "cursor-jobs.sqlite"
+    if path.exists():
+        with _db(path, readonly=True) as db:
+            for state, count in db.execute("SELECT state,count(*) FROM jobs GROUP BY state"):
+                if state not in counts:
+                    raise OperationsError("unrecognised durable cloud job state")
+                counts[state] = count
+    return counts
+
+
+def _pending_cloud_job(directory: Path) -> bool:
+    """Retain a submission's host evidence while its remote job is unresolved."""
+    path = directory.parent / "cursor-jobs.sqlite"
+    if not path.exists():
+        return False
+    with _db(path, readonly=True) as db:
+        references = db.execute("SELECT host_run_dir FROM jobs WHERE state!='terminal' AND host_run_dir IS NOT NULL")
+        return any(_references_run(reference[0], directory) for reference in references)
+
+
+_TASK_STATES = ("queued", "running", "input_required", "auth_required", "unknown",
+                "completed", "failed", "cancelled")
+_TASK_TERMINAL = ("completed", "failed", "cancelled")
+
+
+def task_service_counts(state_dir: Path) -> dict:
+    """Read durable ingress observations; no scheduler or network activity."""
+    counts = {state: 0 for state in _TASK_STATES}
+    path = state_dir / "task-service.sqlite"
+    if path.exists():
+        with _db(path, readonly=True) as db:
+            for state, count in db.execute("SELECT state,count(*) FROM tasks GROUP BY state"):
+                if state not in counts:
+                    raise OperationsError("unrecognised durable task state")
+                counts[state] = count
+    return counts
+
+
+def remote_task_counts(state_dir: Path) -> dict:
+    """Report retained observations and uncertain lifecycle effects separately."""
+    counts = {state: 0 for state in _TASK_STATES}
+    pending_actions = unknown_operations = 0
+    path = state_dir / "remote-tasks.sqlite"
+    if path.exists():
+        with _db(path, readonly=True) as db:
+            for state, count in db.execute("SELECT state,count(*) FROM remote_tasks GROUP BY state"):
+                if state not in counts:
+                    raise OperationsError("unrecognised remote task state")
+                counts[state] = count
+            pending_actions = db.execute("SELECT count(*) FROM remote_tasks WHERE pending_action IS NOT NULL").fetchone()[0]
+            for state, count in db.execute("SELECT state,count(*) FROM operations GROUP BY state"):
+                if state not in ("unknown", "completed"):
+                    raise OperationsError("unrecognised remote operation state")
+                if state == "unknown":
+                    unknown_operations = count
+    return {"states": counts, "pending_actions": pending_actions, "unknown_operations": unknown_operations}
+
+
+def _references_run(reference: str, directory: Path) -> bool:
+    """Resolve evidence references only within the deployment being inspected.
+
+    New bridge stores use direct-child relative names. Cursor's earlier format
+    keeps absolute paths; on an audit-only restore its unchanged evidence still
+    protects the corresponding copied run, without opening the source path.
+    """
+    if type(reference) is not str or not reference:
+        raise OperationsError("unsafe durable run reference")
+    path = Path(reference)
+    if not path.is_absolute():
+        if path.name != reference or reference in ("", ".", ".."):
+            raise OperationsError("unsafe durable run reference")
+        return reference == directory.name
+    if path.parent == directory.parent:
+        return path == directory
+    if (directory.parent / ".restored-audit-only").is_file():
+        return path.name == directory.name
+    raise OperationsError("durable run reference belongs to another deployment")
+
+
+def _pending_bridge_task(directory: Path) -> bool:
+    """Retain every revision used by unresolved ingress or remote work."""
+    service = directory.parent / "task-service.sqlite"
+    if service.exists():
+        with _db(service, readonly=True) as db:
+            references = db.execute("SELECT executions.run_directory FROM executions JOIN tasks ON tasks.id=executions.task_id WHERE tasks.state NOT IN ('completed','failed','cancelled')")
+            if any(_references_run(row[0], directory) for row in references):
+                return True
+    remote = directory.parent / "remote-tasks.sqlite"
+    if remote.exists():
+        with _db(remote, readonly=True) as db:
+            references = db.execute("SELECT host_run_dir FROM remote_tasks WHERE state NOT IN ('completed','failed','cancelled') OR pending_action IS NOT NULL UNION SELECT host_run_dir FROM operations WHERE state!='completed'")
+            if any(_references_run(row[0], directory) for row in references):
+                return True
+    return False
 
 
 def reconcile_run(run_dir: Path, mas_bin: str = "mas", timeout: float = 10) -> dict:
@@ -325,7 +446,19 @@ def _reconcile_state(state_dir: Path, mas_bin: str = "mas") -> dict:
             results.append({"ok": True, **reconcile_run(path, mas_bin)})
         except (OperationsError, sqlite3.Error) as error:
             results.append({"ok": False, "run_id": run["run_id"], "error": str(error) if isinstance(error, OperationsError) else "run database unavailable"})
-    return {"ok": all(item["ok"] for item in results), "runs": results}
+    # The local watcher cannot claim a fresh remote observation: only an
+    # admitted protocol client can perform that operation. It still verifies
+    # these durable repositories so corruption is not reported as healthy.
+    try:
+        bridge_observations = {"ok": True, "remote_refreshed": False,
+                               "task_service": task_service_counts(state_dir),
+                               "remote_tasks": remote_task_counts(state_dir),
+                               "cursor_jobs": cursor_job_counts(state_dir)}
+    except (OperationsError, sqlite3.Error):
+        bridge_observations = {"ok": False, "remote_refreshed": False,
+                               "error": "durable bridge state cannot be verified"}
+    return {"ok": all(item["ok"] for item in results) and bridge_observations["ok"],
+            "runs": results, "bridge_observations": bridge_observations}
 
 
 def _empty_destination(destination: Path) -> Path:
@@ -489,6 +622,10 @@ def prune_runs(state_dir: Path, older_than_seconds: int, apply: bool = False) ->
                     latest_change = max([run["admitted_at"], *[path.stat().st_mtime for path in directory.rglob("*") if path.is_file() and not path.name.endswith(".lock")]])
                     if latest_change > time.time() - older_than_seconds:
                         result["reason"] = "retention age not reached"
+                    elif _pending_cloud_job(directory):
+                        result["reason"] = "active or unresolved external cloud job retained"
+                    elif _pending_bridge_task(directory):
+                        result["reason"] = "active or unresolved bridge task or operation retained"
                     elif not _terminal_run(directory):
                         result["reason"] = "open tasks, incomplete journal or unresolved invocations retained"
                     else:

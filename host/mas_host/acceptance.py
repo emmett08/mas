@@ -19,8 +19,10 @@ import sqlite3
 import tempfile
 import time
 
-from .demo import DEFAULT_TOPOLOGY, _api_key, run_demo
-from .providers import MockProvider, OpenAIProvider, ProviderError
+from .demo import DEFAULT_TOPOLOGY, run_demo
+from .providers import MockProvider, ProviderError
+from .provider_config import (CredentialError, create_providers, load_provider_configs,
+                              selected_mode, selected_models)
 
 
 def _job(options: dict) -> dict:
@@ -125,42 +127,40 @@ def run_acceptance(*, state_dir: str | Path, runs: int = 12, concurrency: int = 
 
 
 def run_live_acceptance(*, state_dir: str | Path, mas_bin: str = "mas",
-                        gateway_bin: str = "mas-gateway") -> dict:
-    """Explicit two-call provider smoke test; credentials remain in the host.
+                        gateway_bin: str = "mas-gateway", mode: str = "openai") -> dict:
+    """Explicit two-submission provider smoke test; credentials remain in the host.
 
     Reservation limits record declared exposure. They do not establish the
     provider's actual invoice or protect against changes to provider prices.
     """
     started = time.monotonic()
-    base = {"schema": "mas-deployment-acceptance/1", "mode": "openai",
+    base = {"schema": "mas-deployment-acceptance/1", "mode": mode,
             "started_at": datetime.now(timezone.utc).isoformat(),
             "workload": {"name": "invoice-mesh", "maximum_runs": 1, "concurrency": 1,
-                         "maximum_provider_calls": 2},
-            "scope": "One live invoice check; no capacity, general accuracy or cancellation claim."}
+                         "maximum_provider_submissions": 2},
+            "provider_internal_requests": "not_measured",
+            "scope": "One live invoice check; no capacity, general accuracy, invoice ceiling or cancellation claim."}
     try:
-        key = _api_key()
-    except ProviderError:
+        configs = load_provider_configs(mode)
+        if any(config.provider == "mock" for config in configs.values()):
+            raise ProviderError("live acceptance requires two live providers")
+        base["mode"] = selected_mode(configs)
+        providers = create_providers(configs)
+    except CredentialError:
         return {**base, "ok": False, "status": "blocked_missing_credential",
-                "run_count": 0, "paid_provider_calls": 0}
+                "run_count": 0, "paid_provider_calls": 0, "paid_provider_submissions": 0}
+    except (ProviderError, ValueError):
+        return {**base, "ok": False, "status": "blocked_provider_configuration",
+                "run_count": 0, "paid_provider_calls": 0, "paid_provider_submissions": 0}
     from .operations import DeploymentLedger
     ledger = DeploymentLedger(Path(state_dir))
     before = ledger.health()
-    models = {"planner": os.environ.get("MAS_PLANNER_MODEL", "gpt-4.1-mini"),
-              "reviewer": os.environ.get("MAS_REVIEWER_MODEL", "gpt-4o-mini"), "checker": "python"}
-    try:
-        reservation = int(os.environ.get("MAS_CALL_RESERVATION_MICROUSD", "100000"))
-        planner = OpenAIProvider(models["planner"], "planner", api_key=key,
-                                 reservation_microusd=reservation)
-        reviewer = OpenAIProvider(models["reviewer"], "reviewer", api_key=key,
-                                  reservation_microusd=reservation)
-    except (ProviderError, ValueError):
-        return {**base, "ok": False, "status": "blocked_provider_configuration",
-                "run_count": 0, "paid_provider_calls": 0,
-                "deployment_before": before, "deployment_after": ledger.health()}
+    models = selected_models(configs)
+    base["providers"] = {role: config.provider for role, config in configs.items()}
     try:
         report = run_demo(topology=DEFAULT_TOPOLOGY, state_dir=state_dir,
-                          planner_provider=planner, reviewer_provider=reviewer,
-                          mode="openai", models=models, mas_bin=mas_bin, gateway_bin=gateway_bin)
+                          planner_provider=providers["planner"], reviewer_provider=providers["reviewer"],
+                          mode=base["mode"], models=models, mas_bin=mas_bin, gateway_bin=gateway_bin)
     except Exception:
         return {**base, "ok": False, "status": "execution_interrupted",
                 "outcome": "unknown", "models": models,
@@ -178,7 +178,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--runs", type=int, default=12)
     parser.add_argument("--concurrency", type=int, default=3)
     parser.add_argument("--soak-seconds", type=int, default=0)
-    parser.add_argument("--live", action="store_true", help="explicitly permit one live OpenAI mesh smoke test")
+    parser.add_argument("--live", action="store_true", help="explicitly permit one live two-provider mesh smoke test")
+    parser.add_argument("--provider-mode", choices=("openai", "cursor", "mixed"), default="openai",
+                        help="live provider defaults; per-role MAS_*_PROVIDER settings override them")
     parser.add_argument("--state-dir", help="persistent deployment directory; required for live mode, optional for mock mode")
     parser.add_argument("--report", type=Path, help="write the public JSON evidence report")
     args = parser.parse_args(argv)
@@ -194,7 +196,7 @@ def main(argv: list[str] | None = None) -> int:
                  "mas_bin": os.environ.get("MAS_BIN", "mas"),
                  "gateway_bin": os.environ.get("MAS_GATEWAY_BIN", "mas-gateway")}
         if args.live:
-            report = run_live_acceptance(**paths)
+            report = run_live_acceptance(**paths, mode=args.provider_mode)
         else:
             report = run_acceptance(**paths, runs=args.runs, concurrency=args.concurrency,
                                     soak_seconds=args.soak_seconds)

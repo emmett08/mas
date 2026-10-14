@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import ctypes
 import errno
+import gc
 import os
 import select
 import signal
@@ -18,6 +19,12 @@ from typing import Callable
 
 def _close_inherited(keep: set[int]) -> None:
     """Drop copied host descriptors without running host cleanup/unlock code."""
+    # Fork copied Python owners as well as their descriptor numbers. After a
+    # raw close, collecting an inherited file/SQLite cycle could close a number
+    # already reused for an adapter lock or socket. Keep inherited tracked
+    # objects out of child collections; new adapter objects remain collectable.
+    # Both children exit with os._exit, so inherited finalisers never run there.
+    # Freezing is child-local and leaves the host's GC policy unchanged.
     for name in os.listdir("/proc/self/fd"):
         descriptor = int(name)
         if descriptor > 2 and descriptor not in keep:
@@ -71,6 +78,7 @@ def _guardian(lifetime: int, channel: int, target: Callable[[], None], deadline:
                                                {signal.SIGTERM, signal.SIGINT, signal.SIGHUP})
         worker = os.fork()
         if worker == 0:
+            gc.freeze()
             try:
                 _close_inherited({channel})
                 os.setsid()
@@ -118,6 +126,7 @@ class ProcessGroup:
             os.close(writer)
             raise
         if guardian == 0:
+            gc.freeze()
             _guardian(reader, channel, target, deadline, ownership)
         os.close(reader)
         self._guardian = guardian

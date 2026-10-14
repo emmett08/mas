@@ -8,11 +8,13 @@ import os
 from pathlib import Path
 from typing import Any
 
-from .providers import (MockProvider, OpenAIProvider, ProviderError, TotalProvider,
+from .providers import (ProviderError, TotalProvider,
                         _reject_number, _unique_object, exact_total, provider_binding,
                         validate_invoice, validate_total)
 from .contracts import AdapterContext, Outcome, TaskRequest
 from .runner import Runner
+from .provider_config import (create_providers, load_provider_configs,
+                              selected_mode, selected_models)
 
 DEFAULT_INVOICE = [
     {"item": "Notebook", "quantity": 2, "unit_cents": 1299},
@@ -139,6 +141,8 @@ def run_demo(*, topology: dict[str, Any], state_dir: str | Path,
             "result": outcome.output if outcome is not None else {},
             "status": status, "events": runner.events, "report_path": str(report_path),
             "workflow_version": workflow_version, "supervised": supervised,
+            "providers": {role: value["provider"] for role, value in binding.items() if role != "checker"},
+            "invocation_unit": "provider_submission; SDK internal requests are not counted",
             "scope": "Logical peer mesh over one Rust/SQLite broker; Python checker validates this invoice only.",
         }
         if outcome is None:
@@ -146,20 +150,6 @@ def run_demo(*, topology: dict[str, Any], state_dir: str | Path,
         report_path.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
         report_path.chmod(0o600)
         return report
-
-
-def _api_key() -> str:
-    key_file = os.environ.get("OPENAI_API_KEY_FILE")
-    if key_file:
-        try:
-            key = Path(key_file).read_text(encoding="utf-8").strip()
-        except (OSError, UnicodeError):
-            raise ProviderError("could not read OPENAI_API_KEY_FILE") from None
-    else:
-        key = os.environ.get("OPENAI_API_KEY", "").strip()
-    if not key or len(key) > 4096 or any(character.isspace() for character in key):
-        raise ProviderError("OpenAI mode requires a valid OPENAI_API_KEY_FILE or OPENAI_API_KEY")
-    return key
 
 
 def _load_json(path: str) -> Any:
@@ -173,27 +163,19 @@ def _load_json(path: str) -> Any:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--mode", choices=("mock", "openai"), default=os.environ.get("MAS_MODE", "mock"))
+    parser.add_argument("--mode", choices=("mock", "openai", "cursor", "mixed"), default=os.environ.get("MAS_MODE", "mock"))
     parser.add_argument("--state-dir", default=os.environ.get("MAS_STATE_DIR", ".mas-state"))
     parser.add_argument("--topology", default=os.environ.get("MAS_TOPOLOGY"), help="topology JSON; default is the bundled three-peer mesh")
     parser.add_argument("--invoice", default=os.environ.get("MAS_INVOICE"), help="JSON array of integer-cent invoice lines")
     parser.add_argument("--resume", help="resume an existing private run directory with the same inputs and model bindings")
     args = parser.parse_args(argv)
     try:
-        if args.mode not in {"mock", "openai"}:
-            raise ValueError("MAS_MODE must be mock or openai")
         topology = _load_json(args.topology) if args.topology else DEFAULT_TOPOLOGY
         invoice = _load_json(args.invoice) if args.invoice else DEFAULT_INVOICE
-        if args.mode == "openai":
-            key = _api_key()
-            models = {"planner": os.environ.get("MAS_PLANNER_MODEL", "gpt-4.1-mini"),
-                      "reviewer": os.environ.get("MAS_REVIEWER_MODEL", "gpt-4o-mini"), "checker": "python"}
-            reservation = int(os.environ.get("MAS_CALL_RESERVATION_MICROUSD", "100000"))
-            planner_provider = OpenAIProvider(models["planner"], "planner", api_key=key, reservation_microusd=reservation)
-            reviewer_provider = OpenAIProvider(models["reviewer"], "reviewer", api_key=key, reservation_microusd=reservation)
-        else:
-            models = {"planner": "mock", "reviewer": "mock", "checker": "python"}
-            planner_provider, reviewer_provider = MockProvider("planner"), MockProvider("reviewer")
+        configs = load_provider_configs(args.mode)
+        providers = create_providers(configs)
+        models, args.mode = selected_models(configs), selected_mode(configs)
+        planner_provider, reviewer_provider = providers["planner"], providers["reviewer"]
         print(f"MAS mesh: planner={models['planner']}, reviewer={models['reviewer']}, checker=python ({args.mode})")
         report = run_demo(topology=topology, state_dir=args.state_dir, planner_provider=planner_provider,
                           reviewer_provider=reviewer_provider, invoice=invoice, mode=args.mode, models=models,

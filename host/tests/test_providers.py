@@ -3,8 +3,10 @@ from __future__ import annotations
 
 import json
 import importlib.util
+import os
 from types import SimpleNamespace
 import unittest
+from unittest.mock import patch
 
 from mas_host.providers import (MAX_TOTAL_CENTS, MockProvider, OpenAIProvider, ProviderError,
                                 exact_total, provider_binding, validate_invoice, validate_total)
@@ -182,6 +184,15 @@ class ProviderContractTests(unittest.TestCase):
         self.assertEqual(json.loads(client.calls[0]["input"][1]["content"])["invoice"], malicious)
         with self.assertRaises(ValueError):
             OpenAIProvider("model\nsecret", "planner", client=object())
+
+    @unittest.skipUnless(importlib.util.find_spec("openai"), "install optional OpenAI SDK for offline HTTP contract test")
+    def test_ambient_endpoint_cannot_change_frozen_openai_binding(self):
+        with patch.dict(os.environ, {"OPENAI_BASE_URL": "https://unintended.example/v1"}, clear=True):
+            provider = OpenAIProvider("gpt-4.1-mini", "planner", api_key="offline-dummy-key")
+        try:
+            self.assertEqual(str(provider._client.base_url), "https://api.openai.com/v1/")
+        finally:
+            provider._client.close()
 
     @unittest.skipUnless(importlib.util.find_spec("openai"), "install optional OpenAI SDK for offline HTTP contract test")
     def test_real_sdk_with_offline_http_transport(self):

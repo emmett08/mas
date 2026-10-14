@@ -42,7 +42,9 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Build pinned image
-        run: docker compose build
+        run: |
+          docker compose build
+          docker build -f Dockerfile.cursor -t mas-mesh-cursor:local .
       - name: Scan image including unfixed high and critical advisories
         uses: aquasecurity/trivy-action@c03d123cb480c08c69b054af418ea5e69fe6e57e
         with:
@@ -62,6 +64,26 @@ jobs:
           image-ref: mas-mesh:local
           format: cyclonedx
           output: image-sbom.cdx.json
+      - name: Scan optional Cursor image including native bridge dependencies
+        if: always()
+        uses: aquasecurity/trivy-action@c03d123cb480c08c69b054af418ea5e69fe6e57e
+        with:
+          version: v0.75.0
+          image-ref: mas-mesh-cursor:local
+          scanners: vuln
+          severity: HIGH,CRITICAL
+          ignore-unfixed: 'false'
+          exit-code: '1'
+          format: json
+          output: cursor-image-audit.json
+      - name: Produce optional Cursor image SBOM
+        if: always()
+        uses: aquasecurity/trivy-action@c03d123cb480c08c69b054af418ea5e69fe6e57e
+        with:
+          version: v0.75.0
+          image-ref: mas-mesh-cursor:local
+          format: cyclonedx
+          output: cursor-image-sbom.cdx.json
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
@@ -69,3 +91,5 @@ jobs:
           path: |
             image-audit.json
             image-sbom.cdx.json
+            cursor-image-audit.json
+            cursor-image-sbom.cdx.json

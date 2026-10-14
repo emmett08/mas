@@ -55,6 +55,10 @@ JOURNAL = Schema("host journal", 0x4D41534A, 1, ((0, 0),), (
     "CREATE TABLE invocations(call_id TEXT PRIMARY KEY,step_key TEXT NOT NULL,actor TEXT NOT NULL,state TEXT NOT NULL,output TEXT,evidence TEXT,reservation_microusd INTEGER)",
     "CREATE TABLE resolutions(id INTEGER PRIMARY KEY,call_id TEXT NOT NULL,decision TEXT NOT NULL,evidence TEXT NOT NULL,created INTEGER NOT NULL)",
 ))
+JOBS = Schema("Cursor jobs", 0x4D415343, 1, (), (
+    "CREATE TABLE jobs(job_id TEXT PRIMARY KEY,spec TEXT NOT NULL,binding TEXT NOT NULL,agent_id TEXT UNIQUE NOT NULL,run_id TEXT UNIQUE,state TEXT NOT NULL,snapshot TEXT,host_run_dir TEXT,call_id TEXT,cancel_requested INTEGER NOT NULL DEFAULT 0,created INTEGER NOT NULL,updated INTEGER NOT NULL)",
+    "CREATE TABLE audit(id INTEGER PRIMARY KEY,job_id TEXT NOT NULL,event TEXT NOT NULL,evidence TEXT NOT NULL,created INTEGER NOT NULL)",
+))
 
 
 def validate(db: sqlite3.Connection, schema: Schema) -> bool:

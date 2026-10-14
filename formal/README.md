@@ -1,9 +1,18 @@
-# Finite transport model
+# Finite transport, recovery and bridge models
 
 This model applies Holzmann's separation of service, environment, vocabulary,
 representation and exchange rules to the durable local message bus. It checks
 transport behaviour. It does not model an LLM, establish message truth, verify a
 task result, or establish exactly-once application effects.
+
+The same checker also runs separate host-recovery, Cursor-job and durable-bridge
+models. Each has its own state variables, assumptions and implementation mapping;
+none expands the transport model's scope implicitly. The original bridge-extension
+run contained 67 cases and 95 checks. The subsequent adversarial audit adds a
+local task-service model, named reachability witnesses and selected shared
+implementation traces. Consult the current evidence summary for the exact run
+counts; positive safety checks, deliberate defects, reachability witnesses and
+liveness assumption failures are distinct evidence categories.
 
 ## Reproduce
 
@@ -32,7 +41,8 @@ instance with one outstanding slot per mailbox exercises capacity rejection.
 Both special cases receive bounded checks and unlimited-fault safety checks.
 
 The suite also checks task lifecycle, transaction recovery and host expiry
-safety, plus [host checkpoint recovery](host-recovery-notes.md). Eleven isolated defects must produce replayable counterexamples: early
+safety, plus [host checkpoint recovery](host-recovery-notes.md). Those core
+models contain eleven isolated defects that must produce replayable counterexamples: early
 acknowledgement, forbidden routing, a permanently disabled acknowledgement,
 duplicate task terminals, partial pre-commit persistence, duplicate insertion
 following a lost commit response, expiry overwriting an existing terminal, uncharged host dispatch, unknown-attempt
@@ -244,3 +254,61 @@ clock behaviour or eventual host invocation is proved. If all host activity
 stops, reconciliation need not occur. Expiry records unresolved external work;
 it is distinct from a successful result, an application failure, a cancellation
 that demonstrably stopped effects, or successful delivery of an acknowledgement.
+
+The optional provider extension adds a separate [Cursor durable-job model](cursor-jobs-notes.md). It checks dispatch and recovery safety without claiming provider liveness, billing bounds or correctness of generated repository work.
+
+## Durable bridge service and event history
+
+The [bridge model contract](bridge-notes.md) specifies three additional models.
+`bridge-service.pml` combines one principal-scoped ingress key with one outbound
+operation to test duplicate/conflicting submissions, admission before dispatch,
+lost-receipt recovery, cancellation intent and stale terminal observations.
+SQLite commits are atomic; dispatch and receipt persistence are separate steps.
+Its finite scenario contains one principal, one key, two payload values, three
+submissions, one restart and two observations. Authentication itself is assumed
+at this boundary and is tested separately in the implementation.
+
+`bridge-events.pml` checks atomic task/event commits, bounded task admission and
+reads of committed event history across a reader restart. It uses two tasks,
+three events and two reads; three events is the scenario size, not a claimed
+implementation storage cap. The caller stores its own cursor and can reread
+after a lost response. The model does not posit server acknowledgements,
+exactly-once consumption or guaranteed push delivery.
+
+Both models run with and without partial-order reduction and sample seeds 17,
+29 and 53. Ten isolated defects must fail: duplicate receipt creation,
+replacement of accepted content, unadmitted dispatch, replay of an unknown
+effect, premature cancellation confirmation, stale terminal overwrite, lost
+event commit, inbox overflow, exposure of an uncommitted event and advancing a
+cursor after a lost, unobserved page. The normal
+searches check assertions and invalid end states. They make no progress claim:
+active and unknown work may remain unresolved when the host or peer stops.
+
+`task-service.pml` separates local task state from remote lifecycle state. It
+models two principals sharing a key, one task per principal, one scheduled task
+with two revisions, two update keys, one worker and one crash. Atomic API
+transactions interleave with separate worker claim, reply and final-commit
+steps. It checks receipt ownership, stable accepted content, unique execution
+registration, current-revision commits, late cancellation of paused work and
+atomic lifecycle events. The second task's lifecycle is covered by a selected
+shared trace, rather than by the exhaustive concurrent schedule.
+
+The local model runs with and without reduction. Four mutations target specific
+guards; five separate witnesses establish that both owners, late cancellation,
+continuation, unknown recovery and foreign rejection are reachable. Cursor,
+bridge and local-service mutations must replay at their named assertion; an
+unrelated assertion failure cannot satisfy those checks.
+
+The verifier and `test_task_service_conformance.py` both consume
+`host/tests/fixtures/task-service-traces.json`: 11 selected traces and 77 observed
+steps. The verifier generates executions of the same Promela transition inlines;
+the test checks the real service and SQLite repository with a controlled executor.
+This establishes finite trace correspondence for the specified observations,
+not unrestricted trace inclusion or a refinement proof. Host checkpoint recovery,
+fixed grants and remote-store separation remain explicit model assumptions.
+
+Protocol versions, HTTP/stdio framing, authentication, process ownership, storage
+restoration and SDK behaviour remain implementation-test obligations. No formal
+refinement proof connects all Python, Rust, SQLite or external peer executions
+to these finite models. See the model contract for the requirement-to-property
+mapping and the limits of this bounded sufficiency claim.

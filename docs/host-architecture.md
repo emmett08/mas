@@ -37,6 +37,17 @@ before writes.
 | Journal and deployment repositories | Own their distinct schema identities, validated migrations and durable records. |
 | Reconciler monitor | Report a fresh, successful scan by a live watcher independently of admission headroom. |
 | Provider binding | Require explicit effect identity and spending allocation before admission. |
+| `provider_config.py` | Validate per-role provider settings and secrets, then construct only the selected implementations. |
+| OpenAI and Cursor local providers | Adapt their respective SDKs to the narrow invoice-total contract. |
+| `CursorCloudClient` | Bounded, non-retrying HTTP operations against the fixed Cursor Cloud API origin. |
+| `JobStore` and `DurableJobService` | Persist remote-job intent, correlate exact identities, serialise observations and retain reconciliation evidence. |
+| `CursorCloudJobAdapter` | Admit a repository-job submission through the existing runner and return its durable receipt. |
+| `DurableTaskService` and `TaskStore` | Bind principal-scoped request keys to immutable submissions, serialise execution revisions and commit task events with state changes. |
+| `RunnerExecutor` and `ExecutionBinding` | Assign one run/root request to each revision and construct adapters from trusted principal, workflow and run identity. |
+| HTTP/stdio boundary and token verifiers | Bound incoming requests, authenticate callers and enforce scopes before invoking the task service. |
+| MCP and A2A adapters | Convert the declared protocol profile into task-service operations or admitted remote-client operations. |
+| `RemoteTaskService` and `RemoteTaskStore` | Persist namespaced remote intent and exact peer identities, distinguish observations from uncertain effects, and retain resolution evidence. |
+| Temporal and LangGraph connectors | Derive stable request identities from framework execution, preserve retry ownership and translate interruption/cancellation semantics. |
 
 The façade, Strategy and Adapter patterns correspond to existing variations.
 The bootstrap state machine records intent, deployment admission, Rust state,
@@ -62,20 +73,138 @@ the newly mandatory members must be updated before they can run. A descriptor
 is the adapter author's compatibility declaration, not proof of provider
 determinism or truthful billing.
 
+## Provider substitution and durable jobs
+
+The provider extension compares three designs:
+
+| Option | Consequence |
+| --- | --- |
+| Treat a Cursor token as an OpenAI credential | Unsupported: the documented APIs have different authentication and execution contracts. |
+| Make every provider implement an asynchronous job service | Adds job lifecycle obligations to synchronous inference and obscures the existing result contract. |
+| Use interchangeable local result providers and a distinct durable-job adapter | Preserves the existing workflow and gives remote jobs explicit submission, observation and cancellation semantics. Selected. |
+
+`TotalProvider` is a Strategy interface: the planner and reviewer depend on
+`total`, a descriptor and an explicit reservation. A Factory selects mock,
+OpenAI or Cursor independently for each role. The SDK adapters share validation
+of invoice inputs and exact integer-JSON outputs, while retaining provider-owned
+authentication and response conversion. Existing OpenAI and mock descriptors
+remain unchanged so their completed workflows retain recovery compatibility.
+
+`CursorLocalProvider` creates a fresh private directory, disables tools, MCP,
+subagents and ambient settings, and attempts to close its owned agent and bridge
+on normal return or exception. Its bridge
+is launched only after durable invocation admission, within the supervised
+process group. These controls constrain the SDK configuration; they do not
+isolate hostile code from the operating system. SDK-managed internal model
+retries remain distinct from the host's one admitted submission.
+
+The Cloud adapter implements the existing `Adapter` contract, not `TotalProvider`.
+Its output says that a repository job was submitted. `JobStore` persists the
+frozen specification, client-assigned agent ID and launch intent before dispatch.
+The service records the exact returned run ID and polls only that identity.
+Ambiguous dispatch retains `launch_unknown`; it never enables an automatic
+second POST. Cancellation intent and remote cancellation are separate records.
+The first correlated terminal observation remains immutable.
+
+This division applies single responsibility to configuration, SDK conversion,
+HTTP transport and persistence; interface segregation keeps repository lifecycle
+methods out of synchronous providers. Injected clients permit contract tests
+without credentials. Rust envelopes, route permissions and task transitions are
+unchanged. The cloud job's completion has its own lifetime, so a completed MAS
+submission task cannot imply that repository work finished or passed review.
+
+The forked guardian and worker freeze inherited garbage-collected objects
+before closing copied host descriptors. This prevents an inherited file or
+SQLite finaliser from later closing a descriptor number reused by the worker.
+New worker objects remain collectable; the parent collector is unchanged.
+A regression forces that descriptor reuse and explicit collection.
+
+## Durable service and protocol boundaries
+
+The bridges add a service above `Runner`; network request handlers never drive
+its ordinal replay directly. Submission commits the authenticated principal,
+request key, canonical content digest, workflow identity, first execution
+revision and initial event together. Repeating the key returns the same receipt;
+changing its content is a conflict. A separate exclusive worker selects a
+revision and executes its deterministic run/root request. The guardian retains
+worker ownership alongside run ownership until descendants have stopped, so a
+replacement worker cannot race cleanup after host death.
+
+`TaskService` is the shared application Facade. MCP 2026-07-28, A2A 1.0 and the
+HTTP service adapter perform their own wire conversion and capability checks.
+MCP's Tasks completion may contain an error tool result; A2A's task and context
+identities remain distinct. Neither mapping substitutes transport acceptance
+for business success. The HTTP boundary authenticates scoped credentials, then
+applies workflow grants; a supplied principal, task ID or Agent Card is never
+authority. Stdio uses the trusted launcher's configured principal. Supported
+profiles and their deployment settings are in [the bridge guide](bridges.md).
+
+The optional execution factory receives an immutable `ExecutionBinding` after
+the run directory has been assigned. Its remote namespace includes authenticated
+principal, workflow identity and actor. This permits one registered workflow
+to handle several callers without allowing identical caller keys to identify
+each other's remote work. Endpoints, credentials, actor membership and adapters
+come from trusted configuration; received messages cannot select them.
+
+Remote protocol clients implement `RemoteClient`, while `RemoteTaskService`
+owns persistence and admission. Submission intent precedes the external call;
+response persistence follows it in a separate transaction. A lost first receipt
+therefore remains unknown instead of triggering another submission. Polling,
+continuation and cancellation each use an admitted invocation. Unknown lifecycle
+effects retain their operation identities until an explicit evidenced decision;
+administrative resolution does not itself contact the peer. Protocol-specific
+clients retain their own state mappings and exact remote identities.
+
+Service cancellation closes queued work or a paused local continuation. Running
+work records cancellation intent and uses supervised cleanup; uncertainty about
+external effects survives. A local cancellation cannot establish remote
+cancellation. Likewise, revoking a caller's grant prevents further dispatch
+without relabelling an interrupted effect as a confirmed failure.
+
+Temporal activities and LangGraph nodes submit and inspect the same service
+receipts. An outer retry repeats the original logical request identity. Temporal
+outbound starts use a separate remote adapter with exact workflow/run identity
+and memo-checked reconciliation. LangGraph integration covers nodes, checkpoints
+and continuation; it does not implement a hosted LangGraph job service. The
+outer framework owns business sequencing, while MAS owns admission and recovery
+of each submitted operation.
+
+These boundaries apply Ports and Adapters, a service Facade, version-aware
+Repositories and explicit lifecycle state machines. Execution and provider
+variation use Strategy; factories bind trusted deployment configuration. Task
+events are durable cursor reads, not a push outbox with delivery acknowledgements.
+All stores join backup, schema rejection, audit-only restoration and retention;
+unresolved work protects every run record it needs. The architecture remains a
+single Linux host with SQLite, rather than a distributed scheduler.
+
 ## Verification and limits
 
 Regressions exercise actual process death during bootstrap, a killed host with
 ordinary adapter descendants, ownership retention during cleanup, incompatible
 database versions, failed reconciliation, persistent live-acceptance state and
 context error substitution. Container acceptance runs the installed package and
-Rust binaries on native amd64 and arm64. Provider HTTP contract tests use the
-real pinned SDK with a fake transport; live acceptance is a separate two-call
-check requiring credentials and persistent state.
+Rust binaries on native amd64 and arm64. OpenAI HTTP contract tests use the
+real pinned SDK with a fake transport; Cursor contract tests use injected
+clients and separately exercise the installed bridge. Live local-provider
+acceptance is a two-submission check requiring credentials and persistent state.
+The SDK may perform internal requests that the host does not count separately.
 
 The finite Promela models preserve their documented safety and progress scope.
 They do not model Python schemas, Linux process cleanup, actual storage flushes
-or provider behaviour. Implementation regressions supply evidence for these
+or provider behaviour. The additional Cursor job model checks finite launch,
+correlation, terminal-state and cancellation safety; it has no remote progress
+or monetary-cap claim. Implementation regressions supply evidence for these
 additional boundaries; no refinement proof is claimed.
+
+The [bridge models](../formal/bridge-notes.md) add request-key conflicts,
+admission-before-effect, lost receipts, restart, cancellation intent, stale
+observations and durable event reads. Their finite bounds do not establish
+remote availability, cryptographic security or unbounded event delivery.
+Implementation checks separately exercise actual HTTP/stdio framing, principal
+isolation, protocol schemas, interrupted service execution and maintenance of
+both new repositories. Optional SDK checks execute real LangGraph checkpoints
+and a pinned local Temporal server; they do not establish acceptance against an
+organisation's identity provider, remote agents or production orchestrator.
 
 The project retains Python's declared supported syntax, existing unittest/Cargo
 tests, locked dependencies and SPIN verification. Rust 1.99.0 is the current

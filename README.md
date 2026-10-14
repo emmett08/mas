@@ -1,5 +1,8 @@
 # MAS: AI agent communication in Rust
 
+The [bridge guide](docs/bridges.md) covers authenticated MCP and A2A endpoints,
+durable remote tasks, Temporal/LangGraph connectors and mixed-provider deployments.
+
 A Rust/nom protocol and durable SQLite mailbox for agent, tool and human-adapter
 messages, with SPIN/Promela models and executable workflow examples. The protocol
 runtime and CLI are native Rust. A reusable Python host connects model and tool
@@ -36,6 +39,22 @@ host supports custom adapters and graph configurations; this example is a logica
 mesh over the central Rust/SQLite transport. See the [quickstart and adapter
 guide](docs/host-runner.md) for credentials, model selection, persistence and a
 complete custom adapter.
+
+OpenAI and Cursor can also run together. The optional Cursor image uses the
+official SDK in a restricted local mode: no tools, MCP servers, subagents or
+ambient settings. Supply both API keys through the host shell, select a Cursor
+model available to your account as `MAS_PLANNER_MODEL`, then run:
+
+```sh
+docker compose -f compose.yaml -f compose.mixed.yaml run --build --rm mesh
+```
+
+For two Cursor roles, set both model identifiers and use `compose.cursor.yaml`.
+The separate durable-job adapter submits repository work to Cursor Cloud,
+retains the exact remote agent/run identities and reconciles the result after
+local execution ends. A submission receipt is not a completed remote task.
+See [providers and durable jobs](docs/providers.md) for credentials, complete
+commands, recovery and the different execution guarantees.
 
 ## Deployment scope
 

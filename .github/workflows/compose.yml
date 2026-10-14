@@ -40,16 +40,39 @@ jobs:
           MAS_GATEWAY_BIN: ${{ github.workspace }}/rust-protocol/target/release/mas-gateway
         run: |
           python scripts/release-locks.py --check
-          python -m pip install --require-hashes -r host/requirements-build.txt -r host/requirements-openai.txt
+          python scripts/release-wolfi.py --lock docker/wolfi-packages.json --check
+          python -m pip install --require-hashes -r host/requirements-build.txt -r host/requirements-cursor.txt -r host/requirements-bridges.txt
           python -m pip install --no-deps --no-build-isolation ./host
           python -m pip check
+          python scripts/install-cursor-runtime.py
           python -m unittest discover -s host/tests -v 2>&1 | tee native-host-tests.log
           python -m unittest discover -s scripts/tests -v
+          python - <<'PY'
+          import importlib.util, json
+          spec = importlib.util.spec_from_file_location('check', 'scripts/release-container-check.py')
+          check = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(check)
+          print(json.dumps(check.cursor_bridge_smoke()))
+          PY
+      - name: Test installed orchestrator SDKs and real Temporal server
+        env:
+          MAS_BIN: ${{ github.workspace }}/rust-protocol/target/release/mas
+          MAS_GATEWAY_BIN: ${{ github.workspace }}/rust-protocol/target/release/mas-gateway
+          MAS_TEMPORAL_INTEROP: '1'
+        run: |
+          python -m venv /tmp/mas-orchestrators
+          /tmp/mas-orchestrators/bin/python -m pip install --require-hashes -r host/requirements-build.txt -r host/requirements-orchestrators.txt
+          /tmp/mas-orchestrators/bin/python -m pip install --no-deps --no-build-isolation ./host
+          /tmp/mas-orchestrators/bin/python -m pip check
+          /tmp/mas-orchestrators/bin/python -m unittest discover -s host/tests -p 'test_orchestrator*.py' -v 2>&1 | tee orchestrator-tests.log
+          /tmp/mas-orchestrators/bin/python -m unittest discover -s host/tests -p 'test_mcp*.py' -v
+          /tmp/mas-orchestrators/bin/python -m unittest discover -s host/tests -p 'test_a2a*.py' -v
       - name: Check arm64 locked wheels
         if: matrix.architecture == 'amd64'
         run: |
           python -m pip download --require-hashes --only-binary=:all: --platform manylinux2014_aarch64 --python-version 3.14 --implementation cp --abi cp314 --dest /tmp/arm64-wheels -r host/requirements-openai.txt
           python -m pip download --require-hashes --only-binary=:all: --platform musllinux_1_2_aarch64 --platform musllinux_1_1_aarch64 --python-version 3.14 --implementation cp --abi cp314 --dest /tmp/musl-arm64-wheels -r host/requirements-openai.txt
+          python -m pip download --require-hashes --only-binary=:all: --platform manylinux2014_aarch64 --python-version 3.14 --implementation cp --abi cp314 --dest /tmp/cursor-arm64-wheels -r host/requirements-cursor.txt
       - name: Bounded deployment acceptance
         env:
           MAS_BIN: ${{ github.workspace }}/rust-protocol/target/release/mas
@@ -93,6 +116,17 @@ jobs:
           assert config['PidsLimit'] == 64, config
           assert config['ReadonlyRootfs'] is True, config
           PY
+      - name: Build optional Cursor runtime and test without network or API calls
+        run: |
+          docker build -f Dockerfile.cursor -t mas-mesh-cursor:local .
+          docker run --rm --init --network none --user 10001:10001 --read-only \
+            --cap-drop ALL --security-opt no-new-privileges --cpus 2 \
+            --memory 1g --memory-swap 1g --pids-limit 128 \
+            --tmpfs /tmp:mode=1777,size=256m \
+            --mount type=bind,src="$PWD/host/tests",dst=/mounted-tests,readonly \
+            --mount type=bind,src="$PWD/examples",dst=/mounted-examples,readonly \
+            --mount type=bind,src="$PWD/scripts/release-container-check.py",dst=/release-container-check.py,readonly \
+            --entrypoint python mas-mesh-cursor:local -I /release-container-check.py --cursor 2>&1 | tee installed-cursor-tests.log
       - name: Independent reconciliation watcher
         run: |
           docker compose -f compose.yaml -f compose.production.yaml up -d reconciler
@@ -118,6 +152,64 @@ jobs:
               assert not os.access(directory, os.W_OK), directory
           print("Secret and application permissions verified; no API call made.")
           '
+      - name: Check Cursor and mixed provider secret injection without API calls
+        env:
+          OPENAI_API_KEY: compose-openai-mount-test-not-a-real-key
+          CURSOR_API_KEY: compose-cursor-mount-test-not-a-real-key
+          MAS_PLANNER_MODEL: cursor-test-model
+          MAS_REVIEWER_MODEL: cursor-test-model
+        run: |
+          docker compose -f compose.yaml -f compose.cursor.yaml config --quiet
+          docker compose -f compose.yaml -f compose.mixed.yaml config --quiet
+          docker compose -f compose.cursor-cloud.yaml config --quiet
+          docker compose -f compose.cursor-cloud.yaml run --rm --no-deps jobs --help
+          docker compose -f compose.yaml -f compose.mixed.yaml run --rm --no-deps --entrypoint python mesh -c '
+          import os, stat
+          from pathlib import Path
+          assert os.getuid() == 10001
+          for provider in ("OPENAI", "CURSOR"):
+              assert provider + "_API_KEY" not in os.environ
+              path = Path(os.environ[provider + "_API_KEY_FILE"])
+              assert path.stat().st_uid == 10001
+              assert stat.S_IMODE(path.stat().st_mode) == 0o400
+              assert path.read_text() == "compose-" + provider.lower() + "-mount-test-not-a-real-key"
+          for directory in ("/app", "/usr/local/bin", "/usr/local/lib"):
+              assert not os.access(directory, os.W_OK), directory
+          print("Both provider secrets mounted privately; no API call made.")
+          '
+      - name: Validate bridge deployment and private authentication mount
+        env:
+          MAS_PLANNER_MODEL: cursor-test-model
+          CURSOR_API_KEY: compose-cursor-mount-test-not-a-real-key
+          OPENAI_API_KEY: compose-openai-mount-test-not-a-real-key
+        run: |
+          python -m mas_host bridge init-auth --principal example-client \
+            --token-file /tmp/mas-bridge-test.token --verifier-file /tmp/mas-bridge-credentials.json
+          MAS_BRIDGE_CREDENTIALS="$(cat /tmp/mas-bridge-credentials.json)"
+          export MAS_BRIDGE_CREDENTIALS
+          for topology in mesh star tree; do
+            MAS_BRIDGE_CONFIG="/app/examples/bridges/$topology.json" docker compose -f compose.bridges.yaml config --quiet
+          done
+          docker compose -f compose.bridges.yaml -f compose.bridges.mixed.yaml config --quiet
+          docker compose -f compose.bridges.yaml config --format json > bridge-compose.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          config = json.loads(Path('bridge-compose.json').read_text())
+          for name in ('bridge', 'worker'):
+              assert config['services'][name]['tmpfs'] == ['/tmp:mode=1777,size=32m']
+          PY
+          docker compose -f compose.bridges.yaml run --rm --no-deps --entrypoint python bridge -c '
+          from mas_host.bridges.authentication import StaticTokenVerifier
+          from mas_host.bridge_config import load_config, build_service
+          from pathlib import Path
+          StaticTokenVerifier.from_file("/run/secrets/bridge_credentials")
+          for name in ("mesh", "star", "tree"):
+              config = load_config(Path("/app/examples/bridges/" + name + ".json"))
+              service = build_service(config, Path("/tmp/bridge-" + name))
+              assert "invoice_" + name in service.grants["example-client"]
+          print("Bridge configurations and private authentication mount verified.")
+          '
       - name: Stop containers
         if: always()
         run: docker compose -f compose.yaml -f compose.production.yaml down
@@ -130,5 +222,7 @@ jobs:
             compose-container.json
             acceptance.json
             native-host-tests.log
+            orchestrator-tests.log
             installed-container-tests.log
+            installed-cursor-tests.log
             reconciler-health.json

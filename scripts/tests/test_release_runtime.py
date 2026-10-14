@@ -16,7 +16,7 @@ SPEC.loader.exec_module(RUNTIME)
 
 
 class RuntimePackageTests(unittest.TestCase):
-    def check_fixture(self, present: tuple[str, ...]) -> dict:
+    def check_fixture(self, present: tuple[str, ...], bootstrap_dirs: tuple[Path, ...] = ()) -> dict:
         with tempfile.TemporaryDirectory() as temporary:
             directory = Path(temporary)
             for name in present:
@@ -29,7 +29,8 @@ class RuntimePackageTests(unittest.TestCase):
                     (bundled / "pip-unpatched.whl").write_bytes(b"bootstrap fixture")
             def find_spec(name):
                 return importlib.machinery.PathFinder.find_spec(name, [str(directory)])
-            with patch.object(RUNTIME.importlib.util, "find_spec", side_effect=find_spec):
+            with patch.object(RUNTIME.importlib.util, "find_spec", side_effect=find_spec), \
+                    patch.object(RUNTIME, "BOOTSTRAP_WHEEL_DIRS", bootstrap_dirs):
                 return RUNTIME.runtime_package_identity()
 
     def test_installed_pip_is_rejected(self):
@@ -41,7 +42,14 @@ class RuntimePackageTests(unittest.TestCase):
             self.check_fixture(("ensurepip",))
 
     def test_runtime_without_installers_is_accepted(self):
-        self.assertEqual(self.check_fixture(()), {"package_installers": "absent"})
+        self.assertEqual(self.check_fixture(()), {"package_installers": "absent", "bootstrap_wheels": "absent"})
+
+    def test_external_wolfi_bootstrap_wheel_is_rejected(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            (directory / "pip-bootstrap.whl").write_bytes(b"bootstrap wheel fixture")
+            with self.assertRaisesRegex(RuntimeError, "bootstrap wheel payloads"):
+                self.check_fixture((), (directory,))
 
 
 if __name__ == "__main__":
