@@ -5,9 +5,9 @@ import json
 from typing import Any, Protocol
 
 from .codec import integer_json
-from .contracts import Invocation
+from .contracts import Invocation, InvocationFailure
 
-class ProviderError(RuntimeError):
+class ProviderError(InvocationFailure):
     """Safe public error: never include a provider response, prompt or credential."""
 
 

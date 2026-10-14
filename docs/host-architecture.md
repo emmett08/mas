@@ -119,6 +119,38 @@ SQLite finaliser from later closing a descriptor number reused by the worker.
 New worker objects remain collectable; the parent collector is unchanged.
 A regression forces that descriptor reuse and explicit collection.
 
+### Proxy transport and failure observations
+
+Cursor proxy support is an explicit transport policy behind the existing
+provider interface. The selected design uses a small host-owned bootstrap and
+the SDK's public configuration API. Editing minified SDK transports would add
+an unverified maintenance dependency; enabling arbitrary inherited Node hooks
+would defeat the restricted launcher. Leaving the launcher unchanged cannot
+support the observed proxy-only environment. The new helper owns command,
+proxy-exclusion and bootstrap identity construction; the provider continues to
+own the agent lifecycle and result contract.
+
+The original `sdk-default` descriptor is unchanged. Opted-in
+`environment-proxy-http1` descriptors include the policy revision and bootstrap
+hash, so a changed transport cannot silently resume an existing invocation.
+Authenticated local callbacks are excluded from proxy routing in the child;
+the parent's configuration and certificate validation are preserved. The SDK
+may still select HTTP/2 under server policy, which requires live validation.
+
+Invocation diagnostics now preserve the adapter-reported local failure stage
+and whether cleanup also failed. The exact finite schema is checked before IPC
+transmission and again before durable recording. Older frames without these
+fields remain valid. Unknown outcomes, reservations, admissions and recovery
+decisions are unchanged: even `stage=launch` supplies no proof that a remote
+effect did not occur. A cleanup failure cannot replace the original failure
+stage. A cleanup-only failure still prevents a successful invocation record.
+
+This change adds observation detail to the existing unknown transition; it
+does not add a protocol state or strengthen a formal claim. Local proxy, TLS,
+loopback-credential, cleanup and supervised-journal tests check implementation
+properties outside the finite Promela models. Successful live runs and replay
+are separate acceptance evidence for the selected environment and models.
+
 ## Durable service and protocol boundaries
 
 The bridges add a service above `Runner`; network request handlers never drive

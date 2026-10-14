@@ -160,6 +160,42 @@ existing `PlannerAdapter`, `ReviewerAdapter` or `run_demo` parameters. The
 factory in `provider_config.py` is the shared construction path for the CLI and
 live acceptance. Provider selection requires no Rust wire-format change.
 
+## Cursor through an environment proxy
+
+The default `MAS_CURSOR_TRANSPORT=sdk-default` preserves the original SDK
+transport and workflow identity. On a host whose outbound access requires an
+HTTP proxy, explicitly select:
+
+```sh
+export MAS_CURSOR_TRANSPORT=environment-proxy-http1
+```
+
+This setting applies only to selected Cursor local providers. Library callers
+use `CursorLocalProvider(..., transport_policy="environment-proxy-http1")`.
+MAS launches its pinned Node runtime with `--use-env-proxy` and configures the
+same SDK instance used by the bridge with
+`configureCursorSdk({local: {useHttp1ForAgent: true}})` before bridge startup.
+The bootstrap is shipped in the host package; its hash and transport policy
+form part of the invocation's recovery identity. Unknown values fail before
+admission. Arbitrary Node flags or startup hooks are never inherited.
+
+Supply the existing `HTTP_PROXY`/`HTTPS_PROXY` and trusted CA configuration to
+the runtime. Lowercase proxy variables retain Node's precedence. The child
+preserves the effective `no_proxy`/`NO_PROXY` exclusions and adds only local
+callback hosts, so authenticated bridge callbacks stay on loopback. Python's
+bridge client continues to use `trust_env=False`. The parent environment and
+TLS certificate verification remain unchanged. Compose overlays pass the
+transport selection; add proxy variables and any CA mount through an
+operator-controlled runtime override. Keep proxy credentials out of tracked
+configuration and reports.
+
+The SDK's server-supplied HTTP/2 policy can override its local HTTP/1.1
+preference. This mode therefore does not guarantee compatibility with every
+proxy or account policy. Verify the actual generation path with a fresh bounded
+acceptance run; catalogue access and local agent creation alone establish only
+prerequisite connectivity. Do not change the transport of an unresolved run
+and resubmit it. Preserve the original state and admit a separate test run.
+
 ## Restricted local execution and recovery
 
 The pinned local adapter creates one fresh private workspace per invocation,
@@ -185,6 +221,14 @@ Resume with the original provider, model and effect-relevant settings. They form
 part of workflow identity. The host reuses recorded successful invocation
 outputs and blocks uncertain effects. It never switches providers automatically
 after a timeout. See [host recovery](host-runner.md#persistence-and-explicit-recovery).
+
+Cursor invocation failures retain a bounded diagnostic stage in the durable
+call evidence. Only fixed provider/stage labels and a cleanup-failure flag cross
+the supervised boundary; SDK messages, headers, response bodies and credentials
+are excluded. When cleanup also fails, the original failure stage is retained.
+These diagnostics locate the local failure boundary, not whether a remote
+effect occurred. The outcome remains unknown until supported recovery evidence
+resolves it; diagnostics never authorise an automatic retry.
 
 ## Durable Cursor Cloud jobs
 

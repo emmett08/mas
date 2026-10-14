@@ -14,6 +14,7 @@ services:
       - /tmp:mode=1777,size=128m
     environment:
       MAS_MODE: mixed
+      MAS_CURSOR_TRANSPORT: ${MAS_CURSOR_TRANSPORT:-sdk-default}
       MAS_PLANNER_PROVIDER: cursor
       MAS_REVIEWER_PROVIDER: openai
       MAS_PLANNER_MODEL: ${MAS_PLANNER_MODEL:?Set a Cursor model available to your account}

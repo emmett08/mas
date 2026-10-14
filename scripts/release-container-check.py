@@ -99,26 +99,38 @@ def cursor_runtime_identity(binaries: dict[str, Path]) -> dict:
 
 
 def cursor_bridge_smoke() -> dict:
-    """Launch and close the pinned bridge without creating an agent or API call."""
+    """Launch and reap both installed transports without creating an agent or API call."""
     from mas_host.cursor_local import CURSOR_SDK_VERSION, _launch_client
-    with tempfile.TemporaryDirectory(prefix="mas-cursor-smoke-", dir="/tmp") as directory:
-        client = _launch_client(directory)
-        bridge = client._owned_bridge
-        process = bridge.process
-        try:
-            if process is None or process.poll() is not None:
-                raise RuntimeError("Cursor bridge did not remain running during startup")
-            if bridge.endpoint.pid != process.pid:
-                raise RuntimeError("Cursor bridge supervision must own Node directly")
-            if os.getpgid(process.pid) != os.getpgrp():
-                raise RuntimeError("Cursor bridge must remain in the guardian's process group")
-            version = bridge.endpoint.server_version
-        finally:
-            client.close()
-        if process.poll() is None:
-            raise RuntimeError("Cursor bridge survived client.close()")
-        return {"cursor_sdk": CURSOR_SDK_VERSION, "bridge_version": version,
-                "bridge_started_and_reaped": True, "provider_calls": 0}
+    from mas_host.cursor_transport import (
+        ENVIRONMENT_PROXY_HTTP1, SDK_DEFAULT, transport_identity,
+    )
+    checks = {}
+    for policy in (SDK_DEFAULT, ENVIRONMENT_PROXY_HTTP1):
+        # Read from the installed package so a missing bootstrap fails the
+        # release gate. The launch also proves its imports work with this SDK.
+        identity = transport_identity(policy)
+        with tempfile.TemporaryDirectory(prefix="mas-cursor-smoke-", dir="/tmp") as directory:
+            client = _launch_client(directory, transport_policy=policy)
+            try:
+                bridge = client._owned_bridge
+                process = bridge.process
+                if process is None or process.poll() is not None:
+                    raise RuntimeError("Cursor bridge did not remain running during startup")
+                if bridge.endpoint.pid != process.pid:
+                    raise RuntimeError("Cursor bridge supervision must own Node directly")
+                if os.getpgid(process.pid) != os.getpgrp():
+                    raise RuntimeError("Cursor bridge must remain in the guardian's process group")
+                version = bridge.endpoint.server_version
+            finally:
+                client.close()
+            if process.poll() is None:
+                raise RuntimeError("Cursor bridge survived client.close()")
+            checks[policy] = {"bridge_version": version, "bridge_started_and_reaped": True,
+                              "provider_calls": 0, **identity}
+    return {"cursor_sdk": CURSOR_SDK_VERSION,
+            "bridge_version": checks[SDK_DEFAULT]["bridge_version"],
+            "bridge_started_and_reaped": True, "provider_calls": 0,
+            "cursor_transport_checks": checks}
 
 
 def main() -> int:

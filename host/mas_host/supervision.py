@@ -22,7 +22,8 @@ from typing import Callable
 from .codec import integer_json as _json
 from .contracts import (Adapter, AdapterError, AdapterInterrupted, AdapterTimeout,
                         HostContext, Invocation, Outcome, RecoveryRequired,
-                        RunnerError, TaskRequest)
+                        RunnerError, TaskRequest, invocation_failure_diagnostic,
+                        validate_invocation_diagnostic)
 from .process_group import ProcessGroup
 
 
@@ -201,12 +202,14 @@ class _ContextProxy:
             if type(result["output"]) is not dict:
                 _invalid()
             return result["output"]
-        except Exception:
+        except Exception as error:
             # No exception text, keys, or provider response bodies become
             # diagnostics. If this frame cannot be sent the parent still holds
             # the outstanding ticket and records the same uncertainty.
             try:
-                self._channel.send({"op": "failed"})
+                diagnostic = invocation_failure_diagnostic(error)
+                self._channel.send({"op": "failed", **(
+                    {"diagnostic": diagnostic} if diagnostic is not None else {})})
             except Exception:
                 pass
             raise AdapterError("adapter invocation failed; outcome may be unknown") from None
@@ -257,6 +260,7 @@ def execute(adapter, context, request, *, deadline: float,
     channel = _Channel(parent_sock, deadline)
     group = None
     ticket = None
+    diagnostic = None
     previous = {}
 
     def interrupt(_number, _frame):
@@ -287,9 +291,14 @@ def execute(adapter, context, request, *, deadline: float,
                 ticket = None
                 channel.send({"output": output})
             elif operation == "failed":
-                _fields(frame, {"op"})
+                _fields(frame, {"op", "diagnostic"} if "diagnostic" in frame else {"op"})
                 if ticket is None:
                     _invalid()
+                if "diagnostic" in frame:
+                    try:
+                        diagnostic = validate_invocation_diagnostic(frame["diagnostic"])
+                    except ValueError:
+                        _invalid()
                 raise AdapterError("adapter invocation failed; outcome may be unknown")
             elif ticket is not None:
                 _invalid()
@@ -354,7 +363,10 @@ def execute(adapter, context, request, *, deadline: float,
                 group.close()
             if ticket is not None:
                 try:
-                    context.fail_invocation(ticket)
+                    if diagnostic is None:
+                        context.fail_invocation(ticket)
+                    else:
+                        context.fail_invocation(ticket, diagnostic=diagnostic)
                 except Exception:
                     pass  # A durable outstanding reservation is still unknown.
         finally:
