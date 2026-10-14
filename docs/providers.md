@@ -297,6 +297,69 @@ python -m mas_host jobs --state-dir .mas-state submit review-001 \
   --spec cursor-job.json --resume /absolute/original/run-directory
 ```
 
+## Offline failure and recovery walkthrough
+
+Suppose a repository job is accepted remotely, but its launch response is lost.
+MAS must retain the uncertain submission through restart, avoid a second launch
+and attach only the exact remote run supported by evidence. The existing
+[failure-injection tests](../host/tests/test_cursor_jobs.py) make these steps
+executable without a Cursor account or any repository changes.
+
+From the repository root on Linux with Python 3.10 or newer, run:
+
+```sh
+PYTHONPATH="$PWD/host:$PWD/host/tests" python3 -m unittest -v \
+  test_cursor_jobs.DurableCloudTests.test_intent_before_network_and_stable_receipt \
+  test_cursor_jobs.DurableCloudTests.test_lost_create_reply_stays_unknown_on_restart_and_is_not_retried \
+  test_cursor_jobs.DurableCloudTests.test_404_or_failed_attachment_never_authorises_create \
+  test_cursor_jobs.DurableCloudTests.test_audited_attachment_uses_explicit_run_not_latest \
+  test_cursor_jobs.DurableCloudTests.test_saved_submission_can_resolve_host_offline_without_api_key \
+  test_cursor_jobs.DurableCloudTests.test_terminal_snapshot_is_immutable_and_poll_is_local
+```
+
+These six independent scenarios call the production durable-job service and use
+real temporary SQLite stores with fixture admission records. The injected cloud
+client performs no network requests. No Rust build or optional Python package is
+needed for this command. Each test has fresh state; the sequence describes the
+recovery procedure rather than sharing one job between tests.
+
+| Step | What the executable scenario checks |
+| --- | --- |
+| Record intent before dispatch | The durable state already contains `launch_unknown`, the agent identity and admitted call identity when submission begins. Repeating a successful submission returns its saved receipt. |
+| Lose the launch response and reopen state | A new service/store instance still observes `launch_unknown`; another submission attempt is rejected without another create call. |
+| Fail to establish the remote outcome | A failed attachment leaves the job uncertain and does not authorise another launch. The test injects a lookup failure; it does not call the live HTTP API. |
+| Attach an evidenced run | Attachment validates the supplied run and records operator evidence. An unrelated `latestRunId` is ignored. |
+| Resolve the local invocation | A saved receipt and reconciliation evidence resolve the host invocation without credentials or another provider call. This resolves submission, not the remote task. |
+| Observe completion | A terminal snapshot is retained unchanged; later polling uses the local record. Remote result text remains untrusted. |
+
+Success prints six `ok` results and a final `OK`. Failures exit non-zero. The
+temporary databases are removed by the tests; no credentials, paid calls or
+live-provider acceptance are involved.
+
+For the complete host path, build the pinned Rust release binaries using the
+[build instructions](../README.md#build-and-run), then run:
+
+```sh
+cargo build --release --locked --manifest-path rust-protocol/Cargo.toml
+PYTHONPATH="$PWD/host:$PWD/host/tests" python3 -m unittest -v \
+  test_cursor_jobs.CloudRunnerIntegrationTests.test_process_death_after_remote_acceptance_reconciles_without_redispatch
+```
+
+This single scenario uses the Rust gateway, deployment admission and supervised
+adapter execution. A fixture writes a simulated remote acceptance record and
+then exits abruptly. The test reopens durable state, checks that resubmission
+is blocked, attaches the evidenced run, resolves the invocation and resumes the
+original host run. It verifies that only one simulated launch and one call
+allocation exist. Remote acceptance is simulated; the local process death and
+recovery are real.
+
+For an actual job, use the [submission and reconciliation commands above](#durable-cursor-cloud-jobs).
+Retain the original job ID and state directory, obtain the exact remote run ID
+from independent provider records, attach it with evidence, resolve the local
+submission and resume its original run. If the run identity cannot be established,
+keep the outcome uncertain. An absent lookup result is insufficient evidence
+for a new submission. Review the terminal job's output before accepting changes.
+
 ## Verification and operating limits
 
 Offline tests exercise provider contracts, output rejection, bridge cleanup,
