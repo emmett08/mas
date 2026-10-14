@@ -9,6 +9,7 @@ x-live: &live
   memswap_limit: 1g
   pids_limit: 128
   environment:
+    MAS_CURSOR_TRANSPORT: ${MAS_CURSOR_TRANSPORT:-sdk-default}
     MAS_PLANNER_PROVIDER: cursor
     MAS_PLANNER_MODEL: ${MAS_PLANNER_MODEL:?set an account-supported Cursor model}
     MAS_REVIEWER_PROVIDER: openai

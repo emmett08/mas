@@ -19,6 +19,7 @@ from .codec import ENCODE_ENVELOPE_BYTES, integer_json as _json
 from .contracts import (
     Adapter, AdapterContext, AdapterError, AdapterExecutor, AdapterInterrupted, AdapterTimeout, Invocation,
     InvocationTicket, Outcome, RecoveryRequired, RunnerError, TaskRequest,
+    invocation_failure_diagnostic, validate_invocation_diagnostic,
 )
 from .journal import JournalError
 from .protocol_client import ProtocolClient, ProtocolTransport
@@ -193,7 +194,7 @@ class Context:
         self._pending_invocation_id = None
         return output
 
-    def fail_invocation(self, ticket: InvocationTicket) -> None:
+    def fail_invocation(self, ticket: InvocationTicket, *, diagnostic: dict | None = None) -> None:
         runner = self._runner
         call = runner._journal.invocation(ticket.call_id)
         # A failure to finish after the full result was checkpointed is recoverable
@@ -201,6 +202,8 @@ class Context:
         if call and call["state"] == "executing":
             self._recovery_required = True
             evidence = {"outcome": "unknown", "error": "adapter_invocation_failed"}
+            if diagnostic is not None:
+                evidence["diagnostic"] = validate_invocation_diagnostic(diagnostic)
             runner._journal.update_invocation(ticket.call_id, "unknown", evidence=evidence)
             try:
                 runner._gateway(self.actor, command="finish", call_id=ticket.call_id, evidence=evidence)
@@ -222,10 +225,10 @@ class Context:
                 runner._invoking = False
                 self._invocation_id = None
             return self.complete_invocation(ticket, invocation)
-        except Exception:
+        except Exception as error:
             self._recovery_required = True
             try:
-                self.fail_invocation(ticket)
+                self.fail_invocation(ticket, diagnostic=invocation_failure_diagnostic(error))
             except Exception:
                 pass  # The durable executing record still denotes uncertainty.
             raise RecoveryRequired("adapter invocation interrupted; inspect recovery journal") from None

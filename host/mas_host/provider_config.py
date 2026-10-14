@@ -8,6 +8,7 @@ import re
 from typing import Callable, Mapping
 
 from .provider_contract import ProviderError, TotalProvider
+from .cursor_transport import SDK_DEFAULT, validate_transport_policy
 from .mock_provider import MockProvider
 from .openai_provider import OpenAIProvider
 
@@ -22,6 +23,7 @@ class ProviderConfig:
     provider: str
     model: str
     reservation_microusd: int
+    cursor_transport: str = SDK_DEFAULT
 
     def __post_init__(self) -> None:
         if self.role not in {"planner", "reviewer"}:
@@ -35,6 +37,12 @@ class ProviderConfig:
             raise ProviderError("provider requires a bounded integer spending reservation")
         if (self.provider == "mock") != (amount == 0):
             raise ProviderError("mock reservations must be zero and live reservations must be positive")
+        try:
+            validate_transport_policy(self.cursor_transport)
+        except ValueError:
+            raise ProviderError("Cursor transport must be sdk-default or environment-proxy-http1") from None
+        if self.provider != "cursor" and self.cursor_transport != SDK_DEFAULT:
+            raise ProviderError("Cursor transport applies only to Cursor providers")
 
 
 def load_provider_configs(mode: str = "mock", *, environ: Mapping[str, str] | None = None) -> dict[str, ProviderConfig]:
@@ -60,7 +68,8 @@ def load_provider_configs(mode: str = "mock", *, environ: Mapping[str, str] | No
                     environment.get("MAS_CALL_RESERVATION_MICROUSD", "100000")))
             except (ValueError, TypeError):
                 raise ProviderError("provider spending reservation must be an integer") from None
-        configs[role] = ProviderConfig(role, provider, model, amount)
+        transport = environment.get("MAS_CURSOR_TRANSPORT", SDK_DEFAULT) if provider == "cursor" else SDK_DEFAULT
+        configs[role] = ProviderConfig(role, provider, model, amount, transport)
     return configs
 
 
@@ -100,7 +109,8 @@ def _cursor(config: ProviderConfig, key: str | None) -> TotalProvider:
     from .cursor_local import CursorLocalProvider, check_runtime
     check_runtime()
     return CursorLocalProvider(config.model, config.role, api_key=key,
-                               reservation_microusd=config.reservation_microusd)
+                               reservation_microusd=config.reservation_microusd,
+                               transport_policy=config.cursor_transport)
 
 
 _FACTORIES: dict[str, Callable[[ProviderConfig, str | None], TotalProvider]] = {

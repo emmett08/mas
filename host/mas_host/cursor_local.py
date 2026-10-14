@@ -23,6 +23,8 @@ from typing import Any
 
 from .contracts import Invocation
 from .cursor_bridge_patch import patch_identity, validate_bridge_patch
+from .cursor_transport import (SDK_DEFAULT, bridge_transport, transport_identity,
+                               validate_transport_policy)
 from .invoice_contract import parse_total_output, validate_invoice, validate_total
 from .provider_contract import ProviderError
 
@@ -111,13 +113,14 @@ def check_runtime() -> None:
         raise ProviderError("Cursor local bridge executable is unavailable")
 
 
-def _bridge_child(workspace: str, arguments: list[str]) -> None:
+def _bridge_child(workspace: str, arguments: list[str], transport_policy: str = SDK_DEFAULT) -> None:
     """Exec the verified patched Node process in place, without inherited credentials.
 
     The SDK's shell launcher does not exec Node: terminating that shell alone
     can orphan Node. Direct exec also keeps the bridge in the host guardian's
     process group. Changes to the child environment never affect the caller.
     """
+    validate_transport_policy(transport_policy)
     node, entry = _bridge_files()
     root = Path(workspace)
     if not root.is_absolute() or not root.is_dir():
@@ -133,7 +136,8 @@ def _bridge_child(workspace: str, arguments: list[str]) -> None:
                 "SSL_CERT_FILE", "SSL_CERT_DIR", "NODE_EXTRA_CA_CERTS"):
         if key in os.environ:
             environment[key] = os.environ[key]
-    os.execve(str(node), [str(node), str(entry), *arguments], environment)
+    command, environment = bridge_transport(node, entry, arguments, environment, transport_policy)
+    os.execve(str(node), command, environment)
 
 
 class _OwnedClient:
@@ -147,13 +151,17 @@ class _OwnedClient:
         self._stderr_thread.start()
 
     def close(self):
-        try:
-            self._client.close()
-        finally:
+        primary = None
+        for cleanup in (self._client.close,
+                        lambda: _close_bridge(self._owned_bridge, self._stderr_thread),
+                        self._http_client.close):
             try:
-                _close_bridge(self._owned_bridge, self._stderr_thread)
-            finally:
-                self._http_client.close()
+                cleanup()
+            except BaseException as error:
+                if primary is None:
+                    primary = error
+        if primary is not None:
+            raise primary
 
 
 def _discard_stderr(descriptor: int) -> None:
@@ -172,7 +180,16 @@ def _close_bridge(bridge, stderr_thread=None):
     # resources explicitly until they have stopped, including partial startup.
     process = bridge.process
     failure = None
-    try:
+
+    def attempt(cleanup):
+        nonlocal failure
+        try:
+            cleanup()
+        except BaseException as error:
+            if failure is None:
+                failure = error
+
+    def stop_process():
         if process is not None and process.poll() is None:
             process.terminate()
             try:
@@ -180,32 +197,32 @@ def _close_bridge(bridge, stderr_thread=None):
             except subprocess.TimeoutExpired:
                 process.kill()
                 process.wait(timeout=2)
-    except Exception as error:
-        failure = error
-    finally:
-        if stderr_thread is not None:
-            stderr_thread.join(timeout=2)
+
+    def close_stderr():
         if process is not None and process.stderr is not None:
-            try:
-                process.stderr.close()
-            except Exception as error:
-                failure = error
-        # The pinned SDK exposes no public standalone callback-server teardown.
-        for name in ("_store_callback_server", "_tool_callback_server"):
+            process.stderr.close()
+
+    attempt(stop_process)
+    if stderr_thread is not None:
+        attempt(lambda: stderr_thread.join(timeout=2))
+    attempt(close_stderr)
+    # The pinned SDK exposes no public standalone callback-server teardown.
+    # Failure in one resource must not skip any remaining cleanup attempt.
+    for name in ("_store_callback_server", "_tool_callback_server"):
+        def close_callback(name=name):
             callback = getattr(bridge, name, None)
             if callback is not None:
-                try:
-                    callback.close()
-                except Exception as error:
-                    failure = error
-                setattr(bridge, name, None)
-        if failure is None:
-            bridge.process = None
+                attempt(callback.close)
+                attempt(lambda: setattr(bridge, name, None))
+        attempt(close_callback)
+    if failure is None:
+        bridge.process = None
     if failure is not None:
         raise failure
 
 
-def _launch_client(workspace: str):
+def _launch_client(workspace: str, transport_policy: str = SDK_DEFAULT):
+    validate_transport_policy(transport_policy)
     sdk = _sdk_module()
     # Loopback RPC must not inherit internet proxies. Construct the transport
     # before the subprocess: SDK launch_bridge() leaks its bridge if client
@@ -213,8 +230,11 @@ def _launch_client(workspace: str):
     http_client = sdk.DefaultHttpxClient(timeout=RPC_TIMEOUT_SECONDS, trust_env=False)
     bridge = None
     try:
+        command = [sys.executable, "-m", "mas_host.cursor_local", "--bridge-child", workspace]
+        if transport_policy != SDK_DEFAULT:
+            command.extend(["--mas-transport-policy", transport_policy])
         bridge = sdk.Bridge.launch(
-            command=[sys.executable, "-m", "mas_host.cursor_local", "--bridge-child", workspace],
+            command=command,
             workspace=workspace, state_root=str(Path(workspace) / "state"), host="127.0.0.1", timeout=15,
         )
         client = sdk.CursorClient(
@@ -222,12 +242,20 @@ def _launch_client(workspace: str):
             http_client=http_client, allow_api_key_env_fallback=False,
         )
         return _OwnedClient(client, bridge, http_client)
-    except BaseException:
+    except BaseException as primary:
+        cleanup_failed = False
         try:
             if bridge is not None:
                 _close_bridge(bridge)
-        finally:
+        except BaseException:
+            cleanup_failed = True
+        try:
             http_client.close()
+        except BaseException:
+            cleanup_failed = True
+        if cleanup_failed and isinstance(primary, Exception):
+            raise ProviderError("Cursor invocation failed; its external outcome may be unknown",
+                diagnostic={"provider": "cursor-local", "stage": "launch", "cleanup_failed": True}) from None
         raise
 
 
@@ -246,7 +274,9 @@ class CursorLocalProvider:
     """
 
     def __init__(self, model: str, role: str, *, api_key: str | None = None,
-                 client: Any = None, reservation_microusd: int = 100_000):
+                 client: Any = None, reservation_microusd: int = 100_000,
+                 transport_policy: str = SDK_DEFAULT):
+        self._transport_policy = validate_transport_policy(transport_policy)
         if not isinstance(model, str) or not re.fullmatch(r"[A-Za-z0-9_.:/-]{1,200}", model):
             raise ValueError("model must be a valid short model identifier")
         if model == "auto-smart":
@@ -263,6 +293,7 @@ class CursorLocalProvider:
         return {"provider": "cursor-local", "model": self.model, "role": self.role,
                 "contract": "invoice-total/2", "sdk_version": CURSOR_SDK_VERSION,
                 **_runtime_identity(), "bridge_patch": patch_identity(),
+                **transport_identity(self._transport_policy),
                 "execution_policy": "isolated-text-only/3", "tools": [],
                 "disallowed_tools": ["mcp", "task"], "setting_sources": [],
                 "max_output_bytes": 4096, "max_stream_text_bytes": MAX_STREAM_TEXT_BYTES,
@@ -284,24 +315,52 @@ class CursorLocalProvider:
             "whose value is a nonnegative integer. Do not use Markdown or additional text.\n"
             + json.dumps(supplied, separators=(",", ":"))
         )
+        workspace = None
+        primary = None
+        cleanup_failed = False
         try:
-            with tempfile.TemporaryDirectory(prefix="mas-cursor-local-") as workspace:
-                return self._run(workspace, prompt, request_id)
-        except ProviderError:
-            raise
-        except Exception:
-            raise ProviderError("Cursor invocation failed; its external outcome may be unknown") from None
+            workspace = tempfile.TemporaryDirectory(prefix="mas-cursor-local-")
+            invocation = self._run(workspace.name, prompt, request_id)
+        except BaseException as error:
+            primary = error
+        finally:
+            if workspace is not None:
+                try:
+                    workspace.cleanup()
+                except BaseException as error:
+                    cleanup_failed = True
+                    if primary is None:
+                        primary = error
+        if primary is not None:
+            if not isinstance(primary, Exception):
+                raise primary
+            from .contracts import invocation_failure_diagnostic
+            diagnostic = invocation_failure_diagnostic(primary) or {
+                "provider": "cursor-local", "stage": "cleanup" if cleanup_failed else "launch",
+                "cleanup_failed": False}
+            diagnostic["cleanup_failed"] |= cleanup_failed
+            raise ProviderError("Cursor invocation failed; its external outcome may be unknown",
+                                diagnostic=diagnostic) from None
+        return invocation
 
     def _run(self, workspace: str, prompt: str, request_id: str | None) -> Invocation:
-        client = self._client if self._client is not None else _launch_client(workspace)
+        client = None
         agent = run = None
+        stage = "launch"
+        primary = None
+        cleanup_failed = False
         try:
+            client = self._client if self._client is not None else _launch_client(
+                workspace, transport_policy=self._transport_policy)
+            stage = "create"
             agent = client.agents.create(
                 options={"model": self.model, "api_key": self._api_key,
                          "local": {"cwd": workspace, "dirs": [], "setting_sources": [], "custom_tools": {}},
                          "tools": [], "disallowed_tools": ["mcp", "task"], "mcp_servers": {}, "agents": {}},
             )
+            stage = "send"
             run = agent.send(prompt)
+            stage = "stream"
             observed_bytes = 0
             for event in run.events():
                 message = getattr(event, "sdk_message", None)
@@ -323,7 +382,9 @@ class CursorLocalProvider:
                     observed_bytes += len(text.encode("utf-8"))
                     if observed_bytes > MAX_STREAM_TEXT_BYTES:
                         raise ProviderError("Cursor exceeded the accepted stream text limit")
+            stage = "wait"
             result = run.wait()
+            stage = "result"
             if getattr(result, "status", None) != "finished":
                 raise ProviderError("Cursor response did not complete")
             output = parse_total_output(getattr(result, "result", None), "Cursor")
@@ -351,30 +412,49 @@ class CursorLocalProvider:
                     tokens[field] = value
             if tokens:
                 evidence["usage"] = tokens
-            return Invocation(output=output, evidence=evidence)
+            invocation = Invocation(output=output, evidence=evidence)
+        except BaseException as error:
+            primary = error
         finally:
-            # Cancellation is best-effort and never turns an uncertain run into
-            # evidence of non-execution. Always attempt every local cleanup step.
-            try:
+            # Always attempt all cleanup steps. The first failure keeps its
+            # stage; later cleanup failures supply only a bounded boolean.
+            def cancel_running():
                 if run is not None and getattr(run, "status", None) == "running":
-                    try:
-                        run.cancel()
-                    except Exception:
-                        pass
-            finally:
+                    run.cancel()
+
+            for cleanup in (cancel_running,
+                            lambda: agent.close() if agent is not None else None,
+                            lambda: client.close() if self._client is None and client is not None else None):
                 try:
-                    if agent is not None:
-                        agent.close()
-                finally:
-                    if self._client is None:
-                        client.close()
+                    cleanup()
+                except BaseException as error:
+                    cleanup_failed = True
+                    if primary is None:
+                        primary, stage = error, "cleanup"
+        if primary is not None:
+            if not isinstance(primary, Exception):
+                raise primary
+            from .contracts import invocation_failure_diagnostic
+            earlier = invocation_failure_diagnostic(primary)
+            if earlier is not None:
+                cleanup_failed |= earlier["cleanup_failed"]
+            raise ProviderError("Cursor invocation failed; its external outcome may be unknown",
+                diagnostic={"provider": "cursor-local", "stage": stage,
+                            "cleanup_failed": cleanup_failed}) from None
+        return invocation
 
 
 if __name__ == "__main__":
     try:
         if len(sys.argv) < 3 or sys.argv[1] != "--bridge-child":
             raise ProviderError("invalid restricted bridge invocation")
-        _bridge_child(sys.argv[2], sys.argv[3:])
+        arguments = sys.argv[3:]
+        transport_policy = SDK_DEFAULT
+        if arguments[:1] == ["--mas-transport-policy"]:
+            if len(arguments) < 2:
+                raise ProviderError("invalid restricted bridge transport")
+            transport_policy, arguments = arguments[1], arguments[2:]
+        _bridge_child(sys.argv[2], arguments, transport_policy)
     except Exception:
         # The SDK may incorporate bridge stderr into an exception. Never emit
         # paths, credentials, provider responses or inherited exception details.

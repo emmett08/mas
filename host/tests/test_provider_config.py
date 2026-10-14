@@ -73,6 +73,26 @@ class ProviderConfigurationTests(unittest.TestCase):
         self.assertEqual(calls, [("cursor", "planner", "cursor-secret"), ("openai", "reviewer", "openai-secret")])
         self.assertNotIn("secret", repr(settings))
 
+    def test_cursor_transport_is_explicit_and_applies_only_to_cursor(self):
+        environment = {"MAS_PLANNER_PROVIDER": "cursor", "MAS_PLANNER_MODEL": "cursor-model",
+                       "MAS_REVIEWER_PROVIDER": "openai",
+                       "MAS_CURSOR_TRANSPORT": "environment-proxy-http1"}
+        settings = config.load_provider_configs("mixed", environ=environment)
+        self.assertEqual(settings["planner"].cursor_transport, "environment-proxy-http1")
+        self.assertEqual(settings["reviewer"].cursor_transport, "sdk-default")
+        with patch("mas_host.cursor_local.check_runtime"), \
+                patch("mas_host.cursor_local.CursorLocalProvider") as provider:
+            config._cursor(settings["planner"], "fixture-key")
+        self.assertEqual(provider.call_args.kwargs["transport_policy"], "environment-proxy-http1")
+        with self.assertRaises(ProviderError):
+            config.load_provider_configs("mixed", environ={**environment, "MAS_CURSOR_TRANSPORT": "auto"})
+        with self.assertRaises(ProviderError):
+            config.ProviderConfig("planner", "openai", "model", 100, "environment-proxy-http1")
+        # An unselected provider cannot make offline or OpenAI-only mode fail.
+        for mode in ("mock", "openai"):
+            settings = config.load_provider_configs(mode, environ={"MAS_CURSOR_TRANSPORT": "invalid"})
+            self.assertTrue(all(item.cursor_transport == "sdk-default" for item in settings.values()))
+
     def test_all_credentials_validated_before_any_client_is_constructed(self):
         settings = config.load_provider_configs("mixed", environ={
             "MAS_PLANNER_PROVIDER": "cursor", "MAS_PLANNER_MODEL": "cursor-model",

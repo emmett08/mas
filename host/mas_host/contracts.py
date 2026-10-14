@@ -26,6 +26,36 @@ class AdapterInterrupted(AdapterError):
     """Host shutdown interrupted local execution."""
 
 
+def validate_invocation_diagnostic(value: object) -> dict:
+    """Copy the exact finite public schema; never accept exception text or IDs."""
+    if (type(value) is not dict or set(value) != {"provider", "stage", "cleanup_failed"}
+            or type(value["provider"]) is not str or value["provider"] != "cursor-local"
+            or type(value["stage"]) is not str
+            or value["stage"] not in {"launch", "create", "send", "stream", "wait", "result", "cleanup"}
+            or type(value["cleanup_failed"]) is not bool):
+        raise ValueError("invalid invocation diagnostic")
+    return dict(value)
+
+
+class InvocationFailure(RuntimeError):
+    """An invocation error carrying only an optional validated public stage."""
+    def __init__(self, message: str, *, diagnostic: dict | None = None):
+        super().__init__(message)
+        self.diagnostic = (validate_invocation_diagnostic(diagnostic)
+                           if diagnostic is not None else None)
+
+
+def invocation_failure_diagnostic(error: BaseException) -> dict | None:
+    """Unrecognised or altered exception attributes never cross host boundaries."""
+    if isinstance(error, InvocationFailure):
+        try:
+            if error.diagnostic is not None:
+                return validate_invocation_diagnostic(error.diagnostic)
+        except (AttributeError, TypeError, ValueError):
+            pass
+    return None
+
+
 @dataclass(frozen=True)
 class InvocationTicket:
     call_id: str
@@ -92,7 +122,7 @@ class HostContext(AdapterContext, Protocol):
 
     def complete_invocation(self, ticket: InvocationTicket, invocation: Invocation) -> dict: ...
 
-    def fail_invocation(self, ticket: InvocationTicket) -> None: ...
+    def fail_invocation(self, ticket: InvocationTicket, *, diagnostic: dict | None = None) -> None: ...
 
 
 class AdapterExecutor(Protocol):
