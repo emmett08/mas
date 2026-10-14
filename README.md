@@ -18,6 +18,25 @@ review loops, peer handoffs, pipelines, routing and parallel work. See the
 [design comparison and protocol specification](docs/design.md) and
 [pattern examples](docs/examples.md).
 
+## Example uses
+
+- **Check a model-produced result.** Run the invoice mesh with model proposers
+  and an exact Python arithmetic checker. The [runnable example](docs/host-runner.md)
+  includes offline mocks and optional OpenAI/Cursor calls.
+- **Recover a repository-job submission.** Submit a Cursor Cloud job, retain its
+  identity across local restarts and reconcile an uncertain launch before
+  continuing. The [offline recovery walkthrough](docs/providers.md#offline-failure-and-recovery-walkthrough)
+  exercises the existing durable-job service without credentials.
+- **Investigate a failed CI run.** Route diagnosis, repair and verification to
+  separate participants, with a finite repair budget and explicit checks before
+  dispatching another test run. This is an [integration recipe](docs/choosing-mas.md#organisational-use-cases)
+  requiring CI and repository adapters.
+
+The [use-case guide](docs/choosing-mas.md#organisational-use-cases) also covers
+mathematical research, data analysis, infrastructure changes and service
+remediation. It identifies existing demonstrations, required integrations,
+acceptance criteria and simpler alternatives.
+
 ## Start with Docker Compose
 
 Run the mixed-agent mesh locally, with no API key required:

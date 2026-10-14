@@ -89,6 +89,16 @@ worker can run a chain, an orchestrator can request review, and a tree lead can
 collect parallel sub-results. Such compositions require their own finite bounds
 and acceptance rules before broader verification claims.
 
+## Applying the patterns
+
+The [organisational use-case guide](choosing-mas.md#organisational-use-cases)
+maps these patterns to repository maintenance, CI repair, research, analysis
+and operational work. It identifies the adapters and acceptance checks each
+application still needs. For an executable application recovery exercise, follow
+the [durable repository-job walkthrough](providers.md#offline-failure-and-recovery-walkthrough):
+it uses the existing service tests with a simulated provider and real SQLite
+state, with an additional Rust-host scenario for abrupt adapter death.
+
 ## Failure and recovery
 
 ```sh
