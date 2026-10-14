@@ -12,9 +12,8 @@ OTHER = "b" * 40
 
 
 class FakeGitHub:
-    def __init__(self, existing=None, race=None):
+    def __init__(self, existing=None):
         self.existing = existing
-        self.race = race
         self.mutations = []
 
     def request(self, method, path, data=None):
@@ -26,19 +25,14 @@ class FakeGitHub:
             return {"object": {"type": "commit", "sha": self.existing}}
         if method == "POST" and path == "/git/refs":
             self.mutations.append((method, path, data))
-            if self.race is not None:
-                self.existing = self.race
-                raise candidate.ApiError(422)
-            self.existing = data["sha"]
-            return {"object": {"type": "commit", "sha": self.existing}}
+            raise AssertionError("release verification must not create tags")
         raise AssertionError((method, path, data))
 
 
 class ReleaseCandidateTests(unittest.TestCase):
-    def test_release_branch_creates_exact_source_tag(self):
-        api = FakeGitHub()
-        self.assertEqual(candidate.prepare_candidate(api, "refs/heads/release/v0.1.0", SOURCE), ("v0.1.0", SOURCE))
-        self.assertEqual(api.mutations, [("POST", "/git/refs", {"ref": "refs/tags/v0.1.0", "sha": SOURCE})])
+    def test_release_branch_is_rejected_before_api_access(self):
+        with self.assertRaisesRegex(ValueError, "owner-created"):
+            candidate.prepare_candidate(None, "refs/heads/release/v0.1.0", SOURCE)
 
     def test_existing_tag_at_same_source_is_read_only(self):
         api = FakeGitHub(SOURCE)
@@ -48,7 +42,7 @@ class ReleaseCandidateTests(unittest.TestCase):
     def test_existing_tag_at_other_source_is_never_rewritten(self):
         api = FakeGitHub(OTHER)
         with self.assertRaisesRegex(ValueError, "different commit"):
-            candidate.prepare_candidate(api, "refs/heads/release/v0.1.0", SOURCE)
+            candidate.prepare_candidate(api, "refs/tags/v0.1.0", SOURCE)
         self.assertEqual(api.mutations, [])
 
     def test_manual_tag_execution_does_not_create_missing_tag(self):
@@ -57,11 +51,11 @@ class ReleaseCandidateTests(unittest.TestCase):
             candidate.prepare_candidate(api, "refs/tags/v0.1.0", SOURCE)
         self.assertEqual(api.mutations, [])
 
-    def test_creation_race_only_accepts_identical_source(self):
-        api = FakeGitHub(race=SOURCE)
-        self.assertEqual(candidate.prepare_candidate(api, "refs/heads/release/v0.1.0", SOURCE), ("v0.1.0", SOURCE))
-        with self.assertRaisesRegex(ValueError, "different commit"):
-            candidate.prepare_candidate(FakeGitHub(race=OTHER), "refs/heads/release/v0.1.0", SOURCE)
+    def test_github_client_rejects_mutations_without_network_access(self):
+        api = candidate.GitHub("emmett08/mas", "test-token")
+        for method in ("POST", "PATCH", "PUT", "DELETE"):
+            with self.subTest(method=method), self.assertRaisesRegex(ValueError, "read-only"):
+                api.request(method, "/git/refs", {"ref": "refs/tags/v0.1.0"})
 
     def test_annotated_tag_is_resolved_to_its_commit(self):
         class Annotated(FakeGitHub):

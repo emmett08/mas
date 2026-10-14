@@ -20,6 +20,87 @@ docker compose run --rm mesh admin inspect /state/RUN_DIRECTORY
 
 The same commands work outside containers as `python -m mas_host admin ...` with `mas` and `mas-gateway` on `PATH`. `MAS_BIN` selects the Rust administrative binary. `MAS_STATE_DIR` supplies the default state directory. State and backup directories must have mode `0700`; copied files have mode `0600`. Reports and backups may contain application data and agent capabilities. Keep them private.
 
+## Supervise a bridge deployment
+
+Create the private credentials using [the bridge setup](bridges.md), then use
+the bridge-specific production overlay. Initialise any custom deployment policy
+in `bridge-state` before this first start; otherwise the documented default
+lifetime limits become immutable:
+
+```sh
+export MAS_BRIDGE_CREDENTIALS="$(cat secrets/bridge-credentials.json)"
+docker compose -f compose.bridges.yaml -f compose.bridges.production.yaml up --build -d --wait
+docker compose -f compose.bridges.yaml -f compose.bridges.production.yaml ps
+```
+
+The overlay supervises `bridge`, `worker` and `bridge-reconciler` with
+`restart: unless-stopped`, bounded resources and separate health checks. All
+three use **`bridge-state`**. The `compose.production.yaml` overlay belongs to
+the batch demonstration and watches `mesh-state`; it does not reconcile bridge
+work. The bridge remains published only at host loopback. Configure the real
+reverse proxy, TLS, OAuth and permitted origins separately before admitting
+external traffic. Retain the same Compose project name and volume when
+restarting or upgrading; changing the project name creates a different
+deployment and lifetime budget.
+
+For the mixed provider profile, supply its provider secrets and model settings,
+set `MAS_BRIDGE_CONFIG=/app/examples/bridges/mixed.json`, and put
+`-f compose.bridges.mixed.yaml` between the base and production files. Keep
+that exact configuration on subsequent Compose commands. Provider/model
+changes still require a new workflow name/version or separately budgeted
+deployment. The reconciler uses the ordinary image and needs no provider or
+inbound authentication secret. Retain the credential environment variable for
+Compose operations; unset it when finished. Application and provider secrets
+remain private runtime-owned files.
+
+Read the three health dimensions inside their own containers:
+
+```sh
+docker compose -f compose.bridges.yaml -f compose.bridges.production.yaml exec bridge \
+  python -m mas_host bridge health --config /app/examples/bridges/mesh.json --state-dir /state
+docker compose -f compose.bridges.yaml -f compose.bridges.production.yaml exec worker \
+  python -m mas_host bridge worker-health --state-dir /state --max-age-seconds 30
+docker compose -f compose.bridges.yaml -f compose.bridges.production.yaml exec bridge-reconciler \
+  python -m mas_host admin --state-dir /state reconciler-health --max-age-seconds 30
+```
+
+Use the selected configuration path in the first command. Ingress readiness
+checks the local HTTP accept loop's public Agent Card and validates the private
+ledger and task repository without admission or migration. It neither exposes
+task state through an unauthenticated endpoint nor duplicates a client bearer
+secret into the server. It does not test the organisation's OAuth service,
+public TLS path or provider availability; exercise those through the authenticated
+deployment acceptance checks.
+
+Worker readiness requires the owning process's Linux boot identity and start
+ticks, the original state directory, an exclusively owned scheduling loop and
+recent polling. While work executes, it reports `phase: executing` until the
+registered `wall_seconds` plus 90 seconds of bootstrap/cleanup allowance have
+elapsed. That allowance controls alerting only: it cannot extend the protocol
+deadline or establish remote progress. There is no heartbeat thread running
+beside the worker's process forks. A stopped, killed, stale or replaced worker
+fails readiness; a second continuous or `--once` CLI worker cannot take over a
+live loop. Run each health command in its service's PID namespace. A read-only
+deployment report remains available even when its expenditure or disk limits
+close admission.
+
+Configure the host's monitoring system to collect these statuses and the
+private `admin health` report. At minimum, act on:
+
+| Observation | Operator response |
+| --- | --- |
+| Any container repeatedly restarts or becomes unhealthy | Inspect its bounded logs and durable state; check CPU, memory, PID and storage limits. Docker restarts exited containers, not unhealthy running processes. |
+| Reconciler's successful scan age exceeds 30 seconds | Investigate failed or slow scans and retained run count; adjust the threshold only against the required expiry-reconciliation latency. |
+| Worker poll is stale or its executing allowance expires | Inspect the run and supervisor before restarting it. Preserve unknown effects for explicit reconciliation. |
+| `admission_open` is false, or disk/budget headroom approaches its limit | Close new submissions and investigate the relevant immutable budget or storage threshold; restarting does not replenish quotas. |
+| Queued-task age exceeds the workload's accepted latency | Investigate the single worker's capacity and current task; increasing HTTP replicas does not increase scheduling capacity. |
+| Local `unknown`, remote unknown operations or pending cancellation persist | Reconcile with the actual peer using admitted lifecycle operations and retained evidence. A successful local scan is not a fresh peer observation. |
+
+Set numerical queue-latency and capacity thresholds from the target workload's
+acceptance run. The supplied mock invoice results do not define an SLO for
+another application. Preserve and use the accepted immutable image identities
+for upgrades; local build tags alone do not identify a release.
+
 ## Freeze a deployment policy
 
 Before the first run, initialise a policy with a JSON file:
@@ -119,6 +200,36 @@ Restoration verifies the complete file set, content hashes and SQLite integrity 
 The original deployment remains unchanged by backup or restore. Treat backups as private operational evidence and periodically run the restoration acceptance check on separate storage.
 
 Snapshots include `task-service.sqlite` and `remote-tasks.sqlite` when present: submission identities, continuation revisions, event cursors' source records, remote receipts and unresolved lifecycle operations survive together. Service scheduling and remote lifecycle operations share the deployment lock, so an active operation prevents a partial snapshot. New bridge run references are relative to their deployment. Restored references resolve only within the copied tree, and the audit-only marker prevents remote submission, polling and cancellation. Earlier Cursor records retain their absolute evidence paths; retention protects the corresponding copied run without opening or modifying the source path.
+
+For bridge maintenance, stop new ingress, then drain or explicitly cancel
+queued work and inspect all running or unknown tasks. Stop `worker` and
+`bridge-reconciler` before taking the snapshot. Mount separate backup storage,
+owned by runtime UID 10001 with mode `0700`, at `/backups` in a one-off bridge
+container. With `MAS_BRIDGE_BACKUPS` set to that absolute host directory:
+
+```sh
+docker compose -f compose.bridges.yaml -f compose.bridges.production.yaml stop bridge worker bridge-reconciler
+docker compose -f compose.bridges.yaml -f compose.bridges.production.yaml run --rm --no-deps \
+  -v "$MAS_BRIDGE_BACKUPS:/backups" bridge admin --state-dir /state backup /backups/quiescent-snapshot
+```
+
+Use a new empty snapshot destination on each backup. This command captures
+the bridge volume; using the batch `mesh` service would capture different
+state. The two ephemeral readiness records are excluded. Restore into separate
+private storage and verify identities, charges, result replay and unresolved
+receipts before treating a backup as usable. The original deployment remains
+stopped during a replacement cutover.
+
+A replacement that must accept fresh work needs a newly initialised deployment
+with an explicitly approved lifetime budget and frozen workflow versions.
+Inspect the restored audit copy, reconcile all possible external effects and
+record which unexecuted inputs are authorised for new submission. Give those
+submissions new request identities in the new deployment; neither copying an
+old spending ledger nor replaying an unknown effect is a recovery procedure.
+Complete authenticated readiness and a representative bounded workload before
+switching traffic. Keep the old deployment stopped and its receipts available
+for reconciliation. No command in this release reactivates restored spending
+authority or provides automatic failover.
 
 ## Repository formats and upgrades
 

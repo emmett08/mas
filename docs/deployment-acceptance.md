@@ -75,6 +75,13 @@ The native architecture matrix tests the installed standard and Cursor images
 and validates all three bridge Compose configurations and their private
 authentication mount.
 
+Use `compose.bridges.production.yaml` for a continuously served deployment.
+Its bridge, worker and independent reconciler share the same `bridge-state`
+volume. Follow [bridge supervision and recovery](operations.md#supervise-a-bridge-deployment)
+for startup, local readiness, alerts and quiescent backup/cutover. Health means
+the relevant local process is operational within its declared timing bound;
+it does not establish a successful external provider or authentication service.
+
 | Injected bridge condition | Required observation |
 | --- | --- |
 | Submission reply lost or outer orchestrator activity retried | The same principal/key/content returns the original receipt and run; changed content conflicts. |
@@ -86,6 +93,11 @@ authentication mount.
 | Cancellation races remote completion or loses its response | Intent, uncertain operation and observed terminal state remain distinct; stale polls cannot reopen a terminal receipt. |
 | Backup, audit-only restore or retention reaches bridge state | Both bridge repositories survive consistently; restored copies cannot dispatch; unresolved tasks, revisions and operations retain their host evidence. |
 | Newer repository schema or invalid persisted state | Maintenance reports failure without overwriting the unsupported database. |
+| Ingress is absent or its local task repository is unreadable/unsupported | Local bridge readiness fails without creating state or consuming an admission. |
+| Idle worker is killed, stopped or replaced | Worker readiness fails even if its last successful status file remains. |
+| Worker executes longer than an idle freshness interval | Readiness reports the bounded `executing` phase; it fails once the workflow wall limit plus operational cleanup allowance is exceeded. |
+| Second CLI worker starts against an existing scheduling loop | It exits without replacing the first worker's monitor or scheduling ownership. |
+| Continuous Compose services restart while receipts are retained | Ingress returns the original authenticated receipt; the worker and reconciler regain readiness against the same volume. |
 
 Every remote submission, poll, cancellation and continuation must use the
 admitted adapter contract. Inspection of local state and an evidenced operator
@@ -116,6 +128,22 @@ schema fixtures and development orchestrator do not establish those deployment
 facts. Streaming subscriptions, push notifications, arbitrary artifact fetching
 and hosted LangGraph job management remain outside the advertised profiles.
 The single-host worker and SQLite stores provide no high-availability guarantee.
+
+Run the focused local readiness regressions independently with:
+
+```sh
+python -m unittest discover -s host/tests -p test_bridge_health.py -v
+```
+
+For target-host acceptance, retain the exact image identities, Compose project
+and merged configuration, configured immutable policy, authenticated submission
+and completion records, ingress-restart result, observed health transitions,
+latency distribution and restoration evidence. Test with the intended request
+sizes and queue concurrency. Set a maximum queued age and reconciliation delay,
+then demonstrate that monitoring detects a stopped worker and failed scan.
+Repeat the backup/restore and replacement cutover procedure using separate
+storage, proving that the restored copy cannot admit fresh work. A passing mock
+deployment leaves the actual provider, OAuth, TLS and remote-peer checks pending.
 
 ## Repeatable load and bounded soak
 

@@ -18,7 +18,7 @@ from types import MappingProxyType
 from typing import Callable, Mapping, Protocol
 import uuid
 
-from .codec import integer_json
+from .codec import JsonSizeError, integer_json
 from .contracts import Adapter, AdapterInterrupted, AdapterTimeout, Outcome, RecoveryRequired, RunnerError
 from .service_contracts import ServiceError
 from .task_store import TaskStore, canonical, decoded, event, now
@@ -60,6 +60,8 @@ def _object(value):
         raise ServiceError("invalid_input")
     try:
         return json.loads(integer_json(value))
+    except JsonSizeError:
+        raise ServiceError("input_too_large", "application JSON exceeds its byte limit") from None
     except RunnerError:
         raise ServiceError("invalid_input", "input must be bounded integer-only JSON") from None
 
@@ -142,6 +144,15 @@ class WorkflowExecutor(Protocol):
                 ownership_descriptor: int) -> ExecutionResult: ...
 
 
+class WorkflowInputValidator(Protocol):
+    """Optional executor-specific preflight, without effects or durable writes.
+
+    Executors with additional representation limits implement this capability.
+    The service's common integer-JSON bound still applies to every executor.
+    """
+    def validate_input(self, workflow: Workflow, run_id: str, input: dict) -> None: ...
+
+
 class _OwnedContext:
     def __init__(self, context, descriptor):
         self._context, self._descriptor = context, descriptor
@@ -176,8 +187,21 @@ class RunnerExecutor:
                  command_timeout: float = 10):
         self.state_dir = Path(state_dir).absolute()
         self.operations = operations
-        self.options = {"mas_bin": mas_bin, "gateway_bin": gateway_bin,
+        self.options = {"mas_bin": os.environ.get("MAS_BIN", mas_bin) if mas_bin == "mas" else mas_bin,
+                        "gateway_bin": os.environ.get("MAS_GATEWAY_BIN", gateway_bin) if gateway_bin == "mas-gateway" else gateway_bin,
                         "command_timeout": command_timeout, "supervised": supervised}
+
+    def validate_input(self, workflow: Workflow, run_id: str, input: dict) -> None:
+        from .protocol_client import ProtocolClient
+        from .runner import validate_request_input
+        try:
+            client = ProtocolClient(self.options["mas_bin"], self.options["gateway_bin"])
+            validate_request_input(client, run_id, workflow.sender, workflow.recipient,
+                                   workflow.operation, input)
+        except JsonSizeError:
+            raise ServiceError("input_too_large", "input does not fit the complete protocol frame") from None
+        except RunnerError:
+            raise ServiceError("input_not_encodable", "input could not be encoded for this workflow") from None
 
     def _bootstrap(self, workflow, execution):
         from .bootstrap import _write_json, _sync_directory, _read_json
@@ -356,9 +380,20 @@ class DurableTaskService:
         return None
 
     @staticmethod
-    def _execution(db, task_id, revision, input):
+    def _run_id(task_id, revision):
         stem = task_id.removeprefix("task-")
-        run_id = f"run-service-{stem}-{revision}"
+        return f"run-service-{stem}-{revision}"
+
+    def _validate_execution_input(self, workflow, task_id, revision, input):
+        validate = getattr(self.executor, "validate_input", None)
+        if validate is not None:
+            if not callable(validate):
+                raise ServiceError("invalid_executor_validator")
+            validate(workflow, self._run_id(task_id, revision), input)
+
+    @staticmethod
+    def _execution(db, task_id, revision, input):
+        run_id = DurableTaskService._run_id(task_id, revision)
         db.execute("INSERT INTO executions(task_id,revision,run_id,run_directory,input,state) VALUES(?,?,?,?,?,'queued')",
                    (task_id, revision, run_id, run_id, canonical(input)))
 
@@ -375,6 +410,7 @@ class DurableTaskService:
                 return duplicate
             self._capacity(db, new=True)
             task_id, timestamp = "task-" + uuid.uuid4().hex, now()
+            self._validate_execution_input(self.workflows[workflow], task_id, 0, value)
             db.execute("INSERT INTO tasks(id,principal,request_key,workflow,workflow_identity,state,input,metadata,created_at,updated_at) VALUES(?,?,?,?,?,'queued',?,?,?,?)",
                 (task_id, principal, request_key, workflow, self.identities[workflow], canonical(value), canonical(metadata), timestamp, timestamp))
             db.execute("INSERT INTO requests VALUES(?,?,?,?,?)", (principal, request_key, digest, task_id, "submit"))
@@ -437,6 +473,7 @@ class DurableTaskService:
             except Exception:
                 raise ServiceError("invalid_continuation") from None
             revision = task["revision"] + 1
+            self._validate_execution_input(workflow, task_id, revision, combined)
             db.execute("INSERT INTO requests VALUES(?,?,?,?,?)", (principal, request_key, digest, task_id, "update"))
             self._execution(db, task_id, revision, combined)
             db.execute("UPDATE tasks SET state='queued',revision=?,error=NULL,updated_at=? WHERE id=?", (revision, now(), task_id))

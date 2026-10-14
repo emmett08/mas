@@ -291,9 +291,15 @@ class _Handler(BaseHTTPRequestHandler):
                 value = self.server.mcp_bridge.handle(principal.name, payload, dict(self.headers.items()))
                 return self._send(202 if value is None else http_status(value), value)
             if self.path == "/a2a" and self.server.a2a_bridge is not None:
-                principal.require({_a2a_scope(payload)})
-                value = self.server.a2a_bridge.handle(principal.name, payload,
-                    {"a2a-version": self.headers.get("A2A-Version", "")})
+                from .a2a import error_response, validate_request
+                a2a_headers = {"a2a-version": self.headers.get("A2A-Version", "")}
+                try:
+                    validate_request(payload, a2a_headers)
+                    scope = _a2a_scope(payload)
+                except ServiceError as error:
+                    return self._send(200, error_response(payload.get("id"), error))
+                principal.require({scope})
+                value = self.server.a2a_bridge.handle(principal.name, payload, a2a_headers)
                 return self._send(200, value)
             raise ServiceError("not_found")
         except AuthenticationError as exc:
@@ -363,7 +369,12 @@ def _a2a_scope(payload):
     method = payload.get("method")
     if method in {"CancelTask", "tasks/cancel"}:
         return "mas:cancel"
-    if method in {"SendMessage", "SendStreamingMessage", "message/send", "message/stream"}:
+    if method == "SendMessage":
+        from .a2a import send_task_id
+        params = payload.get("params")
+        message = params.get("message") if type(params) is dict else None
+        return "mas:update" if send_task_id(message) is not None else "mas:submit"
+    if method in {"SendStreamingMessage", "message/send", "message/stream"}:
         params = payload.get("params")
         message = params.get("message") if type(params) is dict else None
         return "mas:update" if type(message) is dict and "taskId" in message else "mas:submit"

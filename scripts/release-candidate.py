@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Create an immutable candidate tag after CI, or verify an existing tag."""
+"""Verify an owner-created candidate tag without repository write access."""
 from __future__ import annotations
 
 import json
@@ -24,9 +24,10 @@ class GitHub:
         self.token = token
 
     def request(self, method: str, path: str, data: dict | None = None) -> dict:
+        if method != "GET" or data is not None:
+            raise ValueError("candidate verification permits read-only requests only")
         request = urllib.request.Request(
             self.base + path,
-            data=json.dumps(data).encode("utf-8") if data is not None else None,
             method=method,
             headers={"Authorization": f"Bearer {self.token}",
                      "Accept": "application/vnd.github+json",
@@ -41,18 +42,15 @@ class GitHub:
             raise ApiError(error.code) from None
 
 
-def candidate_version(ref: str) -> tuple[str, bool]:
-    """Return the version and whether this is an authorised creation branch."""
-    branch_prefix, tag_prefix = "refs/heads/release/", "refs/tags/"
-    if ref.startswith(branch_prefix):
-        version, may_create = ref[len(branch_prefix):], True
-    elif ref.startswith(tag_prefix):
-        version, may_create = ref[len(tag_prefix):], False
-    else:
-        raise ValueError("select a release/v0.MINOR.PATCH branch or an existing version tag")
+def candidate_version(ref: str) -> str:
+    """Accept only a pre-existing version tag selected by its owner."""
+    tag_prefix = "refs/tags/"
+    if not ref.startswith(tag_prefix):
+        raise ValueError("select an existing owner-created v0.MINOR.PATCH tag")
+    version = ref[len(tag_prefix):]
     if not re.fullmatch(r"v0\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)", version):
         raise ValueError("candidate versions must have the form v0.MINOR.PATCH")
-    return version, may_create
+    return version
 
 
 def tag_commit(api: GitHub, version: str) -> str | None:
@@ -74,25 +72,16 @@ def tag_commit(api: GitHub, version: str) -> str | None:
 
 
 def prepare_candidate(api: GitHub, ref: str, source: str) -> tuple[str, str]:
-    version, may_create = candidate_version(ref)
+    version = candidate_version(ref)
     if not re.fullmatch(r"[0-9a-f]{40}", source):
         raise ValueError("candidate source must be a full commit SHA")
     if api.request("GET", f"/git/commits/{source}").get("sha") != source:
         raise ValueError("candidate source commit identity does not match")
     existing = tag_commit(api, version)
     if existing is None:
-        if not may_create:
-            raise ValueError("manual or tag execution requires an existing candidate tag")
-        try:
-            api.request("POST", "/git/refs", {"ref": f"refs/tags/{version}", "sha": source})
-        except ApiError as error:
-            if error.status != 422:
-                raise
-            # Another gated run may have created it concurrently. Resolve and
-            # compare below; never update or delete an existing tag.
-        existing = tag_commit(api, version)
+        raise ValueError("execution requires an existing candidate tag created by the owner")
     if existing != source:
-        raise ValueError("candidate tag already names a different commit, or creation did not complete")
+        raise ValueError("candidate tag names a different commit")
     return version, source
 
 
@@ -106,7 +95,7 @@ def main() -> None:
     except (ValueError, ApiError) as error:
         raise SystemExit(f"Candidate tag refused: {error}. No existing tag was changed.") from None
     except (KeyError, RuntimeError, OSError):
-        raise SystemExit("Candidate tag validation or creation failed; no existing tag was changed.") from None
+        raise SystemExit("Candidate tag verification failed; no repository writes were attempted.") from None
 
 
 if __name__ == "__main__":

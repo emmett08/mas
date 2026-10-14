@@ -5,7 +5,7 @@ an invoice, a price estimate, or a substitute for a provider account limit.
 """
 from __future__ import annotations
 
-from contextlib import contextmanager, ExitStack
+from contextlib import closing, contextmanager, ExitStack
 from dataclasses import asdict, dataclass
 import fcntl
 import hashlib
@@ -169,28 +169,48 @@ class DeploymentLedger:
                 ("admission_state", "active"),
             ])
 
-        def open_ledger():
+        def open_ledger(*, read_only: bool, current_only: bool = False):
             if not self.path.exists() and (self.state_dir / ".restored-audit-only").exists():
                 raise OperationsError("restored deployment ledger is incomplete; admissions are disabled")
             if not self.path.exists() and any(self.state_dir.glob("*/state.sqlite")):
                 raise OperationsError("existing run state has no deployment ledger; migrate explicitly into a new deployment")
             try:
-                connection = connect(self.path, LEDGER, readonly=readonly,
-                                     initialise=None if readonly else initialise,
+                connection = connect(self.path, LEDGER, readonly=read_only,
+                                     initialise=None if read_only else initialise,
                                      validate_content=validate_metadata)
                 try:
+                    if current_only and validate(connection, LEDGER):
+                        return False
                     self.policy = DeploymentPolicy(**json.loads(connection.execute(
                         "SELECT value FROM metadata WHERE key='policy'").fetchone()[0]))
+                    return True
                 finally:
                     connection.close()
             except SchemaError as error:
                 raise OperationsError(str(error)) from None
 
         if readonly:
-            open_ledger()
+            open_ledger(read_only=True)
         else:
+            # Opening an unchanged ledger must coexist with an executing worker,
+            # which retains a shared deployment lock for its whole lifetime.
+            # Read/validate under that same lock; maintenance still needs EX.
+            with _file_lock(self.state_dir / ".deployment.lock", False):
+                fresh = not self.path.exists()
+                if self.path.is_symlink() or not fresh and not self.path.is_file():
+                    raise OperationsError("database must be a regular file")
+                if not fresh:
+                    with closing(sqlite3.connect(self.path.as_uri() + "?mode=ro", uri=True)) as check:
+                        fresh = (check.execute("PRAGMA application_id").fetchone()[0] == 0
+                                 and check.execute("PRAGMA user_version").fetchone()[0] == 0
+                                 and check.execute("SELECT count(*) FROM sqlite_master").fetchone()[0] == 0)
+                    if not fresh and open_ledger(read_only=True, current_only=True):
+                        return
+            # Initialisation and recognised migrations require quiescence.
+            # Reopen and validate after acquiring EX: another constructor or
+            # maintenance operation may have changed state since the SH read.
             with _file_lock(self.state_dir / ".deployment.lock", True):
-                open_ledger()
+                open_ledger(read_only=False)
 
     @property
     def admission_enabled(self) -> bool:
@@ -499,7 +519,7 @@ def backup_state(state_dir: Path, destination: Path) -> dict:
                     (destination / relative).mkdir(mode=0o700, parents=True, exist_ok=True)
                     continue
                 if (source.name.endswith((".lock", "-wal", "-shm", "-journal"))
-                        or source.name.startswith(".reconciler-health")):
+                        or source.name.startswith((".reconciler-health", ".bridge-worker-health"))):
                     continue
                 target = destination / relative
                 if source.suffix == ".sqlite":

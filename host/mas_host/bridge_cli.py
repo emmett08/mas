@@ -67,6 +67,13 @@ def main(argv=None):
             command.add_argument("--interval", type=float, default=0.25)
         else:
             command.add_argument("--principal", required=True)
+    health = sub.add_parser("health", help="trusted local HTTP/state readiness without provider calls")
+    health.add_argument("--config", type=Path, required=True)
+    health.add_argument("--state-dir", type=Path, required=True)
+    health.add_argument("--port", type=int, default=8765)
+    worker_health = sub.add_parser("worker-health", help="check the live scheduling loop and its deadline")
+    worker_health.add_argument("--state-dir", type=Path, required=True)
+    worker_health.add_argument("--max-age-seconds", type=float, default=30)
     auth = sub.add_parser("init-auth", help="create a private bearer secret and hashed verifier file")
     auth.add_argument("--token-file", type=Path, required=True)
     auth.add_argument("--verifier-file", type=Path, required=True)
@@ -88,6 +95,12 @@ def main(argv=None):
                 raise
             print(json.dumps({"ok": True, "token_file": str(args.token_file), "verifier_file": str(args.verifier_file)}))
             return 0
+        if args.command in ("health", "worker-health"):
+            from .bridge_health import ingress_health, worker_health
+            result = (ingress_health(args.state_dir, load_config(args.config), args.port)
+                      if args.command == "health" else worker_health(args.state_dir, args.max_age_seconds))
+            print(json.dumps(result), flush=True)
+            return 0
         config = load_config(args.config)
         service = build_service(config, args.state_dir)
         if args.command == "worker":
@@ -99,14 +112,25 @@ def main(argv=None):
                 stopping = True
             signal.signal(signal.SIGTERM, stop)
             signal.signal(signal.SIGINT, stop)
-            while not stopping:
-                result = service.run_once()
-                if result is not None:
-                    print(json.dumps({"task_id": result["task_id"], "state": result["state"]}), flush=True)
-                if args.once:
-                    return 0
-                if result is None:
-                    time.sleep(args.interval)
+            from .bridge_health import WorkerMonitor
+            monitor = WorkerMonitor(args.state_dir)
+            service.executor = monitor.observe(service.executor)
+            with monitor.ownership():
+                monitor.write("starting")
+                try:
+                    while not stopping:
+                        monitor.write("polling")
+                        result = service.run_once()
+                        monitor.polls += 1
+                        monitor.write("idle", allowance=max(30, args.interval + 5))
+                        if result is not None:
+                            print(json.dumps({"task_id": result["task_id"], "state": result["state"]}), flush=True)
+                        if args.once:
+                            return 0
+                        if result is None:
+                            time.sleep(args.interval)
+                finally:
+                    monitor.write("stopped")
             return 0
         from .bridges.mcp import MCPBridge
         mcp = MCPBridge(service)

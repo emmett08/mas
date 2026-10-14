@@ -82,7 +82,7 @@ Grouping does not remove the security audit or its weekly schedule.
 
 Each PR runs protocol, host/Compose and security workflows once. Standalone
 push checks run only on `main`; branch pushes do not duplicate PR checks.
-Release branches and tags run those gates through the release workflow, without
+Version tags run those gates through the release workflow, without
 also starting the standalone workflows. Superseded PR runs are cancelled;
 release and main runs are retained. Distinct concurrency prefixes prevent the
 three reusable workflows from cancelling one another.
@@ -95,25 +95,38 @@ Node version cannot change an action's declared JavaScript runtime.
 
 ## Candidate artefacts
 
-Creating a `v0.MINOR.PATCH` tag or pushing a `release/v0.MINOR.PATCH` branch
-triggers the release workflow. Manual dispatch must select an existing version
-tag or release branch. Versions must use that exact numeric form, without a
-prerelease suffix or leading zeroes. Protocol/SPIN, host/Compose/acceptance and
-security jobs all gate candidate acceptance.
+The repository owner creates a `v0.MINOR.PATCH` tag at the reviewed commit to
+trigger the release workflow. Manual dispatch must select an existing version
+tag. Versions must use that exact numeric form, without a prerelease suffix or
+leading zeroes. Branch dispatch is rejected before the expensive checks begin.
+The workflow has read-only repository permissions and never creates, moves or
+deletes a tag. This preserves the repository's owner-only branch and tag rules.
 
-After those gates pass, a candidate job verifies the exact source commit. For
-a release branch, it creates the corresponding lightweight version tag only if
-absent. An existing lightweight or annotated tag must resolve to the identical
-commit; a mismatch fails and the workflow never rewrites or deletes a tag.
-Only this candidate job has repository write permission. Packaging explicitly
-checks out its verified source SHA and uses its verified version, including
-when the workflow began from a branch. Tag creation with the job token does not
-need to trigger another workflow: the same gated run proceeds to packaging.
+The first job verifies that the selected lightweight or annotated tag resolves
+to the event's exact source commit. Protocol/SPIN, host/Compose/acceptance and
+security jobs then gate packaging. Each package job checks out that verified
+source SHA and uses the verified version. A tag identifying a failed candidate
+remains part of the release history; create a new version for a changed source.
 
-Native amd64 and arm64 jobs produce an OCI archive,
+For example, after reviewing and merging the intended source, replace the
+version and full source SHA below with the chosen values, using the owner's
+authenticated Git session:
+
+```sh
+git tag -a v0.1.4 FULL_REVIEWED_COMMIT_SHA -m 'MAS v0.1.4 candidate'
+git push origin refs/tags/v0.1.4
+```
+
+Native jobs produce four packages: `standard` and `cursor`, each for `amd64`
+and `arm64`. The standard variant builds `Dockerfile`; the Cursor variant builds
+`Dockerfile.cursor`. Each produces its own OCI archive,
 embedded BuildKit provenance, a CycloneDX SBOM, audit results, a source manifest
 and `SHA256SUMS`. Before packaging is accepted, each final image must pass the
-complete installed-container host suite and dynamic-library checks. The release
+complete installed-container host suite and variant-specific runtime checks.
+Standard images must use the expected shared musl/SQLite libraries. Cursor
+images must run the installed native SDK bridge on glibc, verify its pinned Node
+runtime and patched bridge source, and use the expected static Rust binaries.
+These checks make no paid provider requests. The release
 build exports the OCI archive once, with gzip layers and provenance. Skopeo
 imports the requested architecture's runtime image from that archive into Docker;
 there is no separate test-image build. A verifier checks descriptor hashes and
@@ -140,10 +153,37 @@ identity, Skopeo version and test log in the checksum manifest. Skopeo is a
 recorded CI import tool, not an application dependency.
 Workflow definitions establish these requirements; only successful executions
 on the tagged commit establish that the candidate passed them.
-The manifest is an unsigned identity record; it is not an
-independent attestation of correctness. Action artefacts expire after 30 days,
-so the maintainer must retain approved releases and checksums in durable release
-storage. The workflow does not publish a package or push an image registry tag.
+The manifest records the variant, platform, selected Dockerfile and relevant
+dependency/runtime locks, as well as the verified tested-image binding. It is an
+unsigned identity record; it is not an independent attestation of correctness.
+Action artefacts expire after 30 days. Publication is a separate owner action;
+the workflow does not publish a release or push an image registry tag.
+
+### Retain and publish the accepted packages
+
+After every job succeeds on the intended tagged commit, the owner can distribute
+the accepted bytes without giving a bot repository write access:
+
+1. Download all four package artefacts from that workflow run:
+   `mas-VERSION-standard-amd64`, `mas-VERSION-standard-arm64`,
+   `mas-VERSION-cursor-amd64` and `mas-VERSION-cursor-arm64`, where `VERSION`
+   includes the leading `v`. Keep each downloaded ZIP under its distinct
+   artefact name; each contains a separate `SHA256SUMS` and source manifest.
+2. Extract each ZIP into a separate directory and run `sha256sum -c SHA256SUMS`
+   there. Check its manifest's source commit, tag, variant and platform against
+   the intended release and the successful workflow. Retain the original ZIPs.
+3. Using the owner's GitHub session, create a release **from the existing tag**
+   and attach those four original ZIPs. Record the source SHA, workflow-run URL,
+   supported deployment profiles and any outstanding live acceptance in the
+   release notes. Mark an unaccepted deployment candidate as a prerelease.
+4. Copy the same ZIPs and release notes into the organisation's retained release
+   storage. Verify the extracted checksums there before the 30-day Actions
+   retention expires. Periodically verify retrieval; a release page alone does
+   not prove that a recovery copy remains available.
+
+GitHub Release assets and retained operator storage provide distribution beyond
+the Actions retention window. Use the image from its verified archive directly;
+rebuilding the source would produce a new image requiring its own acceptance.
 
 Before distribution, download the intended architecture's artefacts and run
 `sha256sum -c SHA256SUMS`. Import or copy the OCI archive with a tool supporting

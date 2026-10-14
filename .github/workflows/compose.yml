@@ -210,9 +210,74 @@ jobs:
               assert "invoice_" + name in service.grants["example-client"]
           print("Bridge configurations and private authentication mount verified.")
           '
+      - name: Exercise supervised bridge deployment and restart recovery
+        run: |
+          export MAS_BRIDGE_CREDENTIALS="$(cat /tmp/mas-bridge-credentials.json)"
+          docker compose -f compose.bridges.yaml -f compose.bridges.production.yaml config --format json > bridge-production-compose.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          services = json.loads(Path('bridge-production-compose.json').read_text())['services']
+          for name in ('bridge', 'worker', 'bridge-reconciler'):
+              service = services[name]
+              assert service['restart'] == 'unless-stopped', (name, service)
+              assert service['healthcheck']['test'], name
+              assert any(v.get('source') == 'bridge-state' and v['target'] == '/state'
+                         for v in service['volumes']), name
+          PY
+          docker compose -f compose.bridges.yaml -f compose.bridges.production.yaml up -d --no-build --wait --wait-timeout 60
+          python - <<'PY'
+          import json, time
+          from pathlib import Path
+          from mas_host.bridges.service_client import TaskServiceClient
+          from mas_host.demo import DEFAULT_INVOICE
+          client = TaskServiceClient('http://127.0.0.1:8765', principal='example-client',
+              token_file=Path('/tmp/mas-bridge-test.token'), allow_loopback_http=True)
+          receipt = client.submit('example-client', 'compose-production-acceptance',
+                                  'invoice_mesh', {'invoice': DEFAULT_INVOICE})
+          deadline = time.monotonic() + 40
+          while receipt['state'] in ('queued', 'running') and time.monotonic() < deadline:
+              time.sleep(0.1)
+              receipt = client.inspect('example-client', receipt['task_id'])
+          assert receipt['state'] == 'completed', receipt
+          result = client.result('example-client', receipt['task_id'])
+          assert result['total_cents'] == 5497 and result['verified'] is True, result
+          Path('bridge-production-acceptance.json').write_text(json.dumps({
+              'task_id': receipt['task_id'], 'state': receipt['state'], 'result': result}))
+          PY
+          docker compose -f compose.bridges.yaml -f compose.bridges.production.yaml restart bridge worker
+          docker compose -f compose.bridges.yaml -f compose.bridges.production.yaml up -d --no-build --wait --wait-timeout 60
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          from mas_host.bridges.service_client import TaskServiceClient
+          from mas_host.demo import DEFAULT_INVOICE
+          before = json.loads(Path('bridge-production-acceptance.json').read_text())
+          client = TaskServiceClient('http://127.0.0.1:8765', principal='example-client',
+              token_file=Path('/tmp/mas-bridge-test.token'), allow_loopback_http=True)
+          replay = client.submit('example-client', 'compose-production-acceptance',
+                                 'invoice_mesh', {'invoice': DEFAULT_INVOICE})
+          assert replay['task_id'] == before['task_id'] and replay['state'] == 'completed', replay
+          assert client.result('example-client', replay['task_id']) == before['result']
+          before['restart_replay_verified'] = True
+          Path('bridge-production-acceptance.json').write_text(json.dumps(before))
+          PY
+      - name: Capture bridge deployment status
+        if: always()
+        run: |
+          if [ -f /tmp/mas-bridge-credentials.json ]; then
+            export MAS_BRIDGE_CREDENTIALS="$(cat /tmp/mas-bridge-credentials.json)"
+            docker compose -f compose.bridges.yaml -f compose.bridges.production.yaml ps --all --format json > bridge-production-status.json
+            docker compose -f compose.bridges.yaml -f compose.bridges.production.yaml logs --no-color > bridge-production.log
+          fi
       - name: Stop containers
         if: always()
-        run: docker compose -f compose.yaml -f compose.production.yaml down
+        run: |
+          docker compose -f compose.yaml -f compose.production.yaml down
+          if [ -f /tmp/mas-bridge-credentials.json ]; then
+            export MAS_BRIDGE_CREDENTIALS="$(cat /tmp/mas-bridge-credentials.json)"
+            docker compose -f compose.bridges.yaml -f compose.bridges.production.yaml down
+          fi
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
@@ -226,3 +291,6 @@ jobs:
             installed-container-tests.log
             installed-cursor-tests.log
             reconciler-health.json
+            bridge-production-acceptance.json
+            bridge-production-status.json
+            bridge-production.log

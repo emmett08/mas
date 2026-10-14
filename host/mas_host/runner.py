@@ -15,13 +15,41 @@ from typing import Callable, Mapping
 import uuid
 
 from .bootstrap import RunSession
-from .codec import integer_json as _json
+from .codec import ENCODE_ENVELOPE_BYTES, integer_json as _json
 from .contracts import (
     Adapter, AdapterContext, AdapterError, AdapterExecutor, AdapterInterrupted, AdapterTimeout, Invocation,
     InvocationTicket, Outcome, RecoveryRequired, RunnerError, TaskRequest,
 )
 from .journal import JournalError
 from .protocol_client import ProtocolClient, ProtocolTransport
+
+
+def _encode_wire(command, mas_bin: str, run_id: str, sender: str, recipient: str,
+                 kind: str, payload: dict, message_id: str) -> str:
+    """Use the authoritative Rust codec, including its complete wire bound."""
+    envelope = {"message_id": message_id, "run_id": run_id, "sender": sender,
+                "recipient": recipient, "version": "1", "kind": kind, "payload": payload}
+    return command([mas_bin, "encode", "-"], _json(envelope, ENCODE_ENVELOPE_BYTES))["text"]
+
+
+def _gateway_frame(token: str, **command) -> str:
+    """The gateway bounds its escaped JSON frame independently of the wire."""
+    return _json({"token": token, **command})
+
+
+def validate_request_input(client: ProtocolTransport, run_id: str, sender: str,
+                           recipient: str, operation: str, input: dict) -> None:
+    """Read-only preflight of the exact generated-identity request format.
+
+    Generated task/message identifiers and capabilities have fixed ASCII
+    widths. Their values do not affect encoding size. No database, gateway
+    session, reservation or adapter is opened by this validation.
+    """
+    wire = _encode_wire(client.command, client.mas, run_id, sender, recipient,
+                        "Request", {"task_id": "task-" + "0" * 32,
+                                    "operation": operation, "input": input},
+                        "message-" + "0" * 32)
+    _gateway_frame("0" * 64, command="send", wire=wire)
 
 
 class Context:
@@ -305,14 +333,12 @@ class Runner:
     def _gateway(self, actor: str, **command):
         if actor not in self._tokens:
             raise RunnerError("unknown topology actor")
-        frame = {"token": self._tokens[actor], **command}
         return self._command([self._gateway_bin, "serve", str(self._db), str(self._config)],
-                             _json(frame) + "\n")
+                             _gateway_frame(self._tokens[actor], **command) + "\n")
 
     def _wire(self, sender: str, recipient: str, kind: str, payload: dict, message_id: str) -> str:
-        envelope = {"message_id": message_id, "run_id": self.run_id, "sender": sender,
-                    "recipient": recipient, "version": "1", "kind": kind, "payload": payload}
-        return self._command([self._mas, "encode", "-"], _json(envelope, 65_792))["text"]
+        return _encode_wire(self._command, self._mas, self.run_id, sender, recipient,
+                            kind, payload, message_id)
 
     def _send_recorded(self, envelope: dict) -> str:
         wire = self._wire(envelope["sender"], envelope["recipient"], envelope["kind"],
@@ -405,6 +431,7 @@ class Runner:
         context = Context(self, actor, request_id)
         self._active.append(request_id)
         try:
+            terminal_id = "message-" + uuid.uuid4().hex
             try:
                 outcome = self._executor.execute(self._adapters[actor], context, request,
                                                  deadline=self._deadline, tick=self.status)
@@ -418,6 +445,11 @@ class Runner:
                 terminal_payload = {"task_id": request.task_id, "reply_to": request_id,
                                     "status": outcome.status, "output": outcome.output}
                 _json(terminal_payload)
+                # An unencodable result must not become a durable terminal
+                # intent that can never be sent. Completed invocation records
+                # remain known; only this application result is rejected.
+                wire = self._wire(actor, request.sender, "Result", terminal_payload, terminal_id)
+                _gateway_frame(self._tokens[actor], command="send", wire=wire)
                 kind = "Result"
             except (RecoveryRequired, JournalError):
                 raise
@@ -434,7 +466,7 @@ class Runner:
             # Persist the entire terminal before submission; response loss may
             # then retry the identical envelope instead of a conflicting Failure.
             step["terminal"] = {"sender": actor, "recipient": request.sender, "kind": kind,
-                                "payload": terminal_payload, "message_id": "message-" + uuid.uuid4().hex}
+                                "payload": terminal_payload, "message_id": terminal_id}
             self._journal.set_step(key, step)
             self._send_recorded(step["terminal"])
             self._ack(actor, request_id)
