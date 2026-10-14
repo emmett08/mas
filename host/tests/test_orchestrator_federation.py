@@ -1,5 +1,6 @@
 """Pinned HTTP peer identity and outer retry after a lost accepted receipt."""
 from dataclasses import replace
+import importlib.util
 from pathlib import Path
 import tempfile
 import unittest
@@ -82,6 +83,8 @@ class FederationTests(unittest.TestCase):
             connector.submit("new", "echo", {})
         self.assertEqual(len(changed.list_tasks("alice")), 1)
 
+    @unittest.skipUnless(importlib.util.find_spec("temporalio") is not None,
+                         "optional Temporal SDK is not installed")
     def test_temporal_activity_retry_after_real_http_acceptance_reuses_original_key(self):
         from temporalio.testing import ActivityEnvironment
         from mas_host.bridges.temporal import temporal_activities
