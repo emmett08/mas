@@ -79,11 +79,20 @@ def http_exchange(endpoint, *, method="POST", body=None, headers=None,
                       separators=(",", ":")).encode()
     process = None
     try:
+        worker_environment = {"PATH": os.defpath, "LANG": "C.UTF-8"}
+        if os.name == "nt":
+            # Windows' socket/runtime assemblies need SystemRoot even with an
+            # isolated interpreter. Preserve this OS binding only, never proxy,
+            # Python startup, credential or arbitrary caller environment.
+            system_root = os.environ.get("SystemRoot")
+            if not system_root or not os.path.isabs(system_root):
+                raise ServiceError("transport_runtime_unavailable")
+            worker_environment["SystemRoot"] = system_root
         # -I excludes Python path/user-site injection; the worker is a fixed
         # sibling file and only imports standard-library modules.
         process = subprocess.Popen([sys.executable, "-I", str(Path(__file__).with_name("_http_worker.py"))],
                                    stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-                                   close_fds=True, env={"PATH": os.defpath, "LANG": "C.UTF-8"})
+                                   close_fds=True, env=worker_environment)
         output, _unused = process.communicate(wire, timeout=timeout_seconds)
         if len(output) > 2 * max_response_bytes + 65536:
             raise ServiceError("invalid_remote_response")
