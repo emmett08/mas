@@ -70,15 +70,15 @@ class CursorBridgeSmokeTests(unittest.TestCase):
         package.__path__ = [str(self.package_root)]
         contract = ModuleType("mas_host.provider_contract")
         contract.ProviderError = RuntimeError
-        local = ModuleType("mas_host.cursor_local")
+        local = ModuleType("mas_host.cursor_session")
         local.CURSOR_SDK_VERSION = "1.0.37"
         self.clients = []
-        self.launch = local._launch_client = Mock(side_effect=self.make_client)
+        self.launch = local.launch_client = Mock(side_effect=self.make_client)
         spec = importlib.util.spec_from_file_location(
             "mas_host.cursor_transport", self.package_root / "cursor_transport.py")
         self.transport = importlib.util.module_from_spec(spec)
         modules = patch.dict(sys.modules, {"mas_host": package,
-            "mas_host.provider_contract": contract, "mas_host.cursor_local": local,
+            "mas_host.provider_contract": contract, "mas_host.cursor_session": local,
             "mas_host.cursor_transport": self.transport})
         modules.start()
         self.addCleanup(modules.stop)

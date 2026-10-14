@@ -7,7 +7,8 @@ import unittest
 from unittest.mock import patch
 
 from mas_host.contracts import InvocationFailure, validate_invocation_diagnostic
-from mas_host.cursor_local import CursorLocalProvider, _OwnedClient, _close_bridge
+from mas_host.invoice_cursor import InvoiceCursorProvider as CursorLocalProvider
+from mas_host.cursor_session import _OwnedClient, _close_bridge
 from mas_host.journal import inspect_run
 from mas_host.provider_contract import ProviderError
 from mas_host.runner import AdapterError, Invocation, Outcome, RecoveryRequired, Runner
@@ -42,7 +43,7 @@ class CursorDiagnosticTests(unittest.TestCase):
                 elif stage == "cleanup":
                     client.agent.close = lambda: fail(error)
                 provider = CursorLocalProvider("model", "planner", api_key="SECRET key")
-                with patch("mas_host.cursor_local._launch_client",
+                with patch("mas_host.cursor_session.launch_client",
                            side_effect=error if stage == "launch" else None,
                            return_value=client), self.assertRaises(ProviderError) as raised:
                     provider.total(INVOICE)
@@ -60,7 +61,7 @@ class CursorDiagnosticTests(unittest.TestCase):
         client.agent.run.cancel = lambda: cleanup("cancel")
         client.agent.close = lambda: cleanup("agent")
         client.close = lambda: cleanup("client")
-        with patch("mas_host.cursor_local._launch_client", return_value=client), \
+        with patch("mas_host.cursor_session.launch_client", return_value=client), \
                 self.assertRaises(ProviderError) as raised:
             CursorLocalProvider("model", "planner", api_key="key").total(INVOICE)
         self.assertEqual(attempted, ["cancel", "agent", "client"])
@@ -69,7 +70,7 @@ class CursorDiagnosticTests(unittest.TestCase):
 
     def test_partial_launch_cleanup_diagnostic_is_preserved(self):
         error = ProviderError("safe launch failure", diagnostic=diagnostic("launch", True))
-        with patch("mas_host.cursor_local._launch_client", side_effect=error), \
+        with patch("mas_host.cursor_session.launch_client", side_effect=error), \
                 self.assertRaises(ProviderError) as raised:
             CursorLocalProvider("model", "planner", api_key="key").total(INVOICE)
         self.assertEqual(raised.exception.diagnostic, diagnostic("launch", True))
@@ -79,7 +80,7 @@ class CursorDiagnosticTests(unittest.TestCase):
             with self.subTest(prior=prior is not None):
                 workspace = SimpleNamespace(name="unused", cleanup=lambda: fail(RuntimeError("SECRET cleanup")))
                 provider = CursorLocalProvider("model", "planner", client=FakeClient())
-                with patch("mas_host.cursor_local.tempfile.TemporaryDirectory", return_value=workspace), \
+                with patch("mas_host.cursor_session.tempfile.TemporaryDirectory", return_value=workspace), \
                         patch.object(provider, "_run", side_effect=prior,
                                      return_value=Invocation({"total_cents": 1}, {})), \
                         self.assertRaises(ProviderError) as raised:
@@ -108,7 +109,7 @@ class CursorDiagnosticTests(unittest.TestCase):
         owned._owned_bridge = object()
         owned._stderr_thread = None
         owned._http_client = SimpleNamespace(close=lambda: cleanup("http", RuntimeError("SECRET http")))
-        with patch("mas_host.cursor_local._close_bridge",
+        with patch("mas_host.cursor_session._close_bridge",
                    side_effect=lambda *_args: cleanup("bridge", RuntimeError("SECRET bridge"))), \
                 self.assertRaises(KeyboardInterrupt) as raised:
             owned.close()

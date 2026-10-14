@@ -8,6 +8,7 @@ require an evidenced operator decision before any invocation can be repeated.
 from __future__ import annotations
 
 import json
+import math
 from pathlib import Path
 import threading
 import time
@@ -252,7 +253,8 @@ class Runner:
                  gateway_bin: str = "mas-gateway", max_depth: int = 8,
                  command_timeout: float = 10, *, workflow_version: str = "unversioned",
                  supervised: bool = True, operations=None, executor: AdapterExecutor | None = None,
-                 protocol_client: ProtocolTransport | None = None, _resume_dir: Path | None = None):
+                 protocol_client: ProtocolTransport | None = None, _resume_dir: Path | None = None,
+                 execution_deadline: float | None = None):
         from .operations import DeploymentLedger
         if type(max_depth) is not int or not 1 <= max_depth <= 64:
             raise RunnerError("max_depth must be an integer from 1 to 64")
@@ -260,6 +262,10 @@ class Runner:
             raise RunnerError("command timeout must be positive and at most 120 seconds")
         if type(workflow_version) is not str or not workflow_version or len(workflow_version) > 256:
             raise RunnerError("workflow_version must be a nonempty string of at most 256 characters")
+        if execution_deadline is not None and (type(execution_deadline) not in (int, float)
+                or (type(execution_deadline) is int and abs(execution_deadline) > 10**18)
+                or not math.isfinite(execution_deadline)):
+            raise RunnerError("execution deadline must be a finite monotonic timestamp")
         self._client = protocol_client if protocol_client is not None else ProtocolClient(mas_bin, gateway_bin)
         self._mas = self._client.mas
         self._gateway_bin = self._client.gateway
@@ -298,6 +304,10 @@ class Runner:
             # Rust's persisted wall deadline is never renewed by restart. A
             # monotonic deadline additionally bounds this host process.
             self._deadline = time.monotonic() + max(0, snapshot["deadline"] - time.time())
+            if execution_deadline is not None:
+                # An enclosing workflow may tighten, but never extend, Rust's
+                # persisted deadline. Adapter timeouts use this same bound.
+                self._deadline = min(self._deadline, execution_deadline)
         except Exception as error:
             if self._session is not None:
                 self._session.close()

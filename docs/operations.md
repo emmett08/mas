@@ -128,6 +128,14 @@ Policy values are immutable after initialisation. Changing an environment variab
 
 Disk thresholds are checked before admissions. They close admission when free space falls below `min_free_bytes` or retained state reaches `max_state_bytes`. Writes already admitted can cross the threshold; use a filesystem quota for a strict storage ceiling. Watch `free_bytes`, `state_bytes`, usage and admission state through the read-only `health` command. It never creates a deployment or migrates its database. Backups occupy separate storage and need their own retention policy.
 
+Both durable services check these thresholds before persisting a new submission
+or continuation. An identical retained request can still return its receipt;
+cancellation and evidenced recovery remain available above the threshold.
+Deployment-backed artefact stores also check before publishing new content or
+reference metadata. These recovery paths still require physical space for their
+records. A read-only ledger handle or restored audit-only deployment rejects
+service mutations independently of available space.
+
 ## Reconcile expiry independently
 
 A host crash must not leave task expiry dependent on the next adapter call. The watcher calls Rust reconciliation independently:
@@ -150,6 +158,15 @@ Readiness fails for missing, failed, stale or stopped watchers. The status recor
 The production Compose overlay supplies a separate reconciler service. Its process can continue reconciling retained runs after a host exits. Its Docker health check uses `reconciler-health`, with a 30-second freshness threshold, rather than treating a running process as proof of successful reconciliation. Docker marks a failed service unhealthy; configure operational alerting for that status (the restart policy alone does not restart unhealthy but running processes). Stop this service as well as hosts for predictable operator maintenance; snapshot locking rejects a busy deployment rather than copying inconsistent databases.
 
 Health reports include local `task_service` state counts and `remote_tasks` state, pending-action and unknown-operation counts. These are persisted observations, not fresh provider status checks. Reconciliation validates the bridge repositories and reports `bridge_observations.remote_refreshed: false`; an unsupported schema or unreadable repository makes the scan fail. A remote refresh must use the admitted bridge lifecycle operation so polling cannot bypass deployment accounting.
+
+The `composition` health entry reports workflow instance, node and attempt states
+and retained allocations. Reconciliation reports `composition_observations` and
+validates the composition schema without creating missing state. An unsupported
+schema, unreadable database or invalid durable state makes the scan fail. The
+watcher records a degraded scan and a bounded diagnostic when health inspection
+fails, so an unusable workflow repository cannot establish readiness.
+Counts include retained historical revisions. They report persisted observations,
+not worker liveness or progress; reservations are not actual provider expenditure.
 
 Service cancellation closes queued work or a paused local continuation. Cancelling a running task records intent for its worker; cancelling an unknown task retains that uncertainty. A local `cancelled` service receipt does not confirm that a separate remote task stopped. Remote cancellation uses its own admitted lifecycle operation, and its receipt continues to protect the associated evidence until reconciled. Revoking a caller's permission prevents further dispatch but preserves an interrupted execution as unknown when earlier effects may have escaped.
 
@@ -242,6 +259,7 @@ The host-side repositories have independent application identities and versions:
 | Cursor cloud jobs | `MASC` (`0x4d415343`) | 1 | None |
 | Durable task service | `MAST` (`0x4d415354`) | 1 | None |
 | Remote bridge tasks | `MASR` (`0x4d415352`) | 1 | None |
+| Workflow composition | `MASW` (`0x4d415357`) | 1 | None |
 
 A writable open validates the exact declared tables, constraints and indices, and the saved metadata, before transactionally migrating a recognised previous format. Migration preserves deployment identity, policy, charges, checkpoints and resolutions. Unknown application identities, versions, extra objects or changed layouts are rejected before database mutation. Read-only health and inspection recognise supported previous formats without migrating them. Neither operation creates missing state. The Rust protocol repository retains its own format and migration rules.
 

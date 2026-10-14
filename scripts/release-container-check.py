@@ -85,7 +85,7 @@ def cursor_runtime_identity(binaries: dict[str, Path]) -> dict:
             if any(struct.unpack_from("<I", headers, i * entry_size)[0] == 3 for i in range(count)):
                 raise RuntimeError(f"{name} must be a static musl executable in the Cursor image")
     ctypes.CDLL("libstdc++.so.6")
-    from mas_host.cursor_local import _bridge_files
+    from mas_host.cursor_session import _bridge_files
     node, _ = _bridge_files()
     node_version = subprocess.run([str(node), "--version"], text=True, stdout=subprocess.PIPE,
                                   stderr=subprocess.PIPE, timeout=10, check=True).stdout.strip()
@@ -100,7 +100,7 @@ def cursor_runtime_identity(binaries: dict[str, Path]) -> dict:
 
 def cursor_bridge_smoke() -> dict:
     """Launch and reap both installed transports without creating an agent or API call."""
-    from mas_host.cursor_local import CURSOR_SDK_VERSION, _launch_client
+    from mas_host.cursor_session import CURSOR_SDK_VERSION, launch_client
     from mas_host.cursor_transport import (
         ENVIRONMENT_PROXY_HTTP1, SDK_DEFAULT, transport_identity,
     )
@@ -110,7 +110,7 @@ def cursor_bridge_smoke() -> dict:
         # release gate. The launch also proves its imports work with this SDK.
         identity = transport_identity(policy)
         with tempfile.TemporaryDirectory(prefix="mas-cursor-smoke-", dir="/tmp") as directory:
-            client = _launch_client(directory, transport_policy=policy)
+            client = launch_client(directory, transport_policy=policy)
             try:
                 bridge = client._owned_bridge
                 process = bridge.process

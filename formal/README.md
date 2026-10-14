@@ -14,6 +14,13 @@ implementation traces. Consult the current evidence summary for the exact run
 counts; positive safety checks, deliberate defects, reachability witnesses and
 liveness assumption failures are distinct evidence categories.
 
+The [workflow composition model](workflow-composition-notes.md) adds two
+interleaved leaf invocations with shared admission, stable assignments, unknown
+effects, cancellation, expiry and an all-completed join. It checks safety and
+bounded settlement with and without reduction, seven safety mutations, an
+indefinite-response counterexample and a successful-join reachability witness.
+Its finite response assumptions and implementation boundary are stated separately.
+
 ## Reproduce
 
 Install SPIN, a C compiler and Linux utilities `sh` and `sha256sum`, then run

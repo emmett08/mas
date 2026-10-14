@@ -3,18 +3,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import os
-from pathlib import Path
 import re
 from typing import Callable, Mapping
 
 from .provider_contract import ProviderError, TotalProvider
+from .provider_credentials import CredentialError, read_api_key
 from .cursor_transport import SDK_DEFAULT, validate_transport_policy
 from .mock_provider import MockProvider
 from .openai_provider import OpenAIProvider
-
-
-class CredentialError(ProviderError):
-    """A selected provider has no usable credential; no work was submitted."""
 
 
 @dataclass(frozen=True)
@@ -73,29 +69,6 @@ def load_provider_configs(mode: str = "mock", *, environ: Mapping[str, str] | No
     return configs
 
 
-def read_api_key(provider: str, *, environ: Mapping[str, str] | None = None) -> str:
-    """Read a bounded provider-specific secret; never fall back from an invalid file."""
-    if provider not in {"openai", "cursor"}:
-        raise ProviderError("unsupported credential provider")
-    environment = os.environ if environ is None else environ
-    name = provider.upper() + "_API_KEY"
-    key_file = environment.get(name + "_FILE")
-    if key_file:
-        try:
-            with Path(key_file).open(encoding="utf-8") as stream:
-                key = stream.read(4097)
-        except (OSError, UnicodeError):
-            raise CredentialError(f"could not read {name}_FILE") from None
-    else:
-        key = environment.get(name, "")
-    if not isinstance(key, str) or len(key) > 4096:
-        raise CredentialError(f"invalid {name}_FILE or {name}")
-    key = key.strip()
-    if not key or any(character.isspace() for character in key):
-        raise CredentialError(f"selected provider requires a valid {name}_FILE or {name}")
-    return key
-
-
 def _mock(config: ProviderConfig, _key: str | None) -> TotalProvider:
     return MockProvider(config.role)
 
@@ -106,9 +79,10 @@ def _openai(config: ProviderConfig, key: str | None) -> TotalProvider:
 
 
 def _cursor(config: ProviderConfig, key: str | None) -> TotalProvider:
-    from .cursor_local import CursorLocalProvider, check_runtime
+    from .invoice_cursor import InvoiceCursorProvider
+    from .cursor_session import check_runtime
     check_runtime()
-    return CursorLocalProvider(config.model, config.role, api_key=key,
+    return InvoiceCursorProvider(config.model, config.role, api_key=key,
                                reservation_microusd=config.reservation_microusd,
                                transport_policy=config.cursor_transport)
 

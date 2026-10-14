@@ -12,8 +12,9 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
-from mas_host.cursor_local import (CURSOR_SDK_VERSION, MAX_STREAM_TEXT_BYTES,
-                                   CursorLocalProvider, _bridge_child, _launch_client,
+from mas_host.invoice_cursor import InvoiceCursorProvider as CursorLocalProvider
+from mas_host.cursor_session import (CURSOR_SDK_VERSION, MAX_STREAM_TEXT_BYTES,
+                                   _bridge_child, launch_client as _launch_client,
                                    _validate_node, _runtime_identity, _runtime_manifest, _bridge_files)
 from mas_host.providers import ProviderError, provider_binding
 
@@ -89,7 +90,7 @@ def sdk_available():
 
 class CursorLocalTests(unittest.TestCase):
     def test_no_effect_before_admission_and_explicit_policy_binding(self):
-        with patch("mas_host.cursor_local._launch_client", side_effect=AssertionError("premature effect")):
+        with patch("mas_host.cursor_session.launch_client", side_effect=AssertionError("premature effect")):
             provider = CursorLocalProvider("composer-2.5", "planner", api_key="private-key")
             descriptor, amount = provider_binding(provider)
         self.assertEqual(amount, 100000)
@@ -128,7 +129,7 @@ class CursorLocalTests(unittest.TestCase):
     def test_one_send_and_cleanup_after_uncertain_stream_failure(self):
         client = FakeClient(FakeRun(error=RuntimeError("SECRET provider request body")))
         provider = CursorLocalProvider("composer-2.5", "planner", api_key="SECRET")
-        with patch("mas_host.cursor_local._launch_client", return_value=client), self.assertRaises(ProviderError) as raised:
+        with patch("mas_host.cursor_session.launch_client", return_value=client), self.assertRaises(ProviderError) as raised:
             provider.total(INVOICE)
         self.assertNotIn("SECRET", str(raised.exception))
         self.assertEqual(len(client.agent.prompts), 1)
@@ -140,7 +141,7 @@ class CursorLocalTests(unittest.TestCase):
     def test_cleanup_client_even_when_agent_close_raises(self):
         client = FakeClient()
         client.agent.close = lambda: (_ for _ in ()).throw(RuntimeError("SECRET"))
-        with patch("mas_host.cursor_local._launch_client", return_value=client), self.assertRaises(ProviderError):
+        with patch("mas_host.cursor_session.launch_client", return_value=client), self.assertRaises(ProviderError):
             CursorLocalProvider("composer-2.5", "planner", api_key="key").total(INVOICE)
         self.assertTrue(client.closed)
 
@@ -202,8 +203,8 @@ class CursorLocalTests(unittest.TestCase):
             "OPENAI_API_KEY": "secret-openai", "CURSOR_API_KEY": "secret-cursor",
             "CURSOR_SDK_BRIDGE_BIN": "/untrusted/bridge", "NODE_OPTIONS": "--require /untrusted/hook",
             "HTTPS_PROXY": "http://proxy.example:8080", "HOME": "/untrusted/home",
-        }), patch("mas_host.cursor_local._bridge_files", return_value=(Path("/sdk/node"), Path("/sdk/bridge.js"))), \
-                patch("mas_host.cursor_local.os.execve") as execute:
+        }), patch("mas_host.cursor_session._bridge_files", return_value=(Path("/sdk/node"), Path("/sdk/bridge.js"))), \
+                patch("mas_host.cursor_session.os.execve") as execute:
             _bridge_child(workspace, ["--workspace", workspace])
             executable, arguments, environment = execute.call_args.args
             self.assertEqual(executable, "/sdk/node")
@@ -221,7 +222,7 @@ class CursorLocalTests(unittest.TestCase):
         sdk = SimpleNamespace(DefaultHttpxClient=Mock(return_value=http_client),
                               Bridge=SimpleNamespace(launch=Mock(return_value=bridge)),
                               CursorClient=Mock(side_effect=ValueError("SECRET transport failure")))
-        with patch("mas_host.cursor_local._sdk_module", return_value=sdk), self.assertRaises(ValueError):
+        with patch("mas_host.cursor_session._sdk_module", return_value=sdk), self.assertRaises(ValueError):
             _launch_client("/private/workspace")
         sdk.DefaultHttpxClient.assert_called_once_with(timeout=45, trust_env=False)
         bridge.close.assert_not_called()
@@ -236,7 +237,7 @@ class CursorLocalTests(unittest.TestCase):
 
     def test_stderr_is_drained_without_buffering_provider_diagnostics(self):
         import subprocess
-        from mas_host.cursor_local import _OwnedClient
+        from mas_host.cursor_session import _OwnedClient
         with tempfile.TemporaryDirectory() as directory:
             marker = Path(directory) / "after-output"
             process = subprocess.Popen([sys.executable, "-c",
@@ -263,19 +264,19 @@ class CursorLocalTests(unittest.TestCase):
         manifest = {"version": "24.21.0", "architectures": {
             "x86_64": {"node_sha256": digest}, "aarch64": {"node_sha256": "a" * 64}}}
         with tempfile.TemporaryDirectory() as directory, \
-                patch("mas_host.cursor_local._runtime_manifest", return_value=manifest), \
-                patch("mas_host.cursor_local.platform.machine", return_value="x86_64"), \
-                patch("mas_host.cursor_local.subprocess.Popen", side_effect=AssertionError("preflight executed code")):
+                patch("mas_host.cursor_session._runtime_manifest", return_value=manifest), \
+                patch("mas_host.cursor_session.platform.machine", return_value="x86_64"), \
+                patch("mas_host.cursor_session.subprocess.Popen", side_effect=AssertionError("preflight executed code")):
             node = Path(directory) / "node"
             node.write_bytes(b"old bundled Node 24.5.0")
             with self.assertRaisesRegex(ProviderError, "patched Node"):
                 _validate_node(node)
             node.write_bytes(approved)
             _validate_node(node)
-            with patch("mas_host.cursor_local.platform.machine", return_value="aarch64"):
+            with patch("mas_host.cursor_session.platform.machine", return_value="aarch64"):
                 with self.assertRaisesRegex(ProviderError, "patched Node"):
                     _validate_node(node)
-            with patch("mas_host.cursor_local.platform.machine", return_value="riscv64"):
+            with patch("mas_host.cursor_session.platform.machine", return_value="riscv64"):
                 with self.assertRaisesRegex(ProviderError, "only Linux"):
                     _validate_node(node)
             node.unlink()
@@ -292,10 +293,10 @@ class CursorLocalTests(unittest.TestCase):
             node.write_bytes(b"approved-node-fixture")
             entry.write_text("bridge fixture")
             sdk = SimpleNamespace(__file__=str(package / "__init__.py"))
-            with patch("mas_host.cursor_local._sdk_module", return_value=sdk), \
-                    patch("mas_host.cursor_local._validate_node") as validate_node, \
-                    patch("mas_host.cursor_local.validate_bridge_patch") as validate_patch, \
-                    patch("mas_host.cursor_local.subprocess.Popen", side_effect=AssertionError("preflight executed code")):
+            with patch("mas_host.cursor_session._sdk_module", return_value=sdk), \
+                    patch("mas_host.cursor_session._validate_node") as validate_node, \
+                    patch("mas_host.cursor_session.validate_bridge_patch") as validate_patch, \
+                    patch("mas_host.cursor_session.subprocess.Popen", side_effect=AssertionError("preflight executed code")):
                 validate_patch.side_effect = ValueError("private patch failure details")
                 with self.assertRaisesRegex(ProviderError, "verified dependency repair") as raised:
                     _bridge_files()
@@ -307,10 +308,10 @@ class CursorLocalTests(unittest.TestCase):
 
     def test_bridge_patch_is_bound_into_recovery_identity_without_a_cursor_install(self):
         provider = CursorLocalProvider("composer-2.5", "planner", client=FakeClient())
-        with patch("mas_host.cursor_local.patch_identity", return_value={"repair": "first"}), \
-                patch("mas_host.cursor_local._sdk_module", side_effect=AssertionError("injected client imported SDK")):
+        with patch("mas_host.cursor_session.patch_identity", return_value={"repair": "first"}), \
+                patch("mas_host.cursor_session._sdk_module", side_effect=AssertionError("injected client imported SDK")):
             first = provider.descriptor()
-        with patch("mas_host.cursor_local.patch_identity", return_value={"repair": "second"}):
+        with patch("mas_host.cursor_session.patch_identity", return_value={"repair": "second"}):
             second = provider.descriptor()
         self.assertNotEqual(first, second)
         self.assertEqual(first["bridge_patch"], {"repair": "first"})
@@ -319,7 +320,7 @@ class CursorLocalTests(unittest.TestCase):
         first = {"version": "24.21.0", "architectures": {
             "x86_64": {"node_sha256": "a" * 64}, "aarch64": {"node_sha256": "b" * 64}}}
         provider = CursorLocalProvider("composer-2.5", "planner", client=FakeClient())
-        with patch("mas_host.cursor_local._runtime_manifest", return_value=first):
+        with patch("mas_host.cursor_session._runtime_manifest", return_value=first):
             descriptor = provider.descriptor()
             self.assertEqual(descriptor["node_version"], "24.21.0")
             self.assertEqual(descriptor["node_executable_sha256"], {"x86_64": "a" * 64, "aarch64": "b" * 64})
@@ -338,13 +339,13 @@ class CursorLocalTests(unittest.TestCase):
             resource = Mock()
             resource.joinpath.return_value.read_text.return_value = json.dumps(document)
             _runtime_manifest.cache_clear()
-            with patch("mas_host.cursor_local.importlib.resources.files", return_value=resource):
+            with patch("mas_host.cursor_session.importlib.resources.files", return_value=resource):
                 with self.assertRaisesRegex(ProviderError, "manifest is invalid"):
                     _runtime_manifest()
         _runtime_manifest.cache_clear()
 
     def test_sdk_version_rejection(self):
-        with patch("mas_host.cursor_local.importlib.metadata.version", return_value="0.0.0"):
+        with patch("mas_host.cursor_session.importlib.metadata.version", return_value="0.0.0"):
             with self.assertRaises(ProviderError):
                 _launch_client("/private/workspace")
 

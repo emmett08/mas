@@ -28,7 +28,7 @@ before writes.
 | Component | Owned responsibility |
 | --- | --- |
 | `contracts.py` | Adapter-facing values, typed public failures and narrow context/execution protocols. |
-| `codec.py` | Bounded exact integer-JSON validation for host boundaries. |
+| `codec.py` | Shared Rust actor-identity grammar, bounded integer JSON and canonical JSON identity primitives. |
 | `Runner` | Ordered request orchestration and checkpoint replay through a stable façade. |
 | `RunSession` | Exclusive run lifetime and staged, idempotent bootstrap. |
 | `ProtocolClient` | Bounded Rust subprocess execution, credential-free child environments and sanitised diagnostics. |
@@ -37,12 +37,17 @@ before writes.
 | Journal and deployment repositories | Own their distinct schema identities, validated migrations and durable records. |
 | Reconciler monitor | Report a fresh, successful scan by a live watcher independently of admission headroom. |
 | Provider binding | Require explicit effect identity and spending allocation before admission. |
-| `provider_config.py` | Validate per-role provider settings and secrets, then construct only the selected implementations. |
-| OpenAI and Cursor local providers | Adapt their respective SDKs to the narrow invoice-total contract. |
+| `agent_config.py` | Register arbitrary model actors with application instructions, operation contracts and stable provider identities. |
+| `provider_config.py` | Retain the invoice example's planner/reviewer configuration and credential validation. |
+| `provider_credentials.py` | Resolve bounded provider-specific secrets independently of application adapters. |
+| Generic OpenAI and Cursor providers | Convert application-defined structured requests to bounded SDK calls and validate the declared output schema. |
+| `CursorTextSession` and the OpenAI client boundary | Own provider transport policy and client lifecycle independently of application prompts. |
+| Invoice provider adapters | Apply the demonstration's invoice prompt and total-validation contract through the shared provider transport. |
 | `CursorCloudClient` | Bounded, non-retrying HTTP operations against the fixed Cursor Cloud API origin. |
 | `JobStore` and `DurableJobService` | Persist remote-job intent, correlate exact identities, serialise observations and retain reconciliation evidence. |
 | `CursorCloudJobAdapter` | Admit a repository-job submission through the existing runner and return its durable receipt. |
 | `DurableTaskService` and `TaskStore` | Bind principal-scoped request keys to immutable submissions, serialise execution revisions and commit task events with state changes. |
+| `service_mutation.py` | Share maintenance locking and read-only/audit-only rejection between task and composition services; new-input admission remains distinct from cancellation and recovery writes. |
 | `RunnerExecutor` and `ExecutionBinding` | Assign one run/root request to each revision and construct adapters from trusted principal, workflow and run identity. |
 | HTTP/stdio boundary and token verifiers | Bound incoming requests, authenticate callers and enforce scopes before invoking the task service. |
 | MCP and A2A adapters | Convert the declared protocol profile into task-service operations or admitted remote-client operations. |
@@ -90,13 +95,23 @@ of invoice inputs and exact integer-JSON outputs, while retaining provider-owned
 authentication and response conversion. Existing OpenAI and mock descriptors
 remain unchanged so their completed workflows retain recovery compatibility.
 
-`CursorLocalProvider` creates a fresh private directory, disables tools, MCP,
+`CursorTextSession` creates a fresh private directory, disables tools, MCP,
 subagents and ambient settings, and attempts to close its owned agent and bridge
 on normal return or exception. Its bridge
 is launched only after durable invocation admission, within the supervised
 process group. These controls constrain the SDK configuration; they do not
 isolate hostile code from the operating system. SDK-managed internal model
 retries remain distinct from the host's one admitted submission.
+
+The canonical `cursor_provider.CursorLocalProvider` implements generic structured
+inference; `InvoiceCursorProvider` owns the invoice-specific prompt and validation.
+The old `cursor_local.CursorLocalProvider` import is a compatibility alias for the
+invoice adapter until a major API release. Generic inference uses the public
+session operation, and both OpenAI adapters use the neutral client boundary.
+Immutable provider descriptors are available before credential resolution or
+optional SDK initialisation. The generic registration path defers these live
+dependencies to admitted invocation execution, keeping management commands usable
+without credentials. Existing descriptors remain stable across this refactor.
 
 The Cloud adapter implements the existing `Adapter` contract, not `TotalProvider`.
 Its output says that a repository job was submitted. `JobStore` persists the
@@ -210,6 +225,81 @@ unresolved work protects every run record it needs. The architecture remains a
 single Linux host with SQLite, rather than a distributed scheduler.
 
 ## Verification and limits
+
+### Generic composition above the serial runner
+
+`WorkflowEngine` adds durable sequence, conditional, loop, parallel and
+subworkflow execution above existing `Workflow` registrations. `PlanEvaluator`
+owns control-flow decisions; `WorkflowStore` owns versioned composition records;
+`SchedulerOwnership` owns Linux worker lifetime and inherited locks. Every leaf
+uses `RunnerExecutor`, the existing Rust gateway and its own immutable run
+identity. `Runner` retains its serial context and ordinal replay semantics.
+
+The public composition journal operations own node checkpoints, scope records,
+leaf assignments and instance transitions. The engine retains registration,
+authorisation, scheduling and effect-reconciliation policy. Initial execution
+and continuation use the same persisted-assignment construction, with the
+revision and effective deadline supplied explicitly. State changes and their
+events remain within the same transaction.
+
+Workflow inspection has two deliberate views. The graph reports control and
+attempt states without leaf payloads. An explicit task-detail request returns
+one retained leaf revision's output and error after the same ownership, grant
+and binding checks. This lets an authorised caller read a paused application's
+question without returning every branch's data in each status response. Detail
+inspection reads existing composition records and changes no execution state;
+it needs no separate output store or persistence migration.
+
+Every read-only composition transaction establishes a SQLite snapshot. Graph
+queries select their public fields directly, avoiding historical input/output
+decoding when those payloads are omitted from the response.
+
+An in-place threaded runner was rejected because its thread-bound contexts,
+active request stack and ordered checkpoints are part of its recovery contract.
+Independent synchronous wrappers were also insufficient: they do not retain
+branch identities, joins, ancestor budgets or unknown outcomes. Process-owned
+leaf runs preserve those contracts while admitting genuine concurrent work.
+The cost is a separate Rust run and supervised process hierarchy for each leaf;
+this remains a bounded single-host implementation.
+
+Every plan binds the transitive registered workflow identities. Optional
+`Workflow.contract_descriptor` covers operation, provider and acceptance
+descriptors; omission preserves old workflow fingerprints. Topology compilation
+produces the existing directed ACL rather than introducing new wire types.
+Structured OpenAI/Cursor interfaces coexist with the invoice `TotalProvider`;
+the latter's descriptors and recovery compatibility are retained.
+
+The parent deadline is fixed at submission. Subworkflow entry freezes a deadline
+no later than its parent's; root and ancestor call/spending allowances apply
+atomically before deployment admission. A denied downstream call conservatively
+retains its composition allocation. Each nested concurrency cap applies in
+addition to the root cap. The static expanded-node bound and runtime root-node
+cap limit control-flow work. Model-produced results cannot change these limits.
+
+Scheduler and deployment locks survive in workers and execution guardians.
+Closing an owner never explicitly unlocks another surviving owner's descriptor.
+A lifetime pipe stops child admission after scheduler death; original deadlines
+still bound execution. Unknown effects block further dispatch until the existing
+evidence-backed invocation resolution allows recovery of the original run.
+After loss of both scheduler and worker, restart checks retained run journals
+before reclassifying stale running attempts. Cancellation or expiry cannot
+publish a terminal composition while an admitted effect remains unresolved.
+The task service and composition engine share the same read-only bootstrap
+evidence check. Missing published journals or admitted run directories remain
+uncertain; validated pre-journal bootstrap state can establish safe cancellation.
+Parallel joins settle all dispatched work and require every branch to complete
+before declaring success. Acceptance of the returned result remains separate.
+
+Composition databases and run-local artefacts participate in quiescent backups.
+Restores remain audit-only. Composition history conservatively retains every
+referenced run; deleting historical composition records is not an automatic
+retention feature in this version. Artefact consumer links independently retain
+live or unresolved references. See [composition](composable-workflows.md) and
+[artefact ownership](artifacts.md) for the explicit operational contracts.
+
+The new model in [workflow composition](../formal/workflow-composition-notes.md)
+covers bounded admission, crash identity, terminal safety and joins. It is an
+abstract state-machine check, not a refinement proof of the Python scheduler.
 
 Regressions exercise actual process death during bootstrap, a killed host with
 ordinary adapter descendants, ownership retention during cleanup, incompatible

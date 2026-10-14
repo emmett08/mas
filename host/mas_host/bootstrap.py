@@ -52,6 +52,57 @@ def _read_json(path: Path) -> dict:
     return value
 
 
+def requires_reconciliation(run_dir: Path, expected_run_id: str, *, operations=None) -> bool:
+    """Observe retained effects before stopping an assigned run, without writes.
+
+    Missing state is safe only when durable bootstrap evidence places the run
+    before journal publication. An already published or legacy journal cannot
+    disappear and thereby turn uncertain work into confirmed cancellation.
+    Callers must own the assigned run or its enclosing scheduler while reading.
+    """
+    from .journal import inspect_run
+    directory = Path(run_dir)
+
+    def admitted():
+        if operations is not None:
+            return operations.has_run(expected_run_id)
+        # RunnerExecutor also permits Runner's implicit ledger selection. Do
+        # not construct that ledger during cancellation: creation is a write.
+        from contextlib import closing
+        from .schema import LEDGER, connect
+        ledger = directory.parent / 'deployment.sqlite'
+        if ledger.is_symlink():
+            return True
+        if not ledger.exists():
+            return False
+        with closing(connect(ledger, LEDGER, readonly=True)) as db:
+            return db.execute('SELECT 1 FROM runs WHERE run_id=?', (expected_run_id,)).fetchone() is not None
+
+    try:
+        if directory.is_symlink():
+            return True
+        if not directory.exists():
+            return admitted()
+        journal = directory / 'host.sqlite'
+        if journal.is_symlink():
+            return True
+        if journal.exists():
+            report = inspect_run(directory)
+            return report['run_id'] != expected_run_id or report['recovery_required']
+        manifest = directory / 'bootstrap.json'
+        if not manifest.exists() and not manifest.is_symlink():
+            return (admitted()
+                    or any(path.name != '.bootstrap.json.pending' for path in directory.iterdir()))
+        intent = _read_json(manifest)
+        return (set(intent) != {'format', 'stage', 'run_id', 'workflow_version',
+                                'max_depth', 'topology', 'gateway_id'}
+                or intent['format'] != _FORMAT or intent['run_id'] != expected_run_id
+                or intent['stage'] not in {'intent', 'admitted', 'protocol_ready'})
+    except Exception:
+        # Unreadable or malformed retained evidence cannot establish no effect.
+        return True
+
+
 class RunSession:
     """Own the run directory, exclusive lock, bootstrap and journal lifetime."""
 

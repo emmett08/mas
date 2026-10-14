@@ -7,7 +7,6 @@ journal resolution before explicit recovery, never a fresh submission.
 """
 from __future__ import annotations
 
-from contextlib import contextmanager
 from dataclasses import dataclass
 import fcntl
 import hashlib
@@ -21,6 +20,7 @@ import uuid
 from .codec import JsonSizeError, integer_json
 from .contracts import Adapter, AdapterInterrupted, AdapterTimeout, Outcome, RecoveryRequired, RunnerError
 from .service_contracts import ServiceError
+from .service_mutation import service_mutation
 from .task_store import TaskStore, canonical, decoded, event, now
 
 
@@ -97,6 +97,9 @@ class Workflow:
     and continuation logic. Change the registered name/version when changing
     those behaviours. ``continue_input`` is pure: it combines the previous
     output with supplied input for a fresh, separately admitted revision.
+    ``contract_descriptor`` optionally binds operation, provider and acceptance
+    descriptors into recovery identity. It is copied on construction; any
+    subsequent local mutation changes the identity rather than hiding drift.
     """
     version: str
     topology: dict
@@ -108,6 +111,7 @@ class Workflow:
     classify: Callable[[Outcome], str] | None = None
     continue_input: Callable[[dict, dict], dict] | None = None
     adapter_factory: Callable[[ExecutionBinding], Mapping[str, Adapter]] | None = None
+    contract_descriptor: dict | None = None
 
     def __post_init__(self):
         _text(self.version, "workflow_version")
@@ -122,13 +126,19 @@ class Workflow:
         _text(self.operation, "operation")
         object.__setattr__(self, "topology", topology)
         object.__setattr__(self, "adapters", MappingProxyType(dict(self.adapters)))
+        if self.contract_descriptor is not None:
+            object.__setattr__(self, "contract_descriptor", _object(self.contract_descriptor))
 
     @property
     def identity(self) -> str:
-        return hashlib.sha256(canonical({"version": self.version, "topology": self.topology,
+        descriptor = {"version": self.version, "topology": self.topology,
             "sender": self.sender, "recipient": self.recipient, "operation": self.operation,
             "max_depth": self.max_depth, "continuation": self.continue_input is not None,
-            "classifier": self.classify is not None, "adapter_factory": self.adapter_factory is not None}).encode()).hexdigest()
+            "classifier": self.classify is not None, "adapter_factory": self.adapter_factory is not None}
+        # Omission preserves identities of all pre-composition registrations.
+        if self.contract_descriptor is not None:
+            descriptor["contract_descriptor"] = _object(self.contract_descriptor)
+        return hashlib.sha256(canonical(descriptor).encode()).hexdigest()
 
 
 @dataclass(frozen=True)
@@ -141,7 +151,7 @@ class ExecutionResult:
 
 class WorkflowExecutor(Protocol):
     def execute(self, workflow: Workflow, execution: dict, *, cancelled: Callable[[], bool],
-                ownership_descriptor: int) -> ExecutionResult: ...
+                ownership_descriptor: int | tuple[int, ...]) -> ExecutionResult: ...
 
 
 class WorkflowInputValidator(Protocol):
@@ -155,11 +165,15 @@ class WorkflowInputValidator(Protocol):
 
 class _OwnedContext:
     def __init__(self, context, descriptor):
-        self._context, self._descriptor = context, descriptor
+        values = descriptor if type(descriptor) is tuple else (descriptor,)
+        if (not values or any(type(value) is not int or value < 0 for value in values)
+                or len(values) != len(set(values))):
+            raise ServiceError("invalid_ownership_descriptors")
+        self._context, self._descriptors = context, values
 
     @property
     def ownership_descriptors(self):
-        return (*self._context.ownership_descriptors, self._descriptor)
+        return tuple(dict.fromkeys((*self._context.ownership_descriptors, *self._descriptors)))
 
     def __getattr__(self, name):
         return getattr(self._context, name)
@@ -232,6 +246,12 @@ class RunnerExecutor:
     def execute(self, workflow, execution, *, cancelled, ownership_descriptor):
         from .runner import Runner
         from .supervision import InlineExecutor, LinuxProcessExecutor
+        if cancelled():
+            from .bootstrap import requires_reconciliation
+            if requires_reconciliation(self.state_dir / execution['run_directory'], execution['run_id'],
+                                       operations=self.operations):
+                return ExecutionResult('unknown', error={'code': 'reconciliation_required'})
+            return ExecutionResult("cancelled")
         path = self._bootstrap(workflow, execution)
         adapters = workflow.adapters
         if workflow.adapter_factory is not None:
@@ -248,6 +268,7 @@ class RunnerExecutor:
         with Runner.resume(path, adapters, workflow_version=workflow.version,
                            max_depth=workflow.max_depth, operations=self.operations,
                            executor=_CancellableExecutor(executor, cancelled, ownership_descriptor),
+                           execution_deadline=execution.get("execution_deadline"),
                            **self.options) as runner:
             try:
                 outcome = runner.request(workflow.sender, workflow.recipient,
@@ -309,7 +330,7 @@ class DurableTaskService:
         if any(not names <= self.workflows.keys() for names in self.grants.values()):
             raise ServiceError("invalid_grant")
         self.identities = {name: workflow.identity for name, workflow in self.workflows.items()}
-        active = self.operations.admission_enabled
+        active = not self.operations.readonly and self.operations.admission_enabled
         with _file_lock(self.state_dir / ".deployment.lock", False):
             self.store = TaskStore(self.state_dir, deployment_id=self.operations.deployment_id,
                                    readonly=not active)
@@ -325,15 +346,8 @@ class DurableTaskService:
         self.executor = executor or RunnerExecutor(self.state_dir, operations=self.operations,
             mas_bin=mas_bin, gateway_bin=gateway_bin, supervised=supervised)
 
-    @contextmanager
     def _mutation(self):
-        from .operations import _file_lock
-        with _file_lock(self.state_dir / ".deployment.lock", False):
-            if not self.operations.admission_enabled:
-                raise ServiceError("audit_only")
-            self.operations._disk()
-            with self.store.transaction() as db:
-                yield db
+        return service_mutation(self.operations, self.store)
 
     def _authorise(self, principal, workflow=None):
         _text(principal, "principal")
@@ -408,6 +422,7 @@ class DurableTaskService:
             duplicate = self._duplicate(db, principal, request_key, digest)
             if duplicate:
                 return duplicate
+            self.operations.check_storage_admission()
             self._capacity(db, new=True)
             task_id, timestamp = "task-" + uuid.uuid4().hex, now()
             self._validate_execution_input(self.workflows[workflow], task_id, 0, value)
@@ -467,6 +482,7 @@ class DurableTaskService:
                 raise ServiceError("invalid_task_state")
             if task["revision"] + 1 >= self.max_revisions:
                 raise ServiceError("revision_limit")
+            self.operations.check_storage_admission()
             # Pure application mapping, never a network effect or model call.
             try:
                 combined = _object(workflow.continue_input(task["result"] or {}, value))
@@ -591,7 +607,7 @@ class DurableTaskService:
             except BlockingIOError:
                 raise ServiceError("worker_busy") from None
             with _file_lock(self.state_dir / ".deployment.lock", False):
-                if not self.operations.admission_enabled:
+                if self.operations.readonly or not self.operations.admission_enabled:
                     raise ServiceError("audit_only")
                 with self.store.transaction() as db:
                     row = db.execute("SELECT e.* FROM executions e JOIN tasks t ON t.id=e.task_id AND t.revision=e.revision WHERE e.state IN ('queued','running') ORDER BY e.sequence LIMIT 1").fetchone()

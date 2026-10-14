@@ -1,10 +1,12 @@
 """Real SIGKILL boundaries while creating a private, durably admitted run."""
 from __future__ import annotations
 
+from contextlib import closing
 import json
 import os
 from pathlib import Path
 import signal
+import shutil
 import sqlite3
 import subprocess
 import sys
@@ -12,7 +14,7 @@ import tempfile
 import unittest
 
 from mas_host import Invocation, Outcome, Runner, RunnerError
-from mas_host.bootstrap import RunSession
+from mas_host.bootstrap import RunSession, requires_reconciliation
 from mas_host.journal import Journal
 from mas_host.operations import DeploymentLedger
 from test_runner import FunctionAdapter, topology
@@ -104,7 +106,7 @@ class BootstrapRecoveryTests(unittest.TestCase):
                 intent = json.loads((run_dir / "bootstrap.json").read_text())
                 original_deadline = None
                 if (run_dir / "state.sqlite").exists():
-                    with sqlite3.connect(run_dir / "state.sqlite") as db:
+                    with closing(sqlite3.connect(run_dir / "state.sqlite")) as db:
                         row = db.execute("SELECT deadline FROM runs WHERE id=?", (intent["run_id"],)).fetchone()
                         original_deadline = row[0] if row else None
                 private_path = (run_dir / "gateway.json" if (run_dir / "gateway.json").exists()
@@ -150,6 +152,42 @@ class BootstrapRecoveryTests(unittest.TestCase):
                     Runner.resume(run_dir, adapters, **self.options)
                 self.assertFalse((run_dir / missing).exists(), "ready state must not be recreated")
 
+    def test_stopping_cannot_treat_missing_or_unreadable_published_journal_as_safe(self):
+        adapters = {actor: FunctionAdapter(lambda _c, r: Outcome(r.input)) for actor in ('a', 'b', 'c')}
+        state = self.root / 'published'
+        with Runner(topology(), adapters, state, **self.options) as runner:
+            directory, run_id = runner.run_dir, runner.run_id
+        ledger = DeploymentLedger(state)
+        journal = directory / 'host.sqlite'
+        original = journal.read_bytes()
+        self.assertFalse(requires_reconciliation(directory, run_id, operations=ledger))
+        for damage in ('malformed', 'missing', 'dangling_symlink'):
+            with self.subTest(damage=damage):
+                journal.unlink()
+                if damage == 'malformed':
+                    journal.write_bytes(b'not a SQLite database')
+                elif damage == 'dangling_symlink':
+                    journal.symlink_to(directory / 'missing-journal')
+                self.assertTrue(requires_reconciliation(directory, run_id, operations=ledger))
+                self.assertFalse((directory / 'missing-journal').exists())
+                if journal.exists() or journal.is_symlink():
+                    journal.unlink()
+                journal.write_bytes(original)
+        shutil.rmtree(directory)
+        self.assertTrue(requires_reconciliation(directory, run_id, operations=ledger))
+        self.assertTrue(requires_reconciliation(directory, run_id))
+        self.assertFalse(directory.exists(), 'observation must not recreate missing evidence')
+
+    def test_pre_journal_bootstrap_can_stop_without_becoming_unknown(self):
+        for boundary in ('intent', 'admitted', 'protocol_ready'):
+            with self.subTest(boundary=boundary):
+                state, directory = self.crash_at(boundary)
+                run_id = json.loads((directory / 'bootstrap.json').read_text())['run_id']
+                ledger = DeploymentLedger(state)
+                self.assertFalse(requires_reconciliation(directory, run_id, operations=ledger))
+                self.assertFalse((directory / 'host.sqlite').exists())
+                self.assertTrue(requires_reconciliation(directory, 'another-run', operations=ledger))
+
     def test_legacy_complete_unversioned_journal_migrates_without_repeating_effect(self):
         effects = []
 
@@ -163,7 +201,7 @@ class BootstrapRecoveryTests(unittest.TestCase):
             runner.request("a", "b", "solve", {})
             run_dir = runner.run_dir
         (run_dir / "bootstrap.json").unlink()
-        with sqlite3.connect(run_dir / "host.sqlite") as db:
+        with closing(sqlite3.connect(run_dir / "host.sqlite")) as db, db:
             db.execute("PRAGMA application_id=0")
             db.execute("PRAGMA user_version=0")
         with Runner.resume(run_dir, adapters, **self.options) as resumed:
@@ -175,7 +213,7 @@ class BootstrapRecoveryTests(unittest.TestCase):
         adapters = {actor: FunctionAdapter(lambda _c, r: Outcome(r.input)) for actor in ("a", "b", "c")}
         with self.assertRaisesRegex(RunnerError, "original explicit"):
             Runner.resume(run_dir, adapters, **(self.options | {"workflow_version": "changed"}))
-        with sqlite3.connect(state / "deployment.sqlite") as db:
+        with closing(sqlite3.connect(state / "deployment.sqlite")) as db, db:
             db.execute("UPDATE metadata SET value='restored_audit_only' WHERE key='admission_state'")
         with self.assertRaisesRegex(RunnerError, "audit-only"):
             Runner.resume(run_dir, adapters, **self.options)

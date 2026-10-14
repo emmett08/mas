@@ -105,9 +105,11 @@ permission to change a repository, deploy software or restart a service.
 ## Boundaries that affect the decision
 
 Star, mesh and tree describe logical communication permissions over central
-SQLite storage. The supplied host schedules synchronous nested delegation;
-membership is frozen per run. It supplies neither concurrent fan-out nor a
-distributed worker pool or high availability. Trusted adapters share a security
+SQLite storage. `Runner` schedules synchronous nested delegation; membership
+is frozen per run. The optional [workflow engine](composable-workflows.md)
+adds durable parallel branches using separately owned Rust-backed runs, with
+bounded processes and shared allocations on one Linux host. It supplies neither
+a distributed worker pool nor high availability. Trusted adapters share a security
 boundary; process supervision is not isolation for hostile code.
 
 Expenditure reservations are allowances rather than verified provider billing

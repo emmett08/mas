@@ -114,6 +114,9 @@ def _db(path: Path, readonly: bool = False):
         elif path.name == "remote-tasks.sqlite":
             from .bridges.remote import REMOTE_TASKS
             known = REMOTE_TASKS
+        elif path.name == "composition.sqlite":
+            from .workflow_store import COMPOSITION
+            known = COMPOSITION
         if known and existed:
             validate(connection, known)
     except SchemaError as error:
@@ -218,6 +221,11 @@ class DeploymentLedger:
             return self._admission_enabled(db)
 
     @property
+    def readonly(self) -> bool:
+        """Whether this ledger handle permits mutations and admissions."""
+        return self._readonly
+
+    @property
     def deployment_id(self) -> str:
         """Read identity without scanning unrelated operational repositories."""
         with _db(self.path, readonly=True) as db:
@@ -237,7 +245,14 @@ class DeploymentLedger:
             "reserved_microusd": db.execute("SELECT coalesce(sum(reserved_microusd),0) FROM calls").fetchone()[0],
         }
 
-    def _disk(self):
+    def check_storage_admission(self):
+        """Reject new work when a storage admission threshold has been reached.
+
+        These thresholds are not a physical storage quota: already admitted
+        work still needs to record results, cancellation and reconciliation.
+        Callers hold their deployment/repository mutation locks around checks
+        and new input records. Identical retained requests need no new admission.
+        """
         size = _state_size(self.state_dir)
         free = shutil.disk_usage(self.state_dir).free
         if free < self.policy.min_free_bytes:
@@ -262,7 +277,7 @@ class DeploymentLedger:
                 return False
             if not self._admission_enabled(db):
                 raise OperationsError("restored deployment is audit-only; new work admissions are disabled")
-            self._disk()
+            self.check_storage_admission()
             if self._limits(db)["runs"] >= self.policy.max_runs:
                 raise OperationsError("deployment admission closed: lifetime run limit reached")
             db.execute("INSERT INTO runs VALUES(?,?,?,NULL)", (run_id, run_dir.name, int(time.time())))
@@ -288,7 +303,7 @@ class DeploymentLedger:
                 if existing[0] != allocation:
                     raise OperationsError("call allocation changed for an admitted identity")
                 return False
-            self._disk()
+            self.check_storage_admission()
             usage = self._limits(db)
             if usage["calls"] >= self.policy.max_calls:
                 raise OperationsError("deployment admission closed: lifetime call limit reached")
@@ -316,6 +331,7 @@ class DeploymentLedger:
                 "cursor_jobs": cursor_job_counts(self.state_dir),
                 "task_service": task_service_counts(self.state_dir),
                 "remote_tasks": remote_task_counts(self.state_dir),
+                "composition": composition_counts(self.state_dir),
                 "admission_open": enabled and usage["runs"] < self.policy.max_runs and usage["calls"] < self.policy.max_calls
                 and usage["reserved_microusd"] < self.policy.max_reserved_microusd
                 and size < self.policy.max_state_bytes and free >= self.policy.min_free_bytes,
@@ -354,6 +370,40 @@ def _pending_cloud_job(directory: Path) -> bool:
 _TASK_STATES = ("queued", "running", "input_required", "auth_required", "unknown",
                 "completed", "failed", "cancelled")
 _TASK_TERMINAL = ("completed", "failed", "cancelled")
+
+
+def composition_counts(state_dir: Path) -> dict:
+    """Read retained composition states and allocations without scheduling work.
+
+    Attempts include historical continuation revisions. An absent optional
+    repository has zero observations; an existing unsupported or corrupt store
+    is an error, never an empty or healthy composition repository.
+    """
+    states = (*_TASK_STATES, "expired")
+    counts = {"instances": dict.fromkeys(states, 0),
+              "attempts": dict.fromkeys(states, 0),
+              "nodes": dict.fromkeys((*states, "waiting"), 0),
+              "allocations": {"calls": 0, "reserved_microusd": 0}}
+    path = Path(state_dir) / "composition.sqlite"
+    if not path.exists() and not path.is_symlink():
+        return counts
+    try:
+        with _db(path, readonly=True) as db:
+            db.execute("BEGIN")
+            if db.execute("PRAGMA quick_check(1)").fetchone()[0] != "ok":
+                raise OperationsError("durable workflow composition state cannot be verified")
+            for table in ("instances", "attempts", "nodes"):
+                for state, count in db.execute(f"SELECT state,count(*) FROM {table} GROUP BY state"):
+                    if state not in counts[table]:
+                        raise OperationsError("unrecognised durable workflow composition state")
+                    counts[table][state] = count
+            if db.execute("SELECT 1 FROM allocations WHERE typeof(amount)!='integer' OR amount<0 LIMIT 1").fetchone():
+                raise OperationsError("invalid durable workflow composition allocation")
+            calls, reserved = db.execute("SELECT count(*),coalesce(sum(amount),0) FROM allocations").fetchone()
+            counts["allocations"] = {"calls": calls, "reserved_microusd": reserved}
+    except sqlite3.Error:
+        raise OperationsError("durable workflow composition state cannot be verified") from None
+    return counts
 
 
 def task_service_counts(state_dir: Path) -> dict:
@@ -477,8 +527,15 @@ def _reconcile_state(state_dir: Path, mas_bin: str = "mas") -> dict:
     except (OperationsError, sqlite3.Error):
         bridge_observations = {"ok": False, "remote_refreshed": False,
                                "error": "durable bridge state cannot be verified"}
-    return {"ok": all(item["ok"] for item in results) and bridge_observations["ok"],
-            "runs": results, "bridge_observations": bridge_observations}
+    try:
+        composition_observations = {"ok": True, **composition_counts(state_dir)}
+    except OperationsError:
+        composition_observations = {"ok": False,
+                                    "error": "durable workflow composition state cannot be verified"}
+    return {"ok": (all(item["ok"] for item in results) and bridge_observations["ok"]
+                   and composition_observations["ok"]),
+            "runs": results, "bridge_observations": bridge_observations,
+            "composition_observations": composition_observations}
 
 
 def _empty_destination(destination: Path) -> Path:
@@ -591,7 +648,12 @@ def restore_state(bundle: Path, destination: Path) -> dict:
             if relative == ".restored-audit-only":
                 continue
             target = staging / relative
-            target.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+            # mkdir(parents=True) applies its explicit mode only to the leaf.
+            # Create each restored ancestor privately, including artefact roots.
+            parent = staging
+            for component in Path(relative).parts[:-1]:
+                parent = parent / component
+                parent.mkdir(mode=0o700, exist_ok=True)
             shutil.copyfile(bundle / relative, target)
             target.chmod(0o600)
         # A snapshot cannot know about charges committed after it was taken,
@@ -646,6 +708,10 @@ def prune_runs(state_dir: Path, older_than_seconds: int, apply: bool = False) ->
                         result["reason"] = "active or unresolved external cloud job retained"
                     elif _pending_bridge_task(directory):
                         result["reason"] = "active or unresolved bridge task or operation retained"
+                    elif _composition_holds_run(directory):
+                        result["reason"] = "workflow composition history retained"
+                    elif _pending_artifacts(directory):
+                        result["reason"] = "live or unresolved artefact references retained"
                     elif not _terminal_run(directory):
                         result["reason"] = "open tasks, incomplete journal or unresolved invocations retained"
                     else:
@@ -661,6 +727,24 @@ def prune_runs(state_dir: Path, older_than_seconds: int, apply: bool = False) ->
                 result["reason"] = "run busy or state cannot be verified"
             results.append(result)
     return {"ok": True, "dry_run": not apply, "runs": results}
+
+
+def _composition_holds_run(directory: Path) -> bool:
+    if (directory.parent / "composition.sqlite").is_symlink():
+        raise OperationsError("workflow composition state cannot be verified")
+    from .workflow_store import holds_run
+    try:
+        return holds_run(directory.parent, directory.name)
+    except SchemaError:
+        raise OperationsError("workflow composition state cannot be verified") from None
+
+
+def _pending_artifacts(directory: Path) -> bool:
+    # The optional local artefact repository sits below each run, so quiescent
+    # deployment backups include it. Its explicit manifests can retain results
+    # for consumers whose lifecycle outlasts the producing run.
+    from .artifacts import has_retained_artifacts
+    return has_retained_artifacts(directory)
 
 
 def _terminal_run(directory: Path) -> bool:
