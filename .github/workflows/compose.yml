@@ -134,6 +134,14 @@ jobs:
           export reconciler_id
           timeout 45 sh -c 'until [ "$(docker inspect --format "{{.State.Health.Status}}" "$reconciler_id")" = healthy ]; do sleep 1; done'
           docker inspect --format '{{json .State.Health}}' "$reconciler_id" > reconciler-health.json
+      - name: Capture reconciler diagnostics
+        if: always()
+        run: |
+          reconciler_id=$(docker compose -f compose.yaml -f compose.production.yaml ps --all -q reconciler)
+          if [ -n "$reconciler_id" ]; then
+            docker inspect --format '{{json .State}}' "$reconciler_id" | tee reconciler-state.json
+            docker compose -f compose.yaml -f compose.production.yaml logs --no-color reconciler 2>&1 | tee reconciler.log
+          fi
       - name: Check live secret injection without calling the API
         env:
           OPENAI_API_KEY: compose-mount-test-not-a-real-key
@@ -291,6 +299,8 @@ jobs:
             installed-container-tests.log
             installed-cursor-tests.log
             reconciler-health.json
+            reconciler-state.json
+            reconciler.log
             bridge-production-acceptance.json
             bridge-production-status.json
             bridge-production.log
