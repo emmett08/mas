@@ -12,7 +12,7 @@ import tarfile
 import urllib.request
 
 PLANS = {
-    "build": ("3.21", ["musl", "musl-dev", "pkgconf", "sqlite", "sqlite-dev", "sqlite-libs", "readline", "libncursesw", "ncurses-terminfo-base"]),
+    "build": ("3.24", ["musl", "musl-dev", "pkgconf", "sqlite", "sqlite-dev", "sqlite-libs", "readline", "libncursesw", "ncurses-terminfo-base"]),
     "runtime": ("3.24", ["libgcc", "sqlite-libs"]),
 }
 ARCHES = {"amd64": "x86_64", "arm64": "aarch64"}

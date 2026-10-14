@@ -1,25 +1,30 @@
 # Releases and upgrades
 
-The container build fixes Rust 1.85.1, Cargo.lock, both base-image manifests,
+The container build fixes Rust 1.99.0, Cargo.lock, both base-image manifests,
 Alpine package archives, Python build tools and the complete OpenAI SDK dependency set. Python downloads
 accept only the committed wheel hashes. The application wheel is built without
 network access; the final image installs from the local wheel directory with
-hash verification and no network. Build inputs are repeatable. Bit-for-bit image
+hash verification and no network. After installation and dependency checks, the
+final image removes pip and the ensurepip bootstrap bundle. Runtime agents do
+not need package installers; their vendored dependencies would otherwise add
+unnecessary vulnerable code. Extend dependencies at image-build time through
+the reviewed locks. Container acceptance checks that both installers are absent.
+Build inputs are repeatable. Bit-for-bit image
 reproducibility has not been established: build timestamps and the CI/build
 infrastructure can still differ.
 
 ## Supported targets and lock maintenance
 
-The container targets are CPython 3.12 on Alpine Linux amd64 and arm64. The runtime lock
+The container targets are CPython 3.14 on Alpine Linux amd64 and arm64. The runtime lock
 contains musllinux hashes for both architectures, alongside glibc wheels for the
 native Ubuntu test job. The audit-tool lock targets the amd64 CI
 runner. The dependency-free embedded Python interface may work elsewhere, but
 those platforms are outside these release checks.
 
-To change dependencies, use a temporary CPython 3.12 virtual environment:
+To change dependencies, use a temporary CPython 3.14 virtual environment:
 
 ```sh
-python3.12 -m venv .venv-release
+python3.14 -m venv .venv-release
 . .venv-release/bin/activate
 python -m pip install --require-hashes -r host/requirements-build.txt
 # Update the explicit SDK/build versions in host/pyproject.toml first if needed.
@@ -32,11 +37,14 @@ architectures and refuses conflicting versions. Review every version/hash
 change, run all CI gates, and commit the lock updates together. Security-tool
 versions are explicit in the refresh script and security workflow. Do not merge
 a dependency-update PR until its regenerated locks pass the same checks.
+For a Python ABI upgrade that should retain package versions, use
+`python scripts/release-locks.py --keep-versions`; it downloads wheels for the
+new ABI while requiring every currently locked package version.
 
 Base-image tags identify the upstream release series; their digests identify the
 actual downloaded manifests. Refresh them from Docker Hub using
-`docker buildx imagetools inspect rust:1.85.1-alpine` and
-`docker buildx imagetools inspect python:3.12-alpine`, then review both
+`docker buildx imagetools inspect rust:1.99.0-alpine` and
+`docker buildx imagetools inspect python:3.14-alpine`, then review both
 architecture manifests and rerun image scanning. A fixed digest deliberately
 does not receive security updates until changed. GitHub actions are pinned to
 commits and must also be updated through review.
@@ -46,8 +54,8 @@ Rust links both libc and SQLite dynamically, so the runtime package inventory
 includes those libraries and receives their security advisories. The container
 sets `RUSTFLAGS=-C target-feature=-crt-static` and
 `LIBSQLITE3_SYS_USE_PKG_CONFIG=1`; the native Cargo build uses its bundled SQLite
-dependency. The Rust builder retains its pinned compiler and matching Alpine
-3.21 development libraries; the deployed library is the newer runtime package.
+dependency. The Rust builder and Python runtime both use pinned Alpine 3.24
+images with matching development and runtime library archives.
 Native amd64 and arm64 CI jobs check actual dynamic linkage, SQLite version and
 the complete host test suite, including process-termination and storage-failure
 tests, inside the installed container with networking disabled. Each job also
@@ -63,6 +71,27 @@ series, and rerun all image/runtime gates. The package list is explicit: a new
 dependency causes the offline build to fail until its archive is reviewed and
 added. An archive disappearing upstream requires a reviewed refresh or an
 independently retained copy with the same hash.
+
+## Dependency batches and CI
+
+Dependabot groups Cargo, pip, Docker and GitHub Actions version updates into one
+weekly PR using [multi-ecosystem grouping](https://docs.github.com/en/code-security/how-tos/secure-your-supply-chain/secure-your-dependencies/configuring-multi-ecosystem-updates).
+Review the group as one compatible change: image upgrades can require matching
+Alpine archives, Python wheel hashes, toolchains and application adjustments.
+Grouping does not remove the security audit or its weekly schedule.
+
+Each PR runs protocol, host/Compose and security workflows once. Standalone
+push checks run only on `main`; branch pushes do not duplicate PR checks.
+Release branches and tags run those gates through the release workflow, without
+also starting the standalone workflows. Superseded PR runs are cancelled;
+release and main runs are retained. Distinct concurrency prefixes prevent the
+three reusable workflows from cancelling one another.
+
+The five JavaScript actions declare Node.js 24 and remain pinned to reviewed
+commit hashes. The Trivy composite action's nested JavaScript actions also
+declare Node.js 24. Hosted Ubuntu runners provide the runtime; self-hosted
+substitutes require Actions runner 2.327.1 or later. Changing a job's application
+Node version cannot change an action's declared JavaScript runtime.
 
 ## Candidate artefacts
 
@@ -142,8 +171,11 @@ and adds deterministic regressions for these boundaries.
 Candidate `v0.1.2` passed all native, container and prerequisite gates, then
 [failed scanner reference resolution](../evidence/readiness-ci-scanner-reference.json).
 Candidate `v0.1.3` derives the scanner's direct root reference as described above
-and includes its regression. It requires fresh full acceptance. A candidate
-tag is not evidence of a successful release.
+and includes its regression. Its [complete acceptance run](https://github.com/emmett08/mas/actions/runs/38478414137)
+passed on both architectures at `67e95d6d476153fa174b21ce3d7564a61c6bda7b`,
+including final package tests, scans, SBOM generation and uploads. Subsequent
+dependency changes require their own acceptance evidence; the old tag's result
+does not establish their behaviour.
 
 The implementation follows Docker's [OCI exporter options](https://docs.docker.com/build/exporters/oci-docker/)
 and [attestation storage format](https://docs.docker.com/build/metadata/attestations/attestation-storage/),

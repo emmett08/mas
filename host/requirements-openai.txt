@@ -1,4 +1,4 @@
-# Generated from downloaded wheels; CPython 3.12 Linux amd64/arm64, glibc/musl.
+# Generated from downloaded wheels; CPython 3.14 Linux amd64/arm64, glibc/musl.
 # Refresh: python scripts/release-locks.py; review changes before committing.
 --only-binary=:all:
 
@@ -15,19 +15,19 @@ httpx2==2.13.1 \
 idna==3.20 \
     --hash=sha256:ab7ae7122974553370f0bdb919e1a960b2cd1bc1ef0276416d896db81c14582c
 jiter==0.17.0 \
-    --hash=sha256:470e1b1e4c42f1ead2189166a299691871a2df5056c976e7fb96feafaf5f9d44 \
-    --hash=sha256:6eb6aedeb7352b8f3b6af9cbd67983840165c00428e63f1b420a85885128ea31 \
-    --hash=sha256:76eb4a5c20e86f9f848286f167024890f2862258a965d254774deb7fc1545ca1 \
-    --hash=sha256:8c21265b251d99bbb40080d178a8953e35601d3a1564e05c4de4c0d2ca616797
+    --hash=sha256:523c499235fb65add25d4bb01b1c4709ce695efdc7deb6c0a7bc515b5c44e0fb \
+    --hash=sha256:77f6aac0137309b31448c1bdcda4c6c77077664a6d018ece8d94019c68a5a5b9 \
+    --hash=sha256:93946d89fa04d5ba64dd323a8dd8d901676cb8a3c81d99ae4f6c051a9b4c3f2f \
+    --hash=sha256:dc0288ce39190ee33fe6e4ec73161eed34e7e2da509b525546ca061778d62b64
 openai==3.29.0 \
     --hash=sha256:860d3bad424c5d38cd9ba0a0a2050d558b58ce027596a39f9ccbc0f51a2090b7
 pydantic==2.14.1 \
     --hash=sha256:9195d967ec791692a04438115466764fb8b9a27b31f14a760437694f40d6b454
 pydantic-core==2.50.1 \
-    --hash=sha256:57f51b31ff826e2859120cf4737c5a758a48d96f3e97da40ccee1796d58078ff \
-    --hash=sha256:93ba4e9d8210d941c200431a56b2c0400b131865947903937ed3ec5404307d2e \
-    --hash=sha256:acbf31f37c53a5ac0c34706c80b4f5107ba20b05fdd3816124bf236ef0c57dd2 \
-    --hash=sha256:c18db21573bd2c6489f9a544b7499f0df2853958c568e5e783536ee1f690af41
+    --hash=sha256:0036473f5583e6a60e50b8b21651511564277a3f05cc5dab8cf579f552cd5f6c \
+    --hash=sha256:42b54c2c90ad348b5e3a85e03e715d572c1fde357ef104cdfe3b03b697a404ea \
+    --hash=sha256:6b20a4bffabdad0db2927ac034ae3b8a681b1f7a0182f3e60b479ad2fde21ebb \
+    --hash=sha256:844b869f118e22a41a091bdcedda8a71bc1b0f62c38d1a0c3211cece47e1d8fc
 sniffio==1.3.1 \
     --hash=sha256:2f6da418d1f1e0fddd844478f41680e794e6051915791a034ff65e5f100525a2
 truststore==0.10.5 \

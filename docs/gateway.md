@@ -196,7 +196,7 @@ Token equality uses fixed 32-byte arrays with
 [`subtle` 2.6.1 `ConstantTimeEq`](https://docs.rs/subtle/2.6.1/subtle/trait.ConstantTimeEq.html),
 checking all configured tokens without a token-prefix or credential-match early
 exit. Policy fingerprints use
-[`sha2` 0.10.9](https://docs.rs/sha2/0.10.9/sha2/). These are scoped implementation
+[`sha2` 0.11.0](https://docs.rs/sha2/0.11.0/sha2/). These are scoped implementation
 choices, not a proof that the complete service has no timing side channels.
 The remaining basis includes OS randomness, protection of bearer credentials,
 the trusted broker/host, SQLite durability and the execution platform.

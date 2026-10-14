@@ -1,4 +1,4 @@
-# Generated from downloaded wheels; CPython 3.12 Linux amd64/arm64.
+# Generated from downloaded wheels; CPython 3.14 Linux amd64/arm64, glibc/musl.
 # Refresh: python scripts/release-locks.py; review changes before committing.
 --only-binary=:all:
 

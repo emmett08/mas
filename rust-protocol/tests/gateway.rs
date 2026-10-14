@@ -68,6 +68,31 @@ fn malformed_and_unauthenticated_attempts_survive_restart_and_cap_closes() {
 }
 
 #[test]
+fn policy_fingerprint_remains_compatible_with_pre_upgrade_admission_state() {
+    let db = path();
+    let mut store = setup(&db);
+    // SHA-256 of MAS-GATEWAY-1\n followed by the canonical config(10, 3).
+    // Fixed independently using Python hashlib, rather than the upgraded codec.
+    let fingerprint = "6878590684a87630cd67ab81062365663b7bbc7b94536bdc0ec870c9db55c0fb";
+    store.register_admission("gateway/test", fingerprint, 10).unwrap();
+    store.register_admission("gateway/test/alpha", fingerprint, 3).unwrap();
+    store.register_admission("gateway/test/beta", fingerprint, 3).unwrap();
+    store.reserve_admission("gateway/test").unwrap();
+    store.reserve_admission("gateway/test/alpha").unwrap();
+    drop(store);
+
+    let mut configuration = config(10, 3);
+    configuration["credentials"].as_array_mut().unwrap().reverse();
+    let mut gateway = Gateway::open(Store::open(&db).unwrap(), &configuration).unwrap();
+    for _ in 0..2 {
+        assert_eq!(request(&mut gateway, "a1", json!({"command":"receive"}))["ok"], true);
+    }
+    assert_eq!(request(&mut gateway, "a1", json!({"command":"receive"}))["error"]["code"], "credential_admission_closed");
+    drop(gateway);
+    let _ = std::fs::remove_file(db);
+}
+
+#[test]
 fn rejected_operations_consume_credential_quota_and_configuration_is_frozen() {
     let db = path();
     let configuration = config(10,1);

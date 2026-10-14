@@ -86,8 +86,10 @@ cargo build --release --locked --manifest-path rust-protocol/Cargo.toml
 make examples
 ```
 
-The verifier needs Linux, SPIN, a C compiler, `sh` and `sha256sum`. Recorded tools:
-Rust/Cargo 1.85.1, SPIN 6.5.2 and GCC 13.3.0. Dependencies are pinned in Cargo.lock. The native build now uses rusqlite
+The verifier needs Linux, SPIN, a C compiler, `sh` and `sha256sum`. The current
+toolchain is pinned to Rust/Cargo 1.99.0. The previously recorded formal evidence
+used Rust/Cargo 1.85.1, SPIN 6.5.2 and GCC 13.3.0; its tool versions remain part
+of that evidence. Dependencies are pinned in Cargo.lock. The native build uses rusqlite
 0.40.2 and bundled SQLite 3.53.2; the supplied image selects maintained system
 SQLite through the same Rust interface. Image tests check actual dynamic linkage
 and run the host suite against the installed package.
