@@ -33,6 +33,11 @@ def parser() -> argparse.ArgumentParser:
     init = commands.add_parser("init", help="create an immutable deployment policy before the first run")
     init.add_argument("--policy", help="JSON object of DeploymentPolicy integer limits")
     commands.add_parser("health", help="read lifetime quotas and disk thresholds without migration")
+    for name in ('doctor', 'preflight', 'effective-config'):
+        check = commands.add_parser(name, help='read-only configuration and runtime diagnostics; never load workflow factories')
+        check.add_argument('--config', type=Path, required=name in {'preflight', 'effective-config'})
+    metrics = commands.add_parser('metrics', help='read bounded aggregate state without identities or request bodies')
+    metrics.add_argument('--format', choices=('json', 'prometheus'), default='json')
     ready = commands.add_parser("reconciler-health", help="check the live reconciler independently of admission quotas")
     ready.add_argument("--max-age-seconds", type=float, default=30)
     commands.add_parser("runs", help="list retained run identities and directories")
@@ -138,6 +143,17 @@ def main(argv: list[str] | None = None) -> int:
             result = {"ok": True, "health": DeploymentLedger(state_dir, policy).health()}
         elif args.command == "health":
             result = {"ok": True, "health": DeploymentLedger(state_dir, readonly=True).health()}
+        elif args.command in {'doctor', 'preflight', 'effective-config', 'metrics'}:
+            from .diagnostics import doctor, effective_configuration, operational_metrics, prometheus_metrics
+            if args.command == 'effective-config':
+                result = effective_configuration(args.config)
+            elif args.command == 'metrics':
+                result = operational_metrics(state_dir)
+                if args.format == 'prometheus':
+                    print(prometheus_metrics(result), end='', flush=True)
+                    return 0 if result.get('ok') is True else 1
+            else:
+                result = doctor(state_dir, args.config)
         elif args.command == "reconciler-health":
             result = reconciler_health(state_dir, args.max_age_seconds)
         elif args.command == "runs":

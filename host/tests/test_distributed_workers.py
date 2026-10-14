@@ -423,6 +423,10 @@ class DistributedWorkerTests(unittest.TestCase):
             return Invocation({}, {})
         self.admitted(next_call)
         self.assertEqual(self.controller.operations.health()["usage"]["calls"], 2)
+        from mas_host.diagnostics import operational_metrics
+        metrics = operational_metrics(self.state)
+        self.assertTrue(metrics["ok"])
+        self.assertEqual(metrics["counts"]["remote_jobs"]["reconciled"], 1)
 
     def test_restored_controller_cannot_create_or_mutate_worker_authority(self):
         self.register()

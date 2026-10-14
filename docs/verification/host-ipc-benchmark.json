@@ -1,0 +1,29 @@
+{
+  "workload": "completed-run status; one two-actor echo exchange",
+  "results": [
+    {
+      "strategy": "ProtocolClient",
+      "samples": 100,
+      "status_process_launches": 100,
+      "median_ms": 2.010869,
+      "p95_ms": 2.529546,
+      "total_ms": 209.00086,
+      "response_bytes": 1045,
+      "host_cpu_seconds": 0.02300600000000001,
+      "reaped_child_cpu_seconds": 0.19291699999999998,
+      "cpu_note": "Persistent child CPU is not reaped within measurement; these CPU totals are not comparable."
+    },
+    {
+      "strategy": "PersistentProtocolClient",
+      "samples": 100,
+      "status_process_launches": 0,
+      "median_ms": 0.1023255,
+      "p95_ms": 0.193054,
+      "total_ms": 12.141375,
+      "response_bytes": 1045,
+      "host_cpu_seconds": 0.005371999999999995,
+      "reaped_child_cpu_seconds": -6.938893903907228e-18,
+      "cpu_note": "Persistent child CPU is not reaped within measurement; these CPU totals are not comparable."
+    }
+  ]
+}

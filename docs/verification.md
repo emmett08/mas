@@ -1,5 +1,43 @@
 # Verification results
 
+## Host service evolution — 14 October 2026
+
+The integrated source suite passed **946 host tests with no skips**, using the
+real Rust executables, pinned Python 3.14 SDK dependencies and the real Temporal
+test server. It covers authenticated composed lifecycle through CLI/HTTP/MCP/A2A,
+immutable versions, concurrent ownership, retention/deduplication, provider
+certainty, supervised execution, remote worker fencing/spooling, recovery and
+the console's request/session handling.
+
+Three bridge regression tests were added afterwards and passed in a **24-test
+bridge/orchestrator supplement**. No runtime code changed after the integrated
+run. The final source therefore contains 949 host tests; the evidence above is a
+946-test integrated run plus that supplement, not a claimed 949-test full run.
+
+Rust passed **61 tests**; its two model-specific tests are excluded from ordinary
+`cargo test` and covered by the separate verifier. Script tests passed **43** and
+executable fixtures passed **14**. SPIN passed **110 cases**, including the new
+host evolution model with and without reduction and seven named mutation
+counterexamples. The model's bounds and correspondence limits are in
+[host-evolution-notes.md](../formal/host-evolution-notes.md).
+
+An isolated baseline host with only the persistent transport overlaid passed
+**35 transport and existing Runner conformance tests**. Its broader baseline run
+ended in a Cursor proxy fixture without a test-runner summary and is explicitly
+excluded from passing evidence. The complete integrated suite above did pass.
+
+The bounded [source receipt](verification/host-evolution-source.json) records
+counts, toolchain, evidence hashes and a content binding. The
+[IPC benchmark](verification/host-ipc-benchmark.json) measures 100 completed-run
+status calls per strategy; it does not establish provider throughput or
+production capacity. Raw transient logs are not required runtime dependencies.
+
+These are source checks on Linux x86_64. Exact-commit hosted CI records installed
+amd64/arm64 checks separately. No live paid provider, production OAuth/proxy,
+two-machine qualification, shared authority, untrusted-code sandbox or accepted
+published release is claimed. The [current implementation record](host-evolution-plan.md)
+preserves every remaining work package and release gate.
+
 ## Production-readiness repairs — 14 October 2026
 
 Review of main at `6a23507a183d4a35e188861756f89666100a6a4b` found

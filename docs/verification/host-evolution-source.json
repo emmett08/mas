@@ -1,0 +1,81 @@
+{
+  "format": "mas-host-evolution-source-verification/1",
+  "date": "2026-10-14",
+  "baseline_commit": "ccc7bb85cede76398aee19b24b9281f2d2959046",
+  "source_binding": {
+    "kind": "git-visible-non-doc-files",
+    "algorithm": "sha256 of sorted path + NUL + file sha256 + newline records",
+    "files": 379,
+    "sha256": "ca5044d8bff87e6a6c77bdae2acd3309b746964ad6dc202db028a1970e02f198"
+  },
+  "environment": {
+    "python": "3.14.8",
+    "rust": "1.99.0",
+    "spin": "6.5.1",
+    "platform": "Linux x86_64",
+    "temporal": "real test server 1.9.1",
+    "dependencies": "repository hash-pinned SDK and orchestrator locks"
+  },
+  "host": {
+    "tests": 946,
+    "passed": 946,
+    "skipped": 0,
+    "seconds": 104.322,
+    "real_temporal": true,
+    "status": "PASS"
+  },
+  "rust": {
+    "passed": 61,
+    "ignored": 2
+  },
+  "scripts": {
+    "passed": 43
+  },
+  "examples": {
+    "passed": 14
+  },
+  "spin": {
+    "cases": 110,
+    "status": "PASS",
+    "complete_no_errors": 85,
+    "expected_counterexamples": 55
+  },
+  "isolated_foundation_transport": {
+    "passed": 35,
+    "seconds": 1.024,
+    "overlays": [
+      "host/mas_host/protocol_client.py",
+      "host/tests/test_persistent_protocol.py"
+    ]
+  },
+  "evidence_sha256": {
+    "final-rust/cargo-test.log": "9f3ee34fcc933d54836786c4fd671bea1a1f00d8e21c56c3175454ccd6e990a0",
+    "final-scripts.log": "5bb9fe409006ec2e2bba1d074cdaa88d46baf12ce019b35dff41c09895d1883a",
+    "final-examples/manifest.json": "5668f9b07c3af2ee6fbdebfd184558986978f084aba42b83731fb9973415e839",
+    "final-spin/summary.json": "ab415b004cc564e51931246514f6d12e3eb6450bbeb51d6387e2fa10461d534b",
+    "final-foundation-transport.log": "ac12ac4ac8580d3c8f574e01817bca646442531c973b657a3b6fefb47f5e6ca6",
+    "final-host-tests.log": "ff6a4d03cc3182ace6c13bf5c424c36d1a0e43d25c5759751180cc3fb754303c",
+    "blocked-interfaces-main.log": "d8a0954a2e3f2dfab21e17eec4eb0d58ea5bb21e87dacc7d225408abb75d2154"
+  },
+  "performance": {
+    "receipt": "host-ipc-benchmark.json",
+    "scope": "100 completed-run status calls per transport; not end-to-end throughput or a production capacity claim"
+  },
+  "limitations": [
+    "Source verification, not an accepted release.",
+    "No paid provider calls or production credential profile acceptance.",
+    "No local installed-container, arm64, two-machine, untrusted-container, PostgreSQL or object-storage qualification. Exact-commit hosted CI is separate evidence.",
+    "Broad isolated baseline suite terminated in an unrelated Cursor proxy fixture without a summary and is excluded from PASS scope; isolated transport traces and full integrated host suite passed.",
+    "Finite SPIN checks do not establish whole-implementation refinement or high availability.",
+    "See docs/host-evolution-plan.md for incomplete work packages and unpassed release gates."
+  ],
+  "host_supplement": {
+    "tests": 24,
+    "passed": 24,
+    "new_tests_since_integrated_run": 3,
+    "seconds": 2.356,
+    "runtime_changed_since_integrated_run": false,
+    "status": "PASS",
+    "scope": "Bridge/orchestrator regression suite after three blocked-definition bridge tests were added; not a second full host run."
+  }
+}
