@@ -24,6 +24,12 @@ and checks its actual dynamic musl/SQLite linkage. These are required gates;
 support for a particular release requires the jobs to have passed for that
 release's commit.
 
+The optional Cursor local image has a separate Debian/glibc runtime because the
+SDK's native bridge does not support the Alpine/musl image. Its architecture
+checks must execute the installed bridge and host on both amd64 and arm64;
+building a wheel or importing the SDK alone cannot establish bridge execution.
+The Cloud adapter uses standard-library HTTPS and runs in the ordinary image.
+
 | Injected condition | Required observation |
 |---|---|
 | `SIGKILL` of the host after recording provider output | Its direct supervised child terminates; explicit resumption returns the recorded output; the effect file contains one effect. |
@@ -92,19 +98,47 @@ distinct from the subsequent passing report.
 Install the locked provider dependencies using the release instructions. Supply
 `OPENAI_API_KEY_FILE` as a private, readable file, and select models available to
 your account. The following command explicitly permits one mesh run with at most
-two OpenAI requests:
+two OpenAI submissions:
 
 ```sh
 python -m mas_host.acceptance --live --runs 1 --concurrency 1 \
+  --provider-mode openai \
   --state-dir .mas-live-acceptance --report evidence/deployment-live.json
 ```
+
+For Cursor, install `host/requirements-cursor.txt` on the supported glibc
+runtime, supply `CURSOR_API_KEY_FILE` and explicitly set both Cursor model names:
+
+```sh
+python -m mas_host.acceptance --live --runs 1 --concurrency 1 \
+  --provider-mode cursor \
+  --state-dir .mas-cursor-acceptance --report evidence/deployment-cursor-live.json
+```
+
+For a Cursor planner and OpenAI reviewer, supply both key files and models, then:
+
+```sh
+MAS_PLANNER_PROVIDER=cursor MAS_REVIEWER_PROVIDER=openai \
+python -m mas_host.acceptance --live --runs 1 --concurrency 1 \
+  --provider-mode mixed \
+  --state-dir .mas-mixed-acceptance --report evidence/deployment-mixed-live.json
+```
+
+Per-role provider environment settings override live mode defaults. Inspect
+them before each exercise; the report records the actual selected providers.
+Live acceptance requires both roles to use live providers. Mock-only execution
+remains the default when `--live` is absent.
 
 Live mode rejects concurrency, multiple runs and soak settings. The host records
 an expenditure reservation before each provider callback; the default OpenAI
 adapter reserves 100,000 micro-US-dollars per call. These are conservative local
 allocations, not a measurement of the provider's invoice. Provider account
 controls and currently applicable pricing determine the actual financial limit.
-`MAS_CALL_RESERVATION_MICROUSD` configures the positive allocation per call.
+`MAS_CALL_RESERVATION_MICROUSD` configures the positive allocation per call;
+`MAS_PLANNER_RESERVATION_MICROUSD` and `MAS_REVIEWER_RESERVATION_MICROUSD` may
+override it. A Cursor submission may cause SDK-managed internal model retries.
+The two-submission limit therefore does not establish two underlying requests
+or a hard spending ceiling. Reports mark internal provider requests as unmeasured.
 
 Live mode also requires an explicit `--state-dir` before providers are created
 or any work is admitted. Use persistent private storage and retain it after both
@@ -120,6 +154,28 @@ incorrect model answer prevents a passing report. A lost response can leave an
 unknown outcome requiring inspection and reconciliation. Live acceptance is
 complete only when a report records an actual successful provider execution;
 mock tests and credential-mount checks do not supply that evidence.
+
+## Durable Cloud job acceptance
+
+The [durable-job commands](providers.md#durable-cursor-cloud-jobs) provide a
+separate acceptance path. The local-provider mesh exercise does not cover
+remote repository work. For a repository and prompt you have authorised:
+
+1. Submit one job with a stable local ID and retain its state directory.
+2. Check that the receipt identifies the saved agent and exact run.
+3. Reconcile that run until a terminal status is observed, then review the
+   returned result and repository changes independently.
+4. For a cancellation exercise, use a separately authorised job and confirm a
+   remote terminal observation after requesting cancellation. An acknowledgement
+   alone cannot pass the cancellation check.
+
+Offline fault tests cover lost create responses, process restart, refusal to
+relaunch an uncertain job, mismatched run identities, conflicting terminal
+observations and cancellation uncertainty. The finite
+[Cursor job model](../formal/cursor-jobs-notes.md) checks the corresponding
+safety properties and defect mutations. Neither supplies live account or
+repository acceptance. A cloud job can outlive local expiry; its retained
+receipt and reconciliation state remain necessary after the submit command ends.
 
 Before unattended deployment, retain the passing fault report, a load report
 from the target host, the bounded live report for the configured provider and

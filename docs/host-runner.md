@@ -51,6 +51,28 @@ Responses API and structured outputs. Your account must have access to the
 selected models. Model selection changes execution behaviour, not protocol
 identity or routing permissions.
 
+## Run Cursor, or mix Cursor and OpenAI
+
+`compose.cursor.yaml` selects Cursor for both roles. `compose.mixed.yaml` selects
+a Cursor planner and an OpenAI reviewer. Both use the optional glibc image;
+the SDK's bundled native bridge is not supported by the default Alpine image.
+The complete secret setup and commands are in [providers](providers.md).
+
+The provider factory also supports independent native settings:
+`MAS_PLANNER_PROVIDER` and `MAS_REVIEWER_PROVIDER`, each set to `mock`, `openai`
+or `cursor`. Use `--mode mixed` when specifying both roles. Each role can select
+its own model and reservation. `--mode mock` always stays offline, ignoring
+live-provider settings. `--mode openai` and `--mode cursor` supply provider
+defaults that explicit per-role settings may override. Cursor requires an
+explicit account-supported model.
+
+Cursor's restricted local adapter implements the same `TotalProvider` contract
+as OpenAI. Cursor Cloud has a separate repository-job adapter: it returns a
+durable submission receipt and exposes explicit status, reconciliation and
+cancellation operations. Remote work can continue after the local task expires.
+See the [durable-job workflow](providers.md#durable-cursor-cloud-jobs) before
+submitting repository work.
+
 ## What the example does
 
 The task is deliberately easy to check: calculate an invoice total in integer
@@ -59,14 +81,14 @@ that several models improve arithmetic or outperform one model.
 
 | Actor | Adapter in live mode | Responsibility |
 |---|---|---|
-| `planner` | OpenAI GPT | Propose the invoice total, then request peer review. |
-| `reviewer` | A separate OpenAI GPT request | Assess the invoice and proposal, then ask the checker to validate them. |
+| `planner` | OpenAI or restricted local Cursor | Propose the invoice total, then request peer review. |
+| `reviewer` | Independently selected OpenAI or restricted local Cursor | Assess the invoice and proposal, then ask the checker to validate them. |
 | `checker` | Deterministic Python | Recompute the exact total and report whether the candidates agree with it. |
 
 ```mermaid
 flowchart TD
-    C["Python checker"] -->|"Invoice request"| P["GPT planner"]
-    P -->|"Proposal for review"| R["GPT reviewer"]
+    C["Python checker"] -->|"Invoice request"| P["Model planner"]
+    P -->|"Proposal for review"| R["Model reviewer"]
     R -->|"Candidates to check"| C
     C -->|"Checked result"| R
     R -->|"Review result"| P
@@ -77,7 +99,7 @@ All six directed edges in `examples/host/mesh.json` carry messages. Every
 delegation creates its own task and request identity. Results correlate with
 the original request, and the Rust gateway admits each operation under the
 appropriate actor capability. There is no shared conversation history between
-the GPT roles; each sees its addressed task data and its own fixed instructions.
+the model roles; each sees its addressed task data and its own fixed instructions.
 
 This is a **logical mesh on a central durable transport**. Compose runs one
 trusted host container, with a Rust gateway subprocess and separate model calls.
@@ -165,6 +187,12 @@ During the callable, `context.invocation_id` supplies a stable diagnostic ID and
 adapter sends the ID as `X-Client-Request-Id`, records safe response/request IDs
 and token counts, and disables SDK retries. This diagnostic header is not a
 provider idempotency guarantee.
+
+The Cursor adapter records the diagnostic ID locally and retains safe agent/run
+identifiers. It disables bridge RPC retries; the pinned SDK may retry model
+requests internally. One admitted MAS invocation therefore means one submitted
+agent run, not a guaranteed single underlying model request. Neither provider
+has an automatic fallback to another provider after an uncertain failure.
 
 Adapters run in supervised child processes by default. The parent retains the
 gateway, checkpoints and accounting. Its watchdog uses the original run deadline to stop and reap local work,
@@ -267,7 +295,10 @@ failure, bounded load/soak and opt-in live-provider checks. [Release controls](r
 cover hash-locked dependencies, image digests, security scans and release artefacts.
 Offline SDK and Compose checks do not establish live account availability, billing,
 model quality or external exactly-once execution. SPIN checks the documented finite
-protocol and recovery models; it does not verify Python, Docker or the OpenAI SDK.
+protocol and recovery models; it does not verify Python, Docker or either
+provider SDK. The [Cursor job model](../formal/cursor-jobs-notes.md) covers
+bounded launch, correlation and cancellation safety separately from local
+provider execution.
 
 ## API and packaging references
 
@@ -276,6 +307,8 @@ protocol and recovery models; it does not verify Python, Docker or the OpenAI SD
 - [GPT-4.1 mini](https://developers.openai.com/api/docs/models/gpt-4.1-mini)
 - [GPT-4o mini](https://developers.openai.com/api/docs/models/gpt-4o-mini)
 - [Docker Compose secrets](https://docs.docker.com/compose/how-tos/use-secrets/)
+- [Cursor Python SDK](https://cursor.com/docs/sdk/python)
+- [Cursor Cloud Agents API](https://cursor.com/docs/cloud-agent/api/endpoints)
 
-These references were consulted on 13 October 2026. Credentials are supplied at
+These references were consulted on 14 October 2026. Credentials are supplied at
 runtime, never during image construction.

@@ -37,6 +37,11 @@ before writes.
 | Journal and deployment repositories | Own their distinct schema identities, validated migrations and durable records. |
 | Reconciler monitor | Report a fresh, successful scan by a live watcher independently of admission headroom. |
 | Provider binding | Require explicit effect identity and spending allocation before admission. |
+| `provider_config.py` | Validate per-role provider settings and secrets, then construct only the selected implementations. |
+| OpenAI and Cursor local providers | Adapt their respective SDKs to the narrow invoice-total contract. |
+| `CursorCloudClient` | Bounded, non-retrying HTTP operations against the fixed Cursor Cloud API origin. |
+| `JobStore` and `DurableJobService` | Persist remote-job intent, correlate exact identities, serialise observations and retain reconciliation evidence. |
+| `CursorCloudJobAdapter` | Admit a repository-job submission through the existing runner and return its durable receipt. |
 
 The façade, Strategy and Adapter patterns correspond to existing variations.
 The bootstrap state machine records intent, deployment admission, Rust state,
@@ -62,19 +67,69 @@ the newly mandatory members must be updated before they can run. A descriptor
 is the adapter author's compatibility declaration, not proof of provider
 determinism or truthful billing.
 
+## Provider substitution and durable jobs
+
+The provider extension compares three designs:
+
+| Option | Consequence |
+| --- | --- |
+| Treat a Cursor token as an OpenAI credential | Unsupported: the documented APIs have different authentication and execution contracts. |
+| Make every provider implement an asynchronous job service | Adds job lifecycle obligations to synchronous inference and obscures the existing result contract. |
+| Use interchangeable local result providers and a distinct durable-job adapter | Preserves the existing workflow and gives remote jobs explicit submission, observation and cancellation semantics. Selected. |
+
+`TotalProvider` is a Strategy interface: the planner and reviewer depend on
+`total`, a descriptor and an explicit reservation. A Factory selects mock,
+OpenAI or Cursor independently for each role. The SDK adapters share validation
+of invoice inputs and exact integer-JSON outputs, while retaining provider-owned
+authentication and response conversion. Existing OpenAI and mock descriptors
+remain unchanged so their completed workflows retain recovery compatibility.
+
+`CursorLocalProvider` creates a fresh private directory, disables tools, MCP,
+subagents and ambient settings, and attempts to close its owned agent and bridge
+on normal return or exception. Its bridge
+is launched only after durable invocation admission, within the supervised
+process group. These controls constrain the SDK configuration; they do not
+isolate hostile code from the operating system. SDK-managed internal model
+retries remain distinct from the host's one admitted submission.
+
+The Cloud adapter implements the existing `Adapter` contract, not `TotalProvider`.
+Its output says that a repository job was submitted. `JobStore` persists the
+frozen specification, client-assigned agent ID and launch intent before dispatch.
+The service records the exact returned run ID and polls only that identity.
+Ambiguous dispatch retains `launch_unknown`; it never enables an automatic
+second POST. Cancellation intent and remote cancellation are separate records.
+The first correlated terminal observation remains immutable.
+
+This division applies single responsibility to configuration, SDK conversion,
+HTTP transport and persistence; interface segregation keeps repository lifecycle
+methods out of synchronous providers. Injected clients permit contract tests
+without credentials. Rust envelopes, route permissions and task transitions are
+unchanged. The cloud job's completion has its own lifetime, so a completed MAS
+submission task cannot imply that repository work finished or passed review.
+
+The forked guardian and worker freeze inherited garbage-collected objects
+before closing copied host descriptors. This prevents an inherited file or
+SQLite finaliser from later closing a descriptor number reused by the worker.
+New worker objects remain collectable; the parent collector is unchanged.
+A regression forces that descriptor reuse and explicit collection.
+
 ## Verification and limits
 
 Regressions exercise actual process death during bootstrap, a killed host with
 ordinary adapter descendants, ownership retention during cleanup, incompatible
 database versions, failed reconciliation, persistent live-acceptance state and
 context error substitution. Container acceptance runs the installed package and
-Rust binaries on native amd64 and arm64. Provider HTTP contract tests use the
-real pinned SDK with a fake transport; live acceptance is a separate two-call
-check requiring credentials and persistent state.
+Rust binaries on native amd64 and arm64. OpenAI HTTP contract tests use the
+real pinned SDK with a fake transport; Cursor contract tests use injected
+clients and separately exercise the installed bridge. Live local-provider
+acceptance is a two-submission check requiring credentials and persistent state.
+The SDK may perform internal requests that the host does not count separately.
 
 The finite Promela models preserve their documented safety and progress scope.
 They do not model Python schemas, Linux process cleanup, actual storage flushes
-or provider behaviour. Implementation regressions supply evidence for these
+or provider behaviour. The additional Cursor job model checks finite launch,
+correlation, terminal-state and cancellation safety; it has no remote progress
+or monetary-cap claim. Implementation regressions supply evidence for these
 additional boundaries; no refinement proof is claimed.
 
 The project retains Python's declared supported syntax, existing unittest/Cargo

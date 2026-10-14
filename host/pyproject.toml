@@ -12,6 +12,7 @@ dependencies = []
 
 [project.optional-dependencies]
 openai = ["openai==3.29.0"]
+cursor = ["cursor-sdk==1.0.37"]
 
 [project.scripts]
 mas-host = "mas_host.__main__:main"

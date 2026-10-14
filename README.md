@@ -37,6 +37,22 @@ mesh over the central Rust/SQLite transport. See the [quickstart and adapter
 guide](docs/host-runner.md) for credentials, model selection, persistence and a
 complete custom adapter.
 
+OpenAI and Cursor can also run together. The optional Cursor image uses the
+official SDK in a restricted local mode: no tools, MCP servers, subagents or
+ambient settings. Supply both API keys through the host shell, select a Cursor
+model available to your account as `MAS_PLANNER_MODEL`, then run:
+
+```sh
+docker compose -f compose.yaml -f compose.mixed.yaml run --build --rm mesh
+```
+
+For two Cursor roles, set both model identifiers and use `compose.cursor.yaml`.
+The separate durable-job adapter submits repository work to Cursor Cloud,
+retains the exact remote agent/run identities and reconciles the result after
+local execution ends. A submission receipt is not a completed remote task.
+See [providers and durable jobs](docs/providers.md) for credentials, complete
+commands, recovery and the different execution guarantees.
+
 ## Deployment scope
 
 The supported host target is a bounded, single-host Linux deployment with trusted

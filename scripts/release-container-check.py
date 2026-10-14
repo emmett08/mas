@@ -7,6 +7,7 @@ are removed before running tests; the container should also use --network none.
 """
 from __future__ import annotations
 
+import argparse
 import json
 import importlib.util
 import ctypes
@@ -53,7 +54,60 @@ def runtime_identity(binaries: dict[str, Path]) -> dict:
             "rust_dynamic_linkage": linkage, **package_identity}
 
 
+def cursor_runtime_identity(binaries: dict[str, Path]) -> dict:
+    """Check the optional glibc image and exercise its actual native SDK bridge."""
+    package_identity = runtime_package_identity()
+    if platform.libc_ver()[0] != "glibc":
+        raise RuntimeError("Cursor SDK runtime requires glibc")
+    for name, binary in binaries.items():
+        result = subprocess.run(["ldd", str(binary)], text=True, stdout=subprocess.PIPE,
+                                stderr=subprocess.STDOUT, timeout=10, check=False)
+        listing = result.stdout.lower()
+        if not any(marker in listing for marker in ("not a dynamic executable", "statically linked")):
+            raise RuntimeError(f"{name} must be a static musl executable in the Cursor image")
+    from mas_host.cursor_local import _bridge_files
+    node, _ = _bridge_files()
+    result = subprocess.run(["ldd", str(node)], text=True, stdout=subprocess.PIPE,
+                            stderr=subprocess.STDOUT, timeout=10, check=False)
+    if result.returncode or "not found" in result.stdout.lower() or "libstdc++.so.6" not in result.stdout:
+        raise RuntimeError("Cursor's bundled Node runtime has unresolved shared libraries")
+    return {"runtime": "cursor-glibc", "rust_linkage": "static-musl-bundled-sqlite",
+            "python_sqlite": sqlite3.sqlite_version, **package_identity,
+            **cursor_bridge_smoke()}
+
+
+def cursor_bridge_smoke() -> dict:
+    """Launch and close the pinned bridge without creating an agent or API call."""
+    from mas_host.cursor_local import CURSOR_SDK_VERSION, _launch_client
+    with tempfile.TemporaryDirectory(prefix="mas-cursor-smoke-", dir="/tmp") as directory:
+        client = _launch_client(directory)
+        bridge = client._owned_bridge
+        process = bridge.process
+        try:
+            if process is None or process.poll() is not None:
+                raise RuntimeError("Cursor bridge did not remain running during startup")
+            if bridge.endpoint.pid != process.pid:
+                raise RuntimeError("Cursor bridge supervision must own Node directly")
+            if os.getpgid(process.pid) != os.getpgrp():
+                raise RuntimeError("Cursor bridge must remain in the guardian's process group")
+            version = bridge.endpoint.server_version
+        finally:
+            client.close()
+        if process.poll() is None:
+            raise RuntimeError("Cursor bridge survived client.close()")
+        return {"cursor_sdk": CURSOR_SDK_VERSION, "bridge_version": version,
+                "bridge_started_and_reaped": True, "provider_calls": 0}
+
+
 def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--cursor", action="store_true", help="check the optional glibc Cursor image")
+    args = parser.parse_args()
+    # Smoke checks must not inherit credentials or a user's provider selection.
+    for name in list(os.environ):
+        if (name.startswith(("OPENAI_", "CURSOR_"))
+                or name in ("MAS_PLANNER_PROVIDER", "MAS_REVIEWER_PROVIDER", "MAS_PLANNER_MODEL", "MAS_REVIEWER_MODEL")):
+            os.environ.pop(name, None)
     tests = Path("/mounted-tests")
     examples = Path("/mounted-examples")
     if not tests.is_dir() or not examples.is_dir():
@@ -64,14 +118,14 @@ def main() -> int:
         print("The installed release binaries are unavailable.", file=sys.stderr)
         return 2
     try:
-        identities = runtime_identity(binaries)
+        identities = cursor_runtime_identity(binaries) if args.cursor else runtime_identity(binaries)
     except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as error:
         print(f"Release runtime identity check failed: {error}", file=sys.stderr)
         return 2
     # An inherited source path would test the checkout instead of the installed
     # wheel, so remove it from the test subprocess environment.
     environment = dict(os.environ)
-    for name in ("PYTHONPATH", "OPENAI_API_KEY", "OPENAI_API_KEY_FILE"):
+    for name in ("PYTHONPATH", "OPENAI_API_KEY", "OPENAI_API_KEY_FILE", "CURSOR_API_KEY", "CURSOR_API_KEY_FILE"):
         environment.pop(name, None)
     environment.update(MAS_BIN=str(binaries["mas"]),
                        MAS_GATEWAY_BIN=str(binaries["mas-gateway"]),

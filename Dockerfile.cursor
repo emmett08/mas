@@ -1,0 +1,64 @@
+# Optional, user-built glibc runtime for Cursor's platform-specific SDK bridge.
+# The standard OpenAI/mock image remains the smaller Alpine Dockerfile.
+FROM python:3.14-alpine@sha256:f6a589d43c42b9e7f7dc67a12d37132491f362859a5d750607710cc56da3bc72 AS alpine-packages
+ARG TARGETARCH
+COPY docker/alpine-packages.json /build/alpine-packages.json
+COPY scripts/release-apk.py /build/release-apk.py
+RUN python /build/release-apk.py --lock /build/alpine-packages.json --arch "$TARGETARCH" --out /packages
+
+FROM rust:1.99.0-alpine@sha256:0cce0a5e0e8ba67b455257a3a02a1d99005f382748789d6464460028810f1627 AS rust-build
+COPY --from=alpine-packages /packages/build /packages
+RUN --network=none apk add --no-network /packages/*.apk && rm -rf /packages
+# Keep the Rust binaries independent of the glibc host. SQLite is the bundled,
+# Cargo.lock-pinned library; the standard image deliberately uses shared SQLite.
+ENV RUSTFLAGS="-C target-feature=+crt-static"
+WORKDIR /build/rust-protocol
+COPY rust-protocol/Cargo.toml rust-protocol/Cargo.lock ./
+COPY rust-protocol/src ./src
+RUN cargo build --locked --release --bin mas --bin mas-gateway
+
+FROM python:3.14.8-slim-trixie@sha256:a2b82f3c48559aa0a8446d9af49826b6e2b2016f4cd2afabfe6013ec53729170 AS python-build
+ARG TARGETARCH
+COPY docker/debian-packages.json /build/debian-packages.json
+COPY scripts/release-deb.py /build/release-deb.py
+RUN python /build/release-deb.py --lock /build/debian-packages.json --arch "$TARGETARCH" --out /packages
+WORKDIR /build/host
+COPY host/pyproject.toml host/requirements-cursor.txt host/requirements-build.txt ./
+RUN python -m pip install --no-cache-dir --require-hashes -r requirements-build.txt \
+    && python -m pip download --no-cache-dir --require-hashes --dest /wheels -r requirements-cursor.txt
+COPY host/mas_host ./mas_host
+RUN --network=none python -m pip wheel --no-cache-dir --no-index --no-deps --no-build-isolation --wheel-dir /wheels . \
+    && python -c 'from pathlib import Path; import hashlib; p=next(Path("/wheels").glob("mas_host-*.whl")); Path("/wheels/host-wheel.txt").write_text(str(p)+" --hash=sha256:"+hashlib.sha256(p.read_bytes()).hexdigest()+"\n")'
+
+FROM python:3.14.8-slim-trixie@sha256:a2b82f3c48559aa0a8446d9af49826b6e2b2016f4cd2afabfe6013ec53729170
+LABEL org.opencontainers.image.source="https://github.com/emmett08/mas"
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    MAS_BIN=/usr/local/bin/mas \
+    MAS_GATEWAY_BIN=/usr/local/bin/mas-gateway \
+    MAS_MODE=mock \
+    MAS_STATE_DIR=/state \
+    MAS_TOPOLOGY=/app/examples/host/mesh.json
+COPY --from=python-build /packages /packages
+RUN --network=none dpkg --refuse-downgrade -i /packages/*.deb && rm -rf /packages
+RUN groupadd --gid 10001 mas \
+    && useradd --uid 10001 --gid mas --home-dir /state --no-create-home mas \
+    && mkdir -p /state /app/examples \
+    && chown mas:mas /state \
+    && chmod 0700 /state
+COPY --from=rust-build /build/rust-protocol/target/release/mas /usr/local/bin/mas
+COPY --from=rust-build /build/rust-protocol/target/release/mas-gateway /usr/local/bin/mas-gateway
+COPY --from=python-build /wheels /wheels
+COPY host/requirements-cursor.txt /wheels/requirements-cursor.txt
+RUN --network=none python -m pip install --no-cache-dir --no-index --find-links=/wheels --require-hashes -r /wheels/requirements-cursor.txt \
+    && python -m pip install --no-cache-dir --no-index --no-deps --require-hashes -r /wheels/host-wheel.txt \
+    && python -m pip check \
+    && python -c 'from pathlib import Path; import cursor_sdk; p=Path(cursor_sdk.__file__).parent/"_vendor"/"bridge"/"bin"; [(p/n).chmod(0o755) for n in ("node", "cursor-sdk-bridge")]' \
+    && python -m pip uninstall --yes pip \
+    && python -c 'import ensurepip, shutil; shutil.rmtree(ensurepip.__path__[0])' \
+    && rm -rf /wheels
+COPY examples/host/mesh.json /app/examples/host/mesh.json
+COPY LICENSE THIRD_PARTY_LICENSE.txt /usr/share/doc/mas/
+WORKDIR /app
+USER 10001:10001
+ENTRYPOINT ["python", "-m", "mas_host"]

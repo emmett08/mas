@@ -20,7 +20,7 @@ import tempfile
 import time
 import uuid
 
-from .schema import JOURNAL, LEDGER, SchemaError, connect, validate
+from .schema import JOBS, JOURNAL, LEDGER, SchemaError, connect, validate
 
 
 class OperationsError(RuntimeError):
@@ -103,7 +103,8 @@ def _db(path: Path, readonly: bool = False):
     connection = sqlite3.connect(path.as_uri() + "?mode=ro", uri=True, timeout=10) if readonly else sqlite3.connect(path, timeout=10)
     connection.row_factory = sqlite3.Row
     try:
-        known = {"deployment.sqlite": LEDGER, "host.sqlite": JOURNAL}.get(path.name)
+        known = {"deployment.sqlite": LEDGER, "host.sqlite": JOURNAL,
+                 "cursor-jobs.sqlite": JOBS}.get(path.name)
         if known and existed:
             validate(connection, known)
     except SchemaError as error:
@@ -274,6 +275,7 @@ class DeploymentLedger:
         return {"deployment_id": identity, "policy": asdict(self.policy), "usage": usage,
                 "admission_state": "active" if enabled else "restored_audit_only",
                 "retained_runs": retained, "state_bytes": size, "free_bytes": free,
+                "cursor_jobs": cursor_job_counts(self.state_dir),
                 "admission_open": enabled and usage["runs"] < self.policy.max_runs and usage["calls"] < self.policy.max_calls
                 and usage["reserved_microusd"] < self.policy.max_reserved_microusd
                 and size < self.policy.max_state_bytes and free >= self.policy.min_free_bytes,
@@ -284,6 +286,29 @@ def retained_runs(state_dir: Path) -> list[dict]:
     state_dir = _private_dir(Path(state_dir))
     with _db(state_dir / "deployment.sqlite", readonly=True) as db:
         return [dict(row) for row in db.execute("SELECT * FROM runs WHERE purged_at IS NULL ORDER BY admitted_at,run_id")]
+
+
+def cursor_job_counts(state_dir: Path) -> dict[str, int]:
+    """Inspect local job observations without implying a fresh provider scan."""
+    counts = {state: 0 for state in ("prepared", "launch_unknown", "active", "terminal")}
+    path = state_dir / "cursor-jobs.sqlite"
+    if path.exists():
+        with _db(path, readonly=True) as db:
+            for state, count in db.execute("SELECT state,count(*) FROM jobs GROUP BY state"):
+                if state not in counts:
+                    raise OperationsError("unrecognised durable cloud job state")
+                counts[state] = count
+    return counts
+
+
+def _pending_cloud_job(directory: Path) -> bool:
+    """Retain a submission's host evidence while its remote job is unresolved."""
+    path = directory.parent / "cursor-jobs.sqlite"
+    if not path.exists():
+        return False
+    with _db(path, readonly=True) as db:
+        return db.execute("SELECT 1 FROM jobs WHERE host_run_dir=? AND state!='terminal' LIMIT 1",
+                          (str(directory.absolute()),)).fetchone() is not None
 
 
 def reconcile_run(run_dir: Path, mas_bin: str = "mas", timeout: float = 10) -> dict:
@@ -489,6 +514,8 @@ def prune_runs(state_dir: Path, older_than_seconds: int, apply: bool = False) ->
                     latest_change = max([run["admitted_at"], *[path.stat().st_mtime for path in directory.rglob("*") if path.is_file() and not path.name.endswith(".lock")]])
                     if latest_change > time.time() - older_than_seconds:
                         result["reason"] = "retention age not reached"
+                    elif _pending_cloud_job(directory):
+                        result["reason"] = "active or unresolved external cloud job retained"
                     elif not _terminal_run(directory):
                         result["reason"] = "open tasks, incomplete journal or unresolved invocations retained"
                     else:

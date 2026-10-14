@@ -1,0 +1,62 @@
+{
+  "base_commit": "c5adf0f558095f3b06b45cb6f751fa3e64724620",
+  "cloud_live_acceptance": "not_executed_missing_credential_and_authorised_repository",
+  "container_acceptance": "exact-revision GitHub Actions matrix is required; no local Docker daemon",
+  "date": "2026-10-14",
+  "live_acceptance": {
+    "cursor": {
+      "paid_provider_submissions": 0,
+      "run_count": 0,
+      "status": "blocked_missing_credential"
+    },
+    "mixed": {
+      "paid_provider_submissions": 0,
+      "run_count": 0,
+      "status": "blocked_missing_credential"
+    },
+    "openai": {
+      "paid_provider_submissions": 0,
+      "run_count": 0,
+      "status": "blocked_missing_credential"
+    }
+  },
+  "local_checks": {
+    "actionlint": "passed",
+    "cargo_fmt": "pre-existing repository-wide differences; no formatting gate added",
+    "compose_configuration": "passed",
+    "dependency_locks": "passed",
+    "host_tests": {
+      "cursor_sdk": "1.0.37",
+      "openai_sdk": "3.29.0",
+      "passed": 193,
+      "python": "3.14.8",
+      "skipped": 0
+    },
+    "mock_deployment": {
+      "elapsed_ms": 595,
+      "error_count": 0,
+      "ok": true,
+      "run_count": 12,
+      "success_count": 12
+    },
+    "release_helper_tests": {
+      "passed": 23
+    },
+    "rust_tests": {
+      "passed": 48,
+      "toolchain": "1.99.0"
+    },
+    "spin": {
+      "all_passed": true,
+      "cases": 54,
+      "cursor_no_reduction_transitions": 48051,
+      "cursor_states": 24927,
+      "cursor_transitions": 39457,
+      "expected_counterexamples": 20,
+      "positive_checks": 62
+    }
+  },
+  "schema": "mas-cursor-acceptance/1",
+  "scope": "Offline implementation and finite-model evidence only; no live account, provider billing, remote cancellation or unrestricted correctness claim.",
+  "source_manifest_sha256": "5a99b74869736a1d531293c163e2ee8c5291618f9ebbdb444a40c461978402f5"
+}

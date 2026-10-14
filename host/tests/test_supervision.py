@@ -1,6 +1,7 @@
 """Real process lifetime and bounded IPC tests; no provider API is called."""
 
 import ctypes
+import gc
 import json
 import os
 from pathlib import Path
@@ -10,6 +11,8 @@ import tempfile
 import time
 from types import SimpleNamespace
 import unittest
+import warnings
+import weakref
 
 from mas_host.runner import AdapterError, Invocation, Outcome, RecoveryRequired, RunnerError, TaskRequest
 from mas_host.contracts import AdapterContext
@@ -124,6 +127,53 @@ class SupervisionTests(unittest.TestCase):
         self.assertEqual(self.run_adapter(adapter, context=context).output, {"saved": 3})
         self.assertFalse(path.exists())
         self.assertEqual([event[0] for event in context.events], ["prepare"])
+
+    def test_inherited_finaliser_cannot_close_reused_worker_descriptor(self):
+        """Raw fork cleanup must not leave cyclic host owners able to close new FDs."""
+        was_enabled = gc.isenabled()
+        frozen_before = gc.get_freeze_count()
+        gc.disable()
+        try:
+            stream = open(Path(self.temp.name) / "host-file", "wb")
+            inherited_descriptor = stream.fileno()
+            cycle = [stream]
+            cycle.append(cycle)
+            del stream, cycle  # Only cyclic GC can now close the inherited file.
+            output = Path(self.temp.name) / "worker-file"
+
+            def adapter(_context, _request):
+                descriptor = os.open(output, os.O_CREAT | os.O_WRONLY, 0o600)
+                if descriptor != inherited_descriptor:
+                    os.dup2(descriptor, inherited_descriptor)
+                    os.close(descriptor)
+                try:
+                    # Explicit collection also defeats merely disabling GC.
+                    gc.collect()
+                    os.write(inherited_descriptor, b"worker owns this descriptor")
+                    class NewCycle:
+                        pass
+                    value = NewCycle()
+                    value.cycle = value
+                    reference = weakref.ref(value)
+                    del value
+                    gc.collect()
+                    return Outcome({"new_objects_collected": reference() is None})
+                finally:
+                    os.close(inherited_descriptor)
+
+            outcome = self.run_adapter(adapter)
+            self.assertTrue(outcome.output["new_objects_collected"])
+            self.assertEqual(output.read_bytes(), b"worker owns this descriptor")
+            self.assertEqual(gc.get_freeze_count(), frozen_before)
+            self.assertFalse(gc.isenabled())
+        finally:
+            # This deliberate orphan fixture belongs to the parent; finalise it
+            # without reporting the intentional unclosed-file test as a leak.
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", ResourceWarning)
+                gc.collect()
+            if was_enabled:
+                gc.enable()
 
     def test_zero_cost_mock_reservation_still_uses_parent_admission(self):
         result = self.run_adapter(lambda context, _request: Outcome(context.invoke(

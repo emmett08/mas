@@ -1,5 +1,32 @@
 # Verification results
 
+## Cursor provider extension — 14 October 2026
+
+The local extension checks passed **193 host tests, 23 release-helper tests and
+48 Rust tests**. The combined SPIN suite passed **62 positive checks and 20
+expected counterexamples**, across 54 cases. The Cursor job model includes a
+search without partial-order reduction and seven defect mutations; see its
+[contract and implementation mapping](../formal/cursor-jobs-notes.md).
+The bounded deployment exercise completed 12/12 mock runs.
+
+Tests exercise both pinned SDKs with offline transports, the actual Cursor
+bridge after normal completion, timeout, adapter death and host death, mixed
+provider replay, unknown effects, cloud launch process death, exact-run
+reconciliation, cancellation, retention and audit-only restoration. The new
+process finaliser regression fails when inherited-object freezing is removed.
+No live provider acceptance passed: OpenAI, Cursor and mixed live checks were
+blocked by missing credentials. Remote Cloud acceptance likewise requires an
+authorised account and repository.
+
+The existing architecture matrix now tests both the Alpine image and optional
+Cursor/glibc image on native amd64 and arm64. Security gates scan both images.
+Their exact-revision Actions results are the container evidence; local checks
+are not a substitute for those runs. `cargo fmt --check` reports pre-existing
+repository-wide formatting differences; this change retains the existing Rust
+style and introduces no formatting gate or unrelated reformat.
+
+## Earlier protocol and host evidence
+
 Recorded on 13 October 2026. **47 Rust tests passed; 60 positive SPIN checks
 completed with zero errors; eleven deliberate defects and two assumption
 counterexamples were detected and replayed; 29 sampled simulations completed.**

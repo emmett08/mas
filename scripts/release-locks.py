@@ -41,7 +41,7 @@ def collect(directory: Path) -> dict[str, tuple[str, set[str]]]:
 
 def refresh(filename: str, requirements: list[str], platforms: tuple[str, ...],
             keep_versions: bool = False) -> None:
-    if keep_versions:
+    if keep_versions and (ROOT / "host" / filename).exists():
         requirements = [*requirements, *re.findall(
             r"^([a-z0-9-]+==[^\s]+)", (ROOT / "host" / filename).read_text(), re.MULTILINE)]
     with tempfile.TemporaryDirectory(prefix="mas-lock-") as temporary:
@@ -53,7 +53,12 @@ def refresh(filename: str, requirements: list[str], platforms: tuple[str, ...],
                 "--abi", "cp314", "--dest", str(directory / platform), *requirements,
             ], check=True)
         packages = collect(directory)
-    scope = "CPython 3.14 Linux amd64/arm64, glibc/musl" if len(platforms) > 1 else "CPython 3.14 Linux amd64 (CI tooling only)"
+    if any("musl" in platform for platform in platforms):
+        scope = "CPython 3.14 Linux amd64/arm64, glibc/musl"
+    elif len(platforms) > 1:
+        scope = "CPython 3.14 Linux amd64/arm64, glibc only"
+    else:
+        scope = "CPython 3.14 Linux amd64 (CI tooling only)"
     lines = [f"# Generated from downloaded wheels; {scope}.",
              "# Refresh: python scripts/release-locks.py; review changes before committing.",
              "--only-binary=:all:", ""]
@@ -64,7 +69,7 @@ def refresh(filename: str, requirements: list[str], platforms: tuple[str, ...],
 
 def check() -> None:
     metadata = tomllib.loads((ROOT / "host/pyproject.toml").read_text())
-    for filename in ("requirements-openai.txt", "requirements-build.txt", "requirements-security.txt"):
+    for filename in ("requirements-openai.txt", "requirements-cursor.txt", "requirements-build.txt", "requirements-security.txt"):
         contents = (ROOT / "host" / filename).read_text()
         if "--only-binary=:all:" not in contents:
             raise ValueError(f"{filename}: source distributions are forbidden")
@@ -74,11 +79,12 @@ def check() -> None:
                 continue
             if not re.fullmatch(r"[a-z0-9-]+==[a-zA-Z0-9.+]+(?:\s+--hash=sha256:[0-9a-f]{64})+", line):
                 raise ValueError(f"Invalid locked requirement in {filename}: {line}")
-    runtime = (ROOT / "host/requirements-openai.txt").read_text()
     build = (ROOT / "host/requirements-build.txt").read_text()
-    for dependency in metadata["project"]["optional-dependencies"]["openai"]:
-        if dependency + " " not in runtime:
-            raise ValueError(f"SDK pin mismatch: {dependency}")
+    for provider in ("openai", "cursor"):
+        runtime = (ROOT / "host" / f"requirements-{provider}.txt").read_text()
+        for dependency in metadata["project"]["optional-dependencies"][provider]:
+            if dependency + " " not in runtime:
+                raise ValueError(f"SDK pin mismatch: {dependency}")
     for dependency in metadata["build-system"]["requires"]:
         if dependency + " " not in build:
             raise ValueError(f"Build pin mismatch: {dependency}")
@@ -95,6 +101,9 @@ def main() -> None:
             parser.error("refresh requires CPython 3.14")
         metadata = tomllib.loads((ROOT / "host/pyproject.toml").read_text())
         refresh("requirements-openai.txt", metadata["project"]["optional-dependencies"]["openai"], PLATFORMS, args.keep_versions)
+        # Resolve alongside OpenAI's pins so both optional providers can coexist.
+        openai_pins = re.findall(r"^([a-z0-9-]+==[^\s]+)", (ROOT / "host/requirements-openai.txt").read_text(), re.MULTILINE)
+        refresh("requirements-cursor.txt", [*metadata["project"]["optional-dependencies"]["cursor"], *openai_pins], PLATFORMS[:2], args.keep_versions)
         refresh("requirements-build.txt", [*metadata["build-system"]["requires"], "pip==26.2.1", "wheel==0.48.0"], PLATFORMS, args.keep_versions)
         refresh("requirements-security.txt", ["pip-audit==2.10.1"], PLATFORMS[:1], args.keep_versions)
     check()

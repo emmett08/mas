@@ -137,7 +137,7 @@ fn run_case(source: &Path, dest: &Path, opt: &Options, case: CaseOptions) -> Res
     if unbounded_faults {defs.push("-DUNBOUNDED_FAULTS".into());}
     let mut commands = Vec::new(); let mut checks = Vec::new();
     let mut simulations_ok = true;
-    if task && source.file_name().is_some_and(|name| name == "host-recovery.pml") && defect.is_none() {
+    if task && source.file_name().is_some_and(|name| name == "host-recovery.pml" || name == "cursor-jobs.pml") && defect.is_none() {
         for seed in [17, 29, 53] {
             let command = strings(&["spin", &format!("-n{seed}"), "-u10000", "-p", "-g", "-l", model_name]);
             let mut record = run(&command, dest, &format!("simulation-{seed}"), opt)?;
@@ -312,27 +312,43 @@ fn main() -> Result<()> {
         ("host-recovery.pml","negative-host-uncharged",Some("BUG_HOST_UNCHARGED")),
         ("host-recovery.pml","negative-host-replay",Some("BUG_HOST_REPLAY_UNKNOWN")),
         ("host-recovery.pml","negative-host-stale-owner",Some("BUG_HOST_STALE_OWNER")),
-        ("host-recovery.pml","negative-host-mutable-result",Some("BUG_HOST_MUTABLE_RESULT"))] {
+        ("host-recovery.pml","negative-host-mutable-result",Some("BUG_HOST_MUTABLE_RESULT")),
+        ("cursor-jobs.pml","cursor-jobs",None),
+        ("cursor-jobs.pml","negative-cursor-uncharged",Some("BUG_CURSOR_UNCHARGED")),
+        ("cursor-jobs.pml","negative-cursor-relaunch",Some("BUG_CURSOR_REPLAY_UNKNOWN")),
+        ("cursor-jobs.pml","negative-cursor-lost-id",Some("BUG_CURSOR_LOST_ID")),
+        ("cursor-jobs.pml","negative-cursor-wrong-run",Some("BUG_CURSOR_WRONG_RUN")),
+        ("cursor-jobs.pml","negative-cursor-cancel-confirmed",Some("BUG_CURSOR_CANCEL_CONFIRMED")),
+        ("cursor-jobs.pml","negative-cursor-timeout-cancelled",Some("BUG_CURSOR_TIMEOUT_CANCELLED")),
+        ("cursor-jobs.pml","negative-cursor-terminal-overwrite",Some("BUG_CURSOR_TERMINAL_OVERWRITE"))] {
         let case=run_case(&opt.root.join("formal").join(model),&opt.out.join(name),&opt,
             CaseOptions{standalone:true,defect,..Default::default()})?;
         println!("{name} {}",case["status"]);cases.push(case);
     }
+    let case=run_case(&opt.root.join("formal/cursor-jobs.pml"),&opt.out.join("cursor-jobs-no-reduction"),&opt,
+        CaseOptions{standalone:true,no_reduce:true,..Default::default()})?;
+    println!("cursor-jobs-no-reduction {}",case["status"]);cases.push(case);
     let ok=cases.iter().all(|c|c["status"]=="PASS");
     let summary=json!({"status":if ok{"PASS"}else{"FAIL_OR_INCONCLUSIVE"},"versions":versions,"cases":cases,
         "bounds":{"messages":2,"durable_slots":2,"bounded_transport":{"lost_ack_per_message":1,"restart_per_message":1,"redelivery_per_message":1},
             "unbounded_fault_safety":"no bound on repeated lost acknowledgement, restart or redelivery transitions",
-            "host_recovery":{"logical_calls":1,"attempts":2,"crashes":1,"owners":2}},
+            "host_recovery":{"logical_calls":1,"attempts":2,"crashes":1,"owners":2},
+            "cursor_jobs":{"logical_jobs":1,"remote_run_id_values":2,"crashes":1,"polls":2,"cancellation_requests":1}},
         "limits":{"seconds_per_command":opt.seconds,"memory_mb":opt.memory,"depth":opt.depth},
         "assumptions":["fixed membership and directed ACL","no scheduling fairness required by bounded transport model",
             "bounded faults for positive transport liveness only","SQLite transaction isolation and atomic recovery boundary",
             "host expiry is an explicit event, with no wall-clock or eventual host-execution guarantee","transport acknowledgement differs from task outcome",
-            "host recovery administrative no-effect evidence is trusted; no remote exactly-once or implementation refinement claim"],
+            "host recovery administrative no-effect evidence is trusted; no remote exactly-once or implementation refinement claim",
+            "Cursor job host operations are serialised; durable commits and remote dispatch are separate transitions",
+            "Cursor unknown submissions remain unresolved without replay; cancellation requires a correlated terminal observation",
+            "Cursor provider availability, remote cancellation, billing and local SDK implementation are outside the finite model"],
         "runner_sha256":sha(&opt.root.join("rust-protocol/src/bin/verify.rs"))?,
         "template_sha256":sha(&opt.root.join("formal/protocol.pml.in"))?,
         "actions_sha256":sha(&opt.root.join("formal/actions.pml.in"))?,
         "transaction_model_sha256":sha(&opt.root.join("formal/transaction-recovery.pml"))?,
         "expiry_model_sha256":sha(&opt.root.join("formal/task-expiry.pml"))?,
-        "host_recovery_model_sha256":sha(&opt.root.join("formal/host-recovery.pml"))?});
+        "host_recovery_model_sha256":sha(&opt.root.join("formal/host-recovery.pml"))?,
+        "cursor_jobs_model_sha256":sha(&opt.root.join("formal/cursor-jobs.pml"))?});
     fs::write(opt.out.join("summary.json"),format!("{}\n",serde_json::to_string_pretty(&summary)?))?;
     if !ok{return Err(io::Error::other("model verification failed or incomplete; inspect summary.json").into());}
     Ok(())

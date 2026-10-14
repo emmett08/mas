@@ -40,16 +40,24 @@ jobs:
           MAS_GATEWAY_BIN: ${{ github.workspace }}/rust-protocol/target/release/mas-gateway
         run: |
           python scripts/release-locks.py --check
-          python -m pip install --require-hashes -r host/requirements-build.txt -r host/requirements-openai.txt
+          python -m pip install --require-hashes -r host/requirements-build.txt -r host/requirements-cursor.txt
           python -m pip install --no-deps --no-build-isolation ./host
           python -m pip check
           python -m unittest discover -s host/tests -v 2>&1 | tee native-host-tests.log
           python -m unittest discover -s scripts/tests -v
+          python - <<'PY'
+          import importlib.util, json
+          spec = importlib.util.spec_from_file_location('check', 'scripts/release-container-check.py')
+          check = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(check)
+          print(json.dumps(check.cursor_bridge_smoke()))
+          PY
       - name: Check arm64 locked wheels
         if: matrix.architecture == 'amd64'
         run: |
           python -m pip download --require-hashes --only-binary=:all: --platform manylinux2014_aarch64 --python-version 3.14 --implementation cp --abi cp314 --dest /tmp/arm64-wheels -r host/requirements-openai.txt
           python -m pip download --require-hashes --only-binary=:all: --platform musllinux_1_2_aarch64 --platform musllinux_1_1_aarch64 --python-version 3.14 --implementation cp --abi cp314 --dest /tmp/musl-arm64-wheels -r host/requirements-openai.txt
+          python -m pip download --require-hashes --only-binary=:all: --platform manylinux2014_aarch64 --python-version 3.14 --implementation cp --abi cp314 --dest /tmp/cursor-arm64-wheels -r host/requirements-cursor.txt
       - name: Bounded deployment acceptance
         env:
           MAS_BIN: ${{ github.workspace }}/rust-protocol/target/release/mas
@@ -93,6 +101,17 @@ jobs:
           assert config['PidsLimit'] == 64, config
           assert config['ReadonlyRootfs'] is True, config
           PY
+      - name: Build optional Cursor runtime and test without network or API calls
+        run: |
+          docker build -f Dockerfile.cursor -t mas-mesh-cursor:local .
+          docker run --rm --init --network none --user 10001:10001 --read-only \
+            --cap-drop ALL --security-opt no-new-privileges --cpus 2 \
+            --memory 1g --memory-swap 1g --pids-limit 128 \
+            --tmpfs /tmp:mode=1777,size=256m \
+            --mount type=bind,src="$PWD/host/tests",dst=/mounted-tests,readonly \
+            --mount type=bind,src="$PWD/examples",dst=/mounted-examples,readonly \
+            --mount type=bind,src="$PWD/scripts/release-container-check.py",dst=/release-container-check.py,readonly \
+            --entrypoint python mas-mesh-cursor:local -I /release-container-check.py --cursor 2>&1 | tee installed-cursor-tests.log
       - name: Independent reconciliation watcher
         run: |
           docker compose -f compose.yaml -f compose.production.yaml up -d reconciler
@@ -118,6 +137,31 @@ jobs:
               assert not os.access(directory, os.W_OK), directory
           print("Secret and application permissions verified; no API call made.")
           '
+      - name: Check Cursor and mixed provider secret injection without API calls
+        env:
+          OPENAI_API_KEY: compose-openai-mount-test-not-a-real-key
+          CURSOR_API_KEY: compose-cursor-mount-test-not-a-real-key
+          MAS_PLANNER_MODEL: cursor-test-model
+          MAS_REVIEWER_MODEL: cursor-test-model
+        run: |
+          docker compose -f compose.yaml -f compose.cursor.yaml config --quiet
+          docker compose -f compose.yaml -f compose.mixed.yaml config --quiet
+          docker compose -f compose.cursor-cloud.yaml config --quiet
+          docker compose -f compose.cursor-cloud.yaml run --rm --no-deps jobs --help
+          docker compose -f compose.yaml -f compose.mixed.yaml run --rm --no-deps --entrypoint python mesh -c '
+          import os, stat
+          from pathlib import Path
+          assert os.getuid() == 10001
+          for provider in ("OPENAI", "CURSOR"):
+              assert provider + "_API_KEY" not in os.environ
+              path = Path(os.environ[provider + "_API_KEY_FILE"])
+              assert path.stat().st_uid == 10001
+              assert stat.S_IMODE(path.stat().st_mode) == 0o400
+              assert path.read_text() == "compose-" + provider.lower() + "-mount-test-not-a-real-key"
+          for directory in ("/app", "/usr/local/bin", "/usr/local/lib"):
+              assert not os.access(directory, os.W_OK), directory
+          print("Both provider secrets mounted privately; no API call made.")
+          '
       - name: Stop containers
         if: always()
         run: docker compose -f compose.yaml -f compose.production.yaml down
@@ -131,4 +175,5 @@ jobs:
             acceptance.json
             native-host-tests.log
             installed-container-tests.log
+            installed-cursor-tests.log
             reconciler-health.json

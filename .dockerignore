@@ -1,10 +1,13 @@
 # Allow only the runtime sources into the build context.
 **
 !Dockerfile
+!Dockerfile.cursor
 !docker/
 !docker/alpine-packages.json
+!docker/debian-packages.json
 !scripts/
 !scripts/release-apk.py
+!scripts/release-deb.py
 !LICENSE
 !THIRD_PARTY_LICENSE.txt
 !rust-protocol/
@@ -15,6 +18,7 @@
 !host/
 !host/pyproject.toml
 !host/requirements-openai.txt
+!host/requirements-cursor.txt
 !host/requirements-build.txt
 !host/mas_host/
 !host/mas_host/**

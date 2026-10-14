@@ -244,3 +244,5 @@ clock behaviour or eventual host invocation is proved. If all host activity
 stops, reconciliation need not occur. Expiry records unresolved external work;
 it is distinct from a successful result, an application failure, a cancellation
 that demonstrably stopped effects, or successful delivery of an acknowledgement.
+
+The optional provider extension adds a separate [Cursor durable-job model](cursor-jobs-notes.md). It checks dispatch and recovery safety without claiming provider liveness, billing bounds or correctness of generated repository work.

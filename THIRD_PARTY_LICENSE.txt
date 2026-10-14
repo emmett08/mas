@@ -19,3 +19,12 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+Optional Cursor integration
+--------------------------
+The optional Dockerfile.cursor installs cursor-sdk 1.0.37, distributed by
+Anysphere Inc. under its own proprietary licence. Its installed wheel retains
+LICENSE.md: "© Anysphere Inc. All rights reserved. Use is subject to Cursor's
+Terms of Service." See https://cursor.com/terms-of-service.
+This repository's licence does not replace the SDK's separate terms. The
+standard release image does not contain the optional Cursor SDK.

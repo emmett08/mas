@@ -8,6 +8,9 @@ def main(argv: list[str] | None = None) -> int:
     if arguments and arguments[0] == "admin":
         from .admin import main as admin_main
         return admin_main(arguments[1:])
+    if arguments and arguments[0] == "jobs":
+        from .jobs_cli import main as jobs_main
+        return jobs_main(arguments[1:])
     from .demo import main as demo_main
     return demo_main(arguments)
 
