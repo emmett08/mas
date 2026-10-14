@@ -179,11 +179,14 @@ jobs:
           '
       - name: Validate bridge deployment and private authentication mount
         env:
-          MAS_BRIDGE_CREDENTIALS: '{"version":1,"credentials":[{"sha256":"f025471721b0e7859f193fa2b6c71fc214c31a994d70ba912565d9bf30d70234a","principal":"example-client","scopes":["mas:submit","mas:read","mas:cancel","mas:update"]}]}'
           MAS_PLANNER_MODEL: cursor-test-model
           CURSOR_API_KEY: compose-cursor-mount-test-not-a-real-key
           OPENAI_API_KEY: compose-openai-mount-test-not-a-real-key
         run: |
+          python -m mas_host bridge init-auth --principal example-client \
+            --token-file /tmp/mas-bridge-test.token --verifier-file /tmp/mas-bridge-credentials.json
+          MAS_BRIDGE_CREDENTIALS="$(cat /tmp/mas-bridge-credentials.json)"
+          export MAS_BRIDGE_CREDENTIALS
           for topology in mesh star tree; do
             MAS_BRIDGE_CONFIG="/app/examples/bridges/$topology.json" docker compose -f compose.bridges.yaml config --quiet
           done

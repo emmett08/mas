@@ -9,6 +9,15 @@
     "No streaming subscriptions, push notifications, legacy protocol compatibility, automatic OAuth acquisition, or hosted LangGraph run management is advertised."
   ],
   "ci_acceptance": "Repaired head requires final amd64/arm64 acceptance; results recorded in PR metadata to avoid an evidence-only CI retrigger.",
+  "corrective_ci": {
+    "architectures_run": 38544366966,
+    "arm64_native_and_both_installed_images": "passed",
+    "commit": "60835bd28312d8b5e1f63a76a711ec3794f0d22d",
+    "protocol_and_security": "passed",
+    "protocol_run": 38544366936,
+    "remaining_deployment_fixture_failure": "A hand-written verifier digest contained65 hex characters. CI now generates its credential pair with the actual init-auth command; full local configuration and authentication setup passed.",
+    "security_run": 38544366965
+  },
   "date": "2026-10-14",
   "initial_ci": {
     "architectures": {
@@ -44,6 +53,7 @@
       "runtime": 14,
       "security": 29
     },
+    "deployment_setup": "Actual init-auth generation, private verifier loading/token verification, mesh/star/tree service construction and both parsed Compose profiles passed",
     "formal": {
       "cases": 67,
       "checks": 95,
