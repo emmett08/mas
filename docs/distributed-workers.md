@@ -18,8 +18,13 @@ Each worker authenticates as its own principal with only `mas:worker`. A separat
 controller grant binds that principal to operation names, exact implementation
 SHA-256 identities, a trust zone and capacity. Neither token possession alone nor
 a worker-supplied capability advertisement creates a grant. A worker registers
-its runtime, architecture, boot identity and configured capabilities. Placement
-requires an exact implementation and trust-zone match.
+its runtime, architecture, boot identity and configured capabilities. Registration
+negotiates `mas-worker/2`, supported output profiles and Python 3.10–3.14 (an
+explicit `python-MAJOR.MINOR.PATCH` identifier). Missing or unknown protocol,
+runtime or output versions fail before a claim or dispatch. The worker verifies
+the controller's negotiation response before accepting work. Persisted registrations
+without this negotiation must re-register with a fresh boot identity. Placement
+requires an exact implementation, output profile and trust-zone match.
 
 The capability identity includes the registered executable descriptor, local
 execution deadline and allowed inner reservation. An inner provider invocation
@@ -53,15 +58,45 @@ already granted effects.
 | Receipt arrives after fencing | The controller retains the authenticated evidence but cannot use it to overwrite the current assignment or task. |
 | Controller is restored for audit | Worker authority remains closed. Restore does not permit new dispatch. |
 
-The pinned invocation and receipt explicitly declare `inline-json/1`. Successful
-output is an integer-JSON object bounded to 65,536 bytes; evidence has the same
-individual bound, with a separate whole-receipt bound. The controller commits
-those inline bytes before acknowledging storage. URI strings and reference-shaped
-dictionaries remain opaque application JSON: the acknowledgement does **not**
-certify external files, artifact availability or content integrity. There is no
-artifact-output worker profile. Use the separate explicit artifact upload/commit
-API where needed; a future worker artifact contract must bind a trusted controller
-store verifier before acknowledging that artifact as durable.
+The pinned invocation and receipt explicitly select an output contract:
+
+| Contract | Completion requirement |
+| --- | --- |
+| `inline-json/1` | Commit bounded inline JSON and evidence in the controller journal. Reference-shaped values remain opaque application data. |
+| `durable-artifacts/1` | Commit the receipt only after every declared named output has a valid immutable reference, complete durable bytes matching its SHA-256 and size, a read grant for both the authenticated worker and submitting principal, and a durable retention link. |
+
+Both profiles bound successful output and evidence individually to 65,536 bytes,
+with a separate whole-receipt bound. An artefact operation pins its required output
+names in the original invocation binding and registered executable capability
+identity. Neither the receipt nor the worker can add, omit or downgrade required
+outputs. The explicit output envelope is `mas-worker-artifact-output/1`, containing
+`result` (an integer-JSON object) and `artifacts` (the declared name-to-reference
+map). Ordinary reference-shaped JSON never enables this contract.
+
+The controller's trusted `artifact_repository(namespace, principal)` resolver
+selects a configured durable repository, with an immutable `artifact_store_id`
+in controller policy. It never follows worker-supplied URLs or file paths. The
+resolver must return the requested authenticated principal unchanged. Configure
+the same grant and storage authority for publication and completion verification.
+Local `ArtifactStore` and its optional object backend use the same interface.
+The artefact profile is unavailable until the resolver is configured.
+
+Workers publish objects through the explicit authenticated artefact upload/commit
+API before returning their output. A worker needs only narrowly scoped publication
+credentials. Controller storage credentials remain at the controller. Failed
+verification withholds acknowledgement and leaves the original receipt in the
+worker spool. Reconnection resends that receipt, including its original call,
+boot, fence, output references and receipt ID; it never repeats the effect. Late
+verified receipts are retained for reconciliation and cannot restore expired
+execution authority. An object disappearing after an acknowledgement is lost also
+blocks repeat acknowledgement until the original bytes are recovered.
+
+An unresolved retention link precedes the receipt commit; a crash between these
+writes leaves conservative retention. Successful and stale results retain their
+links until explicit application retention policy releases them after consumption
+or reconciliation. Losing the worker spool before acknowledgement still leaves
+the effect unknown. A storage outage or a hash/grant mismatch never authorises a
+replacement call.
 
 The controller commits receipt evidence before acknowledging storage. Workers
 keep their private spool until that acknowledgement. Failed uploads stop new
@@ -176,6 +211,36 @@ adapter = RemoteWorkerAdapter(controller, principal=authenticated_principal,
 # Supply adapter in the ordinary Runner adapter map for the leaf actor.
 ```
 
+For durable output, declare the same output names on the adapter and registered
+operation. The leaf application returns the explicit envelope after publication:
+
+```python
+from mas_host.artifacts import ArtifactStore
+from mas_host.distributed import ARTIFACT_OUTPUT_PROFILE, artifact_output
+from mas_host.distributed_worker import WorkerOperation
+
+# Trusted controller configuration; storage_root is not worker input.
+def repositories(namespace, principal):
+    return ArtifactStore(storage_root, namespace=namespace, principal=principal)
+
+controller = WorkerController(deployment_dir, worker_grants,
+    artifact_repository=repositories, artifact_store_id="reports-store/1")
+adapter = RemoteWorkerAdapter(controller, principal=authenticated_principal,
+    operation="report/1", implementation=report_digest, trust_zone="reports",
+    output_profile=ARTIFACT_OUTPUT_PROFILE, required_outputs=("report",))
+operation = WorkerOperation.registered("report/1", report_worker_spec,
+    output_profile=ARTIFACT_OUTPUT_PROFILE, required_outputs=("report",))
+# Inside the registered leaf, after authenticated upload/commit:
+output = artifact_output({"status": "ready"}, {"report": committed_ref.to_dict()})
+```
+
+For CLI deployment, add `"artifact_factory": "deployment:repositories_factory"`
+and `"artifact_store_id": "reports-store/1"` to controller configuration. The
+trusted zero-argument factory returns the two-argument repository resolver above.
+Use the identical resolver and store identity in the application controller.
+Include object storage and manifests in backup and retention procedures. The
+worker JSON configuration still contains no unrestricted controller credentials.
+
 The endpoint exposes only authenticated `POST /workers/register`, `claim`,
 `dispatch`, `heartbeat`, `receipt` and `drain`. `WorkerClient.call` implements that
 bounded RPC surface without automatic effect retries. Application/operator code
@@ -207,7 +272,10 @@ HTTP, lease expiry, stale boot/fence rejection, receipt replay after a lost
 acknowledgement, queue quotas, restore admission closure, and two independent
 worker processes executing through the Rust guardian. The provider outcome test
 runs known failures through the same registered worker IPC, HTTP, spool and
-controller boundaries. These tests use local processes. A real two-machine
+controller boundaries. `test_distributed_artifacts.py` additionally checks
+version rejection, output-profile placement, missing bytes, corruption, grant
+failure, named-output completeness, replay, stale receipts and spool recovery.
+These tests use local processes. A real two-machine
 network partition, machine reboot, durable-volume failure and certificate
 rotation drill remains a release gate; no test here establishes high availability
 or proves arbitrary provider effects are exactly once.

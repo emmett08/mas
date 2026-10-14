@@ -26,6 +26,13 @@ def _configuration(path):
     return value
 
 
+def _factory(target):
+    if type(target) is not str or not re.fullmatch(r"[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*:[A-Za-z_]\w*", target):
+        raise ServiceError("invalid_factory")
+    module, name = target.split(":")
+    return getattr(importlib.import_module(module), name)()
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
@@ -48,11 +55,13 @@ def main(argv=None):
         config = _configuration(args.config)
         if args.command in {"controller", "reconcile"}:
             if set(config) - {"version", "worker_grants", "auth", "public_url", "allowed_hosts",
-                              "max_outstanding", "per_principal", "lease_ms"}:
+                              "max_outstanding", "per_principal", "lease_ms", "artifact_factory", "artifact_store_id"}:
                 raise ServiceError("invalid_configuration")
             controller = WorkerController(args.state_dir, config["worker_grants"],
                 max_outstanding=config.get("max_outstanding", 100),
-                per_principal=config.get("per_principal", 10), lease_ms=config.get("lease_ms", 30000))
+                per_principal=config.get("per_principal", 10), lease_ms=config.get("lease_ms", 30000),
+                artifact_repository=_factory(config["artifact_factory"]) if "artifact_factory" in config else None,
+                artifact_store_id=config.get("artifact_store_id"))
             if args.command == "reconcile":
                 print(json.dumps(controller.reconcile(run_id=args.run_id, call_id=args.call_id, operator=args.operator)))
                 return 0
@@ -64,12 +73,8 @@ def main(argv=None):
             return 0
         if set(config) - {"version", "endpoint", "token_file", "factory", "trust_zone", "transport"}:
             raise ServiceError("invalid_configuration")
-        target = config["factory"]
-        if type(target) is not str or not re.fullmatch(r"[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*:[A-Za-z_]\w*", target):
-            raise ServiceError("invalid_factory")
         # Factory paths are operator configuration; they are never task input.
-        module, name = target.split(":")
-        operations = getattr(importlib.import_module(module), name)()
+        operations = _factory(config["factory"])
         if type(operations) not in (tuple, list) or any(not isinstance(op.execute, RegisteredLeafExecutor) for op in operations):
             raise ServiceError("registered_leaf_execution_required")
         policy = None

@@ -16,7 +16,8 @@ import uuid
 
 from .codec import canonical_json, integer_json
 from .contracts import Invocation, InvocationTicket, RunnerError, TaskRequest
-from .distributed import OUTPUT_PROFILE, _DIGEST, _identifier, _integer, remote_binding
+from .distributed import (ARTIFACT_OUTPUT_PROFILE, OUTPUT_PROFILE, WORKER_PROTOCOL,
+    _DIGEST, _identifier, _integer, artifact_references, output_contract, validate_binding)
 from .operations import _file_lock, _private_dir
 from .provider_outcomes import ProviderOutcomeFailure, completed_cleanup_failure, validate_provider_outcome
 from .schema import Schema, connect
@@ -56,18 +57,22 @@ class WorkerOperation:
     name: str
     implementation: str
     execute: object
+    output_profile: str = OUTPUT_PROFILE
+    required_outputs: tuple[str, ...] = ()
 
     def __post_init__(self):
         _identifier(self.name)
+        object.__setattr__(self, "required_outputs", output_contract(self.output_profile, self.required_outputs))
         if type(self.implementation) is not str or not _DIGEST.fullmatch(self.implementation) or not callable(self.execute):
             raise ServiceError("invalid_worker_operation")
 
     @classmethod
     def registered(cls, name, spec, *, gateway_bin="mas-gateway", timeout_seconds=60,
-                   reservation_microusd=0):
+                   reservation_microusd=0, output_profile=OUTPUT_PROFILE, required_outputs=()):
         executor = RegisteredLeafExecutor(spec, gateway_bin=gateway_bin,
-            timeout_seconds=timeout_seconds, reservation_microusd=reservation_microusd, operation=name)
-        return cls(name, executor.identity, executor)
+            timeout_seconds=timeout_seconds, reservation_microusd=reservation_microusd, operation=name,
+            output_profile=output_profile, required_outputs=required_outputs)
+        return cls(name, executor.identity, executor, output_profile, executor.required_outputs)
 
 
 class _IssuedInvocation:
@@ -122,11 +127,13 @@ class _IssuedInvocation:
 class RegisteredLeafExecutor:
     """Rust-supervised registered process with one pre-issued invocation ticket."""
     def __init__(self, spec, *, gateway_bin="mas-gateway", timeout_seconds=60,
-                 reservation_microusd=0, operation=None):
+                 reservation_microusd=0, operation=None, output_profile=OUTPUT_PROFILE, required_outputs=()):
         from .executable_worker import RegisteredProcessExecutor, WorkerSpec
         if not isinstance(spec, WorkerSpec):
             raise ServiceError("invalid_worker_operation")
         self.spec = spec
+        self.output_profile = output_profile
+        self.required_outputs = output_contract(output_profile, required_outputs)
         self.operation = _identifier(spec.descriptor["name"] if operation is None else operation)
         self.timeout = _integer(timeout_seconds, 1, 86400)
         self.reservation = _integer(reservation_microusd, 0, 100_000_000)
@@ -136,7 +143,8 @@ class RegisteredLeafExecutor:
     def identity(self):
         return hashlib.sha256(canonical_json({"spec": self.spec.identity,
             "operation": self.operation, "timeout_seconds": self.timeout,
-            "reservation_microusd": self.reservation, "output_profile": OUTPUT_PROFILE}).encode()).hexdigest()
+            "reservation_microusd": self.reservation, "output_profile": self.output_profile,
+            **({"required_outputs": list(self.required_outputs)} if self.required_outputs else {})}).encode()).hexdigest()
 
     def __call__(self, input, call_id, *, ownership_descriptors=()):
         from .executable_worker import ExecutableAdapter, WorkerCleanupError
@@ -251,8 +259,11 @@ class DurableWorker:
         result = self.client.call("register", boot=self.boot,
             capabilities={name: operation.implementation for name, operation in self.operations.items()},
             architecture=platform.machine(), runtime="python-" + platform.python_version(),
-            trust_zone=self.trust_zone, capacity=1)
-        if result.get("boot") != self.boot or type(result.get("lease_ms")) is not int:
+            trust_zone=self.trust_zone, capacity=1, protocol=WORKER_PROTOCOL,
+            output_profiles=sorted({op.output_profile for op in self.operations.values()}))
+        if (result.get("boot") != self.boot or type(result.get("lease_ms")) is not int
+                or result.get("protocol") != WORKER_PROTOCOL
+                or result.get("output_profiles") != sorted({op.output_profile for op in self.operations.values()})):
             raise ServiceError("invalid_remote_response")
         self.registered = True
 
@@ -260,7 +271,13 @@ class DurableWorker:
         receipt = {"id": uuid.uuid4().hex, "call_id": assignment["call_id"],
             "boot": assignment["boot"], "fence": assignment["fence"], "status": status,
             "output": output, "evidence": evidence or {"reason": "worker_effect_unknown"},
-            "output_profile": OUTPUT_PROFILE}
+            "output_profile": assignment["binding"]["output_profile"]}
+        if receipt["output_profile"] == ARTIFACT_OUTPUT_PROFILE:
+            references = artifact_references(output) if output is not None else {}
+            expected = assignment["binding"]["required_outputs"] if output is not None else []
+            if set(references) != set(expected):
+                raise ServiceError("worker_output_contract_mismatch")
+            receipt["artifacts"] = references
         integer_json(receipt["output"])
         integer_json(receipt["evidence"])
         encoded = canonical_json(receipt, _RECEIPT_BYTES).encode("utf-8")
@@ -339,9 +356,10 @@ class DurableWorker:
                     or operation.implementation != binding.get("implementation")
                     or binding.get("trust_zone") != self.trust_zone):
                 raise ServiceError("invalid_remote_assignment")
-            if binding != remote_binding(binding["principal"], binding["operation"],
-                    binding["implementation"], binding["trust_zone"], binding["input"], binding["reservation_microusd"]):
-                raise ServiceError("invalid_remote_assignment")
+            validate_binding(binding)
+            if (binding["output_profile"] != operation.output_profile
+                    or tuple(binding.get("required_outputs", ())) != operation.required_outputs):
+                raise ServiceError("worker_output_contract_mismatch")
             if isinstance(operation.execute, RegisteredLeafExecutor) and operation.execute.reservation > binding["reservation_microusd"]:
                 raise ServiceError("worker_reservation_exceeds_grant")
             try:

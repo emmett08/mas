@@ -12,6 +12,7 @@ from pathlib import Path
 import re
 import time
 
+from .artifacts import ArtifactError, ArtifactRef
 from .codec import canonical_json, integer_json
 from .contracts import Invocation, Outcome, RecoveryRequired, RunnerError
 from .operations import DeploymentLedger, _file_lock, _private_dir
@@ -35,6 +36,57 @@ _IDENTIFIER = re.compile(r"[A-Za-z0-9_.:/-]{1,200}\Z")
 _DIGEST = re.compile(r"[a-f0-9]{64}\Z")
 _ACTIVE = "('pending','claimed','dispatched','unknown')"
 OUTPUT_PROFILE = "inline-json/1"
+ARTIFACT_OUTPUT_PROFILE = "durable-artifacts/1"
+OUTPUT_PROFILES = (OUTPUT_PROFILE, ARTIFACT_OUTPUT_PROFILE)
+WORKER_PROTOCOL = "mas-worker/2"
+ARTIFACT_OUTPUT_FORMAT = "mas-worker-artifact-output/1"
+# Interpreter versions qualified by the package's supported Python range.
+_RUNTIME = re.compile(r"python-3\.(?:10|11|12|13|14)\.[0-9]+\Z")
+
+
+def output_contract(profile, required_outputs=()):
+    if profile not in OUTPUT_PROFILES or type(required_outputs) not in (list, tuple):
+        raise ServiceError("unsupported_worker_output_contract")
+    if (len(required_outputs) > 32 or any(type(name) is not str or not _IDENTIFIER.fullmatch(name) for name in required_outputs)
+            or len(set(required_outputs)) != len(required_outputs)
+            or (profile == OUTPUT_PROFILE and required_outputs)
+            or (profile == ARTIFACT_OUTPUT_PROFILE and not required_outputs)):
+        raise ServiceError("invalid_worker_output_contract")
+    return tuple(sorted(required_outputs))
+
+
+
+def artifact_output(result, artifacts):
+    """Explicit wire output for an operation configured for durable artefacts."""
+    value = {"format": ARTIFACT_OUTPUT_FORMAT, "result": result, "artifacts": artifacts}
+    artifact_references(value)
+    integer_json(value)
+    return value
+
+
+def artifact_references(value):
+    if (type(value) is not dict or set(value) != {"format", "result", "artifacts"}
+            or value["format"] != ARTIFACT_OUTPUT_FORMAT or type(value["result"]) is not dict
+            or type(value["artifacts"]) is not dict or not 1 <= len(value["artifacts"]) <= 32):
+        raise ServiceError("invalid_worker_artifact_output")
+    try:
+        for name, reference in value["artifacts"].items():
+            _identifier(name)
+            ArtifactRef.from_dict(reference)
+    except ArtifactError:
+        raise ServiceError("invalid_worker_artifact_output") from None
+    return value["artifacts"]
+
+def _versions(protocol, runtime, profiles):
+    if protocol != WORKER_PROTOCOL:
+        raise ServiceError("unsupported_worker_protocol")
+    if type(runtime) is not str or not _RUNTIME.fullmatch(runtime):
+        raise ServiceError("unsupported_worker_runtime")
+    if (type(profiles) not in (list, tuple) or not profiles or len(profiles) > len(OUTPUT_PROFILES)
+            or any(type(item) is not str or item not in OUTPUT_PROFILES for item in profiles)
+            or len(set(profiles)) != len(profiles)):
+        raise ServiceError("unsupported_worker_output_contract")
+
 
 
 def _identifier(value):
@@ -49,15 +101,32 @@ def _integer(value, minimum, maximum):
     return value
 
 
-def remote_binding(principal, operation, implementation, trust_zone, input, reservation_microusd=0):
+def remote_binding(principal, operation, implementation, trust_zone, input, reservation_microusd=0,
+                   *, output_profile=OUTPUT_PROFILE, required_outputs=()):
     for value in (principal, operation, trust_zone):
         _identifier(value)
     if type(implementation) is not str or not _DIGEST.fullmatch(implementation) or type(input) is not dict:
         raise ServiceError("invalid_worker_request")
     _integer(reservation_microusd, 0, 100_000_000)
+    names = output_contract(output_profile, required_outputs)
+    extra = {"required_outputs": list(names)} if output_profile == ARTIFACT_OUTPUT_PROFILE else {}
     return json.loads(integer_json({"format": "mas-remote-invocation/1", "principal": principal,
         "operation": operation, "implementation": implementation, "trust_zone": trust_zone,
-        "input": input, "reservation_microusd": reservation_microusd, "output_profile": OUTPUT_PROFILE}))
+        "input": input, "reservation_microusd": reservation_microusd, "output_profile": output_profile, **extra}))
+
+
+def validate_binding(binding):
+    if type(binding) is not dict:
+        raise ServiceError("invalid_worker_request")
+    try:
+        checked = remote_binding(binding["principal"], binding["operation"], binding["implementation"],
+            binding["trust_zone"], binding["input"], binding["reservation_microusd"],
+            output_profile=binding["output_profile"], required_outputs=binding.get("required_outputs", ()))
+    except (KeyError, TypeError):
+        raise ServiceError("invalid_worker_request") from None
+    if checked != binding:
+        raise ServiceError("invalid_worker_request")
+    return checked
 
 
 class WorkerController:
@@ -67,7 +136,7 @@ class WorkerController:
     trust_zone, capacity}. They never come from a worker registration request.
     """
     def __init__(self, state_dir, worker_grants, *, max_outstanding=100, per_principal=10,
-                 lease_ms=30000, clock=None):
+                 lease_ms=30000, clock=None, artifact_repository=None, artifact_store_id=None):
         self.state_dir = _private_dir(Path(state_dir), create=True)
         self.operations = DeploymentLedger(self.state_dir)
         if not self.operations.admission_enabled:
@@ -76,6 +145,10 @@ class WorkerController:
         self.per_principal = _integer(per_principal, 1, self.max_outstanding)
         self.lease_ms = _integer(lease_ms, 100, 300000)
         self.clock = clock or (lambda: time.time_ns() // 1_000_000)
+        if (artifact_repository is None) != (artifact_store_id is None) or (artifact_repository is not None and not callable(artifact_repository)):
+            raise ServiceError("invalid_artifact_configuration")
+        self.artifact_repository = artifact_repository
+        self.artifact_store_id = _identifier(artifact_store_id) if artifact_store_id is not None else None
         if type(worker_grants) is not dict or len(worker_grants) > 10000:
             raise ServiceError("invalid_worker_grants")
         self.grants = json.loads(integer_json(worker_grants, 1_048_576))
@@ -96,7 +169,7 @@ class WorkerController:
         self.metadata = {"deployment_id": self.operations.deployment_id,
             "policy": canonical_json({"max_outstanding": self.max_outstanding,
                                       "per_principal": self.per_principal, "lease_ms": self.lease_ms,
-                                      "worker_grants": self.grants})}
+                                      "worker_grants": self.grants, **({"artifact_store_id": self.artifact_store_id} if self.artifact_store_id is not None else {})})}
         with _file_lock(self.state_dir / ".deployment.lock", False), _file_lock(self.state_dir / ".remote-init.lock", True):
             with closing(connect(self.path, REMOTE, initialise=lambda db: db.executemany(
                 "INSERT INTO metadata VALUES(?,?)", self.metadata.items()))) as db:
@@ -130,6 +203,8 @@ class WorkerController:
         worker = db.execute("SELECT * FROM workers WHERE principal=?", (principal,)).fetchone()
         if worker is None or worker["boot"] != boot:
             raise ServiceError("stale_worker_epoch")
+        descriptor = json.loads(worker["descriptor"])
+        _versions(descriptor.get("protocol"), descriptor.get("runtime"), descriptor.get("output_profiles"))
         return worker, grant
 
     def _expire(self, db):
@@ -159,8 +234,9 @@ class WorkerController:
 
     def submit_admitted(self, call_id, binding):
         _identifier(call_id)
-        binding = remote_binding(binding["principal"], binding["operation"], binding["implementation"],
-                                 binding["trust_zone"], binding["input"], binding["reservation_microusd"])
+        binding = validate_binding(binding)
+        if binding["output_profile"] == ARTIFACT_OUTPUT_PROFILE and self.artifact_repository is None:
+            raise ServiceError("worker_artifact_storage_unconfigured")
         with self._transaction() as db:
             run_id = self._admitted(call_id, binding)
             existing = db.execute("SELECT * FROM jobs WHERE call_id=?", (call_id,)).fetchone()
@@ -196,7 +272,8 @@ class WorkerController:
         with self._transaction() as db:
             db.execute("UPDATE jobs SET state=CASE WHEN state IN ('pending','claimed') THEN 'cancelled' ELSE 'unknown' END WHERE call_id=? AND principal=? AND state IN ('pending','claimed','dispatched')", (call_id, principal))
 
-    def register(self, principal, *, boot, capabilities, architecture, runtime, trust_zone, capacity=1):
+    def register(self, principal, *, boot, capabilities, architecture, runtime, trust_zone, capacity=1,
+                 protocol=None, output_profiles=(OUTPUT_PROFILE,)):
         grant = self._grant(principal)
         for item in (boot, architecture, runtime, trust_zone):
             _identifier(item)
@@ -205,14 +282,16 @@ class WorkerController:
                 or trust_zone != grant["trust_zone"]
                 or any(grant["capabilities"].get(name) != digest for name, digest in capabilities.items())):
             raise ServiceError("worker_capability_denied")
+        _versions(protocol, runtime, output_profiles)
         descriptor = canonical_json({"capabilities": capabilities, "architecture": architecture,
-                                     "runtime": runtime, "trust_zone": trust_zone, "capacity": capacity})
+            "runtime": runtime, "protocol": protocol, "output_profiles": sorted(output_profiles),
+            "trust_zone": trust_zone, "capacity": capacity})
         with self._transaction() as db:
             old = db.execute("SELECT * FROM workers WHERE principal=?", (principal,)).fetchone()
             if old and old["boot"] == boot:
                 if old["descriptor"] != descriptor:
                     raise ServiceError("worker_registration_conflict")
-                return {"worker": principal, "boot": boot, "generation": old["generation"], "lease_ms": self.lease_ms}
+                return {"worker": principal, "boot": boot, "generation": old["generation"], "lease_ms": self.lease_ms, "protocol": WORKER_PROTOCOL, "output_profiles": sorted(output_profiles)}
             if db.execute("SELECT 1 FROM boots WHERE principal=? AND boot=?", (principal, boot)).fetchone():
                 raise ServiceError("stale_worker_epoch")
             generation = old["generation"] + 1 if old else 1
@@ -220,7 +299,7 @@ class WorkerController:
             db.execute("UPDATE jobs SET state='unknown' WHERE worker=? AND state='dispatched'", (principal,))
             db.execute("INSERT OR REPLACE INTO workers VALUES(?,?,?,?,0,?)", (principal, boot, generation, descriptor, self.clock()))
             db.execute("INSERT INTO boots VALUES(?,?,?)", (principal, boot, generation))
-            return {"worker": principal, "boot": boot, "generation": generation, "lease_ms": self.lease_ms}
+            return {"worker": principal, "boot": boot, "generation": generation, "lease_ms": self.lease_ms, "protocol": WORKER_PROTOCOL, "output_profiles": sorted(output_profiles)}
 
     def claim(self, principal, *, boot):
         with self._transaction() as db:
@@ -234,7 +313,8 @@ class WorkerController:
                 return {"assignment": None}
             for job in db.execute("SELECT * FROM jobs WHERE state='pending' ORDER BY created,call_id"):
                 binding = json.loads(job["binding"])
-                if (binding["trust_zone"] != grant["trust_zone"]
+                if (binding["output_profile"] not in descriptor["output_profiles"]
+                        or binding["trust_zone"] != grant["trust_zone"]
                         or descriptor["capabilities"].get(binding["operation"]) != binding["implementation"]
                         or grant["capabilities"].get(binding["operation"]) != binding["implementation"]):
                     continue
@@ -290,12 +370,17 @@ class WorkerController:
         # but has no authority to update the task. Revocation blocks new work;
         # retaining receipts requires an explicitly authenticated worker grant.
         grant = self._grant(principal)
-        if type(receipt) is not dict or set(receipt) != {"id", "call_id", "boot", "fence", "status", "output", "evidence", "output_profile"}:
+        if type(receipt) is not dict:
+            raise ServiceError("invalid_worker_receipt")
+        fields = {"id", "call_id", "boot", "fence", "status", "output", "evidence", "output_profile"}
+        if receipt.get("output_profile") == ARTIFACT_OUTPUT_PROFILE:
+            fields.add("artifacts")
+        if set(receipt) != fields:
             raise ServiceError("invalid_worker_receipt")
         for field in ("id", "call_id", "boot"):
             _identifier(receipt[field])
         _integer(receipt["fence"], 1, 2**63 - 1)
-        if (receipt["output_profile"] != OUTPUT_PROFILE
+        if (receipt["output_profile"] not in OUTPUT_PROFILES
                 or receipt["status"] not in ("completed", "unknown", "failed_known") or type(receipt["evidence"]) is not dict
                 or (receipt["status"] == "completed" and type(receipt["output"]) is not dict)
                 or (receipt["status"] == "unknown" and receipt["output"] is not None)
@@ -311,9 +396,8 @@ class WorkerController:
                     raise ValueError()
             except (KeyError, ValueError):
                 raise ServiceError("invalid_worker_receipt") from None
-        # The only supported output contract is bounded inline integer JSON.
-        # Reference-shaped objects remain opaque; no external bytes are fetched
-        # or certified by the controller's receipt acknowledgement.
+        # Only an explicitly negotiated artefact map denotes stored output.
+        # Reference-shaped objects in ordinary inline JSON remain opaque.
         try:
             integer_json(receipt["output"])
             integer_json(receipt["evidence"])
@@ -325,6 +409,8 @@ class WorkerController:
             if prior:
                 if prior["worker"] != principal or prior["payload"] != encoded:
                     raise ServiceError("receipt_conflict")
+                job = db.execute("SELECT binding FROM jobs WHERE call_id=?", (receipt["call_id"],)).fetchone()
+                self._verify_artifacts(principal, json.loads(job["binding"]), receipt)
                 return {"stored": True, "receipt_id": prior["id"], "authoritative": bool(prior["authoritative"])}
             claim = db.execute("SELECT * FROM claims WHERE fence=? AND call_id=? AND worker=? AND boot=?",
                 (receipt["fence"], receipt["call_id"], principal, receipt["boot"])).fetchone()
@@ -334,6 +420,9 @@ class WorkerController:
             job = db.execute("SELECT * FROM jobs WHERE call_id=?", (receipt["call_id"],)).fetchone()
             worker = db.execute("SELECT * FROM workers WHERE principal=?", (principal,)).fetchone()
             binding = json.loads(job["binding"])
+            if receipt["output_profile"] != binding["output_profile"]:
+                raise ServiceError("worker_output_contract_mismatch")
+            self._verify_artifacts(principal, binding, receipt)
             authoritative = (job["state"] == "dispatched" and job["fence"] == receipt["fence"]
                              and worker is not None and worker["boot"] == receipt["boot"]
                              and grant["capabilities"].get(binding["operation"]) == binding["implementation"]
@@ -352,8 +441,47 @@ class WorkerController:
                 db.execute("UPDATE jobs SET state=?,output=?,evidence=? WHERE call_id=?",
                     (receipt["status"], canonical_json(receipt["output"]) if receipt["output"] is not None else None,
                      canonical_json({"worker": principal, "receipt_id": receipt["id"], "fence": receipt["fence"],
-                                     "observation": receipt["evidence"]}), receipt["call_id"]))
+                                     "observation": receipt["evidence"],
+                                     **({"output_profile": ARTIFACT_OUTPUT_PROFILE, "artifacts": receipt["artifacts"]}
+                                        if receipt["output_profile"] == ARTIFACT_OUTPUT_PROFILE else {})}), receipt["call_id"]))
             return {"stored": True, "receipt_id": receipt["id"], "authoritative": authoritative}
+
+    def _verify_artifacts(self, principal, binding, receipt):
+        if receipt["output_profile"] != ARTIFACT_OUTPUT_PROFILE:
+            return
+        artifacts = receipt["artifacts"]
+        required = binding["required_outputs"] if receipt["output"] is not None else []
+        if receipt["output"] is not None and artifact_references(receipt["output"]) != artifacts:
+            raise ServiceError("worker_output_contract_mismatch")
+        if type(artifacts) is not dict or set(artifacts) != set(required):
+            raise ServiceError("worker_output_contract_mismatch")
+        if self.artifact_repository is None:
+            raise ServiceError("worker_artifact_storage_unconfigured")
+        # The store resolver is trusted deployment configuration, never a URL,
+        # filesystem location or principal selected by a worker receipt.
+        groups = {}
+        try:
+            for value in artifacts.values():
+                ref = ArtifactRef.from_dict(value)
+                publisher = self.artifact_repository(ref.namespace, principal)
+                consumer = self.artifact_repository(ref.namespace, binding["principal"])
+                if (publisher.namespace != ref.namespace or publisher.principal != principal
+                        or consumer.namespace != ref.namespace or consumer.principal != binding["principal"]):
+                    raise ArtifactError("artefact repository identity mismatch")
+                publisher.inspect(ref)  # Authenticated worker has a read grant.
+                if consumer.verify(ref) is not True:  # Full bytes/hash and consumer grant.
+                    raise ArtifactError("artefact content integrity mismatch")
+                groups.setdefault(ref.namespace, (consumer, []))[1].append(ref)
+            for namespace, (repository, references) in groups.items():
+                # A crash between link and receipt leaves conservative retention.
+                # Retrying the same receipt is idempotent; stale observations are
+                # retained for explicit reconciliation, never granted authority.
+                link = "remote-" + hashlib.sha256(canonical_json({"worker": principal,
+                    "receipt": receipt["id"], "call_id": receipt["call_id"], "fence": receipt["fence"],
+                    "namespace": namespace}).encode()).hexdigest()
+                repository.link(link, references, state="unresolved")
+        except (ArtifactError, OSError, ValueError, TypeError, AttributeError):
+            raise ServiceError("worker_artifact_unavailable") from None
 
     def evidence(self, principal, call_id):
         with self._transaction() as db:
@@ -417,9 +545,10 @@ class WorkerController:
 class RemoteWorkerAdapter:
     """One remote leaf effect under the ordinary Runner invocation journal."""
     def __init__(self, controller, *, principal, operation, implementation, trust_zone,
-                 reservation_microusd=0, poll_seconds=0.05):
+                 reservation_microusd=0, poll_seconds=0.05, output_profile=OUTPUT_PROFILE, required_outputs=()):
         self.controller = controller
-        self.binding = remote_binding(principal, operation, implementation, trust_zone, {}, reservation_microusd)
+        self.binding = remote_binding(principal, operation, implementation, trust_zone, {}, reservation_microusd,
+            output_profile=output_profile, required_outputs=required_outputs)
         self.reservation = _integer(reservation_microusd, 0, 100_000_000)
         if type(poll_seconds) not in (int, float) or not 0.01 <= poll_seconds <= 5:
             raise ServiceError("invalid_worker_request")

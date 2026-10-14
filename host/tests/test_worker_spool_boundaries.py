@@ -11,7 +11,7 @@ import time
 import unittest
 
 from mas_host.contracts import Invocation
-from mas_host.distributed import remote_binding
+from mas_host.distributed import WORKER_PROTOCOL, remote_binding
 from mas_host.distributed_worker import DurableWorker, SPOOL, WorkerOperation
 from mas_host.executable_worker import WorkerSpec
 from mas_host.schema import connect
@@ -36,7 +36,7 @@ class Client:
     def call(self, operation, **payload):
         self.calls.append(operation)
         if operation == "register":
-            return {"boot": payload["boot"], "lease_ms": 300000}
+            return {"boot": payload["boot"], "lease_ms": 300000, "protocol": WORKER_PROTOCOL, "output_profiles": payload["output_profiles"]}
         if operation == "claim":
             if not self.remaining:
                 return {"assignment": None}

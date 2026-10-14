@@ -4,6 +4,7 @@ import hashlib
 import json
 import multiprocessing
 import os
+import platform
 from pathlib import Path
 import sys
 import tempfile
@@ -11,7 +12,7 @@ import time
 import unittest
 
 from mas_host import Invocation, Outcome, Runner, RunnerError
-from mas_host.distributed import REMOTE, RemoteWorkerAdapter, WorkerController, remote_binding
+from mas_host.distributed import REMOTE, WORKER_PROTOCOL, RemoteWorkerAdapter, WorkerController, remote_binding
 from mas_host.distributed_worker import DurableWorker, SPOOL, WorkerClient, WorkerOperation
 from mas_host.executable_worker import WorkerSpec
 from mas_host.operations import backup_state, restore_state
@@ -72,7 +73,7 @@ class DistributedWorkerTests(unittest.TestCase):
 
     def register(self, principal="worker-one", boot="boot1", controller=None):
         return (controller or self.controller).register(principal, boot=boot, capabilities={"echo": DIGEST},
-            architecture="test-cpu", runtime="test-runtime/1", trust_zone="test")
+            architecture="test-cpu", runtime="python-" + platform.python_version(), protocol=WORKER_PROTOCOL, trust_zone="test")
 
     def admitted(self, callback):
         def run(context, request):
@@ -153,7 +154,7 @@ class DistributedWorkerTests(unittest.TestCase):
             self.register("unregistered")
         with self.assertRaisesRegex(ServiceError, "worker capability denied"):
             self.controller.register("worker-one", boot="x", capabilities={"admin": DIGEST},
-                architecture="cpu", runtime="python", trust_zone="test")
+                architecture="cpu", runtime="python-" + platform.python_version(), protocol=WORKER_PROTOCOL, trust_zone="test")
         self.register()
         self.controller.drain("worker-one", boot="boot1")
         def callback(call_id):
@@ -263,7 +264,7 @@ class DistributedWorkerTests(unittest.TestCase):
             worker = WorkerClient(server.endpoint, token_file=self.tokens["worker-one"], allow_loopback_http=True)
             with self.assertRaisesRegex(ServiceError, "invalid worker request"):
                 worker.call("register", principal="worker-two", boot="boot", capabilities={"echo": DIGEST},
-                            architecture="cpu", runtime="python", trust_zone="test")
+                            architecture="cpu", runtime="python-" + platform.python_version(), protocol=WORKER_PROTOCOL, trust_zone="test")
             client = TaskServiceClient(server.endpoint, token_file=self.tokens["worker-one"], principal="alice", allow_loopback_http=True)
             with self.assertRaisesRegex(ServiceError, "insufficient scope"):
                 client.submit("alice", "test-key", "workflow", {})
@@ -281,7 +282,7 @@ class DistributedWorkerTests(unittest.TestCase):
             with self.assertRaisesRegex(ServiceError, "worker policy changed"):
                 WorkerController(self.state, **options)
         self.assertEqual(self.controller.register("worker-one", boot="boot", capabilities={"echo": DIGEST},
-            architecture="cpu", runtime="python", trust_zone="test")["generation"], 1)
+            architecture="cpu", runtime="python-" + platform.python_version(), protocol=WORKER_PROTOCOL, trust_zone="test")["generation"], 1)
 
     def test_oversized_result_is_bounded_unknown_and_never_repeated(self):
         calls = []
