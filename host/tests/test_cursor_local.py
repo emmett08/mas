@@ -13,7 +13,8 @@ import unittest
 from unittest.mock import patch
 
 from mas_host.cursor_local import (CURSOR_SDK_VERSION, MAX_STREAM_TEXT_BYTES,
-                                   CursorLocalProvider, _bridge_child, _launch_client)
+                                   CursorLocalProvider, _bridge_child, _launch_client,
+                                   _validate_node, _runtime_identity, _runtime_manifest, _bridge_files)
 from mas_host.providers import ProviderError, provider_binding
 
 INVOICE = [{"item": "Widget", "quantity": 2, "unit_cents": 1499}]
@@ -254,6 +255,93 @@ class CursorLocalTests(unittest.TestCase):
                 owned.close()
             self.assertFalse(owned._stderr_thread.is_alive())
             self.assertIsNotNone(process.poll())
+
+    def test_node_preflight_rejects_old_modified_or_wrong_architecture_without_execution(self):
+        import hashlib
+        approved = b"fixture approved patched executable"
+        digest = hashlib.sha256(approved).hexdigest()
+        manifest = {"version": "24.21.0", "architectures": {
+            "x86_64": {"node_sha256": digest}, "aarch64": {"node_sha256": "a" * 64}}}
+        with tempfile.TemporaryDirectory() as directory, \
+                patch("mas_host.cursor_local._runtime_manifest", return_value=manifest), \
+                patch("mas_host.cursor_local.platform.machine", return_value="x86_64"), \
+                patch("mas_host.cursor_local.subprocess.Popen", side_effect=AssertionError("preflight executed code")):
+            node = Path(directory) / "node"
+            node.write_bytes(b"old bundled Node 24.5.0")
+            with self.assertRaisesRegex(ProviderError, "patched Node"):
+                _validate_node(node)
+            node.write_bytes(approved)
+            _validate_node(node)
+            with patch("mas_host.cursor_local.platform.machine", return_value="aarch64"):
+                with self.assertRaisesRegex(ProviderError, "patched Node"):
+                    _validate_node(node)
+            with patch("mas_host.cursor_local.platform.machine", return_value="riscv64"):
+                with self.assertRaisesRegex(ProviderError, "only Linux"):
+                    _validate_node(node)
+            node.unlink()
+            with self.assertRaisesRegex(ProviderError, "unavailable"):
+                _validate_node(node)
+
+    def test_bridge_preflight_rejects_unrepaired_dependencies_without_execution(self):
+        with tempfile.TemporaryDirectory() as directory:
+            package = Path(directory) / "cursor_sdk"
+            bridge = package / "_vendor" / "bridge"
+            node, entry = bridge / "bin" / "node", bridge / "dist" / "bin" / "cursor-sdk-bridge.js"
+            node.parent.mkdir(parents=True)
+            entry.parent.mkdir(parents=True)
+            node.write_bytes(b"approved-node-fixture")
+            entry.write_text("bridge fixture")
+            sdk = SimpleNamespace(__file__=str(package / "__init__.py"))
+            with patch("mas_host.cursor_local._sdk_module", return_value=sdk), \
+                    patch("mas_host.cursor_local._validate_node") as validate_node, \
+                    patch("mas_host.cursor_local.validate_bridge_patch") as validate_patch, \
+                    patch("mas_host.cursor_local.subprocess.Popen", side_effect=AssertionError("preflight executed code")):
+                validate_patch.side_effect = ValueError("private patch failure details")
+                with self.assertRaisesRegex(ProviderError, "verified dependency repair") as raised:
+                    _bridge_files()
+                self.assertNotIn("private", str(raised.exception))
+                validate_patch.assert_called_once_with(bridge)
+                validate_node.assert_called_once_with(node)
+                validate_patch.side_effect = None
+                self.assertEqual(_bridge_files(), (node, entry))
+
+    def test_bridge_patch_is_bound_into_recovery_identity_without_a_cursor_install(self):
+        provider = CursorLocalProvider("composer-2.5", "planner", client=FakeClient())
+        with patch("mas_host.cursor_local.patch_identity", return_value={"repair": "first"}), \
+                patch("mas_host.cursor_local._sdk_module", side_effect=AssertionError("injected client imported SDK")):
+            first = provider.descriptor()
+        with patch("mas_host.cursor_local.patch_identity", return_value={"repair": "second"}):
+            second = provider.descriptor()
+        self.assertNotEqual(first, second)
+        self.assertEqual(first["bridge_patch"], {"repair": "first"})
+
+    def test_runtime_release_is_bound_into_recovery_identity(self):
+        first = {"version": "24.21.0", "architectures": {
+            "x86_64": {"node_sha256": "a" * 64}, "aarch64": {"node_sha256": "b" * 64}}}
+        provider = CursorLocalProvider("composer-2.5", "planner", client=FakeClient())
+        with patch("mas_host.cursor_local._runtime_manifest", return_value=first):
+            descriptor = provider.descriptor()
+            self.assertEqual(descriptor["node_version"], "24.21.0")
+            self.assertEqual(descriptor["node_executable_sha256"], {"x86_64": "a" * 64, "aarch64": "b" * 64})
+            first["architectures"]["x86_64"]["node_sha256"] = "c" * 64
+            self.assertNotEqual(descriptor, provider.descriptor())
+
+    def test_runtime_manifest_schema_and_integrity_are_required(self):
+        from unittest.mock import Mock
+        valid = {"format": "mas-cursor-node/1", "version": "24.21.0", "architectures": {
+            "x86_64": {"node_sha256": "a" * 64}, "aarch64": {"node_sha256": "b" * 64}}}
+        self.addCleanup(_runtime_manifest.cache_clear)
+        for document in ({}, {**valid, "format": "mas-cursor-node/2"},
+                         {**valid, "version": "latest"}, {**valid, "architectures": {}},
+                         {**valid, "architectures": {"x86_64": {"node_sha256": "bad"},
+                                                     "aarch64": {"node_sha256": "b" * 64}}}):
+            resource = Mock()
+            resource.joinpath.return_value.read_text.return_value = json.dumps(document)
+            _runtime_manifest.cache_clear()
+            with patch("mas_host.cursor_local.importlib.resources.files", return_value=resource):
+                with self.assertRaisesRegex(ProviderError, "manifest is invalid"):
+                    _runtime_manifest()
+        _runtime_manifest.cache_clear()
 
     def test_sdk_version_rejection(self):
         with patch("mas_host.cursor_local.importlib.metadata.version", return_value="0.0.0"):

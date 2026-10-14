@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import email
 import hashlib
+import importlib.util
 from pathlib import Path
 import re
 import subprocess
@@ -88,6 +89,13 @@ def check() -> None:
     for dependency in metadata["build-system"]["requires"]:
         if dependency + " " not in build:
             raise ValueError(f"Build pin mismatch: {dependency}")
+    installer_spec = importlib.util.spec_from_file_location("cursor_node_installer", ROOT / "scripts/install-cursor-runtime.py")
+    installer = importlib.util.module_from_spec(installer_spec)
+    installer_spec.loader.exec_module(installer)
+    for architecture in ("x86_64", "aarch64"):
+        installer.read_lock(ROOT / "host/mas_host/cursor_runtime.json", architecture)
+    if not {"cursor_runtime.json", "cursor_bridge_patch.json"}.issubset(metadata["tool"]["setuptools"]["package-data"]["mas_host"]):
+        raise ValueError("Cursor runtime identity must be included in the installed host wheel")
 
 
 def main() -> None:

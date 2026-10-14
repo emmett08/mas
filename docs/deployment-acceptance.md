@@ -24,10 +24,19 @@ and checks its actual dynamic musl/SQLite linkage. These are required gates;
 support for a particular release requires the jobs to have passed for that
 release's commit.
 
-The optional Cursor local image has a separate Debian/glibc runtime because the
+The optional Cursor local image has a separate Wolfi/glibc runtime because the
 SDK's native bridge does not support the Alpine/musl image. Its architecture
 checks must execute the installed bridge and host on both amd64 and arm64;
 building a wheel or importing the SDK alone cannot establish bridge execution.
+Before bridge execution, runtime preflight verifies the Node 24.21.0 executable
+against the architecture-specific SHA-256 lock, the reviewed native `Headers`
+source repair and removal of the obsolete dependency trees. Native installations
+must run `python scripts/install-cursor-runtime.py` after installing or
+reinstalling the Cursor SDK; the image build performs this step automatically.
+Unrecognised or partially repaired files fail preflight. The Wolfi package set
+is SHA-256-locked and its signatures are verified during offline installation.
+Container checks also inspect shared-library resolution and execute the
+installed bridge; image security scans remain a separate gate.
 The Cloud adapter uses standard-library HTTPS and runs in the ordinary image.
 
 | Injected condition | Required observation |

@@ -7,9 +7,13 @@ supplier charge limit. Tool restrictions are not an operating-system sandbox.
 from __future__ import annotations
 
 import importlib.metadata
+import importlib.resources
+import hashlib
+from functools import lru_cache
 import json
 import os
 from pathlib import Path
+import platform
 import re
 import sys
 import subprocess
@@ -18,6 +22,7 @@ import threading
 from typing import Any
 
 from .contracts import Invocation
+from .cursor_bridge_patch import patch_identity, validate_bridge_patch
 from .invoice_contract import parse_total_output, validate_invoice, validate_total
 from .provider_contract import ProviderError
 
@@ -38,13 +43,62 @@ def _sdk_module():
         raise ProviderError("Cursor local mode requires the optional cursor-sdk dependency") from None
 
 
+@lru_cache(maxsize=1)
+def _runtime_manifest() -> dict:
+    """The same packaged release manifest drives installation and recovery identity."""
+    try:
+        value = json.loads(importlib.resources.files("mas_host").joinpath("cursor_runtime.json").read_text())
+        if (type(value) is not dict or value.get("format") != "mas-cursor-node/1"
+                or type(value.get("version")) is not str
+                or not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", value["version"])
+                or type(value.get("architectures")) is not dict
+                or set(value["architectures"]) != {"x86_64", "aarch64"}):
+            raise ValueError("invalid manifest")
+        for entry in value["architectures"].values():
+            if (type(entry) is not dict or type(entry.get("node_sha256")) is not str
+                    or not re.fullmatch(r"[0-9a-f]{64}", entry["node_sha256"])):
+                raise ValueError("invalid executable digest")
+        return value
+    except (OSError, ValueError, TypeError):
+        raise ProviderError("Cursor Node runtime release manifest is invalid") from None
+
+
+def _runtime_identity() -> dict:
+    manifest = _runtime_manifest()
+    return {"node_version": manifest["version"],
+            "node_executable_sha256": {architecture: entry["node_sha256"]
+                for architecture, entry in manifest["architectures"].items()}}
+
+
+def _validate_node(node: Path) -> None:
+    """Reject the old wheel binary or an unpinned replacement without executing it."""
+    architecture = {"arm64": "aarch64", "amd64": "x86_64"}.get(platform.machine(), platform.machine())
+    release = _runtime_manifest()["architectures"].get(architecture)
+    if release is None:
+        raise ProviderError("Cursor local mode supports only Linux x86_64 and aarch64")
+    try:
+        digest = hashlib.sha256()
+        with node.open("rb") as binary:
+            for block in iter(lambda: binary.read(1024 * 1024), b""):
+                digest.update(block)
+    except OSError:
+        raise ProviderError("Cursor local Node executable is unavailable") from None
+    if digest.hexdigest() != release["node_sha256"]:
+        raise ProviderError("Cursor local mode requires the patched Node runtime; run scripts/install-cursor-runtime.py")
+
+
 def _bridge_files() -> tuple[Path, Path]:
-    """Use the pinned wheel's bridge, never an ambient binary override or PATH."""
+    """Use pinned bridge JavaScript and the verified patched Node replacement."""
     sdk = _sdk_module()
     root = Path(sdk.__file__).resolve().parent / "_vendor" / "bridge"
     node, entry = root / "bin" / "node", root / "dist" / "bin" / "cursor-sdk-bridge.js"
     if not node.is_file() or not entry.is_file():
-        raise ProviderError("Cursor local mode requires the platform wheel with its bundled bridge")
+        raise ProviderError("Cursor local mode requires the platform wheel with its bridge")
+    _validate_node(node)
+    try:
+        validate_bridge_patch(root)
+    except (OSError, ValueError, TypeError):
+        raise ProviderError("Cursor local bridge requires its verified dependency repair; run scripts/install-cursor-runtime.py") from None
     return node, entry
 
 
@@ -58,7 +112,7 @@ def check_runtime() -> None:
 
 
 def _bridge_child(workspace: str, arguments: list[str]) -> None:
-    """Exec the bundled Node process in place, without inherited credentials.
+    """Exec the verified patched Node process in place, without inherited credentials.
 
     The SDK's shell launcher does not exec Node: terminating that shell alone
     can orphan Node. Direct exec also keeps the bridge in the host guardian's
@@ -208,7 +262,8 @@ class CursorLocalProvider:
     def descriptor(self) -> dict:
         return {"provider": "cursor-local", "model": self.model, "role": self.role,
                 "contract": "invoice-total/2", "sdk_version": CURSOR_SDK_VERSION,
-                "execution_policy": "isolated-text-only/1", "tools": [],
+                **_runtime_identity(), "bridge_patch": patch_identity(),
+                "execution_policy": "isolated-text-only/3", "tools": [],
                 "disallowed_tools": ["mcp", "task"], "setting_sources": [],
                 "max_output_bytes": 4096, "max_stream_text_bytes": MAX_STREAM_TEXT_BYTES,
                 "rpc_timeout_seconds": RPC_TIMEOUT_SECONDS, "rpc_max_retries": 0,
@@ -274,7 +329,9 @@ class CursorLocalProvider:
             output = parse_total_output(getattr(result, "result", None), "Cursor")
             evidence: dict[str, Any] = {
                 "provider": "cursor-local", "model": self.model, "role": self.role,
-                "sdk_version": CURSOR_SDK_VERSION, "reserved_microusd": self.reservation_microusd,
+                "sdk_version": CURSOR_SDK_VERSION, "node_version": _runtime_manifest()["version"],
+                "bridge_patch": patch_identity(),
+                "reserved_microusd": self.reservation_microusd,
                 "spending_basis": "configured_reservation_not_provider_invoice",
                 "submission_unit": "agent_run", "model_retry_policy": "sdk_managed",
             }

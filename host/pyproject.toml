@@ -20,3 +20,6 @@ mas-host = "mas_host.__main__:main"
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["mas_host*"]
+
+[tool.setuptools.package-data]
+mas_host = ["cursor_runtime.json", "cursor_bridge_patch.json"]

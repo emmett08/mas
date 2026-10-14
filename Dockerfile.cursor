@@ -19,9 +19,13 @@ RUN cargo build --locked --release --bin mas --bin mas-gateway
 
 FROM python:3.14.8-slim-trixie@sha256:a2b82f3c48559aa0a8446d9af49826b6e2b2016f4cd2afabfe6013ec53729170 AS python-build
 ARG TARGETARCH
-COPY docker/debian-packages.json /build/debian-packages.json
-COPY scripts/release-deb.py /build/release-deb.py
-RUN python /build/release-deb.py --lock /build/debian-packages.json --arch "$TARGETARCH" --out /packages
+COPY docker/wolfi-packages.json /build/wolfi-packages.json
+COPY docker/wolfi-indexes /build/docker/wolfi-indexes
+COPY scripts/release-wolfi.py /build/release-wolfi.py
+RUN python /build/release-wolfi.py --lock /build/wolfi-packages.json --index-root /build --arch "$TARGETARCH" --out /packages
+COPY host/mas_host/cursor_runtime.json /build/cursor_runtime.json
+COPY scripts/install-cursor-runtime.py /build/install-cursor-runtime.py
+RUN python /build/install-cursor-runtime.py --lock /build/cursor_runtime.json --arch "$TARGETARCH" --out /cursor-node
 WORKDIR /build/host
 COPY host/pyproject.toml host/requirements-cursor.txt host/requirements-build.txt ./
 RUN python -m pip install --no-cache-dir --require-hashes -r requirements-build.txt \
@@ -29,34 +33,39 @@ RUN python -m pip install --no-cache-dir --require-hashes -r requirements-build.
 COPY host/mas_host ./mas_host
 RUN --network=none python -m pip wheel --no-cache-dir --no-index --no-deps --no-build-isolation --wheel-dir /wheels . \
     && python -c 'from pathlib import Path; import hashlib; p=next(Path("/wheels").glob("mas_host-*.whl")); Path("/wheels/host-wheel.txt").write_text(str(p)+" --hash=sha256:"+hashlib.sha256(p.read_bytes()).hexdigest()+"\n")'
+RUN --network=none python -m pip install --no-cache-dir --no-index --find-links=/wheels --target=/runtime-python --require-hashes -r requirements-cursor.txt \
+    && python -m pip install --no-cache-dir --no-index --no-deps --target=/runtime-python --require-hashes -r /wheels/host-wheel.txt \
+    && PYTHONPATH=/runtime-python python -m pip check \
+    && PYTHONPATH=/runtime-python python /build/install-cursor-runtime.py --lock /build/cursor_runtime.json --source /cursor-node \
+    && PYTHONPATH=/runtime-python python -c 'from pathlib import Path; import cursor_sdk; p=Path(cursor_sdk.__file__).parent/"_vendor"/"bridge"/"bin"; [(p/n).chmod(0o755) for n in ("node", "cursor-sdk-bridge")]' \
+    && mv /runtime-python/bin /runtime-bin
 
-FROM python:3.14.8-slim-trixie@sha256:a2b82f3c48559aa0a8446d9af49826b6e2b2016f4cd2afabfe6013ec53729170
+FROM cgr.dev/chainguard/wolfi-base@sha256:256c88bb066424045021090932d50be93c8e3f2ce3586707702a401b146f3e43
+USER 0:0
 LABEL org.opencontainers.image.source="https://github.com/emmett08/mas"
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
+    PATH="/usr/local/bin:/usr/lib/bin:/usr/local/sbin:/usr/sbin:/usr/bin:/sbin:/bin" \
     MAS_BIN=/usr/local/bin/mas \
     MAS_GATEWAY_BIN=/usr/local/bin/mas-gateway \
     MAS_MODE=mock \
     MAS_STATE_DIR=/state \
     MAS_TOPOLOGY=/app/examples/host/mesh.json
 COPY --from=python-build /packages /packages
-RUN --network=none dpkg --refuse-downgrade -i /packages/*.deb && rm -rf /packages
-RUN groupadd --gid 10001 mas \
-    && useradd --uid 10001 --gid mas --home-dir /state --no-create-home mas \
-    && mkdir -p /state /app/examples \
+RUN --network=none xargs apk --no-network --repositories-file=/dev/null --repository=file:///packages add < /packages/roots.txt \
+    && rm -rf /packages
+RUN addgroup -g 10001 mas \
+    && adduser -D -H -u 10001 -G mas -h /state mas \
+    && mkdir -p /state /app/examples /usr/local/bin \
     && chown mas:mas /state \
-    && chmod 0700 /state
+    && chmod 0700 /state \
+    && ln -s /usr/bin/python3.14 /usr/local/bin/python
 COPY --from=rust-build /build/rust-protocol/target/release/mas /usr/local/bin/mas
 COPY --from=rust-build /build/rust-protocol/target/release/mas-gateway /usr/local/bin/mas-gateway
-COPY --from=python-build /wheels /wheels
-COPY host/requirements-cursor.txt /wheels/requirements-cursor.txt
-RUN --network=none python -m pip install --no-cache-dir --no-index --find-links=/wheels --require-hashes -r /wheels/requirements-cursor.txt \
-    && python -m pip install --no-cache-dir --no-index --no-deps --require-hashes -r /wheels/host-wheel.txt \
-    && python -m pip check \
-    && python -c 'from pathlib import Path; import cursor_sdk; p=Path(cursor_sdk.__file__).parent/"_vendor"/"bridge"/"bin"; [(p/n).chmod(0o755) for n in ("node", "cursor-sdk-bridge")]' \
-    && python -m pip uninstall --yes pip \
-    && python -c 'import ensurepip, shutil; shutil.rmtree(ensurepip.__path__[0])' \
-    && rm -rf /wheels
+COPY --from=python-build /runtime-python /usr/lib/python3.14/site-packages
+# pip --target records console scripts relative to site-packages as ../../bin.
+COPY --from=python-build /runtime-bin /usr/lib/bin
+RUN --network=none python -c 'import importlib.util, shutil; from pathlib import Path; s=importlib.util.find_spec("ensurepip"); shutil.rmtree(s.submodule_search_locations[0]) if s else None; p=Path("/usr/share/python-wheels"); shutil.rmtree(p) if p.exists() else None; assert importlib.util.find_spec("pip") is None'
 COPY examples/host/mesh.json /app/examples/host/mesh.json
 COPY LICENSE THIRD_PARTY_LICENSE.txt /usr/share/doc/mas/
 WORKDIR /app

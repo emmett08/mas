@@ -16,9 +16,13 @@ from pathlib import Path
 import platform
 import shutil
 import sqlite3
+import ssl
+import struct
 import subprocess
 import sys
 import tempfile
+
+BOOTSTRAP_WHEEL_DIRS = (Path("/usr/share/python-wheels"), Path("/usr/local/share/python-wheels"))
 
 
 def runtime_package_identity() -> dict:
@@ -27,7 +31,9 @@ def runtime_package_identity() -> dict:
                if importlib.util.find_spec(name) is not None]
     if present:
         raise RuntimeError("Runtime image retains package installers: " + ", ".join(present))
-    return {"package_installers": "absent"}
+    if any(any(directory.rglob("*.whl")) for directory in BOOTSTRAP_WHEEL_DIRS):
+        raise RuntimeError("Runtime image retains bootstrap wheel payloads")
+    return {"package_installers": "absent", "bootstrap_wheels": "absent"}
 
 
 def runtime_identity(binaries: dict[str, Path]) -> dict:
@@ -57,21 +63,37 @@ def runtime_identity(binaries: dict[str, Path]) -> dict:
 def cursor_runtime_identity(binaries: dict[str, Path]) -> dict:
     """Check the optional glibc image and exercise its actual native SDK bridge."""
     package_identity = runtime_package_identity()
-    if platform.libc_ver()[0] != "glibc":
-        raise RuntimeError("Cursor SDK runtime requires glibc")
+    libc = ctypes.CDLL(None)
+    try:
+        libc.gnu_get_libc_version.restype = ctypes.c_char_p
+        glibc_version = libc.gnu_get_libc_version().decode("ascii")
+    except AttributeError:
+        raise RuntimeError("Cursor SDK runtime requires glibc") from None
     for name, binary in binaries.items():
-        result = subprocess.run(["ldd", str(binary)], text=True, stdout=subprocess.PIPE,
-                                stderr=subprocess.STDOUT, timeout=10, check=False)
-        listing = result.stdout.lower()
-        if not any(marker in listing for marker in ("not a dynamic executable", "statically linked")):
-            raise RuntimeError(f"{name} must be a static musl executable in the Cursor image")
+        # ELF PT_INTERP identifies a dynamic loader. Reading the bounded program
+        # headers avoids adding an ldd shell or binutils to the minimal image.
+        with binary.open("rb") as source:
+            header = source.read(64)
+            if len(header) != 64 or header[:6] != b"\x7fELF\x02\x01":
+                raise RuntimeError(f"{name} must be a 64-bit little-endian ELF executable")
+            offset, = struct.unpack_from("<Q", header, 32)
+            entry_size, count = struct.unpack_from("<HH", header, 54)
+            if not 1 <= count <= 256 or entry_size != 56 or offset + count * entry_size > binary.stat().st_size:
+                raise RuntimeError(f"{name} has an invalid ELF program header table")
+            source.seek(offset)
+            headers = source.read(entry_size * count)
+            if any(struct.unpack_from("<I", headers, i * entry_size)[0] == 3 for i in range(count)):
+                raise RuntimeError(f"{name} must be a static musl executable in the Cursor image")
+    ctypes.CDLL("libstdc++.so.6")
     from mas_host.cursor_local import _bridge_files
     node, _ = _bridge_files()
-    result = subprocess.run(["ldd", str(node)], text=True, stdout=subprocess.PIPE,
-                            stderr=subprocess.STDOUT, timeout=10, check=False)
-    if result.returncode or "not found" in result.stdout.lower() or "libstdc++.so.6" not in result.stdout:
-        raise RuntimeError("Cursor's bundled Node runtime has unresolved shared libraries")
+    node_version = subprocess.run([str(node), "--version"], text=True, stdout=subprocess.PIPE,
+                                  stderr=subprocess.PIPE, timeout=10, check=True).stdout.strip()
+    certificates = ssl.create_default_context().get_ca_certs()
+    if not certificates:
+        raise RuntimeError("Cursor runtime requires trusted TLS certificate roots")
     return {"runtime": "cursor-glibc", "rust_linkage": "static-musl-bundled-sqlite",
+            "glibc": glibc_version, "node_version": node_version, "tls_roots": len(certificates),
             "python_sqlite": sqlite3.sqlite_version, **package_identity,
             **cursor_bridge_smoke()}
 

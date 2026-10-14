@@ -28,3 +28,26 @@ LICENSE.md: "© Anysphere Inc. All rights reserved. Use is subject to Cursor's
 Terms of Service." See https://cursor.com/terms-of-service.
 This repository's licence does not replace the SDK's separate terms. The
 standard release image does not contain the optional Cursor SDK.
+
+Node.js runtime for the optional Cursor integration
+-------------------------------------------------
+The optional runtime replaces the Node executable bundled with cursor-sdk
+1.0.37 with the SHA-256-locked official Node.js 24.21.0 distribution for Linux
+x64 or arm64. Node.js is distributed under the MIT licence and includes
+third-party components with their own notices. The installer retains the
+distribution's complete LICENSE file at cursor_sdk/_vendor/bridge/NODE_LICENSE
+inside the installed Python package. See https://nodejs.org/ and the retained
+file for the applicable notices. This replacement does not change the Cursor
+SDK's separate terms.
+
+Local Cursor bridge dependency repair
+------------------------------------
+scripts/install-cursor-runtime.py also modifies the bundled
+@connectrpc/connect-node CommonJS and ES module Headers polyfills to use the
+pinned Node runtime's native Headers implementation, and updates that package's
+dependency metadata. Its existing upstream licence notices are retained. The
+installer removes the now-unused undici and @fastify/busboy package trees and
+updates the Python wheel's RECORD to describe the actual installed files.
+The reviewed input and output hashes are recorded in
+host/mas_host/cursor_bridge_patch.json. These are local integration changes,
+not an upstream Cursor SDK release.

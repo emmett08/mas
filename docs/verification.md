@@ -2,8 +2,8 @@
 
 ## Cursor provider extension — 14 October 2026
 
-The local extension checks passed **193 host tests, 23 release-helper tests and
-48 Rust tests**. The combined SPIN suite passed **62 positive checks and 20
+The local extension checks passed **208 host tests with no skips and 48 Rust
+tests**. The combined SPIN suite passed **62 positive checks and 20
 expected counterexamples**, across 54 cases. The Cursor job model includes a
 search without partial-order reduction and seven defect mutations; see its
 [contract and implementation mapping](../formal/cursor-jobs-notes.md).
@@ -24,6 +24,24 @@ Their exact-revision Actions results are the container evidence; local checks
 are not a substitute for those runs. `cargo fmt --check` reports pre-existing
 repository-wide formatting differences; this change retains the existing Rust
 style and introduces no formatting gate or unrelated reformat.
+
+The initial PR passed protocol and both architecture checks, but failed image
+security acceptance. Review found Node 24.5.0 and obsolete bridge dependencies
+inside Cursor SDK 1.0.37, and additional findings in the Debian runtime image.
+The repaired optional image uses a pinned Wolfi/glibc base and signed,
+SHA-256-locked packages. Debian remains only in the wheel-builder stage.
+
+The unified runtime installer replaces Node with locked version 24.21.0,
+applies a source-hash-verified native `Headers` repair, removes the actual
+obsolete `undici` and `@fastify/busboy` trees and updates the installed wheel's
+`RECORD`. Runtime preflight checks the repaired state before bridge launch.
+Native users must rerun the installer after each SDK installation; Compose
+applies it during the build. These checks distinguish source and executable
+identity, dependency removal, shared-library resolution and bridge execution.
+Release-helper, architecture and security gates must identify the repaired
+revision. The earlier passing architecture jobs do not establish acceptance of
+this image, and the repairs alone do not establish a passing security scan or
+live-provider acceptance.
 
 ## Earlier protocol and host evidence
 

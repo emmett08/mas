@@ -73,22 +73,60 @@ volume and non-root execution. After the run, remove the shell variables:
 unset CURSOR_API_KEY OPENAI_API_KEY
 ```
 
-The optional `Dockerfile.cursor` uses a pinned Debian/glibc base and hash-locked
-dependencies for Linux amd64 and arm64. The SDK's native bridge has no supported
-musl wheel, so this image is separate from the default Alpine image. It contains
-both provider SDKs and is built locally by these Compose commands. The Cursor
-SDK has separate licence terms; see [third-party notices](../THIRD_PARTY_LICENSE.txt).
+The optional `Dockerfile.cursor` uses a pinned Wolfi/glibc runtime for Linux
+amd64 and arm64. Its complete Python runtime package set is SHA-256-locked and
+verified against Wolfi's trusted package-signing keys during offline
+installation. Debian is used only to build Python wheels. The SDK's native
+bridge has no supported musl wheel, so this image is separate from the default
+Alpine image. It contains both provider SDKs and is built locally by these
+Compose commands. The image replaces the SDK's bundled Node executable with
+SHA-256-locked Node 24.21.0 and applies the reviewed bridge dependency repair
+described below. The SDK has separate licence terms; see
+[third-party notices](../THIRD_PARTY_LICENSE.txt).
 
 ## Native and library use
 
 The host's supervised execution requires Linux. For the locked Cursor runtime,
-use CPython 3.14 on amd64 or arm64 with glibc, install the Rust binaries, then:
+use CPython 3.14 on amd64 or arm64 with glibc, install the Rust binaries, then
+run these commands from the repository checkout:
 
 ```sh
-python -m pip install --require-hashes -r host/requirements-cursor.txt
-python -m pip install ./host
+python -m pip install --require-hashes -r host/requirements-build.txt -r host/requirements-cursor.txt
+python -m pip install --no-deps --no-build-isolation ./host
+python scripts/install-cursor-runtime.py
 export PATH="$PWD/rust-protocol/target/release:$PATH"
 ```
+
+Run the installer with the same interpreter and environment that contains
+`cursor-sdk==1.0.37`. It downloads the official Node 24.21.0 archive for the
+current supported architecture, verifies the locked archive and executable
+SHA-256 values, and replaces the SDK bridge's Node executable in place. It also
+replaces the bridge dependency's obsolete Headers polyfill with Node's native
+`Headers`, checks the exact source hashes, removes the unused `undici` and
+`@fastify/busboy` package trees, and updates the installed wheel's `RECORD` to
+describe the changes. This removes the dependency code as well as its metadata.
+
+Repeat the installer after reinstalling the SDK. Local-provider preflight checks
+the Node executable identity, repaired source files and dependency removals
+before starting the bridge. The Compose build performs these steps automatically.
+An interrupted dependency deletion or an unrecognised source change fails
+integrity checks; reinstall `cursor-sdk==1.0.37` from the locked dependencies,
+then rerun the installer. Do not delete more files to bypass that check.
+
+For an offline installation, prepare the verified files on a connected machine
+of the same architecture, then copy the directory to the deployment host:
+
+```sh
+python scripts/install-cursor-runtime.py --out /absolute/cursor-node-files
+python scripts/install-cursor-runtime.py --source /absolute/cursor-node-files
+```
+
+The first command prepares the Node executable and licence; the second installs
+them and applies the same bridge repair to the current environment. Both use
+the repository's versioned runtime lock, so copying files does not bypass
+executable verification. Add `--arch amd64` or `--arch arm64`
+to `--out` when preparing files for a different target architecture. Installation
+requires Linux with the matching architecture.
 
 The combined lock contains both SDKs. OpenAI-only execution can continue using
 `host/requirements-openai.txt` and the existing Alpine image. Cursor Cloud HTTP
@@ -150,8 +188,9 @@ after a timeout. See [host recovery](host-runner.md#persistence-and-explicit-rec
 
 ## Durable Cursor Cloud jobs
 
-Create a private JSON specification, replacing the repository, ref and model
-with values available to your Cursor account:
+Copy [the example specification](../examples/host/cursor-cloud-job.json) to a
+private `cursor-job.json`, replacing the repository, ref and model with values
+available to your Cursor account:
 
 ```json
 {
@@ -224,8 +263,8 @@ job remains nonterminal until a correlated remote observation establishes a
 terminal state. Local expiry and local process termination do not cancel the
 remote job. After an uncertain cancellation request, first reconcile; an explicit
 `cancel review-001 --retry` requests cancellation of the same nonterminal run again.
-It never launches another job. Retain the private state directory until remote and local outcomes
-have been reconciled.
+It never launches another job. Retain the private state directory until remote
+and local outcomes have been reconciled.
 
 Deployment health reports the last locally recorded job states; it does not
 poll Cursor. Retention preserves the originating MAS run while its job is active
@@ -250,8 +289,8 @@ that dispatch had no effect. `--resolve-host` records the submission receipt
 as the invocation output. When the run identity is already saved,
 `reconcile review-001 --resolve-host --evidence reconciliation.json` resolves
 only the local receipt and needs no credential or network request. It does not
-complete the remote repository task or
-reverse a local deadline. Resume the original MAS run only after reconciliation:
+complete the remote repository task or reverse a local deadline. Resume the
+original MAS run only after reconciliation:
 
 ```sh
 python -m mas_host jobs --state-dir .mas-state submit review-001 \
