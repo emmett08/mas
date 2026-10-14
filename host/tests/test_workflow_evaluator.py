@@ -21,17 +21,17 @@ class ObservedJournal:
         self.scope_deadlines = {}
         self.clock = 100
 
-    def _node(self, instance, path, kind, input, limits):
+    def node(self, instance, path, kind, input, limits):
         return self.nodes.setdefault(path, {"state": "waiting", "output": None})
 
-    def _attempt(self, instance, path, workflow, input, deadline):
+    def attempt(self, instance, path, workflow, input, deadline):
         return copy.deepcopy(self.observations[workflow])
 
-    def _finish_node(self, instance, path, state, output=None, error=None):
+    def finish_node(self, instance, path, state, output=None, error=None):
         self.nodes[path] = {"state": state, "output": copy.deepcopy(output), "error": error}
         return state, output
 
-    def _scope(self, instance, path, limits, deadline):
+    def scope(self, instance, path, limits, deadline):
         return self.scope_deadlines.setdefault(path, min(deadline, self.clock + limits["wall_seconds"]))
 
     def observe(self, workflow, state, output=None):

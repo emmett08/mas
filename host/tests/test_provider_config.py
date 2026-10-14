@@ -80,8 +80,8 @@ class ProviderConfigurationTests(unittest.TestCase):
         settings = config.load_provider_configs("mixed", environ=environment)
         self.assertEqual(settings["planner"].cursor_transport, "environment-proxy-http1")
         self.assertEqual(settings["reviewer"].cursor_transport, "sdk-default")
-        with patch("mas_host.cursor_local.check_runtime"), \
-                patch("mas_host.cursor_local.CursorLocalProvider") as provider:
+        with patch("mas_host.cursor_session.check_runtime"), \
+                patch("mas_host.invoice_cursor.InvoiceCursorProvider") as provider:
             config._cursor(settings["planner"], "fixture-key")
         self.assertEqual(provider.call_args.kwargs["transport_policy"], "environment-proxy-http1")
         with self.assertRaises(ProviderError):

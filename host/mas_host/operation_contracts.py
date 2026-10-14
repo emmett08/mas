@@ -14,7 +14,7 @@ import re
 from types import MappingProxyType
 from typing import Iterable
 
-from .codec import integer_json, is_actor_identity
+from .codec import canonical_json, integer_json, is_actor_identity, json_identity
 from .contracts import Adapter, AdapterContext, AdapterError, Outcome, RunnerError, TaskRequest
 
 
@@ -24,16 +24,6 @@ class ContractError(AdapterError):
     def __init__(self, code: str):
         self.code = code
         super().__init__(code.replace("_", " "))
-
-
-def _canonical(value: object) -> str:
-    # Validate before json.dumps can coerce Python keys, floats or subclasses.
-    checked = json.loads(integer_json(value))
-    return json.dumps(checked, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
-
-
-def _identity(value: object) -> str:
-    return hashlib.sha256(_canonical(value).encode("utf-8")).hexdigest()
 
 
 def _name(value: str) -> str:
@@ -94,7 +84,7 @@ class JsonObjectSchema:
         if type(schema) not in (dict, bool):
             raise ContractError("invalid_schema")
         try:
-            source = _canonical(schema)
+            source = canonical_json(schema)
         except RunnerError:
             raise ContractError("invalid_schema") from None
         checked = json.loads(source)
@@ -171,7 +161,10 @@ class OperationContract:
         object.__setattr__(self, "_input", JsonObjectSchema(input_schema))
         object.__setattr__(self, "_output", JsonObjectSchema(output_schema))
         # The entire descriptor must remain bounded, not just each schema.
-        _canonical(self.descriptor)
+        try:
+            canonical_json(self.descriptor)
+        except RunnerError:
+            raise ContractError("invalid_operation_contract") from None
 
     @property
     def operation(self) -> str:
@@ -193,7 +186,7 @@ class OperationContract:
 
     @property
     def identity(self) -> str:
-        return _identity(self.descriptor)
+        return json_identity(self.descriptor)
 
     def authorise(self, caller: str) -> None:
         if type(caller) is not str or caller not in self.allowed_callers:
@@ -249,7 +242,10 @@ class OperationRegistry:
         if not selected:
             raise ContractError("empty_operation_registry")
         object.__setattr__(self, "_registrations", MappingProxyType(selected))
-        _canonical(self.descriptor)
+        try:
+            canonical_json(self.descriptor)
+        except RunnerError:
+            raise ContractError("invalid_operation_registry") from None
 
     @property
     def descriptor(self) -> dict:
@@ -258,7 +254,7 @@ class OperationRegistry:
 
     @property
     def identity(self) -> str:
-        return _identity(self.descriptor)
+        return json_identity(self.descriptor)
 
     def handle(self, context: AdapterContext, request: TaskRequest) -> Outcome:
         if request.recipient != self.actor or context.actor != self.actor:

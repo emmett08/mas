@@ -17,6 +17,7 @@ from mas_host.operation_contracts import ContractError, OperationContract
 from mas_host.provider_contract import ProviderError
 from mas_host.task_service import Workflow
 from mas_host.structured_cursor import CursorStructuredProvider
+from mas_host.cursor_provider import CursorLocalProvider
 from mas_host.structured_openai import OpenAIStructuredProvider
 from mas_host.structured_provider import (MAX_OUTPUT_BYTES, MockStructuredProvider,
     StructuredAgentAdapter, StructuredRequest, structured_binding)
@@ -58,6 +59,7 @@ class FakeContext:
 class OpenAIClient:
     def __init__(self, *, text='{"accepted":true}', error=None, status="completed", output=None):
         self.responses, self.calls, self.error = self, [], error
+        self.closed = False
         self.response = SimpleNamespace(status=status, output_text=text, output=output or [],
             id="resp_example", _request_id="request-example",
             usage=SimpleNamespace(input_tokens=3, output_tokens=4, total_tokens=7))
@@ -67,6 +69,9 @@ class OpenAIClient:
         if self.error:
             raise self.error
         return self.response
+
+    def close(self):
+        self.closed = True
 
 
 class CursorRun:
@@ -112,6 +117,13 @@ class CursorClient:
 
 
 class StructuredProviderTests(unittest.TestCase):
+    def test_existing_request_fingerprint_preserves_unicode_and_escaping(self):
+        request = StructuredRequest({"z": 'é\\"', "a": {"雪": [True, None, -7]}}, "Classify é雪.",
+            {"type": "object", "properties": {"value": {"type": "string"}},
+             "required": ["value"], "additionalProperties": False},
+            schema_name="result", schema_version="check/1")
+        self.assertEqual(request.identity, "5cc97d31908aaa6bb56429585fa7ca68b39d59255b32882e620048cbe9f3dd9d")
+
     def test_request_snapshots_input_schema_and_contract_identity(self):
         supplied, schema = {"text": "one"}, json.loads(json.dumps(OUTPUT))
         first = StructuredRequest(supplied, "Classify.", schema, schema_name="result", schema_version="1")
@@ -285,6 +297,44 @@ class StructuredProviderTests(unittest.TestCase):
         self.assertEqual(call["extra_headers"], {"X-Client-Request-Id": "call-1"})
         self.assertEqual(invocation.evidence["reserved_microusd"], 123)
         self.assertEqual(structured_binding(provider)[1], 123)
+        self.assertFalse(client.closed, "injected OpenAI clients remain caller-owned")
+
+    def test_openai_owned_clients_are_lazy_and_close_on_success_or_failure(self):
+        clients = [OpenAIClient(), OpenAIClient(error=RuntimeError("SECRET")),
+                   OpenAIClient(status="incomplete"), OpenAIClient(text='{"accepted":1}')]
+        for index, client in enumerate(clients):
+            with self.subTest(case=index), patch("mas_host.openai_client.create_client", return_value=client) as create:
+                provider = OpenAIStructuredProvider("test-model", "review", environ={"OPENAI_API_KEY": "key"})
+                binding = structured_binding(provider)
+                create.assert_not_called()
+                if index:
+                    with self.assertRaises(ProviderError):
+                        provider.infer(request())
+                else:
+                    self.assertEqual(provider.infer(request()).output, {"accepted": True})
+                create.assert_called_once_with("key")
+                self.assertTrue(client.closed)
+                self.assertEqual(structured_binding(provider), binding)
+
+    def test_failed_openai_cleanup_cannot_commit_a_completed_invocation(self):
+        client = OpenAIClient()
+        client.close = lambda: (_ for _ in ()).throw(RuntimeError("SECRET cleanup"))
+        provider = OpenAIStructuredProvider("test-model", "specialist", environ={"OPENAI_API_KEY": "key"})
+        adapter = StructuredAgentAdapter(provider, instructions="Classify.", contract=contract())
+        context = FakeContext()
+        with patch("mas_host.openai_client.create_client", return_value=client), self.assertRaises(ProviderError) as error:
+            adapter.handle(context, TaskRequest("coordinator", "specialist", "classify/1", {"text": "data"}, "t", "m"))
+        self.assertNotIn("SECRET", str(error.exception))
+        self.assertEqual(len(context.calls), 1)
+        self.assertFalse(hasattr(context, "completed"))
+
+    def test_openai_interruption_survives_cleanup_failure(self):
+        primary = KeyboardInterrupt()
+        client = OpenAIClient(error=primary)
+        client.close = lambda: (_ for _ in ()).throw(RuntimeError("SECRET cleanup"))
+        with patch("mas_host.openai_client.create_client", return_value=client), self.assertRaises(KeyboardInterrupt) as error:
+            OpenAIStructuredProvider("test-model", "review", environ={"OPENAI_API_KEY": "key"}).infer(request())
+        self.assertIs(error.exception, primary)
 
     def test_openai_errors_are_safe_and_never_retried(self):
         cases = [OpenAIClient(error=RuntimeError("SECRET")), OpenAIClient(status="incomplete"),
@@ -316,7 +366,7 @@ class StructuredProviderTests(unittest.TestCase):
     def test_cursor_uses_shared_ownership_and_sanitised_unknown_errors(self):
         client = CursorClient(CursorRun(error=RuntimeError("SECRET")))
         provider = CursorStructuredProvider("test-model", "review", api_key="SECRET")
-        with patch("mas_host.cursor_local._launch_client", return_value=client), self.assertRaises(ProviderError) as error:
+        with patch("mas_host.cursor_session.launch_client", return_value=client), self.assertRaises(ProviderError) as error:
             provider.infer(request())
         self.assertNotIn("SECRET", str(error.exception))
         self.assertEqual(error.exception.diagnostic["stage"], "stream")
@@ -327,7 +377,7 @@ class StructuredProviderTests(unittest.TestCase):
 
     def test_cursor_schema_failure_still_closes_owned_resources(self):
         client = CursorClient(CursorRun(text='{"accepted":1}'))
-        with patch("mas_host.cursor_local._launch_client", return_value=client), self.assertRaises(ProviderError) as error:
+        with patch("mas_host.cursor_session.launch_client", return_value=client), self.assertRaises(ProviderError) as error:
             CursorStructuredProvider("test-model", "review", api_key="key").infer(request())
         self.assertEqual(error.exception.diagnostic["stage"], "result")
         self.assertTrue(client.agent_closed)
@@ -353,7 +403,7 @@ class AgentConfigurationTests(unittest.TestCase):
         configs = load_agent_configs({"specialist": {"provider": "mock", "model": "fixture-1",
             "reservation_microusd": 0, "instructions": "Classify.", "operation": "classify/1",
             "role": "arbitrary-specialism"}}, contracts=definitions)
-        with patch("mas_host.agent_config.read_api_key", side_effect=AssertionError("read secret")):
+        with patch("mas_host.provider_credentials.read_api_key", side_effect=AssertionError("read secret")):
             adapters = create_agent_adapters(configs, registered_actors={"specialist", "tool"},
                                               mock_outputs={"specialist": {"accepted": True}})
         self.assertEqual(adapters["specialist"].descriptor()["provider"]["role"], "arbitrary-specialism")
@@ -369,20 +419,27 @@ class AgentConfigurationTests(unittest.TestCase):
             with self.subTest(registered=registered), self.assertRaises((ProviderError, ContractError)):
                 create_agent_providers(configs, registered_actors=registered, mock_outputs=fixtures)
 
-    def test_credentials_validate_together_and_never_cross_provider_boundary(self):
+    def test_live_factory_defers_credentials_and_keeps_provider_sources_separate(self):
         configs = {"a": self.settings("cursor", "a"), "b": self.settings("openai", "b")}
-        with patch("mas_host.structured_openai.OpenAIStructuredProvider") as openai, \
-                patch("mas_host.structured_cursor.CursorStructuredProvider") as cursor, \
-                patch("mas_host.cursor_local.check_runtime"):
-            with self.assertRaises(ProviderError):
-                create_agent_providers(configs, registered_actors=configs,
-                                       environ={"CURSOR_API_KEY": "cursor-key"})
-            openai.assert_not_called()
-            cursor.assert_not_called()
-            create_agent_providers(configs, registered_actors=configs,
-                environ={"CURSOR_API_KEY": "cursor-key", "OPENAI_API_KEY": "openai-key"})
-            self.assertEqual(openai.call_args.kwargs["api_key"], "openai-key")
-            self.assertEqual(cursor.call_args.kwargs["api_key"], "cursor-key")
+        environment = {}
+        with patch("mas_host.provider_credentials.read_api_key", side_effect=AssertionError("read secret")), \
+                patch("mas_host.cursor_session._sdk_module", side_effect=AssertionError("loaded SDK")):
+            providers = create_agent_providers(configs, registered_actors=configs, environ=environment)
+            identities = {name: provider.descriptor() for name, provider in providers.items()}
+        self.assertIs(type(providers["a"]), CursorLocalProvider)
+        self.assertIs(CursorStructuredProvider, CursorLocalProvider)
+        # Credentials are read at execution, including rotation after registration.
+        environment.update(CURSOR_API_KEY="cursor-key", OPENAI_API_KEY="openai-key")
+        openai, cursor = OpenAIClient(), CursorClient()
+        with patch("mas_host.openai_client.create_client", return_value=openai) as create, \
+                patch("mas_host.cursor_session.launch_client", return_value=cursor):
+            providers["a"].infer(request())
+            providers["b"].infer(request())
+        create.assert_called_once_with("openai-key")
+        self.assertEqual(cursor.options[0]["api_key"], "cursor-key")
+        self.assertTrue(openai.closed)
+        self.assertTrue(cursor.client_closed)
+        self.assertEqual(identities, {name: provider.descriptor() for name, provider in providers.items()})
 
     def test_unknown_and_missing_configuration_fields_rejected(self):
         settings = {"provider": "mock", "model": "fixture-1", "reservation_microusd": 0,

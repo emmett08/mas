@@ -184,6 +184,38 @@ class WorkflowInspectionTests(unittest.TestCase):
         self.assertIn('question', detail['output'])
         self.assertEqual(self.detail(instance)['output'], {'changed': True})
 
+    def test_graph_does_not_mix_parent_pause_with_new_continuation(self):
+        instance, before = self.run_task()
+        with sqlite3.connect(self.state / 'composition.sqlite') as db:
+            db.execute('PRAGMA journal_mode=WAL')
+        writer = WorkflowEngine(self.state, **self.registry, **self.options)
+        owned = self.engine._owned
+
+        def continue_after_authorisation(db, principal, identity):
+            item = owned(db, principal, identity)
+            writer.continue_task('alice', instance, 'root/s0', 'concurrent-decision',
+                                 {'next_state': 'completed', 'answer': 7})
+            return item
+
+        with patch.object(self.engine, '_owned', side_effect=continue_after_authorisation):
+            observed = self.engine.inspect('alice', instance)
+        self.assertEqual(observed, before)
+        latest = self.engine.inspect('alice', instance)
+        self.assertEqual(latest['state'], 'queued')
+        self.assertEqual([(item['revision'], item['state']) for item in latest['attempts']],
+                         [(0, 'input_required'), (1, 'queued')])
+
+    def test_graph_can_inspect_state_without_decoding_private_payloads(self):
+        instance, before = self.run_task()
+        # Damage only payloads excluded from the graph. State/ownership and
+        # history remain inspectable without loading or decoding those bytes.
+        with self.engine.store.transaction() as db:
+            db.execute('UPDATE instances SET input=? WHERE id=?', ('invalid JSON', instance))
+            for table in ('nodes', 'attempts'):
+                db.execute(f'UPDATE {table} SET input=?,output=? WHERE instance=?',
+                           ('invalid JSON', 'invalid JSON', instance))
+        self.assertEqual(self.engine.inspect('alice', instance), before)
+
     def test_full_size_payloads_and_max_depth_survive_inspection_framing(self):
         instance, _ = self.run_task()
         output = {'payload': 'é' * ((JSON_BYTES - len('{"payload":""}')) // 2)}

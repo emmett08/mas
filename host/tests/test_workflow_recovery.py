@@ -64,6 +64,13 @@ class _LoseCompletionOnce(WorkflowEngine):
         return super()._save_attempt(attempt, state, output, error)
 
 
+class _RecordWorker(WorkflowEngine):
+    """Expose the worker's own PID without relying on /proc namespace layout."""
+    def _worker(self, *args):
+        (self.state_dir / 'worker-pid').write_text(str(os.getpid()))
+        return super()._worker(*args)
+
+
 @unittest.skipUnless(sys.platform.startswith("linux"), "Linux workflow scheduler")
 class WorkflowRecoveryTests(unittest.TestCase):
     @classmethod
@@ -92,7 +99,7 @@ class WorkflowRecoveryTests(unittest.TestCase):
         self.children.clear()
 
     def engine(self, *, root=None, release=None, parallel=False, wall_seconds=30,
-               max_calls=4, max_reserved=12, engine_type=WorkflowEngine):
+               max_calls=4, max_reserved=12, engine_type=WorkflowEngine, scope_seconds=None):
         root = root or self.root
         root.mkdir(mode=0o700, parents=True, exist_ok=True)
         receipts = root / "receipts.jsonl"
@@ -107,9 +114,17 @@ class WorkflowRecoveryTests(unittest.TestCase):
                              "limits": {"max_steps": 8, "max_parallel": 2, "wall_seconds": wall_seconds,
                                         "max_calls": max_calls, "max_reserved_microusd": max_reserved},
                              "root": node})
+        plans = {'plan': plan}
+        if scope_seconds is not None:
+            child = plan.spec
+            child['name'] = 'child'
+            child['limits']['wall_seconds'] = scope_seconds
+            parent = plan.spec
+            parent['root'] = {'kind': 'subworkflow', 'workflow': 'child'}
+            plans = {'plan': WorkflowPlan(parent), 'child': WorkflowPlan(child)}
         state = root / "state"
         operations = DeploymentLedger(state, DeploymentPolicy(min_free_bytes=1, max_state_bytes=100_000_000))
-        engine = engine_type(state, {"plan": plan}, {"effect": workflow}, {"owner": {"plan"}},
+        engine = engine_type(state, plans, {"effect": workflow}, {"owner": {"plan"}},
                              operations=operations, mas_bin=self.mas, gateway_bin=self.gateway)
         return engine, receipts
 
@@ -233,6 +248,73 @@ class WorkflowRecoveryTests(unittest.TestCase):
         self.assertEqual([attempt["run_directory"] for attempt in recovered["attempts"]], [assigned])
         self.assertEqual(recovered["usage"]["calls"], 1)
         self.assertEqual(len(self.receipts(receipts)), 1)
+
+    def _stopped_after_scheduler_and_worker_loss(self, mode):
+        engine, receipts = self.engine(release=self.root / 'release', engine_type=_RecordWorker,
+                                       wall_seconds=2 if mode == 'expire' else 30,
+                                       scope_seconds=2 if mode == 'scope_expire' else None)
+        instance = self.submit(engine)
+        pid, _ = self.spawn(engine, instance)
+        self.until(lambda: len(self.receipts(receipts)) == 1)
+        worker = int((engine.state_dir / 'worker-pid').read_text())
+        before = engine.inspect('owner', instance)
+        # Both receipt owners die after a real effect, before either can save
+        # its composition outcome. Always kill the stopped scheduler, including
+        # when an assertion or a signal operation fails during the probe.
+        try:
+            os.kill(pid, signal.SIGSTOP)
+            os.kill(worker, signal.SIGKILL)
+        finally:
+            os.kill(pid, signal.SIGKILL)
+            os.waitpid(pid, 0)
+            self.children.discard(pid)
+        self.wait_unowned(engine, instance)
+        stale = engine.inspect('owner', instance)
+        self.assertEqual(stale['state'], 'running')
+        self.assertEqual(stale['attempts'][0]['state'], 'running')
+        directory = engine.state_dir / stale['attempts'][0]['run_directory']
+        self.assertTrue(inspect_run(directory)['recovery_required'])
+        if mode == 'cancel':
+            self.assertTrue(engine.cancel('owner', instance)['cancel_requested'])
+        else:
+            deadline = (engine.store.scopes(instance, 'root/sub-child')[0]['deadline']
+                        if mode == 'scope_expire' else before['deadline'])
+            self.until(lambda: time.time() >= deadline, seconds=3)
+
+        unknown = engine.run('owner', instance)
+        self.assertEqual(unknown['state'], 'unknown', unknown)
+        self.assertEqual(unknown['attempts'][0]['state'], 'unknown')
+        if mode != 'scope_expire':
+            self.assertEqual(unknown['nodes'][0]['state'], 'unknown')
+        self.assertEqual(unknown['attempts'][0]['run_directory'], before['attempts'][0]['run_directory'])
+        self.assertEqual(unknown['deadline'], before['deadline'])
+        self.assertEqual(unknown['usage']['calls'], 1)
+        self.assertTrue(inspect_run(directory)['recovery_required'])
+        with self.assertRaisesRegex(ServiceError, 'reconciliation required'):
+            engine.recover('owner', instance)
+
+        # Evidenced reconciliation remains available despite stopped admission.
+        call = inspect_run(directory)['invocations'][0]
+        resolve_invocation(directory, call['call_id'], decision='completed', output={'answer': 42},
+                           evidence={'receipt': self.receipts(receipts)[0]['receipt']})
+        self.assertEqual(engine.recover('owner', instance)['state'], 'queued')
+        final = engine.run('owner', instance)
+        self.assertEqual(final['state'], 'cancelled' if mode == 'cancel' else 'expired')
+        self.assertEqual(final['cancel_requested'], mode == 'cancel')
+        self.assertEqual(final['deadline'], before['deadline'])
+        self.assertEqual(final['attempts'][0]['run_directory'], before['attempts'][0]['run_directory'])
+        self.assertEqual(final['usage']['calls'], 1)
+        self.assertFalse(inspect_run(directory)['recovery_required'])
+        self.assertEqual(len(self.receipts(receipts)), 1, 'recovery repeated an external effect')
+
+    def test_scheduler_and_worker_loss_preserves_uncertainty_before_cancel(self):
+        self._stopped_after_scheduler_and_worker_loss('cancel')
+
+    def test_scheduler_and_worker_loss_preserves_uncertainty_before_expiry(self):
+        self._stopped_after_scheduler_and_worker_loss('expire')
+
+    def test_expired_subworkflow_still_exposes_uncertain_stale_attempt(self):
+        self._stopped_after_scheduler_and_worker_loss('scope_expire')
 
     def test_lost_completion_recovers_cached_rust_result_without_new_run_or_effect(self):
         engine, receipts = self.engine(engine_type=_LoseCompletionOnce)

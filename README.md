@@ -8,6 +8,11 @@ star/mesh/tree groups, reusable bounded plans, concurrent branches, arbitrary
 model roles, versioned operation contracts and result acceptance. Two offline
 applications demonstrate these features through the existing Rust gateway.
 
+The [generic Cursor and OpenAI providers](docs/providers.md#reusable-model-adapters)
+accept application-defined instructions and JSON schemas. Invoice calculation
+is one example adapter; model transport, workflow execution and recovery are
+shared across applications.
+
 A Rust/nom protocol and durable SQLite mailbox for agent, tool and human-adapter
 messages, with SPIN/Promela models and executable workflow examples. The protocol
 runtime and CLI are native Rust. A reusable Python host connects model and tool

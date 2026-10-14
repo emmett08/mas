@@ -12,7 +12,6 @@ from typing import Iterable, Mapping
 from .codec import is_actor_identity
 from .cursor_transport import SDK_DEFAULT, validate_transport_policy
 from .operation_contracts import OperationContract
-from .provider_config import read_api_key
 from .provider_contract import ProviderError
 from .structured_provider import (IDENTIFIER, MockStructuredProvider, StructuredAgentAdapter,
                                   StructuredProvider, StructuredRequest, _copy)
@@ -72,10 +71,12 @@ class AgentConfig:
 def create_agent_providers(configs: Mapping[str, AgentConfig], *, registered_actors: Iterable[str],
                            mock_outputs: Mapping[str, dict] | None = None,
                            environ: Mapping[str, str] | None = None) -> dict[str, StructuredProvider]:
-    """Validate all identities, fixture outputs and credentials before constructing clients.
+    """Validate identities and fixtures; register live providers without opening clients.
 
 Only configured model actors need providers: tool/human adapters may occupy the
-remaining registered actors. Construction never submits an inference request.
+remaining registered actors. Live credential sources are read only during an
+admitted inference, so inspection and cancellation work without provider secrets
+or an installed SDK/runtime. Credentials are not part of recovery descriptors.
 """
     registered = set(registered_actors)
     if (not configs or not set(configs).issubset(registered)
@@ -87,23 +88,18 @@ remaining registered actors. Construction never submits an inference request.
         raise ProviderError("each mock actor requires exactly one explicit fixture output")
     fixtures = {actor: configs[actor].contract.validate_output(output)
                 for actor, output in fixtures.items()}
-    credentials = {name: read_api_key(name, environ=environ)
-                   for name in sorted({item.provider for item in configs.values()} - {"mock"})}
-    if any(item.provider == "cursor" for item in configs.values()):
-        from .cursor_local import check_runtime
-        check_runtime()
     providers = {}
     for actor, item in configs.items():
         if item.provider == "mock":
             provider = MockStructuredProvider(item.role, fixtures[actor], model=item.model)
         elif item.provider == "openai":
             from .structured_openai import OpenAIStructuredProvider
-            provider = OpenAIStructuredProvider(item.model, item.role, api_key=credentials["openai"],
+            provider = OpenAIStructuredProvider(item.model, item.role, environ=environ,
                 reservation_microusd=item.reservation_microusd,
                 max_output_tokens=4096 if item.max_output_tokens is None else item.max_output_tokens)
         else:
-            from .structured_cursor import CursorStructuredProvider
-            provider = CursorStructuredProvider(item.model, item.role, api_key=credentials["cursor"],
+            from .cursor_provider import CursorLocalProvider
+            provider = CursorLocalProvider(item.model, item.role, environ=environ,
                 reservation_microusd=item.reservation_microusd, transport_policy=item.cursor_transport)
         providers[actor] = provider
     return providers

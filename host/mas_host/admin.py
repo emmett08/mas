@@ -76,12 +76,20 @@ def _watch(state_dir: Path, interval: float, iterations: int) -> dict:
             try:
                 while not stopping.is_set():
                     report = reconcile_state(state_dir, os.environ.get("MAS_BIN", "mas"))
+                    try:
+                        health = ledger.health()
+                    except (OperationsError, sqlite3.Error, OSError):
+                        # Durable format/storage failures must keep readiness
+                        # closed while leaving the watcher alive to observe a
+                        # repair. Never print database or application details.
+                        health = {"ok": False, "error": "deployment health cannot be verified"}
+                        report = {**report, "ok": False}
                     count += 1
                     failures += int(report.get("ok") is not True)
                     monitor.write("healthy" if report.get("ok") is True else "degraded",
                                   scans=count, failures=failures)
                     print(json.dumps({"event": "reconciliation", "timestamp": int(time.time()),
-                                      "health": ledger.health(), **report}, sort_keys=True), flush=True)
+                                      "health": health, **report}, sort_keys=True), flush=True)
                     if iterations and count >= iterations:
                         break
                     stopping.wait(interval)

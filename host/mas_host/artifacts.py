@@ -70,7 +70,7 @@ def _load_json(data: bytes) -> object:
         return result
     try:
         return json.loads(data, object_pairs_hook=pairs)
-    except (ValueError, UnicodeError):
+    except (ValueError, UnicodeError, RecursionError):
         raise ArtifactError("invalid artefact metadata") from None
 
 
@@ -144,6 +144,13 @@ class ArtifactRepository(Protocol):
     def inspect(self, reference: ArtifactRef | dict) -> dict: ...
     def link(self, link_id: str, references: list[ArtifactRef | dict], *, state: str = "live") -> dict: ...
     def status(self) -> dict: ...
+
+
+def _manifest_identity(reference: ArtifactRef, readers: list[str]) -> str:
+    """Bind provenance and grants using the existing ASCII JSON store format."""
+    fields = reference.to_dict()
+    del fields["artifact_id"]  # The manifest identity cannot include itself.
+    return hashlib.sha256(_json({"reference": fields, "readers": readers})).hexdigest()
 
 
 def _open_dir(path: Path, *, create: bool = False) -> int:
@@ -241,8 +248,7 @@ def _validate_index(index: object, namespace: str) -> ArtifactPolicy:
             raise ArtifactError("invalid artefact grants")
         for reader in readers:
             _principal(reader)
-        # IDs include grants/provenance, but omit the self-referential ID.
-        identity = hashlib.sha256(_json({"reference": {k: v for k, v in ref.to_dict().items() if k != "artifact_id"}, "readers": readers})).hexdigest()
+        identity = _manifest_identity(ref, readers)
         if key != ref.artifact_id or key != manifest["artifact_id"] or key != identity or ref.namespace != namespace or ref.size > policy.max_artifact_bytes:
             raise ArtifactError("artefact manifest integrity mismatch")
     for key, link in links.items():
@@ -415,7 +421,7 @@ class ArtifactStore:
             size, digest = _hash_source(source, self.policy.max_artifact_bytes)
             source.seek(offset)
             provisional = ArtifactRef(self.namespace, "0" * 64, digest, size, media_type, self.principal, inputs)
-            identity = hashlib.sha256(_json({"reference": {key: value for key, value in provisional.to_dict().items() if key != "artifact_id"}, "readers": grants})).hexdigest()
+            identity = _manifest_identity(provisional, grants)
             ref = ArtifactRef(self.namespace, identity, digest, size, media_type, self.principal, inputs)
             if identity in index["artifacts"]:
                 self._verify_file(directory, ref)

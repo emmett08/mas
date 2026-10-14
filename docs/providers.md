@@ -1,21 +1,54 @@
 # OpenAI, restricted Cursor and durable Cursor jobs
 
-The host supports two distinct uses of Cursor. A restricted local SDK agent
-returns a validated value through the same interface as OpenAI. A Cursor Cloud
-agent performs repository work whose lifetime is independent of the local host.
-Use the local provider for the invoice mesh; use the durable-job adapter for
-remote repository tasks. A Cursor API key is not an OpenAI API credential.
+The host supports schema-validated inference through Cursor or OpenAI and
+durable repository jobs through Cursor Cloud. Applications supply their own
+instructions, input and output contracts. The local providers can classify text,
+review configuration, propose a plan or produce another bounded JSON result.
+A Cursor Cloud agent performs repository work whose lifetime is independent of
+the local host. A Cursor API key is not an OpenAI API credential.
 
 | Implementation | Contract | Completion means |
 | --- | --- | --- |
-| `OpenAIProvider` | `TotalProvider` | A Responses API call returned a valid invoice total. |
-| `CursorLocalProvider` | `TotalProvider` | A restricted SDK agent run returned a valid invoice total. |
+| `cursor_provider.CursorLocalProvider` | `StructuredProvider` | A restricted SDK run returned an object satisfying the application's output schema. |
+| `OpenAIStructuredProvider` | `StructuredProvider` | A Responses API call returned an object satisfying the application's output schema. |
+| `InvoiceCursorProvider` / `OpenAIProvider` | Invoice example's `TotalProvider` | A model call returned a valid invoice total. |
 | `CursorCloudJobAdapter` | `Adapter` for `cloud.submit` | A durable receipt identifies an accepted remote agent/run. |
-| Deterministic checker | Existing Python adapter | Exact integer arithmetic agrees with the supplied totals. |
 
 Providers can be selected independently of the graph. The same local provider
 classes can serve roles in star, mesh or tree workflows. Changing a topology
 does not create additional provider capabilities or a distributed transport.
+
+## Reusable model adapters
+
+Use `StructuredAgentAdapter` with a versioned `OperationContract` to invoke a
+model through the host's existing admission, journal and recovery boundaries.
+The contract supplies allowed callers and input/output schemas; instructions
+belong to the application. For example, an application can declare a
+`classify-change/1` operation with a string `description` input and an enumerated
+`category` output, without adding a provider method or editing the host.
+See [arbitrary model roles and operation contracts](composable-workflows.md#operation-contracts-and-arbitrary-model-roles)
+for registration and execution.
+
+The canonical Cursor import is
+`from mas_host.cursor_provider import CursorLocalProvider`. Its `infer` method
+accepts a `StructuredRequest`; `CursorTextSession.execute_prompt` owns the shared
+restricted SDK lifecycle. Invoice instructions and total validation live in
+`invoice_cursor.py`. Generic providers do not depend on that application module.
+
+For compatibility, `structured_cursor.CursorStructuredProvider` names the generic
+provider, and the old `cursor_local.CursorLocalProvider` import remains an alias
+for `InvoiceCursorProvider`. Migrate invoice callers to
+`mas_host.invoice_cursor.InvoiceCursorProvider` and new applications to
+`mas_host.cursor_provider.CursorLocalProvider`; the old invoice import is retained
+until a major API release. Existing invoice workflow descriptors and replay
+identities remain unchanged.
+
+Generic registry construction validates public configuration without reading
+credentials, importing optional model SDKs or starting clients. Inspection,
+cancellation and recovery therefore remain available when live credentials or
+the Cursor runtime are unavailable. Credential resolution and runtime checks
+occur when an admitted invocation executes. An injected client remains owned
+by its caller; a client created for an invocation is closed by that invocation.
 
 ## Credentials and model selection
 
@@ -155,7 +188,7 @@ reservations must be positive; mock reservations are zero. The defaults are
 100,000 micro-US-dollars per invocation. A reservation is a local admission
 allowance, not a provider invoice or a monetary ceiling enforced by the provider.
 
-Library callers can inject a `CursorLocalProvider` or `OpenAIProvider` into the
+Invoice example callers can inject an `InvoiceCursorProvider` or `OpenAIProvider` into the
 existing `PlannerAdapter`, `ReviewerAdapter` or `run_demo` parameters. The
 factory in `provider_config.py` is the shared construction path for the CLI and
 live acceptance. Provider selection requires no Rust wire-format change.
@@ -171,7 +204,8 @@ export MAS_CURSOR_TRANSPORT=environment-proxy-http1
 ```
 
 This setting applies only to selected Cursor local providers. Library callers
-use `CursorLocalProvider(..., transport_policy="environment-proxy-http1")`.
+use `CursorLocalProvider(..., transport_policy="environment-proxy-http1")` from
+`mas_host.cursor_provider`, or `InvoiceCursorProvider` for the invoice example.
 MAS launches its pinned Node runtime with `--use-env-proxy` and configures the
 same SDK instance used by the bridge with
 `configureCursorSdk({local: {useHttp1ForAgent: true}})` before bridge startup.

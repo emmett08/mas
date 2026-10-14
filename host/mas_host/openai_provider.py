@@ -6,23 +6,9 @@ import re
 from typing import Any
 
 from .contracts import Invocation
+from .openai_client import create_client
 from .provider_contract import ProviderError
 from .invoice_contract import validate_invoice, validate_total, parse_total_output
-
-
-def _create_client(api_key: str | None):
-    """Shared SDK boundary: fixed endpoint, bounded timeout and no hidden retries."""
-    if not api_key:
-        raise ProviderError("OpenAI mode requires OPENAI_API_KEY_FILE or OPENAI_API_KEY")
-    try:
-        from openai import OpenAI
-    except ImportError:
-        raise ProviderError("OpenAI mode requires the optional openai dependency") from None
-    try:
-        return OpenAI(api_key=api_key, base_url="https://api.openai.com/v1",
-                      timeout=45.0, max_retries=0)
-    except Exception:
-        raise ProviderError("could not initialise the OpenAI client") from None
 
 
 class OpenAIProvider:
@@ -41,7 +27,7 @@ class OpenAIProvider:
             raise ValueError("OpenAI calls require a positive bounded spending reservation")
         self.reservation_microusd = reservation_microusd
         if client is None:
-            client = _create_client(api_key)
+            client = create_client(api_key)
         self._client = client
 
     def descriptor(self) -> dict:

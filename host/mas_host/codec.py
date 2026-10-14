@@ -1,5 +1,6 @@
 """Host validation for Rust actor identities and bounded integer JSON."""
 
+import hashlib
 import json
 import re
 
@@ -52,3 +53,20 @@ def integer_json(value: object, limit: int = JSON_BYTES) -> str:
         return source
     except (ValueError, TypeError, UnicodeError, RecursionError):
         raise RunnerError("invalid protocol JSON") from None
+
+
+def canonical_json(value: object, limit: int = JSON_BYTES) -> str:
+    """Return bounded integer JSON with sorted keys and unescaped Unicode.
+
+    Validation precedes serialization so Python keys, floats and subclasses
+    cannot be coerced into a different value. The returned UTF-8 representation
+    preserves the existing host descriptor encoding used for durable identities.
+    Callers translate ``RunnerError`` into their own boundary's diagnostic.
+    """
+    checked = json.loads(integer_json(value, limit))
+    return json.dumps(checked, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+
+def json_identity(value: object, limit: int = JSON_BYTES) -> str:
+    """SHA-256 identity of ``canonical_json``'s bounded UTF-8 representation."""
+    return hashlib.sha256(canonical_json(value, limit).encode("utf-8")).hexdigest()

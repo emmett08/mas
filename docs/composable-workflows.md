@@ -213,8 +213,9 @@ python -m mas_host workflow run \
 ```
 
 `status` returns the plan binding, deadline, state, output, allocation use,
-logical node paths and leaf attempt states. `cancel` records cancellation and
-stops further admission. Cancellation does not undo external effects. Unknown
+logical node paths and leaf attempt states from one read snapshot. Graph queries
+do not load omitted input or historical output payloads. `cancel` records
+cancellation and stops further admission. Cancellation does not undo external effects. Unknown
 effects take precedence over an apparently cancelled or failed result.
 Once workers have drained, cancellation closes queued and paused latest leaf
 revisions and their visible nodes. Earlier continuation revisions, completed
@@ -269,6 +270,11 @@ blocks execution until the existing [operations procedure](operations.md)
 records an evidenced decision. Changing an adapter, operation contract, provider
 binding or plan requires an appropriate version/descriptor change; an existing
 instance rejects a changed binding.
+
+If both the scheduler and its worker die before recording an outcome, restart
+inspects the assigned run's journal before applying cancellation or expiry.
+Unresolved effects keep the composition `unknown` until evidenced resolution;
+the original cancellation intent and deadline remain effective after recovery.
 
 The loop recovery integration tests interrupt a later iteration inside a reusable
 subworkflow alongside a completed parallel branch. They exercise scheduler
@@ -334,6 +340,11 @@ Register the caller's adapter separately. Add each structured adapter's
 contract, model and fixture binding. Live providers use the existing credential
 and reservation paths described in [providers](providers.md). The invoice
 provider API and its planner/reviewer demonstration remain compatible.
+
+Generic registration and descriptor inspection require no live credentials or
+optional provider SDK. Credentials and runtime dependencies are resolved only
+when the admitted model invocation executes. This also lets `status`, `task`,
+`cancel` and `recover` load the same registered binding without provider secrets.
 
 The runnable structured example combines both schemas with operation dispatch,
 two simultaneous model actors, exact acceptance checks and admitted publication

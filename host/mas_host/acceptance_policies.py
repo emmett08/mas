@@ -13,8 +13,8 @@ import json
 import re
 from typing import Callable, Iterable, Protocol
 
+from .codec import canonical_json, json_identity
 from .contracts import RunnerError
-from .operation_contracts import _canonical, _identity, _name
 
 
 class AcceptanceError(RunnerError):
@@ -24,6 +24,12 @@ class AcceptanceError(RunnerError):
 
 
 STATES = frozenset({"accepted", "rejected", "unresolved"})
+
+
+def _name(value: str) -> str:
+    if type(value) is not str or re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,62}", value) is None:
+        raise AcceptanceError("invalid_acceptance_name")
+    return value
 
 
 def _digest(value: str) -> str:
@@ -57,8 +63,8 @@ class AssessmentSubject:
         if type(input) is not dict or type(output) is not dict:
             raise AcceptanceError("invalid_assessment_subject")
         try:
-            object.__setattr__(self, "_input", _canonical(input))
-            object.__setattr__(self, "_output", _canonical(output))
+            object.__setattr__(self, "_input", canonical_json(input))
+            object.__setattr__(self, "_output", canonical_json(output))
         except RunnerError:
             raise AcceptanceError("invalid_assessment_subject") from None
 
@@ -78,11 +84,15 @@ class AssessmentSubject:
 
     @property
     def identity(self) -> str:
-        return _identity(self.descriptor)
+        return json_identity(self.descriptor)
 
 
 @dataclass(frozen=True)
 class AcceptanceDecision:
+    """Decision whose complete descriptor fits the codec's JSON byte bound.
+
+    Applications must still budget separately for any enclosing message.
+    """
     status: str
     subject_identity: str
     policy_identity: str
@@ -101,6 +111,12 @@ class AcceptanceDecision:
         if len(set(refs)) != len(refs):
             raise AcceptanceError("duplicate_acceptance_evidence")
         object.__setattr__(self, "evidence_ids", refs)
+        # Per-reference bounds alone do not bound the encoded decision: JSON
+        # escaping can double the size of an otherwise valid evidence string.
+        try:
+            canonical_json(self.descriptor)
+        except RunnerError:
+            raise AcceptanceError("invalid_acceptance_decision") from None
 
     @property
     def descriptor(self) -> dict:
@@ -144,7 +160,7 @@ class DeterministicPolicy:
 
     @property
     def identity(self) -> str:
-        return _identity(self.descriptor)
+        return json_identity(self.descriptor)
 
     def evaluate(self, subject: AssessmentSubject) -> AcceptanceDecision:
         _subject(subject)
@@ -187,7 +203,7 @@ class DesignatedReviewerPolicy:
 
     @property
     def identity(self) -> str:
-        return _identity(self.descriptor)
+        return json_identity(self.descriptor)
 
     def evaluate(self, subject: AssessmentSubject, *, authenticated_reviewer: str,
                  decision: dict) -> AcceptanceDecision:
@@ -246,7 +262,7 @@ class AggregatePolicy:
 
     @property
     def identity(self) -> str:
-        return _identity(self.descriptor)
+        return json_identity(self.descriptor)
 
     def evaluate(self, subject: AssessmentSubject,
                  decisions: Iterable[AcceptanceDecision]) -> AcceptanceDecision:
@@ -272,5 +288,5 @@ class AggregatePolicy:
             status, reason = "unresolved", "acceptance_evidence_incomplete"
         # A bounded decision references child decision digests, preserving all
         # child evidence without flattening an unbounded reference collection.
-        evidence = tuple("sha256:" + _identity(observed[key].descriptor) for key in sorted(observed))
+        evidence = tuple("sha256:" + json_identity(observed[key].descriptor) for key in sorted(observed))
         return AcceptanceDecision(status, subject.identity, self.identity, reason, evidence)

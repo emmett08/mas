@@ -159,6 +159,15 @@ The production Compose overlay supplies a separate reconciler service. Its proce
 
 Health reports include local `task_service` state counts and `remote_tasks` state, pending-action and unknown-operation counts. These are persisted observations, not fresh provider status checks. Reconciliation validates the bridge repositories and reports `bridge_observations.remote_refreshed: false`; an unsupported schema or unreadable repository makes the scan fail. A remote refresh must use the admitted bridge lifecycle operation so polling cannot bypass deployment accounting.
 
+The `composition` health entry reports workflow instance, node and attempt states
+and retained allocations. Reconciliation reports `composition_observations` and
+validates the composition schema without creating missing state. An unsupported
+schema, unreadable database or invalid durable state makes the scan fail. The
+watcher records a degraded scan and a bounded diagnostic when health inspection
+fails, so an unusable workflow repository cannot establish readiness.
+Counts include retained historical revisions. They report persisted observations,
+not worker liveness or progress; reservations are not actual provider expenditure.
+
 Service cancellation closes queued work or a paused local continuation. Cancelling a running task records intent for its worker; cancelling an unknown task retains that uncertainty. A local `cancelled` service receipt does not confirm that a separate remote task stopped. Remote cancellation uses its own admitted lifecycle operation, and its receipt continues to protect the associated evidence until reconciled. Revoking a caller's permission prevents further dispatch but preserves an interrupted execution as unknown when earlier effects may have escaped.
 
 ## Recover an interrupted workflow
@@ -250,6 +259,7 @@ The host-side repositories have independent application identities and versions:
 | Cursor cloud jobs | `MASC` (`0x4d415343`) | 1 | None |
 | Durable task service | `MAST` (`0x4d415354`) | 1 | None |
 | Remote bridge tasks | `MASR` (`0x4d415352`) | 1 | None |
+| Workflow composition | `MASW` (`0x4d415357`) | 1 | None |
 
 A writable open validates the exact declared tables, constraints and indices, and the saved metadata, before transactionally migrating a recognised previous format. Migration preserves deployment identity, policy, charges, checkpoints and resolutions. Unknown application identities, versions, extra objects or changed layouts are rejected before database mutation. Read-only health and inspection recognise supported previous formats without migrating them. Neither operation creates missing state. The Rust protocol repository retains its own format and migration rules.
 

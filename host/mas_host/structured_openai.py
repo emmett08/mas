@@ -3,10 +3,10 @@ from __future__ import annotations
 
 import json
 import re
-from typing import Any
+from typing import Any, Mapping
 
 from .contracts import Invocation
-from .openai_provider import _create_client
+from .openai_client import response_client
 from .provider_contract import ProviderError
 from .structured_provider import IDENTIFIER, MAX_OUTPUT_BYTES, StructuredRequest, validate_trace_id
 
@@ -14,7 +14,7 @@ from .structured_provider import IDENTIFIER, MAX_OUTPUT_BYTES, StructuredRequest
 class OpenAIStructuredProvider:
     def __init__(self, model: str, role: str, *, api_key: str | None = None,
                  client: Any = None, reservation_microusd: int = 100_000,
-                 max_output_tokens: int = 4096):
+                 max_output_tokens: int = 4096, environ: Mapping[str, str] | None = None):
         if type(max_output_tokens) is not int or not 1 <= max_output_tokens <= 16_384:
             raise ProviderError("structured output requires a bounded positive token limit")
         if type(model) is not str or not IDENTIFIER.fullmatch(model):
@@ -26,7 +26,9 @@ class OpenAIStructuredProvider:
         self.model, self.role = model, role
         self.reservation_microusd = reservation_microusd
         self.max_output_tokens = max_output_tokens
-        self._client = _create_client(api_key) if client is None else client
+        # A registered provider is a configuration binding, not an SDK session.
+        # Secrets and optional dependencies are needed only by admitted calls.
+        self._api_key, self._client, self._environ = api_key, client, environ
 
     def descriptor(self) -> dict:
         return {"provider": "openai", "model": self.model, "role": self.role,
@@ -40,14 +42,16 @@ class OpenAIStructuredProvider:
         validate_trace_id(request_id)
         supplied = request.descriptor
         try:
-            response = self._client.responses.create(
-                model=self.model,
-                input=[{"role": "developer", "content": supplied["instructions"]},
-                       {"role": "user", "content": json.dumps(supplied["input"], separators=(",", ":"))}],
-                text={"format": {"type": "json_schema", "name": supplied["schema_name"],
-                                 "strict": True, "schema": supplied["output_schema"]}},
-                tools=[], store=False, max_output_tokens=self.max_output_tokens,
-                extra_headers={"X-Client-Request-Id": request_id} if request_id else {})
+            with response_client(client=self._client, api_key=self._api_key,
+                                 environ=self._environ) as client:
+                response = client.responses.create(
+                    model=self.model,
+                    input=[{"role": "developer", "content": supplied["instructions"]},
+                           {"role": "user", "content": json.dumps(supplied["input"], separators=(",", ":"))}],
+                    text={"format": {"type": "json_schema", "name": supplied["schema_name"],
+                                     "strict": True, "schema": supplied["output_schema"]}},
+                    tools=[], store=False, max_output_tokens=self.max_output_tokens,
+                    extra_headers={"X-Client-Request-Id": request_id} if request_id else {})
         except Exception:
             raise ProviderError("OpenAI invocation failed; its external outcome may be unknown") from None
         if getattr(response, "status", None) != "completed":

@@ -14,7 +14,7 @@ from mas_host import Invocation, Outcome
 from mas_host.journal import inspect_run, resolve_invocation
 from mas_host.operations import backup_state, restore_state
 from mas_host.service_contracts import ServiceError, TaskService
-from mas_host.task_service import DurableTaskService, ExecutionResult, PAGE_BYTES, Workflow
+from mas_host.task_service import DurableTaskService, ExecutionResult, PAGE_BYTES, RunnerExecutor, Workflow
 from mas_host.task_store import SERVICE, canonical, event
 from test_runner import FunctionAdapter, topology
 import test_runner as runner_tests
@@ -242,6 +242,66 @@ class TaskServiceTests(unittest.TestCase):
         service.recover("alice", task["task_id"])
         self.assertEqual(service.run_once()["result"], {"answer": 7})
         self.assertEqual(effects, [True])
+
+    def test_cancellation_after_lost_unknown_receipt_preserves_recovery(self):
+        effects = []
+
+        def provider():
+            effects.append(True)
+            raise RuntimeError('effect reply lost')
+
+        workflow = replace(self.workflow, adapters=self.workflow.adapters | {
+            'b': FunctionAdapter(lambda context, request: Outcome(context.invoke(provider, input={})))})
+        service = self.service(workflow=workflow)
+        task = service.submit('alice', 'lost-unknown-receipt', 'echo', {})
+        execute = service.executor.execute
+
+        def lose_receipt(*args, **kwargs):
+            self.assertEqual(execute(*args, **kwargs).state, 'unknown')
+            raise SystemExit('worker died before service receipt commit')
+
+        with mock.patch.object(service.executor, 'execute', side_effect=lose_receipt):
+            with self.assertRaises(SystemExit):
+                service.run_once()
+        self.assertEqual(service.inspect('alice', task['task_id'])['state'], 'running')
+        execution = self.execution(service, task['task_id'])
+        directory = self.state / execution['run_directory']
+        self.assertTrue(inspect_run(directory)['recovery_required'])
+        service.cancel('alice', task['task_id'])
+        stopped = service.run_once()
+        self.assertEqual(stopped['state'], 'unknown')
+        self.assertTrue(stopped['cancel_requested'])
+        self.assertTrue(inspect_run(directory)['recovery_required'])
+        with self.assertRaisesRegex(ServiceError, 'reconciliation required'):
+            service.recover('alice', task['task_id'])
+
+        call = inspect_run(directory)['invocations'][0]
+        resolve_invocation(directory, call['call_id'], decision='completed', output={'answer': 7},
+                           evidence={'receipt': 'independent confirmation'})
+        service.recover('alice', task['task_id'])
+        self.assertEqual(service.run_once()['state'], 'cancelled')
+        self.assertEqual(self.execution(service, task['task_id'])['run_id'], execution['run_id'])
+        self.assertFalse(inspect_run(directory)['recovery_required'])
+        self.assertEqual(effects, [True])
+        self.assertEqual(service.operations.health()['usage']['calls'], 1)
+
+    def test_executor_cancellation_before_bootstrap_never_creates_or_admits_run(self):
+        service = self.service()
+        task = service.submit('alice', 'never-started', 'echo', {})
+        execution = self.execution(service, task['task_id'])
+        result = service.executor.execute(self.workflow, execution, cancelled=lambda: True,
+                                          ownership_descriptor=0)
+        self.assertEqual(result.state, 'cancelled')
+        self.assertFalse((self.state / execution['run_directory']).exists())
+        self.assertEqual(service.operations.health()['usage']['runs'], 0)
+
+    def test_executor_implicit_ledger_cancellation_is_readonly(self):
+        missing = self.root / 'never-created'
+        executor = RunnerExecutor(missing, operations=None)
+        result = executor.execute(self.workflow, {'run_directory': 'run-never', 'run_id': 'run-never'},
+                                  cancelled=lambda: True, ownership_descriptor=0)
+        self.assertEqual(result.state, 'cancelled')
+        self.assertFalse(missing.exists())
 
     def test_continuation_is_opt_in_and_has_own_run_with_idempotent_update(self):
         workflow = replace(self.workflow,

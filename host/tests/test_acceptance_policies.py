@@ -1,8 +1,10 @@
 from dataclasses import FrozenInstanceError
+import json
 import unittest
 
 from mas_host.acceptance_policies import (AcceptanceDecision, AcceptanceError, AggregatePolicy,
     AssessmentSubject, DesignatedReviewerPolicy, DeterministicPolicy)
+from mas_host.codec import JSON_BYTES, canonical_json
 
 
 class AcceptancePolicyTests(unittest.TestCase):
@@ -114,6 +116,61 @@ class AcceptancePolicyTests(unittest.TestCase):
         first = a.evaluate(self.subject, [self.yes.evaluate(self.subject), self.no.evaluate(self.subject)])
         second = a.evaluate(self.subject, [self.no.evaluate(self.subject), self.yes.evaluate(self.subject)])
         self.assertEqual(first, second)
+
+    def test_decision_checks_escaped_size_before_it_can_enter_an_aggregate(self):
+        evidence = [str(i) + "\\" * (256 - len(str(i))) for i in range(128)]
+        descriptor = {"format": "mas-acceptance-decision/1", "status": "accepted",
+                      "subject_identity": self.subject.identity, "policy_identity": self.yes.identity,
+                      "reason": "reviewed", "evidence_ids": evidence}
+        encoded_size = len(json.dumps(descriptor, ensure_ascii=False, separators=(",", ":")).encode())
+        self.assertGreater(encoded_size, JSON_BYTES)
+        with self.assertRaises(AcceptanceError) as rejected:
+            AcceptanceDecision("accepted", self.subject.identity, self.yes.identity, "reviewed", evidence)
+        self.assertEqual(rejected.exception.code, "invalid_acceptance_decision")
+
+        # Each removed backslash saves two encoded bytes. Exactly the complete
+        # descriptor limit remains valid, including when aggregation hashes it.
+        self.assertEqual((encoded_size - JSON_BYTES) % 2, 0)
+        excess_characters = (encoded_size - JSON_BYTES) // 2
+        evidence[-1] = evidence[-1][:-excess_characters]
+        decision = AcceptanceDecision("accepted", self.subject.identity, self.yes.identity, "reviewed", evidence)
+        self.assertEqual(len(canonical_json(decision.descriptor).encode()), JSON_BYTES)
+        result = AggregatePolicy("all", "1", [self.yes.identity]).evaluate(self.subject, [decision])
+        self.assertEqual(result.status, "accepted")
+
+    def test_evidence_identifiers_count_unicode_bytes_and_use_domain_errors(self):
+        evidence = tuple(str(i) + "雪" * ((256 - len(str(i))) // 3) for i in range(128))
+        decision = AcceptanceDecision("accepted", self.subject.identity, self.yes.identity, "reviewed", evidence)
+        self.assertIn("雪", canonical_json(decision.descriptor))
+        self.assertEqual(AggregatePolicy("all", "1", [self.yes.identity]).evaluate(
+            self.subject, [decision]).status, "accepted")
+        for invalid in ("雪" * 86, "\ud800"):
+            with self.subTest(invalid=ascii(invalid)), self.assertRaises(AcceptanceError):
+                AcceptanceDecision("accepted", self.subject.identity, self.yes.identity, "reviewed", [invalid])
+
+    def test_symbolic_names_report_acceptance_errors_without_contract_dependency(self):
+        constructors = (
+            lambda: DeterministicPolicy("bad/name", "1", lambda i, o: True),
+            lambda: DesignatedReviewerPolicy("review", "bad/version", "alice"),
+            lambda: AggregatePolicy("bad/name", "1", [self.yes.identity]),
+            lambda: AcceptanceDecision("accepted", self.subject.identity, self.yes.identity, "bad/reason"),
+        )
+        for construct in constructors:
+            with self.subTest(construct=construct), self.assertRaises(AcceptanceError) as rejected:
+                construct()
+            self.assertEqual(rejected.exception.code, "invalid_acceptance_name")
+
+    def test_existing_subject_policy_and_aggregate_fingerprints_are_preserved(self):
+        subject = AssessmentSubject({"path": "C:\\雪", "revision": "é"}, {"value": 7})
+        policy = DeterministicPolicy("check", "1", lambda i, o: True)
+        reviewer = DesignatedReviewerPolicy("review", "1", "é@example.com")
+        self.assertEqual(subject.identity, "da3ed66205c180f4574101a184470f1828b757cf88cb7cbbc3ab83adcec00dbc")
+        self.assertEqual(policy.identity, "be7c58b6c73a79366cb48f3f1040b6ded75ed4d07791319d26bd1d9381a09155")
+        self.assertEqual(reviewer.identity, "b3b1879beda35454aa1b79f2bb9185c31d0406d1166a46bd0ad6c234efe87526")
+        result = AggregatePolicy("all", "1", [policy.identity]).evaluate(subject, [policy.evaluate(subject)])
+        self.assertEqual(result.policy_identity, "0a0b58b978035dda385120f4cfc44459a7950559b13b7211e27a0dfca24cd346")
+        self.assertEqual(result.evidence_ids,
+                         ("sha256:7c45c61667da0646dbf8aebbc84e0e807a24ef9f7cb84a579d5d2c6411a012f3",))
 
     def test_invalid_policy_and_subject_configuration_fail_closed(self):
         for threshold in (True, 0, 2, None):

@@ -247,6 +247,10 @@ class RunnerExecutor:
         from .runner import Runner
         from .supervision import InlineExecutor, LinuxProcessExecutor
         if cancelled():
+            from .bootstrap import requires_reconciliation
+            if requires_reconciliation(self.state_dir / execution['run_directory'], execution['run_id'],
+                                       operations=self.operations):
+                return ExecutionResult('unknown', error={'code': 'reconciliation_required'})
             return ExecutionResult("cancelled")
         path = self._bootstrap(workflow, execution)
         adapters = workflow.adapters

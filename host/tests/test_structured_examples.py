@@ -23,7 +23,7 @@ class StructuredExampleTests(unittest.TestCase):
 
     def test_two_schema_operations_publish_accepted_evidence_and_replay(self):
         with tempfile.TemporaryDirectory() as directory, \
-                patch("mas_host.agent_config.read_api_key", side_effect=AssertionError("offline secret access")):
+                patch("mas_host.provider_credentials.read_api_key", side_effect=AssertionError("offline secret access")):
             registry = example_registry(environ={})
             engine = WorkflowEngine(directory, **registry, **self.options)
             submitted = engine.submit("demo", "accepted", "structured-evidence", {"text": "hello", "value": 7})

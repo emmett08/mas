@@ -10,7 +10,8 @@ import unittest
 from unittest.mock import Mock, patch
 
 from mas_host.contracts import invocation_failure_diagnostic
-from mas_host.cursor_local import CursorLocalProvider, _bridge_child, _launch_client
+from mas_host.invoice_cursor import InvoiceCursorProvider as CursorLocalProvider
+from mas_host.cursor_session import _bridge_child, launch_client as _launch_client
 from mas_host.cursor_transport import (ENVIRONMENT_PROXY_HTTP1, SDK_DEFAULT,
     bridge_transport, transport_identity, validate_transport_policy)
 from mas_host.provider_contract import ProviderError
@@ -21,7 +22,7 @@ class CursorTransportTests(unittest.TestCase):
         for policy in (None, True, [], "", "environment-proxy", "--require evil.js"):
             with self.subTest(policy=policy), self.assertRaises(ValueError):
                 validate_transport_policy(policy)
-            with patch("mas_host.cursor_local._sdk_module") as sdk, self.assertRaises(ValueError):
+            with patch("mas_host.cursor_session._sdk_module") as sdk, self.assertRaises(ValueError):
                 _launch_client("/private/workspace", transport_policy=policy)
             sdk.assert_not_called()
 
@@ -78,8 +79,8 @@ class CursorTransportTests(unittest.TestCase):
                     "NODE_OPTIONS": "--require /untrusted/hook", "NODE_USE_ENV_PROXY": "0",
                     "NODE_TLS_REJECT_UNAUTHORIZED": "0", "NODE_EXTRA_CA_CERTS": "/approved/ca.pem"}
         with tempfile.TemporaryDirectory() as workspace, patch.dict(os.environ, supplied, clear=True), \
-                patch("mas_host.cursor_local._bridge_files", return_value=(Path("/node"), Path("/bridge"))), \
-                patch("mas_host.cursor_local.os.execve") as execute:
+                patch("mas_host.cursor_session._bridge_files", return_value=(Path("/node"), Path("/bridge"))), \
+                patch("mas_host.cursor_session.os.execve") as execute:
             _bridge_child(workspace, ["--workspace", workspace], ENVIRONMENT_PROXY_HTTP1)
             executable, command, child = execute.call_args.args
             self.assertEqual(executable, "/node")
@@ -93,8 +94,8 @@ class CursorTransportTests(unittest.TestCase):
     def test_launch_selects_internal_policy_without_proxying_python_loopback(self):
         sdk = SimpleNamespace(DefaultHttpxClient=Mock(), Bridge=SimpleNamespace(launch=Mock()),
                               CursorClient=Mock())
-        with patch("mas_host.cursor_local._sdk_module", return_value=sdk), \
-                patch("mas_host.cursor_local._OwnedClient", return_value=object()):
+        with patch("mas_host.cursor_session._sdk_module", return_value=sdk), \
+                patch("mas_host.cursor_session._OwnedClient", return_value=object()):
             _launch_client("/private/workspace", transport_policy=ENVIRONMENT_PROXY_HTTP1)
         command = sdk.Bridge.launch.call_args.kwargs["command"]
         self.assertEqual(command[-4:], ["--bridge-child", "/private/workspace",
@@ -112,8 +113,8 @@ class CursorTransportTests(unittest.TestCase):
                 sdk = SimpleNamespace(DefaultHttpxClient=Mock(return_value=http),
                     Bridge=SimpleNamespace(launch=Mock(return_value=bridge)),
                     CursorClient=Mock(side_effect=ValueError("private launch fixture")))
-                with patch("mas_host.cursor_local._sdk_module", return_value=sdk), \
-                        patch("mas_host.cursor_local._close_bridge",
+                with patch("mas_host.cursor_session._sdk_module", return_value=sdk), \
+                        patch("mas_host.cursor_session._close_bridge",
                               side_effect=ValueError("private bridge fixture") if close_bridge_fails else None) as close, \
                         self.assertRaises(ProviderError) as failure:
                     _launch_client("/private/workspace")
@@ -130,8 +131,8 @@ class CursorTransportTests(unittest.TestCase):
         sdk = SimpleNamespace(DefaultHttpxClient=Mock(return_value=http),
             Bridge=SimpleNamespace(launch=Mock(return_value=bridge)),
             CursorClient=Mock(side_effect=primary))
-        with patch("mas_host.cursor_local._sdk_module", return_value=sdk), \
-                patch("mas_host.cursor_local._close_bridge", side_effect=ValueError("private fixture")), \
+        with patch("mas_host.cursor_session._sdk_module", return_value=sdk), \
+                patch("mas_host.cursor_session._close_bridge", side_effect=ValueError("private fixture")), \
                 self.assertRaises(KeyboardInterrupt) as failure:
             _launch_client("/private/workspace")
         self.assertIs(failure.exception, primary)

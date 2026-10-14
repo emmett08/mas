@@ -331,6 +331,7 @@ class DeploymentLedger:
                 "cursor_jobs": cursor_job_counts(self.state_dir),
                 "task_service": task_service_counts(self.state_dir),
                 "remote_tasks": remote_task_counts(self.state_dir),
+                "composition": composition_counts(self.state_dir),
                 "admission_open": enabled and usage["runs"] < self.policy.max_runs and usage["calls"] < self.policy.max_calls
                 and usage["reserved_microusd"] < self.policy.max_reserved_microusd
                 and size < self.policy.max_state_bytes and free >= self.policy.min_free_bytes,
@@ -369,6 +370,40 @@ def _pending_cloud_job(directory: Path) -> bool:
 _TASK_STATES = ("queued", "running", "input_required", "auth_required", "unknown",
                 "completed", "failed", "cancelled")
 _TASK_TERMINAL = ("completed", "failed", "cancelled")
+
+
+def composition_counts(state_dir: Path) -> dict:
+    """Read retained composition states and allocations without scheduling work.
+
+    Attempts include historical continuation revisions. An absent optional
+    repository has zero observations; an existing unsupported or corrupt store
+    is an error, never an empty or healthy composition repository.
+    """
+    states = (*_TASK_STATES, "expired")
+    counts = {"instances": dict.fromkeys(states, 0),
+              "attempts": dict.fromkeys(states, 0),
+              "nodes": dict.fromkeys((*states, "waiting"), 0),
+              "allocations": {"calls": 0, "reserved_microusd": 0}}
+    path = Path(state_dir) / "composition.sqlite"
+    if not path.exists() and not path.is_symlink():
+        return counts
+    try:
+        with _db(path, readonly=True) as db:
+            db.execute("BEGIN")
+            if db.execute("PRAGMA quick_check(1)").fetchone()[0] != "ok":
+                raise OperationsError("durable workflow composition state cannot be verified")
+            for table in ("instances", "attempts", "nodes"):
+                for state, count in db.execute(f"SELECT state,count(*) FROM {table} GROUP BY state"):
+                    if state not in counts[table]:
+                        raise OperationsError("unrecognised durable workflow composition state")
+                    counts[table][state] = count
+            if db.execute("SELECT 1 FROM allocations WHERE typeof(amount)!='integer' OR amount<0 LIMIT 1").fetchone():
+                raise OperationsError("invalid durable workflow composition allocation")
+            calls, reserved = db.execute("SELECT count(*),coalesce(sum(amount),0) FROM allocations").fetchone()
+            counts["allocations"] = {"calls": calls, "reserved_microusd": reserved}
+    except sqlite3.Error:
+        raise OperationsError("durable workflow composition state cannot be verified") from None
+    return counts
 
 
 def task_service_counts(state_dir: Path) -> dict:
@@ -492,8 +527,15 @@ def _reconcile_state(state_dir: Path, mas_bin: str = "mas") -> dict:
     except (OperationsError, sqlite3.Error):
         bridge_observations = {"ok": False, "remote_refreshed": False,
                                "error": "durable bridge state cannot be verified"}
-    return {"ok": all(item["ok"] for item in results) and bridge_observations["ok"],
-            "runs": results, "bridge_observations": bridge_observations}
+    try:
+        composition_observations = {"ok": True, **composition_counts(state_dir)}
+    except OperationsError:
+        composition_observations = {"ok": False,
+                                    "error": "durable workflow composition state cannot be verified"}
+    return {"ok": (all(item["ok"] for item in results) and bridge_observations["ok"]
+                   and composition_observations["ok"]),
+            "runs": results, "bridge_observations": bridge_observations,
+            "composition_observations": composition_observations}
 
 
 def _empty_destination(destination: Path) -> Path:

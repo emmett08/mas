@@ -39,7 +39,7 @@ and the join can succeed; the success implication is therefore not vacuous.
 
 | Model transition | Implementation responsibility |
 | --- | --- |
-| Persist intent and assignment | `WorkflowEngine._attempt`, the unique instance/path/revision key and retained run directory |
+| Persist intent and assignment | `WorkflowStore.attempt` and `assign_attempt`, the unique instance/path/revision key and retained run directory |
 | Consume shared allowance | `WorkflowAllocation.admit_call`, serialised SQLite accounting before underlying admission |
 | Dispatch | Scheduler worker start followed by the existing Runner admission/journal boundary |
 | Resume an assignment | Restart retains the run directory and request identity; Runner replays the existing journal |
@@ -77,3 +77,10 @@ iteration-limit exhaustion without repeating completed effects. They also check
 stable run identities, retained journal/protocol records, deadlines and shared
 allocations. The two-leaf model above does not represent loop iterations; its
 checked properties should not be described as a formal proof of loop recovery.
+
+`host/tests/test_workflow_recovery.py` also kills both the scheduler and its worker
+after an independently recorded effect. Cancellation, root expiry and nested
+scope expiry must preserve unresolved journal evidence as `unknown`. After
+evidence-backed resolution, recovery retains the assignment, deadline and
+allocation without repeating the effect. These process-level fault tests check
+the implementation; they do not enlarge the state space covered by the model.

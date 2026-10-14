@@ -12,7 +12,7 @@ import unittest
 from unittest.mock import patch
 
 from mas_host.artifacts import ArtifactError, ArtifactPolicy, ArtifactRef, ArtifactStore, has_retained_artifacts
-from mas_host.operations import backup_state, prune_runs, restore_state
+from mas_host.operations import OperationsError, backup_state, prune_runs, restore_state
 import test_operations
 
 
@@ -52,6 +52,22 @@ class ArtifactTests(unittest.TestCase):
         for bad in ({**ref.to_dict(), "url": "https://example.invalid/a"}, {**ref.to_dict(), "format": "mas-artifact/2"}):
             with self.assertRaises(ArtifactError):
                 reader.read_bytes(bad)
+
+    def test_existing_manifest_fingerprint_is_preserved_on_publication_and_reopen(self):
+        producer = ArtifactStore(self.root / "artifacts", namespace="evidence-v1", principal="producer/worker")
+        ref = producer.put_bytes("é雪".encode(), media_type="text/plain", input_sha256s=("0" * 64,),
+                                 readers=("review/checker", "owner"))
+        self.assertEqual(ref.artifact_id, "8c9b0919995782954916e6661c6f2a58dd49c5d7026496db369f37607a777203")
+        reader = ArtifactStore(self.root / "artifacts", namespace="evidence-v1", principal="review/checker",
+                               readonly=True)
+        self.assertEqual(reader.read_bytes(ref), "é雪".encode())
+
+    def test_excessively_nested_metadata_has_fixed_artifact_and_retention_errors(self):
+        (self.store.directory / "index.json").write_text("[" * 20000 + "0" + "]" * 20000)
+        with self.assertRaisesRegex(ArtifactError, "invalid artefact metadata"):
+            self.store.status()
+        with self.assertRaisesRegex(OperationsError, "artefact retention state cannot be verified"):
+            has_retained_artifacts(self.root)
 
     def test_principals_and_namespaces_are_isolated_even_with_known_reference(self):
         ref = self.store.put_bytes(b"private")
@@ -249,6 +265,16 @@ class ArtifactOperationsTests(unittest.TestCase):
     setUp = test_operations.OperationsTests.setUp
     tearDown = test_operations.OperationsTests.tearDown
     run_directory = test_operations.OperationsTests.run_directory
+
+    def test_nested_metadata_retains_run_with_structured_pruning_diagnostic(self):
+        directory = self.run_directory()
+        store = ArtifactStore(directory / "artifacts", namespace="run", principal="writer")
+        (store.directory / "index.json").write_text("[" * 20000 + "0" + "]" * 20000)
+        result = prune_runs(self.state, 0, apply=True)
+        self.assertFalse(result["runs"][0]["deleted"])
+        self.assertEqual(result["runs"][0]["reason"], "run busy or state cannot be verified")
+        self.assertTrue(directory.is_dir())
+
     def test_backup_restore_and_retention_with_live_manifest(self):
         directory = self.run_directory()
         store = ArtifactStore(directory / "artifacts", namespace="run", principal="writer")

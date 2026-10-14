@@ -141,6 +141,12 @@ class OperationContractTests(unittest.TestCase):
         changed["operations"].clear()
         self.assertEqual(len(a.descriptor["operations"]), 1)
 
+    def test_existing_contract_fingerprint_preserves_unicode_schema_encoding(self):
+        contract = OperationContract("echo", "1",
+            {"type": "object", "title": "é雪", "properties": {"value": {"type": "string"}},
+             "additionalProperties": False}, {"type": "object"}, ["review/checker", "coordinator"])
+        self.assertEqual(contract.identity, "ba36296c9e6ea9bfad69bd48ca33e64532d70b3e441f47dc7ba9ddda28a99718")
+
     def test_duplicate_and_invalid_registrations_fail_at_configuration_time(self):
         operation = RegisteredOperation(self.contract(), Handler(), "1")
         with self.assertRaisesRegex(ContractError, "duplicate"):
@@ -155,6 +161,18 @@ class OperationContractTests(unittest.TestCase):
             JsonObjectSchema({"description": "x" * 65536})
         with self.assertRaises(ContractError):
             JsonObjectSchema(True).validate({"data": "x" * 65536})
+
+    def test_combined_descriptor_bounds_report_contract_errors(self):
+        schema = {"type": "object", "description": "x" * 33000}
+        with self.assertRaises(ContractError) as rejected:
+            self.contract(input_schema=schema, output_schema=schema)
+        self.assertEqual(rejected.exception.code, "invalid_operation_contract")
+        first = self.contract(input_schema=schema)
+        second = self.contract(version="2", input_schema=schema)
+        with self.assertRaises(ContractError) as rejected:
+            OperationRegistry("worker", [RegisteredOperation(first, Handler(), "1"),
+                                         RegisteredOperation(second, Handler(), "1")])
+        self.assertEqual(rejected.exception.code, "invalid_operation_registry")
 
 
 class MissingSchemaDependencyTests(unittest.TestCase):

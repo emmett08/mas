@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 import signal
+import shutil
 import sqlite3
 import subprocess
 import sys
@@ -12,7 +13,7 @@ import tempfile
 import unittest
 
 from mas_host import Invocation, Outcome, Runner, RunnerError
-from mas_host.bootstrap import RunSession
+from mas_host.bootstrap import RunSession, requires_reconciliation
 from mas_host.journal import Journal
 from mas_host.operations import DeploymentLedger
 from test_runner import FunctionAdapter, topology
@@ -149,6 +150,42 @@ class BootstrapRecoveryTests(unittest.TestCase):
                 with self.assertRaises(RunnerError):
                     Runner.resume(run_dir, adapters, **self.options)
                 self.assertFalse((run_dir / missing).exists(), "ready state must not be recreated")
+
+    def test_stopping_cannot_treat_missing_or_unreadable_published_journal_as_safe(self):
+        adapters = {actor: FunctionAdapter(lambda _c, r: Outcome(r.input)) for actor in ('a', 'b', 'c')}
+        state = self.root / 'published'
+        with Runner(topology(), adapters, state, **self.options) as runner:
+            directory, run_id = runner.run_dir, runner.run_id
+        ledger = DeploymentLedger(state)
+        journal = directory / 'host.sqlite'
+        original = journal.read_bytes()
+        self.assertFalse(requires_reconciliation(directory, run_id, operations=ledger))
+        for damage in ('malformed', 'missing', 'dangling_symlink'):
+            with self.subTest(damage=damage):
+                journal.unlink()
+                if damage == 'malformed':
+                    journal.write_bytes(b'not a SQLite database')
+                elif damage == 'dangling_symlink':
+                    journal.symlink_to(directory / 'missing-journal')
+                self.assertTrue(requires_reconciliation(directory, run_id, operations=ledger))
+                self.assertFalse((directory / 'missing-journal').exists())
+                if journal.exists() or journal.is_symlink():
+                    journal.unlink()
+                journal.write_bytes(original)
+        shutil.rmtree(directory)
+        self.assertTrue(requires_reconciliation(directory, run_id, operations=ledger))
+        self.assertTrue(requires_reconciliation(directory, run_id))
+        self.assertFalse(directory.exists(), 'observation must not recreate missing evidence')
+
+    def test_pre_journal_bootstrap_can_stop_without_becoming_unknown(self):
+        for boundary in ('intent', 'admitted', 'protocol_ready'):
+            with self.subTest(boundary=boundary):
+                state, directory = self.crash_at(boundary)
+                run_id = json.loads((directory / 'bootstrap.json').read_text())['run_id']
+                ledger = DeploymentLedger(state)
+                self.assertFalse(requires_reconciliation(directory, run_id, operations=ledger))
+                self.assertFalse((directory / 'host.sqlite').exists())
+                self.assertTrue(requires_reconciliation(directory, 'another-run', operations=ledger))
 
     def test_legacy_complete_unversioned_journal_migrates_without_repeating_effect(self):
         effects = []

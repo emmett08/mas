@@ -11,7 +11,7 @@ import re
 from dataclasses import dataclass
 from typing import Any, Protocol
 
-from .codec import integer_json, is_actor_identity
+from .codec import canonical_json, integer_json, is_actor_identity
 from .contracts import AdapterContext, Invocation, Outcome, TaskRequest
 from .operation_contracts import JsonObjectSchema, OperationContract
 from .provider_contract import ProviderError
@@ -28,8 +28,11 @@ def _copy(value: Any) -> Any:
 
 
 def _canonical(value: Any) -> str:
-    """Preserve JSON primitive types when comparing nested configuration."""
-    return json.dumps(_copy(value), ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    """Apply the provider diagnostic to the shared descriptor encoding."""
+    try:
+        return canonical_json(value)
+    except Exception:
+        raise ProviderError("structured inference requires bounded integer JSON") from None
 
 
 def validate_trace_id(request_id: str | None) -> None:
@@ -61,9 +64,7 @@ class StructuredRequest:
         descriptor = {"input": _copy(input), "instructions": instructions,
                       "output_schema": schema.descriptor, "schema_name": schema_name,
                       "schema_version": schema_version, "contract": "structured-inference/1"}
-        checked = json.loads(integer_json(descriptor))
-        object.__setattr__(self, "_source", json.dumps(checked, ensure_ascii=False, sort_keys=True,
-                                                    separators=(",", ":")))
+        object.__setattr__(self, "_source", canonical_json(descriptor))
         object.__setattr__(self, "_schema", schema)
 
     @property

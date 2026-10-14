@@ -28,7 +28,7 @@ before writes.
 | Component | Owned responsibility |
 | --- | --- |
 | `contracts.py` | Adapter-facing values, typed public failures and narrow context/execution protocols. |
-| `codec.py` | Shared Rust actor-identity grammar and bounded exact integer-JSON validation for host boundaries. |
+| `codec.py` | Shared Rust actor-identity grammar, bounded integer JSON and canonical JSON identity primitives. |
 | `Runner` | Ordered request orchestration and checkpoint replay through a stable façade. |
 | `RunSession` | Exclusive run lifetime and staged, idempotent bootstrap. |
 | `ProtocolClient` | Bounded Rust subprocess execution, credential-free child environments and sanitised diagnostics. |
@@ -37,8 +37,12 @@ before writes.
 | Journal and deployment repositories | Own their distinct schema identities, validated migrations and durable records. |
 | Reconciler monitor | Report a fresh, successful scan by a live watcher independently of admission headroom. |
 | Provider binding | Require explicit effect identity and spending allocation before admission. |
-| `provider_config.py` | Validate per-role provider settings and secrets, then construct only the selected implementations. |
-| OpenAI and Cursor local providers | Adapt their respective SDKs to the narrow invoice-total contract. |
+| `agent_config.py` | Register arbitrary model actors with application instructions, operation contracts and stable provider identities. |
+| `provider_config.py` | Retain the invoice example's planner/reviewer configuration and credential validation. |
+| `provider_credentials.py` | Resolve bounded provider-specific secrets independently of application adapters. |
+| Generic OpenAI and Cursor providers | Convert application-defined structured requests to bounded SDK calls and validate the declared output schema. |
+| `CursorTextSession` and the OpenAI client boundary | Own provider transport policy and client lifecycle independently of application prompts. |
+| Invoice provider adapters | Apply the demonstration's invoice prompt and total-validation contract through the shared provider transport. |
 | `CursorCloudClient` | Bounded, non-retrying HTTP operations against the fixed Cursor Cloud API origin. |
 | `JobStore` and `DurableJobService` | Persist remote-job intent, correlate exact identities, serialise observations and retain reconciliation evidence. |
 | `CursorCloudJobAdapter` | Admit a repository-job submission through the existing runner and return its durable receipt. |
@@ -91,13 +95,23 @@ of invoice inputs and exact integer-JSON outputs, while retaining provider-owned
 authentication and response conversion. Existing OpenAI and mock descriptors
 remain unchanged so their completed workflows retain recovery compatibility.
 
-`CursorLocalProvider` creates a fresh private directory, disables tools, MCP,
+`CursorTextSession` creates a fresh private directory, disables tools, MCP,
 subagents and ambient settings, and attempts to close its owned agent and bridge
 on normal return or exception. Its bridge
 is launched only after durable invocation admission, within the supervised
 process group. These controls constrain the SDK configuration; they do not
 isolate hostile code from the operating system. SDK-managed internal model
 retries remain distinct from the host's one admitted submission.
+
+The canonical `cursor_provider.CursorLocalProvider` implements generic structured
+inference; `InvoiceCursorProvider` owns the invoice-specific prompt and validation.
+The old `cursor_local.CursorLocalProvider` import is a compatibility alias for the
+invoice adapter until a major API release. Generic inference uses the public
+session operation, and both OpenAI adapters use the neutral client boundary.
+Immutable provider descriptors are available before credential resolution or
+optional SDK initialisation. The generic registration path defers these live
+dependencies to admitted invocation execution, keeping management commands usable
+without credentials. Existing descriptors remain stable across this refactor.
 
 The Cloud adapter implements the existing `Adapter` contract, not `TotalProvider`.
 Its output says that a repository job was submitted. `JobStore` persists the
@@ -221,6 +235,13 @@ owns control-flow decisions; `WorkflowStore` owns versioned composition records;
 uses `RunnerExecutor`, the existing Rust gateway and its own immutable run
 identity. `Runner` retains its serial context and ordinal replay semantics.
 
+The public composition journal operations own node checkpoints, scope records,
+leaf assignments and instance transitions. The engine retains registration,
+authorisation, scheduling and effect-reconciliation policy. Initial execution
+and continuation use the same persisted-assignment construction, with the
+revision and effective deadline supplied explicitly. State changes and their
+events remain within the same transaction.
+
 Workflow inspection has two deliberate views. The graph reports control and
 attempt states without leaf payloads. An explicit task-detail request returns
 one retained leaf revision's output and error after the same ownership, grant
@@ -228,6 +249,10 @@ and binding checks. This lets an authorised caller read a paused application's
 question without returning every branch's data in each status response. Detail
 inspection reads existing composition records and changes no execution state;
 it needs no separate output store or persistence migration.
+
+Every read-only composition transaction establishes a SQLite snapshot. Graph
+queries select their public fields directly, avoiding historical input/output
+decoding when those payloads are omitted from the response.
 
 An in-place threaded runner was rejected because its thread-bound contexts,
 active request stack and ordered checkpoints are part of its recovery contract.
@@ -256,6 +281,12 @@ Closing an owner never explicitly unlocks another surviving owner's descriptor.
 A lifetime pipe stops child admission after scheduler death; original deadlines
 still bound execution. Unknown effects block further dispatch until the existing
 evidence-backed invocation resolution allows recovery of the original run.
+After loss of both scheduler and worker, restart checks retained run journals
+before reclassifying stale running attempts. Cancellation or expiry cannot
+publish a terminal composition while an admitted effect remains unresolved.
+The task service and composition engine share the same read-only bootstrap
+evidence check. Missing published journals or admitted run directories remain
+uncertain; validated pre-journal bootstrap state can establish safe cancellation.
 Parallel joins settle all dispatched work and require every branch to complete
 before declaring success. Acceptance of the returned result remains separate.
 

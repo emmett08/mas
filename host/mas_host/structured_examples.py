@@ -118,7 +118,7 @@ def _settings(environ):
 
 
 def example_registry(*, settings=None, environ=None):
-    """Trusted CLI factory; creating clients performs no model invocation."""
+    """Trusted CLI factory binding configuration without credentials or SDK clients."""
     environment = os.environ if environ is None else environ
     configs = load_agent_configs(_settings(environment) if settings is None else settings, contracts=_CONTRACTS)
     if set(configs) != set(_SETTINGS) or any(
