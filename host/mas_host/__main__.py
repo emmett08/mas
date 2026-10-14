@@ -5,6 +5,9 @@ import sys
 
 def main(argv: list[str] | None = None) -> int:
     arguments = list(sys.argv[1:] if argv is None else argv)
+    if arguments and arguments[0] == "bridge":
+        from .bridge_cli import main as bridge_main
+        return bridge_main(arguments[1:])
     if arguments and arguments[0] == "admin":
         from .admin import main as admin_main
         return admin_main(arguments[1:])

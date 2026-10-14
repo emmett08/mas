@@ -8,7 +8,7 @@ import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 failed = False
-for group, lock in [("runtime", "openai"), ("cursor", "cursor"), ("build", "build"), ("security", "security")]:
+for group, lock in [("runtime", "openai"), ("cursor", "cursor"), ("bridges", "bridges"), ("orchestrators", "orchestrators"), ("build", "build"), ("security", "security")]:
     path = ROOT / "host" / f"requirements-{lock}.txt"
     report = Path(f"python-{group}-audit.json")
     expected = set(re.findall(r"^([a-z0-9-]+)==([^\s]+)", path.read_text(), re.MULTILINE))

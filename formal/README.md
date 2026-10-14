@@ -1,9 +1,16 @@
-# Finite transport model
+# Finite transport, recovery and bridge models
 
 This model applies Holzmann's separation of service, environment, vocabulary,
 representation and exchange rules to the durable local message bus. It checks
 transport behaviour. It does not model an LLM, establish message truth, verify a
 task result, or establish exactly-once application effects.
+
+The same checker also runs separate host-recovery, Cursor-job and durable-bridge
+models. Each has its own state variables, assumptions and implementation mapping;
+none expands the transport model's scope implicitly. The full bridge-extension
+run contains 67 cases and 95 checks: 66 positive checks and 29 expected
+counterexamples. The latter are 27 deliberate defects and two documented
+liveness assumption failures.
 
 ## Reproduce
 
@@ -32,7 +39,8 @@ instance with one outstanding slot per mailbox exercises capacity rejection.
 Both special cases receive bounded checks and unlimited-fault safety checks.
 
 The suite also checks task lifecycle, transaction recovery and host expiry
-safety, plus [host checkpoint recovery](host-recovery-notes.md). Eleven isolated defects must produce replayable counterexamples: early
+safety, plus [host checkpoint recovery](host-recovery-notes.md). Those core
+models contain eleven isolated defects that must produce replayable counterexamples: early
 acknowledgement, forbidden routing, a permanently disabled acknowledgement,
 duplicate task terminals, partial pre-commit persistence, duplicate insertion
 following a lost commit response, expiry overwriting an existing terminal, uncharged host dispatch, unknown-attempt
@@ -246,3 +254,36 @@ it is distinct from a successful result, an application failure, a cancellation
 that demonstrably stopped effects, or successful delivery of an acknowledgement.
 
 The optional provider extension adds a separate [Cursor durable-job model](cursor-jobs-notes.md). It checks dispatch and recovery safety without claiming provider liveness, billing bounds or correctness of generated repository work.
+
+## Durable bridge service and event history
+
+The [bridge model contract](bridge-notes.md) specifies two additional models.
+`bridge-service.pml` combines one principal-scoped ingress key with one outbound
+operation to test duplicate/conflicting submissions, admission before dispatch,
+lost-receipt recovery, cancellation intent and stale terminal observations.
+SQLite commits are atomic; dispatch and receipt persistence are separate steps.
+Its finite scenario contains one principal, one key, two payload values, three
+submissions, one restart and two observations. Authentication itself is assumed
+at this boundary and is tested separately in the implementation.
+
+`bridge-events.pml` checks atomic task/event commits, bounded task admission and
+reads of committed event history across a reader restart. It uses two tasks,
+three events and two reads; three events is the scenario size, not a claimed
+implementation storage cap. The caller stores its own cursor and can reread
+after a lost response. The model does not posit server acknowledgements,
+exactly-once consumption or guaranteed push delivery.
+
+Both models run with and without partial-order reduction and sample seeds 17,
+29 and 53. Nine isolated defects must fail: duplicate receipt creation,
+replacement of accepted content, unadmitted dispatch, replay of an unknown
+effect, premature cancellation confirmation, stale terminal overwrite, lost
+event commit, inbox overflow and exposure of an uncommitted event. The normal
+searches check assertions and invalid end states. They make no progress claim:
+active and unknown work may remain unresolved when the host or peer stops.
+
+These four positive bridge searches and nine counterexample checks complement
+the Cursor model's two positive searches and seven deliberate defects. Protocol
+versions, HTTP/stdio framing, principal isolation, process ownership, storage
+restoration and SDK behaviour remain implementation-test obligations. No formal
+refinement proof connects all Python, Rust, SQLite or external peer executions
+to these finite models.

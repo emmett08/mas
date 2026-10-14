@@ -16,8 +16,8 @@ their adapters, independent result checks and operational reconciliation.
 | Independently deployed agents across teams or organisations | [A2A](https://a2a-protocol.org/latest/topics/what-is-a2a/) | Standardised discovery and remote peer collaboration address interoperability. |
 | Connecting agents to tools and data | [MCP](https://modelcontextprotocol.io/docs/learn/architecture) | It standardises access to tools and resources. |
 
-These approaches can complement one another through adapters; MCP, A2A and
-orchestrator bridges are not shipped here. Integrations must assign ownership
+These approaches complement one another through the shipped [MCP, A2A and
+orchestrator bridges](bridges.md). Integrations must assign ownership
 of retries, effect identity and accounting to prevent competing recovery
 mechanisms from repeating operations.
 

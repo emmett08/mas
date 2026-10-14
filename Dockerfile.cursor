@@ -27,13 +27,13 @@ COPY host/mas_host/cursor_runtime.json /build/cursor_runtime.json
 COPY scripts/install-cursor-runtime.py /build/install-cursor-runtime.py
 RUN python /build/install-cursor-runtime.py --lock /build/cursor_runtime.json --arch "$TARGETARCH" --out /cursor-node
 WORKDIR /build/host
-COPY host/pyproject.toml host/requirements-cursor.txt host/requirements-build.txt ./
+COPY host/pyproject.toml host/requirements-cursor.txt host/requirements-bridges.txt host/requirements-build.txt ./
 RUN python -m pip install --no-cache-dir --require-hashes -r requirements-build.txt \
-    && python -m pip download --no-cache-dir --require-hashes --dest /wheels -r requirements-cursor.txt
+    && python -m pip download --no-cache-dir --require-hashes --dest /wheels -r requirements-cursor.txt -r requirements-bridges.txt
 COPY host/mas_host ./mas_host
 RUN --network=none python -m pip wheel --no-cache-dir --no-index --no-deps --no-build-isolation --wheel-dir /wheels . \
     && python -c 'from pathlib import Path; import hashlib; p=next(Path("/wheels").glob("mas_host-*.whl")); Path("/wheels/host-wheel.txt").write_text(str(p)+" --hash=sha256:"+hashlib.sha256(p.read_bytes()).hexdigest()+"\n")'
-RUN --network=none python -m pip install --no-cache-dir --no-index --find-links=/wheels --target=/runtime-python --require-hashes -r requirements-cursor.txt \
+RUN --network=none python -m pip install --no-cache-dir --no-index --find-links=/wheels --target=/runtime-python --require-hashes -r requirements-cursor.txt -r requirements-bridges.txt \
     && python -m pip install --no-cache-dir --no-index --no-deps --target=/runtime-python --require-hashes -r /wheels/host-wheel.txt \
     && PYTHONPATH=/runtime-python python -m pip check \
     && PYTHONPATH=/runtime-python python /build/install-cursor-runtime.py --lock /build/cursor_runtime.json --source /cursor-node \
@@ -67,6 +67,7 @@ COPY --from=python-build /runtime-python /usr/lib/python3.14/site-packages
 COPY --from=python-build /runtime-bin /usr/lib/bin
 RUN --network=none python -c 'import importlib.util, shutil; from pathlib import Path; s=importlib.util.find_spec("ensurepip"); shutil.rmtree(s.submodule_search_locations[0]) if s else None; p=Path("/usr/share/python-wheels"); shutil.rmtree(p) if p.exists() else None; assert importlib.util.find_spec("pip") is None'
 COPY examples/host/mesh.json /app/examples/host/mesh.json
+COPY examples/bridges /app/examples/bridges
 COPY LICENSE THIRD_PARTY_LICENSE.txt /usr/share/doc/mas/
 WORKDIR /app
 USER 10001:10001

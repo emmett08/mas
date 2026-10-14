@@ -1,6 +1,42 @@
 # Verification results
 
-## Cursor provider extension — 14 October 2026
+## Durable bridge extension — 14 October 2026
+
+The complete formal rerun passed **66 positive checks and 29 expected
+counterexamples across 67 cases**. The counterexamples comprise 27 deliberate
+defects and two explicit failures of eventual acknowledgement under unlimited
+faults. The new bridge models contribute four positive searches, including both
+models without partial-order reduction, and nine detected/replayed defects.
+See the [bridge model contract](../formal/bridge-notes.md) for properties,
+scenario bounds and implementation correspondence.
+
+The local host suite reported **349 tests: 338 passed and 11 optional SDK tests skipped**;
+the separately installed orchestrator environment passed **all 19 tests**,
+including the real Temporal-server exercise. The Rust suite passed 48 tests and
+the release-helper suite passed 32. Six dependency-lock groups, containing 120
+package entries in total, were audited with no reported vulnerabilities. Those
+package entries include dependencies repeated across groups; they are not 120
+distinct packages. Dependency audits are separate from final image scanning.
+
+The implementation suite now covers principal-scoped request conflicts,
+exclusive service scheduling, execution factories with trusted identity,
+crash/replay at the existing Rust boundary, paused local cancellation,
+permission revocation after uncertain dispatch, schema rejection and retention
+of unresolved remote effects. MCP and A2A tests validate checked-in normative
+schema fixtures and exercise real HTTP/stdio exchanges; these provide evidence
+for the declared profiles, not compatibility with every external client.
+Temporal and LangGraph checks are separate optional SDK gates. A skipped SDK
+or real-server test is not a passing interoperability result.
+
+The current architecture workflow installs the bridge dependencies on amd64
+and arm64, exercises the installed standard and Cursor images, and runs a
+separate pinned orchestrator environment with the real Temporal-server test
+enabled. Passing local checks establish only their executed environment; the
+exact-revision Actions results establish those architecture gates. Provider
+credentials, an organisation's OAuth infrastructure and production remote peers
+remain separate acceptance requirements.
+
+## Earlier Cursor provider extension — 14 October 2026
 
 The local extension checks passed **208 host tests with no skips and 48 Rust
 tests**. The combined SPIN suite passed **62 positive checks and 20
@@ -105,7 +141,12 @@ provider result. See [acceptance scope](deployment-acceptance.md).
 
 | Evidence | Contents |
 |---|---|
-| [`model-checks.json`](../evidence/model-checks.json) | Forty-five cases, seventy-three checks; commands, results, hashes, bounds and tool versions. |
+| [`bridge-acceptance.json`](../evidence/bridge-acceptance.json) | Current bridge implementation and acceptance record, with executed checks distinguished from pending architecture and live-provider gates. |
+| [`bridge-model-checks.json`](../evidence/bridge-model-checks.json) | Current full formal run: 67 cases, 95 checks, including 66 positive checks and 29 expected counterexamples. |
+| [`bridge-model-checks.tar.gz`](../evidence/bridge-model-checks.tar.gz) | Current generated models, raw logs, sampled traces and replayable counterexamples. |
+| [`bridge-host-tests.log`](../evidence/bridge-host-tests.log) | Current local host suite, including its explicit optional-SDK skips. |
+| [`bridge-orchestrator-tests.log`](../evidence/bridge-orchestrator-tests.log) | Separately installed SDK suite, including real Temporal-server interoperability. |
+| [`model-checks.json`](../evidence/model-checks.json) | Formal report with commands, expected and observed results, hashes, bounds and tool versions; inspect the recorded case set and source identities. |
 | [`model-checks.tar.gz`](../evidence/model-checks.tar.gz) | Generated model instances, raw logs, simulations and replayable counterexamples. |
 | [`initial-incomplete-model.tar.gz`](../evidence/initial-incomplete-model.tar.gz) | Retained initial memory-limited searches; classified as incomplete. |
 | [`rust-tests.log`](../evidence/rust-tests.log) | Parser, storage, workflow, CLI, gateway, independent and verifier regression results. |
@@ -118,11 +159,27 @@ provider result. See [acceptance scope](deployment-acceptance.md).
 Reproduce the host checks after building the Rust release binaries:
 
 ```sh
-python -m pip install --require-hashes -r host/requirements-build.txt -r host/requirements-openai.txt
+python -m pip install --require-hashes -r host/requirements-build.txt -r host/requirements-openai.txt -r host/requirements-bridges.txt
 python -m pip install --no-deps --no-build-isolation ./host
 python -m unittest discover -s host/tests -v
 docker compose up --build --abort-on-container-exit --exit-code-from mesh
 ```
+
+These hash locks target the documented CPython 3.14 Linux wheel profiles.
+For the optional Cursor bridge and its runtime repair, follow
+[provider installation](providers.md). To execute the optional orchestrator
+checks in a separate compatible environment:
+
+```sh
+python -m pip install --require-hashes -r host/requirements-build.txt -r host/requirements-orchestrators.txt
+python -m pip install --no-deps --no-build-isolation ./host
+MAS_TEMPORAL_INTEROP=1 python -m unittest discover -s host/tests -p 'test_orchestrator*.py' -v
+```
+
+The real-server test starts Temporal CLI 1.9.1 locally and uses no model
+provider. `MAS_TEMPORAL_SERVER` can identify an existing binary; otherwise the
+SDK downloads that pinned version. The test's explicit enablement and installed
+optional SDKs must be recorded alongside its result.
 
 ```sh
 cargo test --locked --manifest-path rust-protocol/Cargo.toml
@@ -139,8 +196,9 @@ of that evidence. Dependencies are pinned in Cargo.lock. The native build uses r
 SQLite through the same Rust interface. Image tests check actual dynamic linkage
 and run the host suite against the installed package.
 Runtime, gateway, examples and verification orchestration are Rust; Promela and
-SPIN-generated C provide the formal checks. The evidence's runner hash matches
-the delivered source.
+SPIN-generated C provide the formal checks. Each report records the runner and
+model hashes for its own revision. Historical reports must not be treated as
+verification of later source without matching those identities.
 
 ## Checked scope
 
@@ -153,7 +211,11 @@ the delivered source.
 | Transaction rollback/crash/retry model | 1 safety | Complete, zero errors. |
 | Task terminal/expiry race model | 1 safety | Complete, zero errors. |
 | Host checkpoint recovery | 1 safety | Complete, zero errors; no liveness claim. |
+| Cursor remote job, reduced and no reduction | 2 safety | Complete, zero errors; no remote liveness claim. |
+| Durable bridge service and event history, each reduced and no reduction | 4 safety | Complete, zero errors within the declared scenario bounds. |
 | Early ack, forbidden route, missing ack, competing terminals, partial commit, duplicate insertion, expiry overwrite, uncharged host dispatch, unknown replay, stale owner, result overwrite | 11 deliberate defects | Expected violations detected and replayed. |
+| Cursor uncharged dispatch, relaunch, lost identity, wrong run, premature cancellation, timeout cancellation and terminal overwrite | 7 deliberate defects | Expected assertion violations detected and replayed. |
+| Bridge duplicate identity, conflicting content, unadmitted dispatch, unknown replay, premature cancellation, stale terminal, lost event commit, inbox overflow and uncommitted event exposure | 9 deliberate defects | Expected assertion violations detected and replayed. |
 | Unlimited faults, with and without weak process fairness | 2 assumption counterexamples | Eventual acknowledgement fails; cycles replayed. |
 
 A counterexample expectation requires the appropriate violation type and a
@@ -194,9 +256,17 @@ Gateway authentication, frame limits and durable global/credential attempt caps
 are exercised by implementation tests and the subprocess example. They are not
 cryptographic or admission-protocol proofs from the Promela models.
 
+Bridge service checking uses one already-authenticated principal, one request
+key, two payload values, three submissions, one restart and two observations.
+The event model uses two tasks, three events, two reads and one client restart.
+Three events is a scenario bound, not the implementation's event-store capacity.
+The caller owns its cursor; no subscriber acknowledgement or guaranteed push
+delivery is claimed. Authentication, network transports, SDKs and external
+effect truth require their separate implementation and deployment evidence.
+
 ## Implementation correspondence and review
 
-The 45 tests include 25 library checks, three verifier checks, three CLI checks,
+The original 45-test baseline included 25 library checks, three verifier checks, three CLI checks,
 seven gateway checks, four independent assumption regressions and three earlier
 independent semantic regressions. They cover the actual codec/SQLite interfaces,
 including concurrent admission, terminal races, expired-run latching, full

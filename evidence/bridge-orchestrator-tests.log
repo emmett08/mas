@@ -1,0 +1,31 @@
+test_cancellation_request_preserves_observed_state (test_orchestrator.ConnectorTests.test_cancellation_request_preserves_observed_state) ... ok
+test_invalid_deadline_and_receipt_are_rejected (test_orchestrator.ConnectorTests.test_invalid_deadline_and_receipt_are_rejected) ... ok
+test_result_cannot_turn_failure_into_success (test_orchestrator.ConnectorTests.test_result_cannot_turn_failure_into_success) ... ok
+test_retry_identity_excludes_attempt_but_conflicts_on_changed_input (test_orchestrator.ConnectorTests.test_retry_identity_excludes_attempt_but_conflicts_on_changed_input) ... ok
+test_timeout_retains_running_and_does_not_cancel (test_orchestrator.ConnectorTests.test_timeout_retains_running_and_does_not_cancel) ... ok
+test_uncertainty_and_interrupted_states_are_returned_without_retry (test_orchestrator.ConnectorTests.test_uncertainty_and_interrupted_states_are_returned_without_retry) ... ok
+test_real_checkpoint_interrupt_resume_updates_same_task (test_orchestrator_sdks.LangGraphSDKTests.test_real_checkpoint_interrupt_resume_updates_same_task) ... ok
+test_real_graph_cancel_retains_unknown_remote_stop (test_orchestrator_sdks.LangGraphSDKTests.test_real_graph_cancel_retains_unknown_remote_stop) ... ok
+test_real_graph_new_logical_operation_has_distinct_identity (test_orchestrator_sdks.LangGraphSDKTests.test_real_graph_new_logical_operation_has_distinct_identity) ... ok
+test_continue_as_new_and_invalid_results_do_not_claim_success (test_orchestrator_sdks.TemporalSDKTests.test_continue_as_new_and_invalid_results_do_not_claim_success) ... ok
+test_outbound_adapter_durable_admission_and_lost_reply_do_not_resubmit (test_orchestrator_sdks.TemporalSDKTests.test_outbound_adapter_durable_admission_and_lost_reply_do_not_resubmit) ... ok
+test_outbound_lost_receipt_lookup_verifies_original_binding (test_orchestrator_sdks.TemporalSDKTests.test_outbound_lost_receipt_lookup_verifies_original_binding) ... ok
+test_outbound_real_sdk_signatures_and_exact_cancellation_identity (test_orchestrator_sdks.TemporalSDKTests.test_outbound_real_sdk_signatures_and_exact_cancellation_identity) ... ok
+test_real_activity_conflict_is_non_retryable (test_orchestrator_sdks.TemporalSDKTests.test_real_activity_conflict_is_non_retryable) ... ok
+test_real_activity_environment_retry_has_one_submission (test_orchestrator_sdks.TemporalSDKTests.test_real_activity_environment_retry_has_one_submission) ... ok
+test_real_activity_heartbeat_and_cancellation (test_orchestrator_sdks.TemporalSDKTests.test_real_activity_heartbeat_and_cancellation) ... ok
+test_actual_task_service_completed_payload_and_idempotent_retry (test_orchestrator_service.TaskServiceOrchestratorTests.test_actual_task_service_completed_payload_and_idempotent_retry) ... ok
+test_factory_binds_real_admission_directory_and_principal_scoped_jobs (test_orchestrator_service.TaskServiceOrchestratorTests.test_factory_binds_real_admission_directory_and_principal_scoped_jobs) ... ok
+test_real_start_poll_cancel_and_lost_receipt_reconciliation (test_orchestrator_temporal_server.TemporalServerTests.test_real_start_poll_cancel_and_lost_receipt_reconciliation) ... time=2026-10-14T12:24:05.231 level=WARN msg="Cluster Id in Cluster Metadata config is not a valid uuid. Generating a new Cluster Id" component=metadata-initializer
+Executing <Task pending name='Task-35' coro=<TemporalServerTests.test_real_start_poll_cancel_and_lost_receipt_reconciliation() running at /workspace/scratch/137d32550efd/mas/host/tests/test_orchestrator_temporal_server.py:46> wait_for=<Future pending cb=[_chain_future.<locals>._call_check_cancel() at /opt/codex/runtimes/codex-primary-runtime/dependencies/python/lib/python3.12/asyncio/futures.py:389, Task.task_wakeup()] created at /opt/codex/runtimes/codex-primary-runtime/dependencies/python/lib/python3.12/asyncio/base_events.py:448> cb=[_run_until_complete_cb() at /opt/codex/runtimes/codex-primary-runtime/dependencies/python/lib/python3.12/asyncio/base_events.py:181] created at /opt/codex/runtimes/codex-primary-runtime/dependencies/python/lib/python3.12/asyncio/runners.py:100> took 0.131 seconds
+Temporal CLI 1.9.1 (Server 1.32.0, UI 2.54.1)
+
+Temporal Server:      localhost:43159
+Temporal Persistence: in-memory
+Temporal Metrics:     http://localhost:36891/metrics
+ok
+
+----------------------------------------------------------------------
+Ran 19 tests in 1.417s
+
+OK

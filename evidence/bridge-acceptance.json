@@ -1,0 +1,59 @@
+{
+  "base_commit": "b9f715e01def6ee674aed25dfa607737ad4fa678",
+  "boundaries": [
+    "Finite SPIN checks do not establish unrestricted implementation, authentication, provider correctness, eventual completion or billing limits.",
+    "No Docker daemon locally; installed amd64/arm64 image and security gates run in existing GitHub Actions workflows.",
+    "No paid OpenAI, Cursor or Cloud submissions; provider credentials unavailable.",
+    "OAuth resource-server logic tested with controlled introspection responses; enterprise identity-provider acceptance not executed.",
+    "No live external MCP or A2A deployment credentials used; schema, controlled HTTP/stdio peers and real local MAS were exercised.",
+    "No streaming subscriptions, push notifications, legacy protocol compatibility, automatic OAuth acquisition, or hosted LangGraph run management is advertised."
+  ],
+  "ci_acceptance": "Pending combined branch update; final commit results recorded in PR metadata to avoid an evidence-only CI retrigger.",
+  "date": "2026-10-14",
+  "local_checks": {
+    "actionlint": "passed",
+    "compose_configuration": "mock mesh/star/tree and mixed override passed",
+    "dependency_audits": {
+      "bridges": 6,
+      "build": 4,
+      "cursor": 18,
+      "known_vulnerabilities": 0,
+      "orchestrators": 49,
+      "runtime": 14,
+      "security": 29
+    },
+    "formal": {
+      "cases": 67,
+      "checks": 95,
+      "expected_counterexamples": 29,
+      "positive_checks": 66,
+      "raw_evidence": "bridge-model-checks.tar.gz",
+      "status": "PASS",
+      "summary": "bridge-model-checks.json"
+    },
+    "host": {
+      "log": "bridge-host-tests.log",
+      "optional_sdk_skips": 11,
+      "passed": 338,
+      "tests": 349
+    },
+    "lock_structure": "passed",
+    "orchestrators": {
+      "log": "bridge-orchestrator-tests.log",
+      "passed": 19,
+      "real_temporal_server": "CLI 1.9.1 / Server 1.32.0",
+      "skipped": 0,
+      "tests": 19
+    },
+    "release_helper_tests": 32,
+    "rust_tests": 48,
+    "topologies": "mesh, star and tree each verified 5497 invoice total",
+    "wire_integration": "authenticated MCP/A2A, separate worker, actual Rust execution, durable replay passed"
+  },
+  "profiles": {
+    "a2a": "protocol 1.0; official schema release 1.0.1; JSON-RPC polling",
+    "langgraph": "SDK 1.2.15, inbound checkpointed nodes and continuation",
+    "mcp": "2026-07-28, negotiated Tasks, inbound HTTP/stdio, outbound HTTP JSON/SSE and stdio",
+    "temporal": "SDK 1.34.0, inbound activities and outbound exact workflow/run lifecycle"
+  }
+}

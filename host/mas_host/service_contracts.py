@@ -1,0 +1,29 @@
+"""Protocol-neutral durable task service ports.
+
+The authenticated principal is supplied by the boundary, never by a task body.
+Accepted work and a completed application result have different states.
+"""
+from __future__ import annotations
+
+from typing import Protocol, runtime_checkable
+
+
+class ServiceError(RuntimeError):
+    """Fixed diagnostic suitable for an untrusted caller."""
+
+    def __init__(self, code: str, message: str | None = None):
+        self.code = code
+        super().__init__(message or code.replace("_", " "))
+
+
+@runtime_checkable
+class TaskService(Protocol):
+    def submit(self, principal: str, request_key: str, workflow: str, input: dict, *, metadata: dict | None = None) -> dict: ...
+    def inspect(self, principal: str, task_id: str) -> dict: ...
+    def result(self, principal: str, task_id: str) -> dict: ...
+    def cancel(self, principal: str, task_id: str) -> dict: ...
+    def update(self, principal: str, task_id: str, request_key: str, input: dict, *, metadata: dict | None = None) -> dict: ...
+    def events(self, principal: str, task_id: str, after: int = 0) -> list[dict]: ...
+    def list_tasks(self, principal: str, limit: int = 100, offset: int = 0) -> list[dict]: ...
+    def list_task_page(self, principal: str, *, page_size: int = 100, after: tuple[int, str] | None = None, state: str | None = None, metadata: dict | None = None, updated_after: int | None = None) -> dict: ...
+    def run_once(self) -> dict | None: ...

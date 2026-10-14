@@ -41,7 +41,7 @@ jobs:
         run: |
           python scripts/release-locks.py --check
           python scripts/release-wolfi.py --lock docker/wolfi-packages.json --check
-          python -m pip install --require-hashes -r host/requirements-build.txt -r host/requirements-cursor.txt
+          python -m pip install --require-hashes -r host/requirements-build.txt -r host/requirements-cursor.txt -r host/requirements-bridges.txt
           python -m pip install --no-deps --no-build-isolation ./host
           python -m pip check
           python scripts/install-cursor-runtime.py
@@ -54,6 +54,19 @@ jobs:
           spec.loader.exec_module(check)
           print(json.dumps(check.cursor_bridge_smoke()))
           PY
+      - name: Test installed orchestrator SDKs and real Temporal server
+        env:
+          MAS_BIN: ${{ github.workspace }}/rust-protocol/target/release/mas
+          MAS_GATEWAY_BIN: ${{ github.workspace }}/rust-protocol/target/release/mas-gateway
+          MAS_TEMPORAL_INTEROP: '1'
+        run: |
+          python -m venv /tmp/mas-orchestrators
+          /tmp/mas-orchestrators/bin/python -m pip install --require-hashes -r host/requirements-build.txt -r host/requirements-orchestrators.txt
+          /tmp/mas-orchestrators/bin/python -m pip install --no-deps --no-build-isolation ./host
+          /tmp/mas-orchestrators/bin/python -m pip check
+          /tmp/mas-orchestrators/bin/python -m unittest discover -s host/tests -p 'test_orchestrator*.py' -v 2>&1 | tee orchestrator-tests.log
+          /tmp/mas-orchestrators/bin/python -m unittest discover -s host/tests -p 'test_mcp*.py' -v
+          /tmp/mas-orchestrators/bin/python -m unittest discover -s host/tests -p 'test_a2a*.py' -v
       - name: Check arm64 locked wheels
         if: matrix.architecture == 'amd64'
         run: |
@@ -164,6 +177,28 @@ jobs:
               assert not os.access(directory, os.W_OK), directory
           print("Both provider secrets mounted privately; no API call made.")
           '
+      - name: Validate bridge deployment and private authentication mount
+        env:
+          MAS_BRIDGE_CREDENTIALS: '{"version":1,"credentials":[{"sha256":"f025471721b0e7859f193fa2b6c71fc214c31a994d70ba912565d9bf30d70234a","principal":"example-client","scopes":["mas:submit","mas:read","mas:cancel","mas:update"]}]}'
+          MAS_PLANNER_MODEL: cursor-test-model
+          CURSOR_API_KEY: compose-cursor-mount-test-not-a-real-key
+          OPENAI_API_KEY: compose-openai-mount-test-not-a-real-key
+        run: |
+          for topology in mesh star tree; do
+            MAS_BRIDGE_CONFIG="/app/examples/bridges/$topology.json" docker compose -f compose.bridges.yaml config --quiet
+          done
+          docker compose -f compose.bridges.yaml -f compose.bridges.mixed.yaml config --quiet
+          docker compose -f compose.bridges.yaml run --rm --no-deps --entrypoint python bridge -c '
+          from mas_host.bridges.authentication import StaticTokenVerifier
+          from mas_host.bridge_config import load_config, build_service
+          from pathlib import Path
+          StaticTokenVerifier.from_file("/run/secrets/bridge_credentials")
+          for name in ("mesh", "star", "tree"):
+              config = load_config(Path("/app/examples/bridges/" + name + ".json"))
+              service = build_service(config, Path("/tmp/bridge-" + name))
+              assert "invoice_" + name in service.grants["example-client"]
+          print("Bridge configurations and private authentication mount verified.")
+          '
       - name: Stop containers
         if: always()
         run: docker compose -f compose.yaml -f compose.production.yaml down
@@ -176,6 +211,7 @@ jobs:
             compose-container.json
             acceptance.json
             native-host-tests.log
+            orchestrator-tests.log
             installed-container-tests.log
             installed-cursor-tests.log
             reconciler-health.json

@@ -68,6 +68,10 @@ Readiness fails for missing, failed, stale or stopped watchers. The status recor
 
 The production Compose overlay supplies a separate reconciler service. Its process can continue reconciling retained runs after a host exits. Its Docker health check uses `reconciler-health`, with a 30-second freshness threshold, rather than treating a running process as proof of successful reconciliation. Docker marks a failed service unhealthy; configure operational alerting for that status (the restart policy alone does not restart unhealthy but running processes). Stop this service as well as hosts for predictable operator maintenance; snapshot locking rejects a busy deployment rather than copying inconsistent databases.
 
+Health reports include local `task_service` state counts and `remote_tasks` state, pending-action and unknown-operation counts. These are persisted observations, not fresh provider status checks. Reconciliation validates the bridge repositories and reports `bridge_observations.remote_refreshed: false`; an unsupported schema or unreadable repository makes the scan fail. A remote refresh must use the admitted bridge lifecycle operation so polling cannot bypass deployment accounting.
+
+Service cancellation closes queued work or a paused local continuation. Cancelling a running task records intent for its worker; cancelling an unknown task retains that uncertainty. A local `cancelled` service receipt does not confirm that a separate remote task stopped. Remote cancellation uses its own admitted lifecycle operation, and its receipt continues to protect the associated evidence until reconciled. Revoking a caller's permission prevents further dispatch but preserves an interrupted execution as unknown when earlier effects may have escaped.
+
 ## Recover an interrupted workflow
 
 Inspect the run before replaying it. A `prepared` invocation has no recorded provider entry; `executing` or `unknown` requires reconciliation with the external system. A completed checkpoint supplies its saved result on replay. Workflow version and call order must match the frozen run.
@@ -114,6 +118,8 @@ Restoration verifies the complete file set, content hashes and SQLite integrity 
 
 The original deployment remains unchanged by backup or restore. Treat backups as private operational evidence and periodically run the restoration acceptance check on separate storage.
 
+Snapshots include `task-service.sqlite` and `remote-tasks.sqlite` when present: submission identities, continuation revisions, event cursors' source records, remote receipts and unresolved lifecycle operations survive together. Service scheduling and remote lifecycle operations share the deployment lock, so an active operation prevents a partial snapshot. New bridge run references are relative to their deployment. Restored references resolve only within the copied tree, and the audit-only marker prevents remote submission, polling and cancellation. Earlier Cursor records retain their absolute evidence paths; retention protects the corresponding copied run without opening or modifying the source path.
+
 ## Repository formats and upgrades
 
 The host-side repositories have independent application identities and versions:
@@ -122,6 +128,9 @@ The host-side repositories have independent application identities and versions:
 | --- | --- | --- | --- |
 | Deployment ledger | `MASD` (`0x4d415344`) | 2 | Unidentified version 1 ledger from the preceding release |
 | Workflow journal | `MASJ` (`0x4d41534a`) | 1 | Unidentified version 0 journal from the preceding release |
+| Cursor cloud jobs | `MASC` (`0x4d415343`) | 1 | None |
+| Durable task service | `MAST` (`0x4d415354`) | 1 | None |
+| Remote bridge tasks | `MASR` (`0x4d415352`) | 1 | None |
 
 A writable open validates the exact declared tables, constraints and indices, and the saved metadata, before transactionally migrating a recognised previous format. Migration preserves deployment identity, policy, charges, checkpoints and resolutions. Unknown application identities, versions, extra objects or changed layouts are rejected before database mutation. Read-only health and inspection recognise supported previous formats without migrating them. Neither operation creates missing state. The Rust protocol repository retains its own format and migration rules.
 
@@ -136,6 +145,8 @@ python -m mas_host admin --state-dir /absolute/private/state prune --older-than-
 python -m mas_host admin --state-dir /absolute/private/state prune --older-than-seconds 2592000 --apply
 ```
 
-A run is eligible only when its retention age since the latest state-file change is reached, no host holds its lock, every protocol task is terminal, and the host journal establishes the outcome of every invocation. Unknown or prepared invocations block deletion. Deletion records a permanent deployment-ledger tombstone before removing files. Lifetime run, call and expenditure charges are never refunded. An interrupted deletion may leave files with a recorded tombstone; retain that ledger entry and remove remaining files only after operator inspection.
+A run is eligible only when its retention age since the latest state-file change is reached, no host holds its lock, every protocol task is terminal, and the host journal establishes the outcome of every invocation. Unknown or prepared invocations block deletion. Every execution revision belonging to a queued, running, input-required, auth-required or unknown service task is retained. Remote nonterminal tasks, pending lifecycle actions and unknown operations also protect their host evidence, even if another observation reports the remote task terminal. Deletion records a permanent deployment-ledger tombstone before removing files. Lifetime run, call and expenditure charges are never refunded. An interrupted deletion may leave files with a recorded tombstone; retain that ledger entry and remove remaining files only after operator inspection.
+
+Pruning run directories does not delete request keys, task results, events or remote receipts. Those records retain deduplication and recovery evidence; reusing an old request key continues to resolve to its original receipt. Service admission limits and deployment storage thresholds bound growth. Initialising a new deployment creates a new identity and budget instead of silently expiring unresolved identities.
 
 These controls support a bounded single-host service. They do not provide multi-host consensus, hostile-code isolation, automatic provider refund accounting, or a highly available distributed database. The acceptance suite exercises process interruption, quotas, disk thresholds, backup/restore, sustained local load and explicit live-provider acceptance separately.

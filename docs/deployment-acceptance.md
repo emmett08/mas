@@ -56,6 +56,67 @@ observed checkpoint boundaries; they do not simulate physical power loss or
 claim that an external provider cancelled work. A restored snapshot is for
 inspection and completed-result replay; it cannot grant fresh effect admission.
 
+## Durable bridge acceptance
+
+The [bridge deployment](bridges.md) has separate HTTP/stdio and worker processes.
+Acceptance must exercise them together with persistent state, not just call a
+protocol converter with an in-memory service double. The host suite includes
+real Rust execution and an HTTP process test showing that MCP, A2A and the task
+service observe the same durable receipts. The three supplied workflow
+topologies each run their deterministic checker. Provider selection remains an
+independent dimension; these checks use mocks unless live execution is expressly
+enabled through the existing provider acceptance path.
+
+Install `host/requirements-bridges.txt` alongside the locked host dependencies
+before running the complete `host/tests` suite. The current lock targets the
+documented CPython 3.14 Linux wheel profile. MCP and A2A schema tests require
+this dependency set; a skipped schema check does not establish conformance.
+The native architecture matrix tests the installed standard and Cursor images
+and validates all three bridge Compose configurations and their private
+authentication mount.
+
+| Injected bridge condition | Required observation |
+| --- | --- |
+| Submission reply lost or outer orchestrator activity retried | The same principal/key/content returns the original receipt and run; changed content conflicts. |
+| Another authenticated caller supplies a known task or remote key | Principal grants and trusted remote namespace prevent access or reuse. |
+| Worker dies before its service result commit | Recovery reuses the original execution revision and Rust journal; known effects are replayed from recorded results. |
+| Worker dies during an external effect | The task remains unknown and cannot authorise another submission without evidenced resolution. |
+| Permission revoked after interrupted dispatch | No further dispatch occurs; possible earlier effects remain unknown. |
+| Cancellation of queued or paused local work | Local continuation closes; a separately tracked active remote receipt remains unchanged and retained. |
+| Cancellation races remote completion or loses its response | Intent, uncertain operation and observed terminal state remain distinct; stale polls cannot reopen a terminal receipt. |
+| Backup, audit-only restore or retention reaches bridge state | Both bridge repositories survive consistently; restored copies cannot dispatch; unresolved tasks, revisions and operations retain their host evidence. |
+| Newer repository schema or invalid persisted state | Maintenance reports failure without overwriting the unsupported database. |
+
+Every remote submission, poll, cancellation and continuation must use the
+admitted adapter contract. Inspection of local state and an evidenced operator
+resolution are separate from a fresh peer observation. Reconciliation health
+explicitly reports whether a remote refresh occurred; the local watcher does
+not claim that it contacted a peer.
+
+The optional orchestrator gate has its own environment:
+
+```sh
+python -m pip install --require-hashes -r host/requirements-build.txt -r host/requirements-orchestrators.txt
+python -m pip install --no-deps --no-build-isolation ./host
+MAS_TEMPORAL_INTEROP=1 python -m unittest discover -s host/tests -p 'test_orchestrator*.py' -v
+```
+
+This exercises the pinned Temporal and LangGraph SDKs, real checkpoint
+continuation, and a local Temporal CLI 1.9.1 server. The Temporal test covers
+start, terminal observation, cancellation and recovery after discarding an
+accepted start reply. Set `MAS_TEMPORAL_SERVER` to an existing CLI binary to
+avoid the SDK's pinned download. A default host run may skip optional SDK or
+real-server checks; only their explicitly executed gate establishes that
+interoperability evidence.
+
+Before deploying a network bridge, also test the organisation's configured
+OAuth issuer/audience/scopes, reverse proxy and permitted origins, plus the
+actual remote peer's advertised profile. The local static-token examples,
+schema fixtures and development orchestrator do not establish those deployment
+facts. Streaming subscriptions, push notifications, arbitrary artifact fetching
+and hosted LangGraph job management remain outside the advertised profiles.
+The single-host worker and SQLite stores provide no high-availability guarantee.
+
 ## Repeatable load and bounded soak
 
 Run twelve independent three-agent mesh jobs, with at most three active hosts:

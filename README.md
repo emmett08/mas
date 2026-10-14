@@ -1,5 +1,8 @@
 # MAS: AI agent communication in Rust
 
+The [bridge guide](docs/bridges.md) covers authenticated MCP and A2A endpoints,
+durable remote tasks, Temporal/LangGraph connectors and mixed-provider deployments.
+
 A Rust/nom protocol and durable SQLite mailbox for agent, tool and human-adapter
 messages, with SPIN/Promela models and executable workflow examples. The protocol
 runtime and CLI are native Rust. A reusable Python host connects model and tool

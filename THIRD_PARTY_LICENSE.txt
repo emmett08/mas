@@ -51,3 +51,13 @@ updates the Python wheel's RECORD to describe the actual installed files.
 The reviewed input and output hashes are recorded in
 host/mas_host/cursor_bridge_patch.json. These are local integration changes,
 not an upstream Cursor SDK release.
+
+Protocol conformance fixtures
+-----------------------------
+host/tests/fixtures retains the official MCP 2026-07-28 JSON Schema and A2A
+v1.0.1 generated JSON Schema for offline interoperability tests. Adjacent
+provenance files identify each source and SHA-256 digest. The complete MCP
+upstream licensing-transition notice (Apache-2.0 for new contributions, retained
+MIT terms for earlier contributions covered by that notice) is preserved in
+mcp-schema-LICENSE. The complete A2A Apache-2.0 licence is preserved in
+A2A-LICENSE.txt. These fixtures and notices retain their upstream terms.

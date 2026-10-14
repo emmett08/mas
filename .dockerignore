@@ -22,12 +22,15 @@
 !host/pyproject.toml
 !host/requirements-openai.txt
 !host/requirements-cursor.txt
+!host/requirements-bridges.txt
 !host/requirements-build.txt
 !host/mas_host/
 !host/mas_host/**
 !examples/
 !examples/host/
 !examples/host/mesh.json
+!examples/bridges/
+!examples/bridges/*.json
 **/__pycache__/
 **/*.pyc
 **/.env

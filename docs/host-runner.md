@@ -104,7 +104,9 @@ the model roles; each sees its addressed task data and its own fixed instruction
 This is a **logical mesh on a central durable transport**. Compose runs one
 trusted host container, with a Rust gateway subprocess and separate model calls.
 It does not provide peer-to-peer network transport or isolate arbitrary Python
-plugins from one another. There are no published ports and no new HTTP protocol.
+plugins from one another. The base demo publishes no ports. The optional
+[bridge deployment](bridges.md) exposes authenticated MCP, A2A and task-service
+endpoints through a separate ingress process and durable worker.
 
 ## Write an adapter
 

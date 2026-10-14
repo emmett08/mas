@@ -1,0 +1,116 @@
+.................../root/.local/share/uv/python/cpython-3.14.8-linux-x86_64-gnu/lib/python3.14/contextlib.py:597: ResourceWarning: unclosed database in <sqlite3.Connection object at 0x7f968881b100>
+  is_sync, cb = self._exit_callbacks.pop()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/root/.local/share/uv/python/cpython-3.14.8-linux-x86_64-gnu/lib/python3.14/contextlib.py:597: ResourceWarning: unclosed database in <sqlite3.Connection object at 0x7f968881ad40>
+  is_sync, cb = self._exit_callbacks.pop()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/root/.local/share/uv/python/cpython-3.14.8-linux-x86_64-gnu/lib/python3.14/contextlib.py:597: ResourceWarning: unclosed database in <sqlite3.Connection object at 0x7f968881a200>
+  is_sync, cb = self._exit_callbacks.pop()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/root/.local/share/uv/python/cpython-3.14.8-linux-x86_64-gnu/lib/python3.14/contextlib.py:597: ResourceWarning: unclosed database in <sqlite3.Connection object at 0x7f968881a5c0>
+  is_sync, cb = self._exit_callbacks.pop()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/root/.local/share/uv/python/cpython-3.14.8-linux-x86_64-gnu/lib/python3.14/contextlib.py:597: ResourceWarning: unclosed database in <sqlite3.Connection object at 0x7f968881b4c0>
+  is_sync, cb = self._exit_callbacks.pop()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/root/.local/share/uv/python/cpython-3.14.8-linux-x86_64-gnu/lib/python3.14/contextlib.py:597: ResourceWarning: unclosed database in <sqlite3.Connection object at 0x7f968881b6a0>
+  is_sync, cb = self._exit_callbacks.pop()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/root/.local/share/uv/python/cpython-3.14.8-linux-x86_64-gnu/lib/python3.14/contextlib.py:597: ResourceWarning: unclosed database in <sqlite3.Connection object at 0x7f968881b970>
+  is_sync, cb = self._exit_callbacks.pop()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/root/.local/share/uv/python/cpython-3.14.8-linux-x86_64-gnu/lib/python3.14/contextlib.py:597: ResourceWarning: unclosed database in <sqlite3.Connection object at 0x7f968881bc40>
+  is_sync, cb = self._exit_callbacks.pop()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+...................................../root/.local/share/uv/python/cpython-3.14.8-linux-x86_64-gnu/lib/python3.14/contextlib.py:479: ResourceWarning: unclosed database in <sqlite3.Connection object at 0x7f96894ba110>
+  @staticmethod
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/root/.local/share/uv/python/cpython-3.14.8-linux-x86_64-gnu/lib/python3.14/contextlib.py:479: ResourceWarning: unclosed database in <sqlite3.Connection object at 0x7f968881bc40>
+  @staticmethod
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+................../root/.local/share/uv/python/cpython-3.14.8-linux-x86_64-gnu/lib/python3.14/contextlib.py:479: ResourceWarning: unclosed database in <sqlite3.Connection object at 0x7f9686c286d0>
+  @staticmethod
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+....................../tmp/mas-cursor-package-venv/lib/python3.14/site-packages/anyio/_lazyimport.py:120: ResourceWarning: unclosed database in <sqlite3.Connection object at 0x7f9686c286d0>
+  tree = compile(source, module.__file__ or "", "exec", ast.PyCF_ONLY_AST)
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/tmp/mas-cursor-package-venv/lib/python3.14/site-packages/anyio/_lazyimport.py:120: ResourceWarning: unclosed database in <sqlite3.Connection object at 0x7f9686c28400>
+  tree = compile(source, module.__file__ or "", "exec", ast.PyCF_ONLY_AST)
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/tmp/mas-cursor-package-venv/lib/python3.14/site-packages/anyio/_lazyimport.py:120: ResourceWarning: unclosed database in <sqlite3.Connection object at 0x7f9686c287c0>
+  tree = compile(source, module.__file__ or "", "exec", ast.PyCF_ONLY_AST)
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/tmp/mas-cursor-package-venv/lib/python3.14/site-packages/anyio/_lazyimport.py:120: ResourceWarning: unclosed database in <sqlite3.Connection object at 0x7f96888d9210>
+  tree = compile(source, module.__file__ or "", "exec", ast.PyCF_ONLY_AST)
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+.............................../root/.local/share/uv/python/cpython-3.14.8-linux-x86_64-gnu/lib/python3.14/contextlib.py:479: ResourceWarning: unclosed database in <sqlite3.Connection object at 0x7f96888db970>
+  @staticmethod
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/root/.local/share/uv/python/cpython-3.14.8-linux-x86_64-gnu/lib/python3.14/contextlib.py:479: ResourceWarning: unclosed database in <sqlite3.Connection object at 0x7f968881a7a0>
+  @staticmethod
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+................./root/.local/share/uv/python/cpython-3.14.8-linux-x86_64-gnu/lib/python3.14/json/decoder.py:361: ResourceWarning: unclosed database in <sqlite3.Connection object at 0x7f9686948d60>
+  obj, end = self.scan_once(s, idx)
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/root/.local/share/uv/python/cpython-3.14.8-linux-x86_64-gnu/lib/python3.14/json/decoder.py:361: ResourceWarning: unclosed database in <sqlite3.Connection object at 0x7f96869496c0>
+  obj, end = self.scan_once(s, idx)
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+........................................./root/.local/share/uv/python/cpython-3.14.8-linux-x86_64-gnu/lib/python3.14/multiprocessing/pool.py:671: ResourceWarning: unclosed database in <sqlite3.Connection object at 0x7f968694a110>
+  @staticmethod
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/root/.local/share/uv/python/cpython-3.14.8-linux-x86_64-gnu/lib/python3.14/multiprocessing/pool.py:671: ResourceWarning: unclosed database in <sqlite3.Connection object at 0x7f968694a200>
+  @staticmethod
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/root/.local/share/uv/python/cpython-3.14.8-linux-x86_64-gnu/lib/python3.14/multiprocessing/pool.py:671: ResourceWarning: unclosed database in <sqlite3.Connection object at 0x7f9686949b70>
+  @staticmethod
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/root/.local/share/uv/python/cpython-3.14.8-linux-x86_64-gnu/lib/python3.14/multiprocessing/pool.py:671: ResourceWarning: unclosed database in <sqlite3.Connection object at 0x7f968694a2f0>
+  @staticmethod
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/root/.local/share/uv/python/cpython-3.14.8-linux-x86_64-gnu/lib/python3.14/multiprocessing/pool.py:671: ResourceWarning: unclosed database in <sqlite3.Connection object at 0x7f9686949f30>
+  @staticmethod
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/root/.local/share/uv/python/cpython-3.14.8-linux-x86_64-gnu/lib/python3.14/multiprocessing/pool.py:671: ResourceWarning: unclosed database in <sqlite3.Connection object at 0x7f968694a980>
+  @staticmethod
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/root/.local/share/uv/python/cpython-3.14.8-linux-x86_64-gnu/lib/python3.14/multiprocessing/pool.py:671: ResourceWarning: unclosed database in <sqlite3.Connection object at 0x7f9686949c60>
+  @staticmethod
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+..................ssssssssss..s..........<frozen importlib._bootstrap_external>:511: ResourceWarning: unclosed database in <sqlite3.Connection object at 0x7f968881a7a0>
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+<frozen importlib._bootstrap_external>:511: ResourceWarning: unclosed database in <sqlite3.Connection object at 0x7f96887545e0>
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+<frozen importlib._bootstrap_external>:511: ResourceWarning: unclosed database in <sqlite3.Connection object at 0x7f9686949f30>
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+<frozen importlib._bootstrap_external>:511: ResourceWarning: unclosed database in <sqlite3.Connection object at 0x7f9686949c60>
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+<frozen importlib._bootstrap_external>:511: ResourceWarning: unclosed database in <sqlite3.Connection object at 0x7f9688755e40>
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+<frozen importlib._bootstrap_external>:511: ResourceWarning: unclosed database in <sqlite3.Connection object at 0x7f9688755f30>
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+<frozen importlib._bootstrap_external>:511: ResourceWarning: unclosed database in <sqlite3.Connection object at 0x7f968694a2f0>
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+<frozen importlib._bootstrap_external>:511: ResourceWarning: unclosed database in <sqlite3.Connection object at 0x7f9686949b70>
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+<frozen importlib._bootstrap_external>:511: ResourceWarning: unclosed database in <sqlite3.Connection object at 0x7f968694a980>
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+..................../root/.local/share/uv/python/cpython-3.14.8-linux-x86_64-gnu/lib/python3.14/pathlib/__init__.py:330: ResourceWarning: unclosed database in <sqlite3.Connection object at 0x7f9684b46980>
+  @property
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+....../root/.local/share/uv/python/cpython-3.14.8-linux-x86_64-gnu/lib/python3.14/unittest/mock.py:2201: ResourceWarning: unclosed database in <sqlite3.Connection object at 0x7f9684b47100>
+  these_magics = these_magics - set(type(self).__dict__)
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/root/.local/share/uv/python/cpython-3.14.8-linux-x86_64-gnu/lib/python3.14/unittest/mock.py:2201: ResourceWarning: unclosed database in <sqlite3.Connection object at 0x7f9684b46b60>
+  these_magics = these_magics - set(type(self).__dict__)
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+.........................................../root/.local/share/uv/python/cpython-3.14.8-linux-x86_64-gnu/lib/python3.14/pathlib/__init__.py:341: ResourceWarning: unclosed database in <sqlite3.Connection object at 0x7f9684b01990>
+  @property
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/root/.local/share/uv/python/cpython-3.14.8-linux-x86_64-gnu/lib/python3.14/pathlib/__init__.py:341: ResourceWarning: unclosed database in <sqlite3.Connection object at 0x7f9684b47f10>
+  @property
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+......................................................
+----------------------------------------------------------------------
+Ran 349 tests in 26.842s
+
+OK (skipped=11)
