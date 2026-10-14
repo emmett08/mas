@@ -80,6 +80,19 @@ class SchedulerOwnershipTests(unittest.TestCase):
             self.assertTrue((path / "stopped").exists())
             self.assertEqual(owner.active, frozenset())
 
+    @unittest.skipUnless(hasattr(os, 'pidfd_open'), 'Linux pidfd event waits')
+    def test_event_wait_wakes_for_worker_exit_and_closes_pidfd(self):
+        with tempfile.TemporaryDirectory() as directory:
+            def immediate(_lifetime, _descriptors):
+                return
+            with SchedulerOwnership(Path(directory), INSTANCE) as owner:
+                owner.spawn('worker', immediate)
+                started = time.monotonic()
+                owner.wait(1)
+                self.assertLess(time.monotonic() - started, 0.5)
+                eventually(lambda: bool(owner.poll()))
+                self.assertEqual(owner._pidfds, {})
+
     def test_failed_worker_and_duplicate_live_identity(self):
         with tempfile.TemporaryDirectory() as directory:
             def failed(_lifetime, _descriptors):

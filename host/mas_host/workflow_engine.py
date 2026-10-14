@@ -247,6 +247,12 @@ class WorkflowEngine:
     def node(self, instance, path, kind, input, limits):
         return self.store.node(instance, path, kind, input, limits)
 
+    def progress(self, instance, path, kind):
+        return self.store.progress(instance, path, kind)
+
+    def checkpoint(self, instance, path, kind, next_index, output, consumed=0):
+        return self.store.checkpoint(instance, path, kind, next_index, output, consumed)
+
     def finish_node(self, instance, path, state, output=None, error=None):
         return self.store.finish_node(instance, path, state, output, error)
 
@@ -429,7 +435,7 @@ class WorkflowEngine:
                         time.sleep(0.05)
                         continue
                     raise ServiceError('workflow_no_progress')
-                time.sleep(0.02)
+                ownership.wait(0.02)
 
     def continue_task(self, principal, instance, path, request_key, input, *, metadata=None, expected_identity=None, expected_deployment_id=None):
         _text(request_key, 'request_key')

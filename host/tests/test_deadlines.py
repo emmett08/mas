@@ -11,8 +11,8 @@ from mas_host.execution_policy import TimingPolicy, clock_status, transition_clo
 from mas_host.schema import connect
 from mas_host.service_contracts import ServiceError
 from mas_host.task_service import DurableTaskService
-from mas_host.task_store import SERVICE_V2, TaskStore
-from mas_host.workflow_store import COMPOSITION_V2, WorkflowStore
+from mas_host.task_store import SERVICE, SERVICE_V2, TaskStore
+from mas_host.workflow_store import COMPOSITION, COMPOSITION_V2, WorkflowStore
 from test_definition_versions import registered
 from test_service_timing import TimedExecutor
 from test_workflow_engine_contracts import specification, workflow
@@ -183,13 +183,13 @@ class WorkerClockTests(unittest.TestCase):
             db.close()
             store = TaskStore(root, deployment_id='old-deployment')
             with store.transaction(readonly=True) as db:
-                self.assertEqual(db.execute('PRAGMA user_version').fetchone()[0], 3)
+                self.assertEqual(db.execute('PRAGMA user_version').fetchone()[0], SERVICE.version)
                 self.assertEqual(db.execute('SELECT value FROM metadata').fetchone()[0], 'old-deployment')
             db = connect(root / 'composition.sqlite', COMPOSITION_V2, initialise=lambda db: None)
             db.close()
             store = WorkflowStore(root)
             with store.transaction(readonly=True) as db:
-                self.assertEqual(db.execute('PRAGMA user_version').fetchone()[0], 3)
+                self.assertEqual(db.execute('PRAGMA user_version').fetchone()[0], COMPOSITION.version)
                 self.assertEqual(db.execute('SELECT count(*) FROM deadline_amendments').fetchone()[0], 0)
 
 

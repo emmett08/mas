@@ -41,6 +41,18 @@ class PlanEvaluator:
         self.plans = plans
         self.journal = journal
 
+    def _progress(self, instance, path, kind, initial):
+        # The optional capability keeps third-party decision-only journals
+        # compatible; durable hosts implement it through their public store.
+        read = getattr(self.journal, 'progress', None)
+        saved = read(instance, path, kind) if callable(read) else None
+        return saved or {'next_index': 0, 'output': initial, 'consumed': 0}
+
+    def _checkpoint(self, instance, path, kind, index, output, consumed=0):
+        save = getattr(self.journal, 'checkpoint', None)
+        if callable(save):
+            save(instance, path, kind, index, output, consumed)
+
     @staticmethod
     def _collection_items(node, input):
         items = select_value(node['items'], input)
@@ -101,10 +113,11 @@ class PlanEvaluator:
             accumulator = select_value(node['initial'], input)
         except ServiceError as error:
             return self.journal.finish_node(instance, path, 'failed', error={'code': error.code})
-        consumed = 0
-        for index, item in enumerate(items):
-            # Replay reconstructs the same cumulative budget from retained
-            # outputs. A resumed reduction cannot reset its expansion allowance.
+        saved = self._progress(instance, path, 'reduce', accumulator)
+        consumed, accumulator = saved['consumed'], saved['output']
+        for index in range(saved['next_index'], len(items)):
+            item = items[index]
+            # The prefix checkpoint preserves the same cumulative byte budget.
             try:
                 supplied, consumed = self._collection_input(input, item, index, consumed,
                     node['max_input_bytes'], accumulator=accumulator)
@@ -114,6 +127,7 @@ class PlanEvaluator:
                                                supplied, limits, deadline, ready)
             if state != 'completed':
                 return self.journal.finish_node(instance, path, state)
+            self._checkpoint(instance, path, 'reduce', index + 1, accumulator, consumed)
         return self.journal.finish_node(instance, path, 'completed', accumulator)
 
     @staticmethod
@@ -254,11 +268,13 @@ class PlanEvaluator:
         if kind == 'recover':
             return self._recover(instance, path, node, input, limits, deadline, ready)
         if kind == 'sequence':
-            output = input
-            for index, child in enumerate(node['steps']):
-                state, output = self.advance(instance, f'{path}/s{index}', child, output, limits, deadline, ready)
+            saved = self._progress(instance, path, kind, input)
+            output = saved['output']
+            for index in range(saved['next_index'], len(node['steps'])):
+                state, output = self.advance(instance, f'{path}/s{index}', node['steps'][index], output, limits, deadline, ready)
                 if state != 'completed':
                     return self.journal.finish_node(instance, path, state)
+                self._checkpoint(instance, path, kind, index + 1, output)
             return self.journal.finish_node(instance, path, 'completed', output)
         if kind == 'parallel':
             if 'join' in node:
@@ -287,24 +303,32 @@ class PlanEvaluator:
                     break
             state, output = self.advance(instance, f'{path}/{branch}', child, input, limits, deadline, ready)
         elif kind == 'while':
-            output = input
-            for index in range(node['max_iterations']):
+            saved = self._progress(instance, path, kind, input)
+            output = saved['output']
+            for index in range(saved['next_index'], node['max_iterations']):
                 if not evaluate_condition(node['condition'], output):
                     return self.journal.finish_node(instance, path, 'completed', output)
                 state, output = self.advance(instance, f'{path}/i{index}', node['body'],
                                                output, limits, deadline, ready)
                 if state != 'completed':
                     break
+                self._checkpoint(instance, path, kind, index + 1, output)
             else:
                 if evaluate_condition(node['condition'], output):
                     return self.journal.finish_node(instance, path, 'failed',
                                                      error={'code': 'iteration_limit'})
                 return self.journal.finish_node(instance, path, 'completed', output)
         elif kind == 'loop':
-            output = input
-            for index in range(node['max_iterations']):
+            saved = self._progress(instance, path, kind, input)
+            output = saved['output']
+            if saved['next_index'] and evaluate_condition(node['until'], output):
+                return self.journal.finish_node(instance, path, 'completed', output)
+            for index in range(saved['next_index'], node['max_iterations']):
                 state, output = self.advance(instance, f'{path}/i{index}', node['body'], output, limits, deadline, ready)
-                if state != 'completed' or evaluate_condition(node['until'], output):
+                if state != 'completed':
+                    break
+                self._checkpoint(instance, path, kind, index + 1, output)
+                if evaluate_condition(node['until'], output):
                     break
             else:
                 return self.journal.finish_node(instance, path, 'failed', error={'code': 'iteration_limit'})

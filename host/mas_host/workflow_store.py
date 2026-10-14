@@ -14,6 +14,7 @@ from .contracts import RunnerError
 from .schema import Schema, SchemaError, connect
 from .service_contracts import ServiceError
 from .deadline_amendments import DEADLINE_AMENDMENTS
+from .workflow_progress import CONTROL_PROGRESS
 from .workflow_evaluator import FINISHED_STATES
 
 
@@ -41,10 +42,16 @@ COMPOSITION_V2 = Schema('workflow composition', 0x4D415357, 2, (),
                      (*COMPOSITION_V1.statements, *_V2_MIGRATION),
                      ((COMPOSITION_V1, _V2_MIGRATION),))
 
-COMPOSITION = Schema('workflow composition', 0x4D415357, 3, (),
+COMPOSITION_V3 = Schema('workflow composition', 0x4D415357, 3, (),
                      (*COMPOSITION_V2.statements, DEADLINE_AMENDMENTS),
                      ((COMPOSITION_V1, (*_V2_MIGRATION, DEADLINE_AMENDMENTS)),
                       (COMPOSITION_V2, (DEADLINE_AMENDMENTS,))))
+
+COMPOSITION = Schema('workflow composition', 0x4D415357, 4, (),
+                     (*COMPOSITION_V3.statements, CONTROL_PROGRESS),
+                     ((COMPOSITION_V1, (*_V2_MIGRATION, DEADLINE_AMENDMENTS, CONTROL_PROGRESS)),
+                      (COMPOSITION_V2, (DEADLINE_AMENDMENTS, CONTROL_PROGRESS)),
+                      (COMPOSITION_V3, (CONTROL_PROGRESS,))))
 
 
 def encode(value):
@@ -283,7 +290,7 @@ class WorkflowStore:
             db.execute('INSERT INTO continuation_tombstones VALUES(?,?,?,?,?,?)',
                        (item['id'], row['request_key'], row['path'],
                         digest(json.loads(row['input'])), row['revision'], digest(json.loads(row['metadata']))))
-        for table in ('nodes', 'attempts', 'continuations', 'scopes', 'events', 'join_decisions', 'cancelled_scopes'):
+        for table in ('nodes', 'attempts', 'continuations', 'scopes', 'events', 'join_decisions', 'cancelled_scopes', 'control_progress'):
             db.execute(f'DELETE FROM {table} WHERE instance=?', (item['id'],))
         db.execute('DELETE FROM instances WHERE id=?', (item['id'],))
         event(db, item['id'], None, 'archived', item['state'])
@@ -339,17 +346,35 @@ class WorkflowStore:
                            (state, encode(error), instance))
                 event(db, instance, None, 'state_changed', state)
 
-    def node(self, instance, path, kind, input, limits):
+    def progress(self, instance, path, kind):
+        from .workflow_progress import progress
+        with self.transaction(readonly=True) as db:
+            return progress(db, instance, path, kind)
+
+    def checkpoint(self, instance, path, kind, next_index, output, consumed=0):
+        from .workflow_progress import checkpoint
         with self.transaction() as db:
+            checkpoint(db, instance, path, kind, next_index, output, consumed)
+
+    def node(self, instance, path, kind, input, limits):
+        supplied = encode(input)
+        def read(db):
             row = decode(db.execute('SELECT * FROM nodes WHERE instance=? AND path=?', (instance, path)).fetchone())
+            if row is not None and (row['kind'] != kind or encode(row['input']) != supplied):
+                raise ServiceError('workflow_replay_conflict')
+            return row
+        with self.transaction(readonly=True) as db:
+            row = read(db)
             if row is not None:
-                if row['kind'] != kind or encode(row['input']) != encode(input):
-                    raise ServiceError('workflow_replay_conflict')
+                return row
+        with self.transaction() as db:
+            row = read(db)
+            if row is not None:
                 return row
             if db.execute('SELECT count(*) FROM nodes WHERE instance=?', (instance,)).fetchone()[0] >= limits['max_steps']:
                 raise ServiceError('workflow_step_limit')
             db.execute("INSERT INTO nodes(instance,path,kind,input,state) VALUES(?,?,?,?,'waiting')",
-                       (instance, path, kind, encode(input)))
+                       (instance, path, kind, supplied))
             event(db, instance, path, 'node_created', 'waiting')
             return {'state': 'waiting', 'output': None, 'error': None}
 
@@ -359,10 +384,15 @@ class WorkflowStore:
         except RunnerError:
             state, source, output = 'failed', None, None
             error = {'code': 'composed_output_not_encodable'}
+        failure = encode(error) if error else None
+        with self.transaction(readonly=True) as db:
+            old = db.execute('SELECT state,output,error FROM nodes WHERE instance=? AND path=?', (instance, path)).fetchone()
+            if old is not None and tuple(old) == (state, source, failure):
+                return state, output
         with self.transaction() as db:
             old = db.execute('SELECT state FROM nodes WHERE instance=? AND path=?', (instance, path)).fetchone()
             db.execute('UPDATE nodes SET state=?,output=?,error=? WHERE instance=? AND path=?',
-                       (state, source, encode(error) if error else None, instance, path))
+                       (state, source, failure, instance, path))
             if old['state'] != state:
                 event(db, instance, path, 'node_state', state)
         return state, output
@@ -401,16 +431,19 @@ class WorkflowStore:
         return cls.latest_attempt(db, instance, path)
 
     def attempt(self, instance, path, workflow, input, deadline, *, identity, wall_seconds):
-        with self.transaction() as db:
+        with self.transaction(readonly=True) as db:
             attempt = self.latest_attempt(db, instance, path)
-            if attempt is None:
-                if deadline <= time.time():
-                    return None
-                attempt = self.assign_attempt(db, instance, path, workflow, identity, 0, input,
-                                              deadline=deadline, wall_seconds=wall_seconds)
-            if attempt['workflow'] != workflow or attempt['identity'] != identity:
-                raise ServiceError('workflow_changed')
-            return attempt
+        if attempt is None:
+            with self.transaction() as db:
+                attempt = self.latest_attempt(db, instance, path)
+                if attempt is None:
+                    if deadline <= time.time():
+                        return None
+                    attempt = self.assign_attempt(db, instance, path, workflow, identity, 0, input,
+                                                  deadline=deadline, wall_seconds=wall_seconds)
+        if attempt['workflow'] != workflow or attempt['identity'] != identity:
+            raise ServiceError('workflow_changed')
+        return attempt
 
     def save_attempt(self, attempt, state, output=None, error=None):
         with self.transaction() as db:
