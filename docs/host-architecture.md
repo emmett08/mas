@@ -221,6 +221,14 @@ owns control-flow decisions; `WorkflowStore` owns versioned composition records;
 uses `RunnerExecutor`, the existing Rust gateway and its own immutable run
 identity. `Runner` retains its serial context and ordinal replay semantics.
 
+Workflow inspection has two deliberate views. The graph reports control and
+attempt states without leaf payloads. An explicit task-detail request returns
+one retained leaf revision's output and error after the same ownership, grant
+and binding checks. This lets an authorised caller read a paused application's
+question without returning every branch's data in each status response. Detail
+inspection reads existing composition records and changes no execution state;
+it needs no separate output store or persistence migration.
+
 An in-place threaded runner was rejected because its thread-bound contexts,
 active request stack and ordered checkpoints are part of its recovery contract.
 Independent synchronous wrappers were also insufficient: they do not retain

@@ -68,3 +68,12 @@ SQLite records and process execution. The plan tests independently establish
 acyclic references, conservative expansion limits, immutable transitive
 bindings and typed condition semantics. Agreement on these finite examples
 does not establish unrestricted equivalence with the model.
+
+Bounded-loop recovery is tested separately in
+`host/tests/test_workflow_loop_recovery.py`, using real Rust runs and independent
+effect receipts. Those tests fault a later iteration of a reusable subworkflow
+beside a completed parallel branch, then check recovery, cancellation and
+iteration-limit exhaustion without repeating completed effects. They also check
+stable run identities, retained journal/protocol records, deadlines and shared
+allocations. The two-leaf model above does not represent loop iterations; its
+checked properties should not be described as a formal proof of loop recovery.

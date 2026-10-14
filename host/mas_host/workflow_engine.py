@@ -1,7 +1,7 @@
 """Durable bounded composition of independently owned Rust-backed workflows."""
 from __future__ import annotations
 
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from dataclasses import replace
 import fcntl
 import hashlib
@@ -22,6 +22,7 @@ from .task_service import RunnerExecutor, _object, _text
 from .workflow_allocation import WorkflowAllocation
 from .workflow_plan import WorkflowPlan, bind_plan, validate_registry
 from .workflow_evaluator import PlanEvaluator, FINISHED_STATES as _FINISHED, PAUSED_STATES as _PAUSED
+from .workflow_inspection import encode_task_inspection, validate_task_selector
 from .workflow_store import WorkflowStore, decode, encode, event
 
 
@@ -58,7 +59,9 @@ class WorkflowEngine:
                 raise ServiceError('invalid_grants')
             self.grants[principal] = frozenset(names)
         self.options = {'mas_bin': mas_bin, 'gateway_bin': gateway_bin}
-        with _file_lock(self.state_dir / '.deployment.lock', False):
+        ownership = (nullcontext() if self.operations.readonly else
+                     _file_lock(self.state_dir / '.deployment.lock', False))
+        with ownership:
             active = not self.operations.readonly and self.operations.admission_enabled
             if not active and not (self.state_dir / 'composition.sqlite').exists():
                 raise ServiceError('audit_only')
@@ -126,6 +129,31 @@ class WorkflowEngine:
             self._owned(db, principal, instance)
             return [dict(row) for row in db.execute('SELECT * FROM events WHERE instance=? AND id>? ORDER BY id LIMIT ?',
                                                    (instance, after, limit))]
+
+    def inspect_task(self, principal, instance, path, revision=None):
+        """Return one owned leaf revision; omitted revision selects the latest."""
+        validate_task_selector(path, revision)
+        with self.store.transaction(readonly=True) as db:
+            # SELECT alone does not start a SQLite snapshot transaction. Keep
+            # ownership, parent state and the selected revision in one snapshot.
+            db.execute('BEGIN')
+            item = self._owned(db, principal, instance)
+            columns = 'path,revision,workflow,identity,run_directory,state,output,error'
+            query = f'SELECT {columns} FROM attempts WHERE instance=? AND path=?'
+            arguments = (instance, path)
+            if revision is not None:
+                query += ' AND revision=?'
+                arguments += (revision,)
+            attempt = decode(db.execute(query + ' ORDER BY revision DESC LIMIT 1', arguments).fetchone())
+            if attempt is None:
+                raise ServiceError('workflow_task_not_found')
+            workflow = self.workflows.get(attempt['workflow'])
+            if workflow is None or workflow.identity != attempt['identity']:
+                raise ServiceError('workflow_changed')
+            detail = {'instance_id': instance, 'plan': item['plan'],
+                      'instance_state': item['state'], 'deadline': item['deadline'], **attempt}
+            encode_task_inspection(detail)
+            return detail
 
     def cancel(self, principal, instance):
         with self._mutation() as db:

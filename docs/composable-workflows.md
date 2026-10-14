@@ -227,6 +227,36 @@ workflow must provide its continuation function; the new revision preserves
 the original composition deadline and allocation. Continuation input does not
 grant a principal new authority.
 
+Use `task` to inspect one leaf's application output, including a question or
+required-field description returned when it paused:
+
+```sh
+python -m mas_host workflow task \
+  --factory my_application:registry \
+  --state-dir "$PWD/state/composable" --principal owner \
+  --instance-id INSTANCE_ID --path root/s1
+```
+
+The corresponding API is `engine.inspect_task(principal, instance_id, path,
+revision=None)`. Omitting `--revision` selects the latest revision; supplying a
+revision from 0 through 31 selects retained history. The returned revision identifies
+the exact output being inspected. A historical pause does not imply that the
+current workflow is still waiting for that input. Control nodes have no leaf
+detail record; select a task path from `status`.
+
+Leaf inspection checks instance ownership, the principal's current plan grant
+and the registered workflow binding. It reads existing records without running
+an adapter or admitting work, including in a read-only or restored audit-only
+deployment. The graph view continues to omit leaf payloads. The detail response
+exposes the selected leaf's output and error, but no raw input, provider
+configuration or credentials held by the host. Application output can itself
+contain private data; the host does not infer which application fields are
+sensitive, so handle the returned output accordingly.
+
+The response is bounded to 136 KiB of UTF-8, including the CLI envelope and
+newline. Output and error each retain the existing 64 KiB integer-JSON limit
+and nesting allowance; inspection framing does not reduce that allowance.
+
 New submissions and continuations obey the deployment storage thresholds before
 persisting input. Identical request replay, cancellation and evidenced recovery
 remain available above those thresholds; a read-only or restored audit-only
@@ -239,6 +269,13 @@ blocks execution until the existing [operations procedure](operations.md)
 records an evidenced decision. Changing an adapter, operation contract, provider
 binding or plan requires an appropriate version/descriptor change; an existing
 instance rejects a changed binding.
+
+The loop recovery integration tests interrupt a later iteration inside a reusable
+subworkflow alongside a completed parallel branch. They exercise scheduler
+termination, uncertain effects, active cancellation, iteration-limit exhaustion
+and recovery after a lost completion record. Independent effect receipts and
+retained journal/protocol records check that recovery preserves completed work,
+run identities, deadlines and shared allocations.
 
 CLI JSON `ok:true` and exit zero mean the requested command succeeded. Inspect
 `result.state` to distinguish completed work from a durable pause or failure.

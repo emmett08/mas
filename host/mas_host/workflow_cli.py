@@ -13,6 +13,7 @@ from .codec import JSON_BYTES, integer_json
 from .contracts import RunnerError
 from .service_contracts import ServiceError
 from .topology import inspect_topology, topology_mermaid
+from .workflow_inspection import encode_task_inspection, validate_task_selector
 
 
 def _pairs(items):
@@ -86,7 +87,7 @@ def _parser():
     source.add_argument("--factory", help="trusted local module:callable returning the registry")
     graph = commands.add_parser("graph", help="emit Mermaid for exact permitted routes")
     graph.add_argument("--topology", type=Path, required=True)
-    for name in ("submit", "run", "status", "cancel", "continue", "recover"):
+    for name in ("submit", "run", "status", "task", "cancel", "continue", "recover"):
         command = commands.add_parser(name)
         command.add_argument("--factory", required=True)
         command.add_argument("--state-dir", type=Path, required=True)
@@ -107,6 +108,9 @@ def _parser():
             command.add_argument("--input", type=Path, required=name != "run")
         if name == "continue":
             command.add_argument("--path", required=True, help="durable leaf path from status")
+        if name == "task":
+            command.add_argument("--path", required=True, help="durable leaf path from status")
+            command.add_argument("--revision", type=int, help="explicit revision; defaults to the latest")
     return parser
 
 
@@ -128,11 +132,17 @@ def main(argv=None) -> int:
                     raise ServiceError("run_requires_request_key_and_input")
                 if args.instance_id and (args.request_key is not None or args.input is not None):
                     raise ServiceError("resume_does_not_accept_new_input")
+            if args.command == "task":
+                validate_task_selector(args.path, args.revision)
             input_value = _read_object(args.input) if getattr(args, "input", None) else None
             registry = load_registry(args.factory)
             from .workflow_engine import WorkflowEngine
+            options = {}
+            if args.command == "task":
+                from .operations import DeploymentLedger
+                options['operations'] = DeploymentLedger(args.state_dir, readonly=True)
             engine = WorkflowEngine(args.state_dir, **registry, mas_bin=args.mas_bin,
-                                    gateway_bin=args.gateway_bin)
+                                    gateway_bin=args.gateway_bin, **options)
             if args.command == "submit":
                 result = engine.submit(args.principal, args.request_key, args.plan, input_value)
             elif args.command == "run":
@@ -144,11 +154,16 @@ def main(argv=None) -> int:
             elif args.command == "continue":
                 result = engine.continue_task(args.principal, args.instance_id, args.path,
                                               args.request_key, input_value)
+            elif args.command == "task":
+                result = engine.inspect_task(args.principal, args.instance_id, args.path, args.revision)
             else:
                 method = {"status": engine.inspect, "cancel": engine.cancel,
                           "recover": engine.recover}[args.command]
                 result = method(args.principal, args.instance_id)
-        print(json.dumps({"ok": True, "result": result}, sort_keys=True), flush=True)
+        if args.command == "task":
+            print(encode_task_inspection(result), end="", flush=True)
+        else:
+            print(json.dumps({"ok": True, "result": result}, sort_keys=True), flush=True)
         return 0
     except KeyboardInterrupt:
         return 130
