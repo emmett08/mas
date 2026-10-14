@@ -138,6 +138,8 @@ class ArtifactRepository(Protocol):
                   input_sha256s: tuple[str, ...] = (), readers: tuple[str, ...] = ()) -> ArtifactRef: ...
     def put_file(self, path: Path, *, media_type: str = "application/octet-stream",
                  input_sha256s: tuple[str, ...] = (), readers: tuple[str, ...] = ()) -> ArtifactRef: ...
+    def put_stream(self, source: BinaryIO, *, media_type: str = "application/octet-stream",
+                   input_sha256s: tuple[str, ...] = (), readers: tuple[str, ...] = ()) -> ArtifactRef: ...
     def read_bytes(self, reference: ArtifactRef | dict) -> bytes: ...
     def open(self, reference: ArtifactRef | dict) -> ContextManager[BinaryIO]: ...
     def verify(self, reference: ArtifactRef | dict) -> bool: ...
@@ -405,6 +407,13 @@ class ArtifactStore:
         except OSError:
             raise ArtifactError("artefact source is unavailable or unsafe") from None
 
+    def put_stream(self, source: BinaryIO, *, media_type: str = "application/octet-stream",
+                   input_sha256s: tuple[str, ...] = (), readers: tuple[str, ...] = ()) -> ArtifactRef:
+        """Publish from a trusted seekable binary stream, with bounded two-pass hashing."""
+        if not callable(getattr(source, 'seekable', None)) or not source.seekable():
+            raise ArtifactError("artefact source must be seekable")
+        return self._put(source, media_type, input_sha256s, readers)
+
     def _put(self, source: BinaryIO, media_type: str, inputs: tuple[str, ...], readers: tuple[str, ...]) -> ArtifactRef:
         if type(inputs) is not tuple or type(readers) is not tuple or len(inputs) > 32 or len(readers) > 32:
             raise ArtifactError("invalid artefact provenance or grants")
@@ -468,7 +477,7 @@ class ArtifactStore:
                     pass
 
     @staticmethod
-    def _verify_file(directory: int, reference: ArtifactRef, *, collect: bool = False) -> bytes:
+    def _verify_file(directory: int, reference: ArtifactRef, *, collect: bool = False, destination: BinaryIO | None = None) -> bytes:
         digest = hashlib.sha256()
         result = []
         with os.fdopen(_open_file(directory, reference.sha256 + ".blob"), "rb") as source:
@@ -480,6 +489,8 @@ class ArtifactStore:
                 if size > reference.size:
                     raise ArtifactError("artefact content integrity mismatch")
                 digest.update(chunk)
+                if destination is not None:
+                    destination.write(chunk)
                 if collect:
                     result.append(chunk)
             if size != reference.size or digest.hexdigest() != reference.sha256:
@@ -494,8 +505,14 @@ class ArtifactStore:
     @contextmanager
     def open(self, reference: ArtifactRef | dict) -> Iterator[BinaryIO]:
         """Return a verified bounded snapshot, never an unverified filesystem handle."""
-        from io import BytesIO
-        with BytesIO(self.read_bytes(reference)) as stream:
+        from tempfile import TemporaryFile
+        # A private disk-backed snapshot bounds RAM independently of object size.
+        # Nothing is exposed to the caller until the exact copied bytes verify.
+        with TemporaryFile(mode="w+b") as stream:
+            with self._locked() as (directory, index):
+                ref = self._authorised(reference, index)
+                self._verify_file(directory, ref, destination=stream)
+            stream.seek(0)
             yield stream
 
     def verify(self, reference: ArtifactRef | dict) -> bool:

@@ -28,7 +28,7 @@ def load_config(path: Path) -> dict:
         integer_json(value)
         if (type(value) is not dict or type(value.get("version")) is not int or value.get("version") != 1
                 or set(value) - {"version", "mode", "factory", "grants", "auth", "public_url",
-                                 "allowed_hosts", "allowed_origins", "max_pending", "max_tasks", "max_instances", "scheduler"}
+                                 "allowed_hosts", "allowed_origins", "max_pending", "max_tasks", "max_instances", "scheduler", "artifacts"}
                 or type(value.get("grants")) is not dict):
             raise ServiceError("invalid_configuration")
         for principal, workflows in value["grants"].items():
@@ -80,8 +80,41 @@ def build_verifier(config: dict):
         raise ServiceError("invalid_auth_configuration")
     if auth.get("type") == "static" and set(auth) == {"type", "file"}:
         return StaticTokenVerifier.from_file(Path(auth["file"]))
-    if auth.get("type") == "oauth" and set(auth) == {
-            "type", "issuer", "resource", "introspection_url", "client_id", "client_secret_file"}:
-        return OAuthIntrospectionVerifier(**{key: value for key, value in auth.items() if key != "type"})
+    required = {"type", "issuer", "resource", "introspection_url", "client_id", "client_secret_file"}
+    if auth.get("type") == "oauth" and required <= set(auth) <= required | {'transport'}:
+        options = {key: value for key, value in auth.items() if key not in {'type', 'transport'}}
+        if 'transport' in auth:
+            from .bridges.http_policy import HTTPTransportPolicy
+            options['transport_policy'] = HTTPTransportPolicy.from_config(auth['transport'])
+        return OAuthIntrospectionVerifier(**options)
     raise ServiceError("invalid_auth_configuration")
 
+
+def build_artifact_transfer(config: dict, state_dir: Path):
+    """Build only fixed operator-selected repositories; request bodies contain no paths."""
+    if 'artifacts' not in config:
+        return None
+    from .artifacts import ArtifactPolicy
+    from .bridges.artifact_transfer import ArtifactScope, ArtifactTransferService
+    value = config['artifacts']
+    if (type(value) is not dict or 'scopes' not in value
+            or set(value) - {'scopes', 'ttl_seconds', 'max_sessions', 'max_staging_bytes'}
+            or type(value['scopes']) is not dict):
+        raise ServiceError('invalid_artifact_configuration')
+    scopes = {}
+    for name, item in value['scopes'].items():
+        if (type(item) is not dict or not {'namespace', 'principals'} <= set(item)
+                or set(item) - {'namespace', 'principals', 'path', 'policy'}):
+            raise ServiceError('invalid_artifact_configuration')
+        relative = item.get('path', 'shared-artifacts/' + name)
+        if (type(relative) is not str or not relative or Path(relative).is_absolute()
+                or any(part in {'', '.', '..'} for part in relative.split('/'))
+                or relative.split('/')[0] == 'artifact-transfers'):
+            raise ServiceError('invalid_artifact_configuration')
+        policy = item.get('policy', {})
+        if type(policy) is not dict or set(policy) - set(ArtifactPolicy.__dataclass_fields__):
+            raise ServiceError('invalid_artifact_configuration')
+        scopes[name] = ArtifactScope(Path(state_dir) / relative, item['namespace'],
+                                    item['principals'], ArtifactPolicy(**policy))
+    options = {key: item for key, item in value.items() if key != 'scopes'}
+    return ArtifactTransferService(Path(state_dir) / 'artifact-transfers', scopes, **options)

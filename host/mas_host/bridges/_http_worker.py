@@ -73,6 +73,30 @@ def read_response(response, maximum, sse_response_id=None):
                 line.append(byte)
 
 
+def connection_for(request):
+    """Construct explicit TLS/CONNECT routing without ambient configuration."""
+    endpoint = urlsplit(request['endpoint'])
+    policy = request.get('transport_policy') or {}
+    options = {'timeout': request['timeout_seconds']}
+    if endpoint.scheme == 'https':
+        context = ssl.create_default_context()
+        if policy.get('additional_ca_pem') is not None:
+            context.load_verify_locations(cadata=policy['additional_ca_pem'])
+        options['context'] = context
+    proxy = policy.get('proxy_url')
+    if proxy is not None:
+        proxy = urlsplit(proxy)
+        if endpoint.scheme != 'https' or proxy.scheme != 'http':
+            raise ValueError()
+        connection = http.client.HTTPSConnection(proxy.hostname, proxy.port or 80, **options)
+        headers = ({'Proxy-Authorization': policy['proxy_authorization']}
+                   if policy.get('proxy_authorization') is not None else {})
+        connection.set_tunnel(endpoint.hostname, endpoint.port or 443, headers=headers)
+        return connection
+    cls = http.client.HTTPSConnection if endpoint.scheme == 'https' else http.client.HTTPConnection
+    return cls(endpoint.hostname, endpoint.port, **options)
+
+
 def main():
     connection = None
     try:
@@ -81,11 +105,7 @@ def main():
             raise ValueError()
         request = json.loads(wire)
         endpoint = urlsplit(request["endpoint"])
-        cls = http.client.HTTPSConnection if endpoint.scheme == "https" else http.client.HTTPConnection
-        options = {"timeout": request["timeout_seconds"]}
-        if endpoint.scheme == "https":
-            options["context"] = ssl.create_default_context()
-        connection = cls(endpoint.hostname, endpoint.port, **options)
+        connection = connection_for(request)
         body = base64.b64decode(request["body"], validate=True) if request["body"] is not None else None
         connection.request(request["method"], endpoint.path or "/", body=body, headers=request["headers"])
         response = connection.getresponse()

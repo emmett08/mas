@@ -37,10 +37,11 @@ message_payload = {"result": reference.to_dict()}
 
 The recipient opens the **same local root and namespace**, under its own trusted
 principal, then calls `read_bytes(reference)` or `open(reference)`. Both verify
-the complete bounded content before returning any bytes. `open` returns an
-in-memory snapshot; it does not stream unverified bytes to a consumer.
+the complete bounded content before returning any bytes. `open` returns a private, disk-backed verified snapshot; it does not buffer the
+whole object in memory or expose unverified bytes to a consumer.
 `verify(reference)` checks integrity without retaining the content in memory.
-`put_file(path)` streams a regular source file under the per-object limit;
+`put_stream(stream)` accepts a trusted seekable binary source with two-pass
+hashing. `put_file(path)` streams a regular source file under the per-object limit;
 symlinks, hard links and special files are rejected. No method fetches a URL.
 
 `inspect(reference)` returns authorised metadata and associated link identities.
@@ -120,6 +121,138 @@ referenced run directories through the composition-store retention guard.
 Standalone roots can be useful in embedding applications, but they do not
 receive deployment backup or run-retention management automatically. The
 `ArtifactRepository` protocol permits alternative storage implementations;
-this release provides only the local backend. Distributed consumers require a
-separately authenticated transfer or an appropriate future backend, with the
-same hash, provenance, authorisation and retention guarantees.
+the committed backend remains local. Distributed consumers can use the
+authenticated bounded transfer below. This is not an S3-compatible object-store
+backend or a replicated metadata authority.
+
+
+## Authenticated cross-host transfer
+
+`ArtifactTransferService` exposes opt-in chunk operations through authenticated
+`POST /service/artifact/<operation>` and MCP `mas.artifact.<operation>` tools.
+Operations are `upload_begin`, `upload_chunk`, `upload_commit`, `download_begin`,
+`download_chunk`, `status`, `close` and `revoke`. Each binary chunk is at most
+32 KiB, base64 encoded inside the existing bounded integer-JSON envelope. The
+service never accepts a filesystem path or fetches a message-supplied URL.
+
+Enable fixed repositories in the trusted bridge configuration:
+
+```json
+{
+  "artifacts": {
+    "ttl_seconds": 3600,
+    "max_sessions": 16,
+    "max_staging_bytes": 67108864,
+    "scopes": {
+      "analysis-results": {
+        "namespace": "analysis-v1",
+        "principals": {"alice": "analyst", "bob": "checker"},
+        "policy": {
+          "max_artifact_bytes": 16777216,
+          "max_total_bytes": 67108864,
+          "max_artifacts": 1024,
+          "max_links": 4096
+        }
+      }
+    }
+  }
+}
+```
+
+This is the `artifacts` field of the existing version-1 bridge configuration.
+Each scope maps authenticated service principals to distinct local actor
+identities. Aliasing two principals to one actor is rejected. The optional
+scope `path` is relative to the deployment state directory; its default is
+`shared-artifacts/<scope>`. The scope name, actor map, local quotas and paths are
+operator configuration, never request authority. A scope rooted in a run's
+`artifacts` directory participates in that run's retention; the default shared
+root is included in deployment backup and storage admission but needs explicit
+operator lifetime management. Upload publication does not infer a downstream
+consumer's lifecycle or create a run-retention link on that consumer's behalf.
+
+Upload and revocation operations require `mas:submit`; download, status and
+close require `mas:read`. The authenticated principal must also appear in the
+selected scope. Upload producers come from that mapping. The request's readers
+are names in the same configured mapping, not self-asserted actor identities.
+Download checks the exact stored reference and its existing grants. A content
+hash, copied reference or guessed transfer identifier grants no access.
+
+```python
+from mas_host.bridges.artifact_client import ArtifactTransferClient
+from mas_host.bridges.service_client import TaskServiceClient
+
+peer = TaskServiceClient(
+    "https://peer.example", principal="bob", token_file=private_token_file)
+transfer = ArtifactTransferClient.from_service(peer)
+# local_repository is the consumer's configured ArtifactStore.
+receipt = transfer.materialize("analysis-results", remote_reference, local_repository)
+local_reference = receipt["reference"]
+```
+
+`from_mcp(configured_mcp_client)` provides the same transfer operations. A2A
+application data parts, MCP structured results, Temporal payloads and LangGraph
+state can carry the unchanged `ArtifactRef.to_dict()` value. Their configured
+consumer calls `materialize` explicitly through the selected HTTP/MCP peer.
+There is no additional A2A RPC extension or automatic file-URL download.
+
+Materialisation streams bounded chunks into a private temporary file and checks
+the complete size and SHA-256 before publication. The local producer is the
+local repository principal; the source content hash is an input dependency.
+A second durable artefact records the exact source reference and configured
+peer descriptor. A live retention link protects both local objects. Release
+`receipt["link_id"]` with both `receipt["reference"]` and `receipt["receipt"]`
+only after the consuming work is resolved terminal. Peer credentials and proxy
+credentials never enter this provenance receipt.
+
+`publish(scope, repository, reference, readers=(...))` uploads a verified local
+object and returns the remote reference. Upload bytes remain unusable until an
+exact-size/hash commit. Repeated identical chunks at the same offset and exact
+commits are idempotent. Changed bytes conflict. The client does not retry failed
+requests. If a chunk or commit reply is lost, `ArtifactTransferIncomplete`
+contains `transfer_id`; retain it and call `inspect_transfer(transfer_id)`.
+The owner can then repeat the exact chunk/commit rather than allocate another
+upload. A lost initial begin reply leaves a bounded expiring reservation.
+
+Sessions persist across service restarts and are bound to their original
+principal and scope configuration. Changes to the scope invalidate old
+sessions. Download sessions contain verified private snapshots. TTL expires
+access; the next transfer operation cleans expired bytes. Staging reserves the
+whole expected size before accepting content, with a separate session-count
+bound. A private verification snapshot and local publication temporary can
+add bounded transient disk use beyond the staging reservation; these limits are
+not a filesystem quota. The client checks an overall transfer deadline between
+requests, each of which also has its transport's hard deadline. Automatic
+cross-session download resume is not implemented; explicit same-session offset
+reads are available until expiry.
+
+Only the mapped producer can `revoke` future remote downloads for selected
+readers. Revocation persists across restarts and applies to existing download
+sessions as well as new ones. It does not rewrite immutable local manifests,
+recall bytes already delivered or revoke a recipient's local copy. Revocation
+records are bounded to 4,096 distinct grants and are included in backup.
+Transfers, publication and revocation are disabled in audit-only restored
+state; authorised local read-only inspection remains available.
+
+## Scientific values without wire JSON floats
+
+`mas_host.numeric_artifacts.put_float64` stores finite IEEE 754 binary64 arrays
+as `application/vnd.mas.ndarray` artefacts. The `MASARRAY1` encoding contains a
+bounded versioned header with dtype, little-endian byte order and integer shape,
+followed by exactly the declared number of 8-byte values. The hash binds the
+header and values together; mismatched dimensions and nonfinite values fail.
+The protocol message still contains only the ordinary integer-JSON reference.
+
+```python
+from mas_host.numeric_artifacts import put_float64, open_float64
+
+reference = put_float64(repository, [0.125, 3.141592653589793], shape=(2,))
+with open_float64(repository, reference) as (shape, values):
+    for value in values:
+        consume(value)
+```
+
+This encoding preserves binary64 values; it does not claim arbitrary decimal
+precision, units or coordinate semantics. Applications needing another encoding
+can use a separately versioned media type under the same integrity and access
+rules. Inside a MAS workflow, transfers belong in an admitted adapter invocation
+with a frozen implementation and bounded transfer policy.

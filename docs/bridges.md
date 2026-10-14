@@ -192,10 +192,27 @@ must be owned by the runtime UID, regular files, mode `0400` or `0600`, with no
 symlink. The public Agent Card contains static capability information only.
 
 The server bounds concurrent I/O handlers, request bytes, headers and read
-deadlines. The worker is a separate single-threaded Linux process with exclusive
-scheduling ownership retained by its guardian until adapter descendants exit.
-This remains one host with SQLite storage, not a high-availability scheduler.
-Multiple network callers do not change frozen MAS routing permissions.
+deadlines. The worker command runs a dispatcher with bounded independent
+assignment processes. Configure `scheduler.max_workers` and
+`scheduler.max_per_principal` in the deployment configuration (defaults: four
+and two); workflow and resource limits share the same durable capacity store.
+Use `bridge worker --processes N` to lower the assignment-process bound and
+`--drain-seconds N` to set the graceful shutdown interval (default: 30 seconds).
+Principals are interleaved while each principal's pending assignments keep
+their creation order. Composition leaves and ordinary tasks consume the same
+execution capacity.
+
+Each assignment retains its own task lock and process-slot lock. Surviving
+assignment processes continue to count against the bound if the dispatcher
+dies and restarts. Only the dispatcher publishes worker readiness. Shutdown
+stops new assignments, drains active work, then terminates overdue workers;
+their supervisors retain run and capacity ownership until descendant cleanup
+finishes. Interrupted external effects retain their uncertainty. `--once`
+attempts one assignment and exits.
+
+This profile remains one Linux host with SQLite storage and local file locks.
+Multiple network callers do not change frozen MAS routing permissions; these
+processes do not provide controller high availability.
 
 ## Recovery and cancellation
 
@@ -250,3 +267,17 @@ cross-principal isolation, exact remote identities and restored stores. SDK test
 exercise real LangGraph checkpoints and a pinned real Temporal server. The
 [finite models](../formal/bridge-notes.md) establish their stated bounded
 properties, not unrestricted implementation or provider correctness.
+
+Outbound task I/O uses a per-task process lock while the remote intent and
+receipt use short SQLite transactions. A slow peer therefore leaves inspection
+and unrelated task lifecycle operations available. Concurrent operations on the
+same remote task receive `operation_busy` before dispatch; administrative
+resolution cannot race a live response. Process death releases ownership but
+leaves its committed unknown intent, so a later caller cannot silently submit
+again. Receipt persistence checks the original invocation, binding and peer
+identity before accepting a late completion. A shared deployment lock remains
+held across the call so maintenance cannot take a partial snapshot.
+
+See [HTTP transport policy](http-transport-policy.md) for explicit corporate
+proxy/private-CA configuration, and [artefact exchange](artifacts.md) for
+configured authenticated chunk transfer and typed scientific array payloads.

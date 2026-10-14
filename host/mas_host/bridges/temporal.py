@@ -31,7 +31,8 @@ def temporal_activities(connector: OrchestratorConnector) -> list:
                 "request_conflict", "forbidden", "not_found", "invalid_request",
                 "unsupported_capability", "invalid_orchestration_identity",
                 "invalid_poll_deadline", "invalid_poll_interval", "task_not_found",
-                "workflow_changed", "result_unavailable", "audit_only"}
+                "workflow_changed", "result_unavailable", "audit_only", "peer_contract_mismatch",
+                "workflow_identity_mismatch", "deployment_identity_mismatch"}
             raise ApplicationError(error.code, type="MAS." + error.code,
                                    non_retryable=permanent) from None
 

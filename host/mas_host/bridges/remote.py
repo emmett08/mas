@@ -6,7 +6,7 @@ no adapter context is retained by a background poller.
 """
 from __future__ import annotations
 
-from contextlib import contextmanager
+from contextlib import contextmanager, ExitStack, nullcontext
 from dataclasses import dataclass
 import hashlib
 import json
@@ -21,6 +21,7 @@ from ..journal import canonical
 from ..operations import _file_lock, _private_dir
 from ..schema import Schema, SchemaError, JOURNAL, LEDGER, connect
 from ..service_contracts import ServiceError
+from .remote_ownership import own_remote_task
 
 STATES = frozenset({'queued', 'running', 'blocked', 'input_required', 'auth_required', 'completed', 'failed', 'cancelled', 'unknown'})
 TERMINAL = frozenset({'completed', 'failed', 'cancelled'})
@@ -116,9 +117,16 @@ class RemoteTaskStore:
 
     @contextmanager
     def open(self, *, readonly=False):
+        """Open one short transaction boundary, never a network-call lifetime.
+
+        Writers serialise initialisation and read/modify/write decisions. Readers
+        retain a SQLite snapshot without taking the global remote writer lock.
+        """
         _private_dir(self.state_dir, create=not readonly)
+        writer = (nullcontext() if readonly else
+                  _file_lock(self.state_dir / '.remote-tasks.lock', True))
         with _file_lock(self.state_dir / '.deployment.lock', False, nonblocking=True), \
-                _file_lock(self.state_dir / '.remote-tasks.lock', True, nonblocking=True):
+                writer:
             if not readonly:
                 self.require_mutable()
             try:
@@ -127,9 +135,14 @@ class RemoteTaskStore:
             except SchemaError:
                 raise ServiceError('unsupported_schema') from None
             try:
+                if readonly:
+                    db.execute('BEGIN')
                 yield db
             finally:
                 db.close()
+
+    def ownership(self, key):
+        return own_remote_task(self.state_dir, key)
 
     def verify_admission(self, directory: Path, call_id: str, reservation: int):
         directory = Path(directory).absolute()
@@ -223,6 +236,20 @@ class RemoteTaskService:
         if canonical(self.identity) != row['descriptor']:
             raise ServiceError('remote_identity_conflict')
 
+    @contextmanager
+    def _dispatch_ownership(self, key):
+        with ExitStack() as owner:
+            try:
+                owner.enter_context(self.store.ownership(key))
+            except ServiceError as error:
+                if error.code == 'remote_task_busy':
+                    # Only acquisition failure proves this invocation never
+                    # dispatched. Do not catch errors raised by the peer/body.
+                    from ..provider_outcomes import not_sent
+                    raise not_sent('custom', 'operation_busy') from None
+                raise
+            yield
+
     @staticmethod
     def _snapshot(db, row, snapshot, *, clear_pending=False):
         snapshot.validate()
@@ -264,32 +291,42 @@ class RemoteTaskService:
         if type(reservation_microusd) is not int or not 0 <= reservation_microusd <= 100_000_000:
             raise ServiceError('invalid_reservation')
         def execute():
-            with self.store.open() as db:
-                self.store.verify_admission(host_run_dir, context.invocation_id, reservation_microusd)
-                if canonical(bounded(self.client.descriptor(), 8192)) != canonical(self.identity):
-                    raise ServiceError('remote_identity_conflict')
-                previous = db.execute('SELECT * FROM remote_tasks WHERE key=?', (key,)).fetchone()
-                if previous:
-                    row = self.store.row(db, key)
-                    if row['binding'] != fingerprint:
-                        raise ServiceError('idempotency_conflict')
-                    self._identity(row)
-                    if row['remote_id'] is None and row['state'] not in TERMINAL:
-                        raise ServiceError('remote_outcome_unknown')
-                    return Invocation(self.store.public(row), {'remote_key': key, 'replayed': True})
-                # Unknown is committed before sending. SIGKILL at any later point
-                # leaves no route to an automatic duplicate initial request.
-                with db:
-                    now = int(time.time())
-                    db.execute('INSERT INTO remote_tasks(key,logical_key,namespace,binding,descriptor,input,state,host_run_dir,call_id,pending_action,created,updated) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)',
-                               (key, logical_key, self.namespace, fingerprint, canonical(self.identity), canonical(payload), 'unknown',
-                                Path(host_run_dir).name, context.invocation_id, 'submit', now, now))
-                    self.store.audit(db, key, 'submit_intent', {'binding': fingerprint})
+            call_id, directory = context.invocation_id, Path(host_run_dir).name
+            with self._dispatch_ownership(key):
+                with self.store.open() as db:
+                    self.store.verify_admission(host_run_dir, call_id, reservation_microusd)
+                    if canonical(bounded(self.client.descriptor(), 8192)) != canonical(self.identity):
+                        raise ServiceError('remote_identity_conflict')
+                    previous = db.execute('SELECT * FROM remote_tasks WHERE key=?', (key,)).fetchone()
+                    if previous:
+                        row = self.store.row(db, key)
+                        if row['binding'] != fingerprint:
+                            raise ServiceError('idempotency_conflict')
+                        self._identity(row)
+                        if row['remote_id'] is None and row['state'] not in TERMINAL:
+                            raise ServiceError('remote_outcome_unknown')
+                        return Invocation(self.store.public(row), {'remote_key': key, 'replayed': True})
+                    # Unknown is committed before sending. SIGKILL at any later
+                    # point cannot authorise a duplicate initial request.
+                    with db:
+                        now = int(time.time())
+                        db.execute('INSERT INTO remote_tasks(key,logical_key,namespace,binding,descriptor,input,state,host_run_dir,call_id,pending_action,created,updated) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)',
+                                   (key, logical_key, self.namespace, fingerprint, canonical(self.identity), canonical(payload), 'unknown',
+                                    directory, call_id, 'submit', now, now))
+                        self.store.audit(db, key, 'submit_intent', {'binding': fingerprint})
                 snapshot = self.client.submit(payload).validate()
-                with db:
-                    self._snapshot(db, self.store.row(db, key), snapshot, clear_pending=True)
-                    self.store.audit(db, key, 'submit_received', {'remote_id': snapshot.remote_id, 'state': snapshot.state})
-                return Invocation(self.store.public(self.store.row(db, key)), {'remote_key': key, 'submission_only': snapshot.state not in TERMINAL})
+                with self.store.open() as db:
+                    row = self.store.row(db, key)
+                    self._identity(row)
+                    if (row['binding'] != fingerprint or row['call_id'] != call_id
+                            or row['host_run_dir'] != directory or row['pending_action'] != 'submit'
+                            or row['remote_id'] is not None or row['state'] != 'unknown'):
+                        raise ServiceError('remote_operation_changed')
+                    with db:
+                        self._snapshot(db, row, snapshot, clear_pending=True)
+                        self.store.audit(db, key, 'submit_received', {'remote_id': snapshot.remote_id, 'state': snapshot.state})
+                    output = self.store.public(self.store.row(db, key))
+                return Invocation(output, {'remote_key': key, 'submission_only': snapshot.state not in TERMINAL})
         return context.invoke(execute, input={'remote': self.identity, 'namespace': self.namespace, 'key': logical_key, 'binding': fingerprint, 'action': 'submit'},
                               reservation_microusd=reservation_microusd)
 
@@ -304,43 +341,45 @@ class RemoteTaskService:
         operation_key = action + ':' + (request_key or context.actor + ':' + str(time.time_ns()))
         operation_binding = digest({'action': action, 'payload': payload, 'remote_id': remote_id, 'evidence': evidence})
         def execute():
-            with self.store.open() as db:
-                self.store.verify_admission(host_run_dir, context.invocation_id, reservation_microusd)
-                row = self.store.row(db, key)
-                self._identity(row)
-                previous = db.execute('SELECT * FROM operations WHERE key=? AND operation_key=?', (key, operation_key)).fetchone()
-                if previous:
-                    if previous['binding'] != operation_binding:
-                        raise ServiceError('idempotency_conflict')
-                    if previous['state'] != 'completed':
+            call_id, directory = context.invocation_id, Path(host_run_dir).name
+            with self._dispatch_ownership(key):
+                with self.store.open() as db:
+                    self.store.verify_admission(host_run_dir, call_id, reservation_microusd)
+                    row = self.store.row(db, key)
+                    self._identity(row)
+                    previous = db.execute('SELECT * FROM operations WHERE key=? AND operation_key=?', (key, operation_key)).fetchone()
+                    if previous:
+                        if previous['binding'] != operation_binding:
+                            raise ServiceError('idempotency_conflict')
+                        if previous['state'] != 'completed':
+                            raise ServiceError('remote_outcome_unknown')
+                        return Invocation(json.loads(previous['output']), {'remote_key': key, 'replayed': True})
+                    if row['state'] in TERMINAL:
+                        return Invocation(self.store.public(row), {'remote_key': key, 'terminal': True})
+                    selected = row['remote_id']
+                    if action == 'attach':
+                        if selected is not None or not evidence:
+                            raise ServiceError('reconciliation_evidence_required')
+                        selected = peer_identifier(remote_id)
+                    if selected is None:
                         raise ServiceError('remote_outcome_unknown')
-                    return Invocation(json.loads(previous['output']), {'remote_key': key, 'replayed': True})
-                if row['state'] in TERMINAL:
-                    return Invocation(self.store.public(row), {'remote_key': key, 'terminal': True})
-                selected = row['remote_id']
-                if action == 'attach':
-                    if selected is not None or not evidence:
-                        raise ServiceError('reconciliation_evidence_required')
-                    selected = peer_identifier(remote_id)
-                if selected is None:
-                    raise ServiceError('remote_outcome_unknown')
-                if action == 'update' and (row['state'] not in ('input_required', 'auth_required') or row['pending_action'] or row['cancel_requested']):
-                    raise ServiceError('task_not_continuable')
-                if action == 'cancel' and row['pending_action']:
-                    # One unresolved mutating intent owns the task until an
-                    # evidenced resolution. A cancellation must not replace an
-                    # unknown continuation and make its operation unresolvable.
-                    raise ServiceError('remote_outcome_unknown')
-                if action == 'cancel' and row['cancel_requested']:
-                    raise ServiceError('cancellation_already_requested')
-                with db:
-                    db.execute('INSERT INTO operations VALUES(?,?,?,?,?,?,?,?)',
-                               (key, operation_key, action, operation_binding, 'unknown', None,
-                                context.invocation_id, Path(host_run_dir).name))
-                    if action in ('update', 'cancel'):
-                        db.execute('UPDATE remote_tasks SET pending_action=?,cancel_requested=?,updated=? WHERE key=?',
-                                   (action, 1 if action == 'cancel' else row['cancel_requested'], int(time.time()), key))
-                    self.store.audit(db, key, action + '_intent', {'operation_key': operation_key, 'remote_id': selected})
+                    if action == 'update' and (row['state'] not in ('input_required', 'auth_required') or row['pending_action'] or row['cancel_requested']):
+                        raise ServiceError('task_not_continuable')
+                    if action == 'cancel' and row['pending_action']:
+                        # One unresolved mutation owns the task until evidenced
+                        # resolution; cancellation cannot replace that intent.
+                        raise ServiceError('remote_outcome_unknown')
+                    if action == 'cancel' and row['cancel_requested']:
+                        raise ServiceError('cancellation_already_requested')
+                    initial_binding = row['binding']
+                    with db:
+                        db.execute('INSERT INTO operations VALUES(?,?,?,?,?,?,?,?)',
+                                   (key, operation_key, action, operation_binding, 'unknown', None,
+                                    call_id, directory))
+                        if action in ('update', 'cancel'):
+                            db.execute('UPDATE remote_tasks SET pending_action=?,cancel_requested=?,updated=? WHERE key=?',
+                                       (action, 1 if action == 'cancel' else row['cancel_requested'], int(time.time()), key))
+                        self.store.audit(db, key, action + '_intent', {'operation_key': operation_key, 'remote_id': selected})
                 if action in ('poll', 'attach'):
                     snapshot = self.client.poll(selected).validate()
                 elif action == 'cancel':
@@ -349,12 +388,23 @@ class RemoteTaskService:
                     snapshot = self.client.update(selected, payload).validate()
                 if snapshot.remote_id != selected:
                     raise ServiceError('remote_identity_conflict')
-                with db:
-                    self._snapshot(db, self.store.row(db, key), snapshot, clear_pending=action in ('update', 'cancel', 'attach'))
-                    output = self.store.public(self.store.row(db, key))
-                    db.execute("UPDATE operations SET state='completed',output=? WHERE key=? AND operation_key=?",
-                               (canonical(output), key, operation_key))
-                    self.store.audit(db, key, action + '_received', {'state': snapshot.state, 'operator': evidence})
+                with self.store.open() as db:
+                    current = self.store.row(db, key)
+                    self._identity(current)
+                    operation = db.execute('SELECT * FROM operations WHERE key=? AND operation_key=?', (key, operation_key)).fetchone()
+                    if (current['binding'] != initial_binding or operation is None
+                            or operation['state'] != 'unknown' or operation['action'] != action
+                            or operation['binding'] != operation_binding or operation['call_id'] != call_id
+                            or operation['host_run_dir'] != directory
+                            or current['remote_id'] != row['remote_id']
+                            or action in ('update', 'cancel') and current['pending_action'] != action):
+                        raise ServiceError('remote_operation_changed')
+                    with db:
+                        self._snapshot(db, current, snapshot, clear_pending=action in ('update', 'cancel', 'attach'))
+                        output = self.store.public(self.store.row(db, key))
+                        db.execute("UPDATE operations SET state='completed',output=? WHERE key=? AND operation_key=?",
+                                   (canonical(output), key, operation_key))
+                        self.store.audit(db, key, action + '_received', {'state': snapshot.state, 'operator': evidence})
                 return Invocation(output, {'remote_key': key, 'action': action})
         return context.invoke(execute, input={'remote': self.identity, 'namespace': self.namespace, 'key': logical_key, 'action': action,
                                              'request_key': request_key, 'binding': operation_binding},
@@ -375,7 +425,7 @@ class RemoteTaskService:
         evidence = bounded(evidence, 8192)
         if not evidence or decision not in ('applied', 'not_applied', 'observation_unavailable'):
             raise ServiceError('reconciliation_evidence_required')
-        with self.store.open() as db:
+        with self.store.ownership(key), self.store.open() as db:
             row = self.store.row(db, key)
             self._identity(row)
             op = db.execute('SELECT * FROM operations WHERE key=? AND operation_key=?', (key, operation_key)).fetchone()

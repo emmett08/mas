@@ -130,7 +130,9 @@ def main(argv=None):
                     monitor.write("stopped")
             return 0
         from .bridges.mcp import MCPBridge
-        mcp = MCPBridge(service)
+        from .bridge_config import build_artifact_transfer
+        artifact_transfer = build_artifact_transfer(config, args.state_dir)
+        mcp = MCPBridge(service, artifact_transfer=artifact_transfer)
         if args.command == "stdio":
             from .bridges.server import serve_stdio
             if args.principal not in config["grants"]:
@@ -142,7 +144,7 @@ def main(argv=None):
         public_url = config.get("public_url", "http://127.0.0.1:8765")
         a2a = A2ABridge(service, endpoint=public_url + "/a2a", allow_http=args.allow_loopback_http)
         with BridgeHTTPServer((args.bind, args.port), service=service, verifier=build_verifier(config),
-                              public_url=public_url, mcp_bridge=mcp, a2a_bridge=a2a,
+                              public_url=public_url, mcp_bridge=mcp, a2a_bridge=a2a, artifact_transfer=artifact_transfer,
                               allow_loopback_http=args.allow_loopback_http,
                               allowed_hosts=config.get("allowed_hosts"),
                               allowed_origins=config.get("allowed_origins", ())) as server:
