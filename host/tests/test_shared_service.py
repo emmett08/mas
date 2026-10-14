@@ -63,6 +63,60 @@ class SharedServiceTests(unittest.TestCase):
             {'work': workflow or self.workflow}, {'alice': {'work'}, 'bob': {'work'}},
             workflow_versions=versions, allocation_limits=self.limits, supervised=False)
 
+    def isolated_policy(self, *, quotas=None, scheduler=None, workflow=None):
+        authority = SharedAuthority(binary=self.authority._binary, dsn=os.environ['MAS_TEST_POSTGRES_DSN'],
+            namespace='mas_policy_' + uuid.uuid4().hex, deployment='deployment', controller='controller', epoch=1,
+            secret_key=b'test-secret-only' * 3, secret_reference='key/1', default_reservation_microusd=1)
+        authority.initialise()
+        self.addCleanup(authority.close)
+        service = create_shared_service(authority, Path(self.temp.name) / ('policy-' + uuid.uuid4().hex),
+            {'work': workflow or self.workflow}, {'alice': {'work'}, 'bob': {'work'}},
+            allocation_limits=self.limits, principal_quotas=quotas,
+            scheduler_policy=scheduler, supervised=False)
+        return service
+
+    def test_principal_pending_and_retained_limits_use_shared_atomic_counts(self):
+        from concurrent.futures import ThreadPoolExecutor
+        service = self.isolated_policy(quotas={'alice': {'max_pending': 1, 'max_tasks': 1}})
+        def submit(key):
+            try:
+                return service.submit('alice', key, 'work', {'x': 1})
+            except ServiceError as error:
+                return error.code
+        with ThreadPoolExecutor(max_workers=2) as workers:
+            values = list(workers.map(submit, ['one', 'two']))
+        accepted = [v for v in values if isinstance(v, dict)]
+        self.assertEqual(len(accepted), 1)
+        self.assertIn('principal_task_limit', values)
+        self.assertEqual(service.submit('bob', 'one', 'work', {'x': 1})['state'], 'queued')
+        self.assertEqual(service.submit('alice', accepted[0]['request_key'], 'work', {'x': 1})['task_id'], accepted[0]['task_id'])
+
+    def test_native_capacity_and_round_robin_cover_independent_principals(self):
+        from mas_host.scheduler_capacity import SchedulerPolicy
+        service = self.isolated_policy(scheduler=SchedulerPolicy(max_workers=2, max_per_principal=1))
+        a = service.submit('alice', 'a', 'work', {'x': 1})['task_id']
+        a2 = service.submit('alice', 'a2', 'work', {'x': 2})['task_id']
+        b = service.submit('bob', 'b', 'work', {'x': 3})['task_id']
+        authority = service.authority
+        first = authority.command('task.claim', {'owner': 'a-owner', 'task': a, 'workflows': ['work']})['receipt']
+        self.assertIsNotNone(first)
+        self.assertIsNone(authority.command('task.claim', {'owner': 'a2-owner', 'task': a2, 'workflows': ['work']})['receipt'])
+        self.assertEqual(service.pending()[0]['principal'], 'bob')
+        self.assertIsNotNone(authority.command('task.claim', {'owner': 'b-owner', 'task': b, 'workflows': ['work']})['receipt'])
+        self.assertEqual(authority.query('task.scheduler', {})['occupied'], 2)
+        authority.command('task.complete', {'principal': 'alice', 'task': a, 'owner': 'a-owner',
+            'state': 'cancelled', 'result': None, 'error': None})
+        self.assertIsNotNone(authority.command('task.claim', {'owner': 'a2-owner', 'task': a2, 'workflows': ['work']})['receipt'])
+
+    def test_resource_capacity_is_shared_across_principals(self):
+        from mas_host.scheduler_capacity import SchedulerPolicy
+        service = self.isolated_policy(workflow=replace(self.workflow, resource_keys=('gpu',)),
+            scheduler=SchedulerPolicy(max_workers=4, max_per_principal=2, resources={'gpu': 1}))
+        a = service.submit('alice', 'a', 'work', {'x': 1})['task_id']
+        b = service.submit('bob', 'b', 'work', {'x': 2})['task_id']
+        self.assertIsNotNone(service.authority.command('task.claim', {'owner': 'a-owner', 'task': a, 'workflows': ['work']})['receipt'])
+        self.assertIsNone(service.authority.command('task.claim', {'owner': 'b-owner', 'task': b, 'workflows': ['work']})['receipt'])
+
     def test_receipts_and_result_survive_replaced_cache_without_effect_repeat(self):
         submitted = self.service.submit('alice', 'key', 'work', {'x': 7})
         task = submitted['task_id']

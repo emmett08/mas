@@ -164,6 +164,7 @@ def _build_shared_service(config, state_dir, workflows, *, plans=None, workflow_
     from .bridges.authentication import read_private_file, AuthenticationError
     from .shared_authority import SharedAuthority
     from .shared_service import create_shared_service
+    from .scheduler_capacity import SchedulerPolicy
     value = config['shared']
     required = {'binary', 'dsn_file', 'namespace', 'deployment', 'controller', 'epoch',
                 'secret_key_file', 'secret_reference', 'allocation_limits'}
@@ -180,4 +181,6 @@ def _build_shared_service(config, state_dir, workflows, *, plans=None, workflow_
     return create_shared_service(authority, state_dir, workflows,
         {principal: set(names) for principal, names in config['grants'].items()}, plans=plans,
         workflow_versions=workflow_versions, allocation_limits=value['allocation_limits'],
-        max_pending=config.get('max_pending', 1000), max_tasks=config.get('max_tasks', 10000))
+        max_pending=config.get('max_pending', 1000), max_tasks=config.get('max_tasks', 10000),
+        scheduler_policy=SchedulerPolicy(**config.get('scheduler', {})),
+        principal_quotas=config.get('principal_quotas'), max_instances=config.get('max_instances', 1000))

@@ -18,13 +18,16 @@ class _ProfileClient:
     path = ''
 
     def __init__(self, endpoint, *, token_file, principal, timeout_seconds=30,
-                 allow_loopback_http=False, transport_policy=None):
+                 allow_loopback_http=False, transport_policy=None, token_provider=None):
         parsed = validate_endpoint(endpoint, allow_loopback_http=allow_loopback_http)
         if parsed.path != self.path or type(principal) is not str or not principal:
             raise ServiceError('invalid_peer_configuration')
         self.endpoint, self.token_file, self.principal = endpoint, token_file, principal
         self.timeout_seconds, self.allow_loopback_http = timeout_seconds, allow_loopback_http
         self.transport_policy = transport_policy
+        if token_provider is not None and not callable(token_provider):
+            raise ServiceError('invalid_peer_configuration')
+        self.token_provider = token_provider or (lambda: read_token_file(self.token_file))
 
     def _principal(self, principal):
         if principal != self.principal:
@@ -39,7 +42,7 @@ class MCPTaskServiceClient(_ProfileClient):
         from .mcp_client import MCPClient
         from .mcp_transport import StreamableHTTPTransport
         return MCPClient(StreamableHTTPTransport(self.endpoint,
-            token=read_token_file(self.token_file), timeout_seconds=self.timeout_seconds,
+            token=self.token_provider(), timeout_seconds=self.timeout_seconds,
             allow_loopback_http=self.allow_loopback_http, transport_policy=self.transport_policy))
 
     def _call(self, principal, name, arguments):
@@ -92,7 +95,7 @@ class A2ATaskServiceClient(_ProfileClient):
         request_id = uuid.uuid4().hex
         status, headers, body = http_exchange(self.endpoint,
             body=integer_json({'jsonrpc': '2.0', 'id': request_id, 'method': method, 'params': params}, 65536).encode(),
-            headers={'Authorization': 'Bearer ' + read_token_file(self.token_file),
+            headers={'Authorization': 'Bearer ' + self.token_provider(),
                      'Content-Type': 'application/json', 'Accept': 'application/json', 'A2A-Version': VERSION},
             timeout_seconds=self.timeout_seconds, max_response_bytes=65536,
             allow_loopback_http=self.allow_loopback_http, transport_policy=self.transport_policy)

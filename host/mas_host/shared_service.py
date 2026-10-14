@@ -12,6 +12,7 @@ class SharedTaskFacade:
         self.authority = self.operations = leaves.authority
         self.state_dir = leaves.state_dir
         self.grants = leaves.grants
+        self.capacity = leaves.capacity
         self.definitions = leaves.definitions
         from .shared_remote import SharedPeerRegistry
         self.peer_registry = SharedPeerRegistry(self.authority)
@@ -93,7 +94,7 @@ class SharedTaskFacade:
         pending = self.leaves.pending()
         if self.compositions is not None:
             pending += self.compositions.pending()
-        return sorted(pending, key=lambda x: (x.get('created_at', 0), x['task_id']))
+        return self.capacity.fair_order(sorted(pending, key=lambda x: (x.get('created_at', 0), x['task_id'])))
 
     def run_once(self, task_id=None):
         if task_id is not None:
@@ -131,8 +132,8 @@ class SharedTaskFacade:
 
 def create_shared_service(authority, cache_dir, workflows, grants, *, plans=None,
                           workflow_versions=None, allocation_limits=None,
-                          max_pending=1000, max_tasks=10000, max_revisions=32,
-                          supervised=True):
+                          max_pending=1000, max_tasks=10000, max_revisions=32, max_instances=1000,
+                          supervised=True, scheduler_policy=None, principal_quotas=None):
     """Install additive repositories and renew this explicitly supplied epoch.
 
     This factory never initialises or takes over a deployment. Provision and
@@ -140,21 +141,31 @@ def create_shared_service(authority, cache_dir, workflows, grants, *, plans=None
     """
     if type(allocation_limits) is not dict or not {'deployment', *(f'principal/{p}' for p in grants)} <= set(allocation_limits):
         raise ServiceError('invalid_shared_allocations')
+    from pathlib import Path
+    authority.observation_dir = Path(cache_dir)
     authority.install_host()
     authority.start_renewal()
     try:
-        for scope, limits in (allocation_limits or {}).items():
+        for scope, limits in allocation_limits.items():
+            limits = dict(limits)
+            if scope.startswith('principal/'):
+                quota = (principal_quotas or {}).get(scope.removeprefix('principal/'), {})
+                if 'max_calls' in quota:
+                    limits['max_calls'] = min(limits['max_calls'], quota['max_calls'])
+                if 'max_reserved_microusd' in quota:
+                    limits['max_microusd'] = min(limits['max_microusd'], quota['max_reserved_microusd'])
             authority.configure_scope(scope, **limits)
         leaves = SharedTaskService(authority, cache_dir, workflows, grants,
             workflow_versions=workflow_versions, max_pending=max_pending,
-            max_tasks=max_tasks, max_revisions=max_revisions, supervised=supervised)
+            max_tasks=max_tasks, max_revisions=max_revisions, supervised=supervised,
+            scheduler_policy=scheduler_policy, principal_quotas=principal_quotas)
         compositions = None
         if plans:
             from .shared_composition_service import SharedCompositionService
             if set(workflows) & set(plans):
                 raise ServiceError('ambiguous_registration')
             compositions = SharedCompositionService(authority, cache_dir, plans, workflows,
-                grants, workflow_versions=workflow_versions, supervised=supervised)
+                grants, workflow_versions=workflow_versions, supervised=supervised, max_instances=max_instances)
         return SharedTaskFacade(leaves, compositions)
     except BaseException:
         authority.close()

@@ -1,13 +1,25 @@
 """Authorised use of immutable, administrator-registered federation peers."""
 from __future__ import annotations
 
+from contextlib import contextmanager
+from contextvars import ContextVar
+from functools import wraps
 from urllib.parse import urlsplit, urlunsplit
 
 from ..peer_registry import PeerRegistry
 from ..service_contracts import ServiceError
 from .orchestrator import OrchestratorConnector, PeerContract
 from .peer_clients import A2ATaskServiceClient, MCPTaskServiceClient
-from .service_client import TaskServiceClient
+from .authentication import read_token_file
+from .service_client import TaskServiceClient, http_exchange
+
+
+def _credential_bound(method):
+    @wraps(method)
+    def call(self, *args, **kwargs):
+        with self._credentials():
+            return method(self, *args, **kwargs)
+    return call
 
 
 class ManagedPeerConnector(OrchestratorConnector):
@@ -23,16 +35,41 @@ class ManagedPeerConnector(OrchestratorConnector):
         registration = registry.resolve(name, caller, version=version, identity=identity)
         binding = registration.descriptor
         self.registry, self.caller, self.registration = registry, caller, registration
+        self._token_file = token_file
+        self._operation_token = ContextVar('managed_peer_token', default=None)
         options = {'token_file': token_file, 'principal': binding['outbound_principal'],
                    'timeout_seconds': timeout_seconds, 'allow_loopback_http': binding['allow_loopback_http'],
                    'transport_policy': transport_policy}
         clients = {'mas-http/1': TaskServiceClient, 'mas-mcp/1': MCPTaskServiceClient,
                    'mas-a2a/1': A2ATaskServiceClient}
-        super().__init__(clients[binding['profile']](binding['endpoint'], **options),
+        credential_options = ({'transport': self._transport} if binding['profile'] == 'mas-http/1'
+                              else {'token_provider': self._token})
+        super().__init__(clients[binding['profile']](binding['endpoint'], **options, **credential_options),
             binding['outbound_principal'], peer_contract=PeerContract(binding['deployment_id'],
                 binding['workflows'], tuple(binding['capabilities'])))
         parsed = urlsplit(binding['endpoint'])
-        self._artifact_service = TaskServiceClient(urlunsplit(parsed._replace(path='')), **options)
+        self._artifact_service = TaskServiceClient(urlunsplit(parsed._replace(path='')),
+            transport=self._transport, **options)
+
+    def _token(self):
+        return self._operation_token.get() or read_token_file(self._token_file)
+
+    @contextmanager
+    def _credentials(self):
+        # Bind discovery and the subsequent effect to exactly the same bearer.
+        # Context-local state prevents concurrent calls sharing rotation state.
+        if self._operation_token.get() is not None:
+            yield
+            return
+        marker = self._operation_token.set(read_token_file(self._token_file))
+        try:
+            yield
+        finally:
+            self._operation_token.reset(marker)
+
+    def _transport(self, endpoint, **options):
+        options['headers'] = {**options.get('headers', {}), 'Authorization': 'Bearer ' + self._token()}
+        return http_exchange(endpoint, **options)
 
     def descriptor(self):
         return {'format': 'mas-managed-peer/1', 'name': self.registration.descriptor['name'],
@@ -46,6 +83,7 @@ class ManagedPeerConnector(OrchestratorConnector):
         if capability is not None and capability not in binding['capabilities']:
             raise ServiceError('peer_capability_forbidden')
 
+    @_credential_bound
     def negotiate(self):
         self._authorise()
         observed = super().negotiate()
@@ -62,19 +100,23 @@ class ManagedPeerConnector(OrchestratorConnector):
             raise ServiceError('peer_contract_mismatch')
         return observed
 
+    @_credential_bound
     def submit(self, request_key, workflow, input):
         self._authorise('submit')
         return super().submit(request_key, workflow, input)
 
+    @_credential_bound
     def inspect(self, task_id):
         self._authorise('inspect')
         self.negotiate()
         return super().inspect(task_id)
 
+    @_credential_bound
     def result(self, task_id):
         self._authorise('result')
         return super().result(task_id)
 
+    @_credential_bound
     def cancel(self, task_id):
         self._authorise('cancel')
         self.negotiate()
@@ -82,6 +124,7 @@ class ManagedPeerConnector(OrchestratorConnector):
         super().inspect(task_id)
         return super().cancel(task_id)
 
+    @_credential_bound
     def update(self, task_id, request_key, input):
         self._authorise('update')
         return super().update(task_id, request_key, input)
@@ -96,6 +139,9 @@ class ManagedPeerConnector(OrchestratorConnector):
         from .artifact_client import ArtifactTransferClient
         sessions = set()
         def exchange(operation, payload):
+            with self._credentials():
+                return bound_exchange(operation, payload)
+        def bound_exchange(operation, payload):
             self._authorise()
             if 'scope' in payload:
                 if payload['scope'] not in self.registration.descriptor['artifact_scopes']:

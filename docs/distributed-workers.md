@@ -275,7 +275,46 @@ runs known failures through the same registered worker IPC, HTTP, spool and
 controller boundaries. `test_distributed_artifacts.py` additionally checks
 version rejection, output-profile placement, missing bytes, corruption, grant
 failure, named-output completeness, replay, stale receipts and spool recovery.
-These tests use local processes. A real two-machine
-network partition, machine reboot, durable-volume failure and certificate
-rotation drill remains a release gate; no test here establishes high availability
-or proves arbitrary provider effects are exactly once.
+These tests use local processes. The separate
+`scripts/check-multimachine.py` qualification gate boots two Ubuntu QEMU virtual
+machines with independent kernels and writable disks, plus a controller process
+on the host. It does not count containers or sibling processes as machines. Its
+`multimachine.yml` CI job runs on relevant pull requests, including stacked PRs,
+and fails if the required runtime, pinned image or any assertion is unavailable.
+
+The guest image has a dated URL and SHA-256 in
+`scripts/qualification/ubuntu-cloud-image.json`. QEMU uses TCG, so KVM access,
+host mounts, elevated networking and paid machine credentials are unnecessary.
+Each guest receives a different worker credential and spool; its application
+executes through the real Rust guardian. Host-pinned SSH keys and private reverse
+tunnels carry authenticated worker RPC; no guest receives a controller storage
+credential. QEMU user networking is restricted to the explicit SSH forwarding.
+
+The gate checks both workers execute on distinct kernel boot identities,
+controller RPC process restart with retained authority, a real virtual-NIC
+disconnect beyond the lease, rejected delayed heartbeats, lost receipt ACK and
+exact receipt replay after an actual guest hard reset, deliberate spool deletion after effect observation, and
+unavailable artifact bytes before acknowledgement. It checks original invocation
+IDs, one application effect, retained unknown state, retained receipt identities,
+outstanding queue limits and nonrefundable call/spending allocations. The artifact
+loss case begins with a controller-published, principal-granted object and checks
+the completion contract; it is not a qualification of external object-store
+replication or the worker publication API.
+
+To reproduce, install `qemu-system-x86`, `cloud-image-utils` and `openssh-client`,
+build the release Rust binaries, download the exact image in the lock, then run:
+
+```sh
+python scripts/check-multimachine.py --image /absolute/path/ubuntu-24.04.img \
+  --state-dir /absolute/path/new-private-machine-evidence
+```
+
+The state directory must not already exist. The report starts with `passed:false`
+and changes only after every assertion passes. Retain `qualification.json`, the
+guest serial logs and controller logs; SSH keys, tokens, VM disks and private
+runtime archives are deliberately excluded from CI uploads. An unavailable or
+interrupted VM gate is not a passing skip. This source change does not by itself
+constitute an accepted machine qualification: retain the actual CI/local report.
+Physical-host power loss, independent-storage durability and
+certificate rotation remain separate deployment drills. This profile establishes
+neither controller high availability nor arbitrary-provider exactly-once effects.

@@ -5,7 +5,10 @@
 every operation to that immutable identity. Local callers cannot supply an
 endpoint, bearer token, deployment identity or workflow digest through task input.
 Peer records contain no credentials. Trusted startup supplies a private token
-file, read again for each network request, and any explicit CA/proxy policy.
+file and any explicit CA/proxy policy. Managed operations freeze the credential
+across discovery and their subsequent effect, then read the file again for the
+next operation. Rotation cannot change the authenticated principal between
+negotiation and submission.
 
 Three lifecycle profiles are implemented:
 

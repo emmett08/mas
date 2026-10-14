@@ -16,6 +16,9 @@ CREATE TABLE service_task_policy(singleton boolean PRIMARY KEY CHECK(singleton),
 CREATE TABLE service_tasks(id text PRIMARY KEY,principal text NOT NULL,namespace text NOT NULL,epoch text NOT NULL,request_key text NOT NULL,workflow text NOT NULL,identity text NOT NULL,state text NOT NULL,input text NOT NULL,metadata text NOT NULL,result text,error text,revision bigint NOT NULL DEFAULT 0,cancel_requested boolean NOT NULL DEFAULT false,created bigint NOT NULL,updated bigint NOT NULL,owner text,owner_epoch bigint,UNIQUE(principal,namespace,epoch,request_key));
 CREATE TABLE service_executions(seq bigint GENERATED ALWAYS AS IDENTITY,task text NOT NULL REFERENCES service_tasks(id),revision bigint NOT NULL,run text NOT NULL UNIQUE,input text NOT NULL,state text NOT NULL,PRIMARY KEY(task,revision));
 CREATE TABLE service_task_events(seq bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,task text NOT NULL REFERENCES service_tasks(id),event text NOT NULL,data text NOT NULL,created bigint NOT NULL);
+CREATE TABLE service_principal_limits(principal text PRIMARY KEY,max_pending bigint NOT NULL,max_tasks bigint NOT NULL);
+CREATE TABLE service_scheduler(singleton boolean PRIMARY KEY CHECK(singleton),policy text NOT NULL,last_principal text NOT NULL DEFAULT '');
+CREATE TABLE service_slots(assignment text PRIMARY KEY,principal text NOT NULL,workflow text NOT NULL,identity text NOT NULL,resources text NOT NULL,owner text NOT NULL,epoch bigint NOT NULL);
 CREATE INDEX service_task_queue ON service_executions(state,seq);
 CREATE INDEX service_task_history ON service_tasks(principal,updated DESC,id DESC);
 ";
@@ -126,6 +129,36 @@ pub fn remember_request(
     tx.execute("INSERT INTO service_requests(principal,namespace,epoch,key,digest,kind,target) VALUES($1,$2,$3,$4,$5,$6,$7)",&[&principal,&namespace,&epoch,&key,&digest,&kind,&target]).map_err(db_error)?;
     Ok(())
 }
+pub(crate) fn check_submission(tx:&mut Transaction<'_>,principal:&str)->Result<()> {
+    let global=tx.query_one("SELECT max_tasks,max_pending FROM service_task_policy WHERE singleton",&[]).map_err(db_error)?;
+    let policy=tx.query_opt("SELECT max_tasks,max_pending FROM service_principal_limits WHERE principal=$1",&[&principal]).map_err(db_error)?.ok_or("principal_quota_unavailable")?;
+    let rows=tx.query_one("SELECT (SELECT count(*) FROM service_tasks)+(SELECT count(*) FROM composition_instances),(SELECT count(*) FROM service_tasks WHERE principal=$1)+(SELECT count(*) FROM composition_instances WHERE principal=$1)",&[&principal]).map_err(db_error)?;
+    if rows.get::<_,i64>(0)>=global.get::<_,i64>(0){return Err("task_limit".into());}
+    if rows.get::<_,i64>(1)>=policy.get::<_,i64>(0){return Err("principal_task_limit".into());}
+    let rows=tx.query_one("WITH pending AS (SELECT principal FROM service_tasks t WHERE state NOT IN ('completed','failed','cancelled') OR EXISTS(SELECT 1 FROM service_executions e WHERE e.task=t.id AND e.state IN ('running','unknown')) UNION ALL SELECT principal FROM composition_instances i WHERE state NOT IN ('completed','failed','cancelled','expired') OR EXISTS(SELECT 1 FROM composition_attempts a WHERE a.instance=i.id AND a.state IN ('running','unknown'))) SELECT count(*),count(*) FILTER(WHERE principal=$1) FROM pending",&[&principal]).map_err(db_error)?;
+    if rows.get::<_,i64>(0)>=global.get::<_,i64>(1){return Err("queue_full".into());}
+    if rows.get::<_,i64>(1)>=policy.get::<_,i64>(1){return Err("principal_pending_limit".into());}Ok(())
+}
+pub(crate) fn acquire_slot(tx:&mut Transaction<'_>,assignment:&str,principal:&str,workflow:&str,identity:&str,owner:&str)->Result<bool> {
+    let epoch=current_epoch(tx)?;
+    if let Some(row)=tx.query_opt("SELECT principal,workflow,identity,owner,epoch FROM service_slots WHERE assignment=$1",&[&assignment]).map_err(db_error)?{
+        if row.get::<_,String>(0)!=principal||row.get::<_,String>(1)!=workflow||row.get::<_,String>(2)!=identity{return Err("scheduler_assignment_conflict".into());}
+        if row.get::<_,i64>(4)==epoch&&row.get::<_,String>(3)!=owner{return Ok(false);}
+        tx.execute("UPDATE service_slots SET owner=$2,epoch=$3 WHERE assignment=$1",&[&assignment,&owner,&epoch]).map_err(db_error)?;return Ok(true);
+    }
+    let row=tx.query_one("SELECT policy FROM service_scheduler WHERE singleton",&[]).map_err(db_error)?;let policy=decode(row.get(0))?;
+    let active=tx.query("SELECT principal,workflow,resources FROM service_slots",&[]).map_err(db_error)?;
+    if active.len()>=number(&policy,"max_workers",1,256)? as usize||active.iter().filter(|r|r.get::<_,String>(0)==principal).count()>=number(&policy,"max_per_principal",1,256)? as usize||active.iter().filter(|r|r.get::<_,String>(1)==workflow).count()>=policy["workflows"][workflow].as_i64().unwrap_or(number(&policy,"max_workers",1,256)?) as usize{return Ok(false);}
+    let def=definition(tx,"workflow",workflow,identity)?;
+    if def.is_null()||def["retired"]==true{return Err("definition_unavailable".into());}
+    let resources=def["descriptor"]["resource_keys"].as_array().cloned().unwrap_or_default();
+    for key in &resources{let name=key.as_str().ok_or("invalid_resource_keys")?;if let Some(cap)=policy["resources"][name].as_i64(){let mut used=0;for row in &active{if decode(row.get(2))?.as_array().is_some_and(|v|v.contains(key)){used+=1;}}if used>=cap{return Ok(false);}}}
+    tx.execute("INSERT INTO service_slots VALUES($1,$2,$3,$4,$5,$6,$7)",&[&assignment,&principal,&workflow,&identity,&json!(resources).to_string(),&owner,&epoch]).map_err(db_error)?;
+    tx.execute("UPDATE service_scheduler SET last_principal=$1 WHERE singleton",&[&principal]).map_err(db_error)?;Ok(true)
+}
+pub(crate) fn release_slot(tx:&mut Transaction<'_>,assignment:&str,owner:&str)->Result<()> {
+    let epoch=current_epoch(tx)?;tx.execute("DELETE FROM service_slots WHERE assignment=$1 AND owner=$2 AND epoch=$3",&[&assignment,&owner,&epoch]).map_err(db_error)?;Ok(())
+}
 fn task_row(row: Row) -> Result<Value> {
     Ok(
         json!({"task_id":row.get::<_,String>(0),"principal":row.get::<_,String>(1),"request_namespace":row.get::<_,String>(2),"request_epoch":row.get::<_,String>(3),"request_key":row.get::<_,String>(4),"workflow":row.get::<_,String>(5),"workflow_identity":row.get::<_,String>(6),"state":row.get::<_,String>(7),"input":decode(row.get::<_,&str>(8))?,"metadata":decode(row.get::<_,&str>(9))?,"result":row.get::<_,Option<String>>(10).as_deref().map(decode).transpose()?,"error":row.get::<_,Option<String>>(11).as_deref().map(decode).transpose()?,"revision":row.get::<_,i64>(12),"cancel_requested":row.get::<_,bool>(13),"created_at":row.get::<_,i64>(14),"updated_at":row.get::<_,i64>(15)}),
@@ -144,6 +177,12 @@ fn task(tx: &mut Transaction<'_>, p: &str, t: &str) -> Result<Value> {
     value["clock"] = crate::shared_timing::read(tx,t,"")?;
     value["timing"] = crate::shared_timing::status(tx,t,"")?;
     Ok(value)
+}
+pub(crate) fn admission_open(tx:&mut Transaction<'_>,run:&str)->Result<()> {
+    let row=tx.query_opt("SELECT t.id,t.state,t.cancel_requested,t.owner_epoch,e.revision,t.revision,a.epoch FROM service_executions e JOIN service_tasks t ON t.id=e.task CROSS JOIN authority a WHERE e.run=$1 AND a.singleton",&[&run]).map_err(db_error)?;
+    let Some(row)=row else{return Ok(())};
+    if row.get::<_,String>(1)!="running"||row.get::<_,bool>(2)||row.get::<_,Option<i64>>(3)!=Some(row.get(6))||row.get::<_,i64>(4)!=row.get::<_,i64>(5){return Err("task_admission_closed".into());}
+    crate::shared_timing::require_open(tx,row.get(0),"")
 }
 fn current_epoch(tx: &mut Transaction<'_>) -> Result<i64> {
     Ok(tx
@@ -291,6 +330,17 @@ pub fn apply(tx: &mut Transaction<'_>, op: &str, p: &Value) -> Result<Value> {
             if tx.execute("UPDATE service_definitions SET retired=true WHERE kind=$1 AND name=$2 AND identity=$3",&[&k,&n,&i]).map_err(db_error)?==0{return Err("definition_not_found".into());}
             definition(tx, k, n, i)
         }
+        "task.configure_principal" => {
+            let principal=text(p,"principal")?;let pending=number(p,"max_pending",1,i64::MAX)?;let total=number(p,"max_tasks",1,i64::MAX)?;
+            if let Some(row)=tx.query_opt("SELECT max_pending,max_tasks FROM service_principal_limits WHERE principal=$1",&[&principal]).map_err(db_error)?{if (row.get::<_,i64>(0),row.get::<_,i64>(1))!=(pending,total){return Err("principal_quota_changed".into());}}
+            else{tx.execute("INSERT INTO service_principal_limits VALUES($1,$2,$3)",&[&principal,&pending,&total]).map_err(db_error)?;}Ok(json!({"principal":principal}))
+        }
+        "task.configure_scheduler" => {
+            let policy=&p["policy"];number(policy,"max_workers",1,256)?;number(policy,"max_per_principal",1,256)?;
+            for name in ["workflows","resources"]{let limits=policy[name].as_object().ok_or("invalid_scheduler_policy")?;if limits.len()>256||limits.values().any(|n|n.as_i64().is_none_or(|n|n<1||n>256)){return Err("invalid_scheduler_policy".into());}}
+            if let Some(row)=tx.query_opt("SELECT policy FROM service_scheduler WHERE singleton",&[]).map_err(db_error)?{if decode(row.get(0))?!=*policy{return Err("scheduler_policy_changed".into());}}
+            else{tx.execute("INSERT INTO service_scheduler(singleton,policy) VALUES(true,$1)",&[&policy.to_string()]).map_err(db_error)?;}Ok(policy.clone())
+        }
         "task.configure" => {
             let total = number(p, "max_tasks", 1, 10000000)?;
             let pending = number(p, "max_pending", 1, 10000000)?;
@@ -327,13 +377,7 @@ pub fn apply(tx: &mut Transaction<'_>, op: &str, p: &Value) -> Result<Value> {
             if p["expected_identity"].as_str().is_some_and(|i| i != ident) {
                 return Err("workflow_identity_mismatch".into());
             }
-            let counts=tx.query_one("SELECT (SELECT count(*) FROM service_tasks),(SELECT count(*) FROM service_tasks WHERE state NOT IN ('completed','failed','cancelled')),max_tasks,max_pending FROM service_task_policy WHERE singleton",&[]).map_err(db_error)?;
-            if counts.get::<_, i64>(0) >= counts.get::<_, i64>(2) {
-                return Err("task_limit".into());
-            }
-            if counts.get::<_, i64>(1) >= counts.get::<_, i64>(3) {
-                return Err("queue_full".into());
-            }
+            check_submission(tx,principal)?;
             let t = timestamp(tx)?;
             tx.execute("INSERT INTO service_tasks(id,principal,namespace,epoch,request_key,workflow,identity,state,input,metadata,created,updated) VALUES($1,$2,$3,$4,$5,$6,$7,'queued',$8,$9,$10,$10)",&[&id,&principal,&ns,&ep,&key,&name,&ident,&obj(p,"input")?,&obj(p,"metadata")?,&t]).map_err(db_error)?;
             crate::shared_timing::start(tx,id,"",&def["descriptor"]["timing_policy"])?;
@@ -353,10 +397,13 @@ pub fn apply(tx: &mut Transaction<'_>, op: &str, p: &Value) -> Result<Value> {
                 .iter()
                 .map(|x| x.as_str().map(str::to_owned).ok_or("invalid_workflows"))
                 .collect::<std::result::Result<Vec<String>, _>>()?;
-            let r=tx.query_opt("SELECT t.id,t.principal FROM service_tasks t JOIN service_executions e ON e.task=t.id AND e.revision=t.revision WHERE e.state IN ('queued','running','blocked') AND (t.owner IS NULL OR t.owner_epoch<>$1) AND ($2::text IS NULL OR t.id=$2) AND t.workflow=ANY($3) ORDER BY e.seq LIMIT 1",&[&epoch,&requested,&allowed]).map_err(db_error)?;
-            let Some(r) = r else { return Ok(Value::Null) };
-            let id: String = r.get(0);
-            let principal: String = r.get(1);
+            let rows=tx.query("SELECT t.id,t.principal,t.workflow,t.identity,e.run FROM service_tasks t JOIN service_executions e ON e.task=t.id AND e.revision=t.revision WHERE e.state IN ('queued','running','blocked') AND (t.owner IS NULL OR t.owner_epoch<>$1) AND ($2::text IS NULL OR t.id=$2) AND t.workflow=ANY($3) ORDER BY e.seq LIMIT 1000",&[&epoch,&requested,&allowed]).map_err(db_error)?;
+            let last:String=tx.query_one("SELECT last_principal FROM service_scheduler WHERE singleton",&[]).map_err(db_error)?.get(0);
+            let mut rows=rows;rows.sort_by_key(|row|(row.get::<_,String>(1)<=last,row.get::<_,String>(1)));
+            let mut selected=None;
+            for row in rows{if acquire_slot(tx,row.get(4),row.get(1),row.get(2),row.get(3),owner)?{selected=Some(row);break;}}
+            let Some(r)=selected else{return Ok(Value::Null)};
+            let id:String=r.get(0);let principal:String=r.get(1);
             crate::shared_timing::require_open(tx,&id,"")?;
             crate::shared_timing::transition(tx,&id,"","running",1)?;
             let t = timestamp(tx)?;
@@ -419,6 +466,8 @@ pub fn apply(tx: &mut Transaction<'_>, op: &str, p: &Value) -> Result<Value> {
                 &[&id, &state, &saved["revision"].as_i64().unwrap()],
             )
             .map_err(db_error)?;
+            let run:String=tx.query_one("SELECT run FROM service_executions WHERE task=$1 AND revision=$2",&[&id,&saved["revision"].as_i64().unwrap()]).map_err(db_error)?.get(0);
+            release_slot(tx,&run,text(p,"owner")?)?;
             event(
                 tx,
                 id,
@@ -517,20 +566,15 @@ pub fn apply(tx: &mut Transaction<'_>, op: &str, p: &Value) -> Result<Value> {
                 .map_err(db_error)?;
             let run: &str = r.get(0);
             if tx.query_opt("SELECT 1 FROM host_invocations WHERE run=$1 AND state IN ('executing','unknown') LIMIT 1",&[&run]).map_err(db_error)?.is_some(){return Err("reconciliation_required".into());}
-            crate::shared_timing::require_open(tx,id,"")?;
-            crate::shared_timing::transition(tx,id,"","queued",0)?;
+            let timing=crate::shared_timing::status(tx,id,"")?;
+            let expired=timing["expired"].as_array().is_some_and(|v|!v.is_empty());
+            let state=if saved["cancel_requested"]==true{"cancelled"}else if expired{"failed"}else{"queued"};
+            let error=if expired{Some(json!({"code":timing["expired"][0],"expired":timing["expired"],"effect_reconciliation":"resolved"}).to_string())}else{None};
+            crate::shared_timing::transition(tx,id,"",if state=="queued"{"queued"}else{"terminal"},0)?;
             let t = timestamp(tx)?;
-            tx.execute(
-                "UPDATE service_tasks SET state='queued',error=NULL,updated=$2 WHERE id=$1",
-                &[&id, &t],
-            )
-            .map_err(db_error)?;
-            tx.execute(
-                "UPDATE service_executions SET state='queued' WHERE task=$1 AND revision=$2",
-                &[&id, &saved["revision"].as_i64().unwrap()],
-            )
-            .map_err(db_error)?;
-            event(tx, id, "recovery_queued", json!({"state":"queued"}))?;
+            tx.execute("UPDATE service_tasks SET state=$2,error=$3,updated=$4 WHERE id=$1",&[&id,&state,&error,&t]).map_err(db_error)?;
+            tx.execute("UPDATE service_executions SET state=$2 WHERE task=$1 AND revision=$3",&[&id,&state,&saved["revision"].as_i64().unwrap()]).map_err(db_error)?;
+            event(tx,id,"recovery_queued",json!({"state":state}))?;
             task(tx, principal, id)
         }
         "task.extend_deadline" => {
@@ -557,6 +601,7 @@ pub fn apply(tx: &mut Transaction<'_>, op: &str, p: &Value) -> Result<Value> {
                 crate::shared_timing::transition(tx,&id,"",if uncertain{"paused"}else{"terminal"},0)?;
                 let t=timestamp(tx)?;tx.execute("UPDATE service_tasks SET state=$2,error=$3,updated=$4,owner=NULL,owner_epoch=NULL WHERE id=$1",&[&id,&state,&error.to_string(),&t]).map_err(db_error)?;
                 tx.execute("UPDATE service_executions SET state=$2 WHERE task=$1 AND revision=$3",&[&id,&state,&revision]).map_err(db_error)?;
+                tx.execute("DELETE FROM service_slots WHERE assignment IN (SELECT run FROM service_executions WHERE task=$1 AND revision=$2) AND epoch<>$3",&[&id,&revision,&epoch]).map_err(db_error)?;
                 event(tx,&id,"deadline_expired",error)?;expired.push(task(tx,&principal,&id)?);
             }Ok(json!(expired))
         }
@@ -584,6 +629,9 @@ pub fn query(tx: &mut Transaction<'_>, op: &str, p: &Value) -> Result<Value> {
  "definition.current"=>Ok(tx.query_opt("SELECT identity FROM service_aliases WHERE kind=$1 AND name=$2",&[&text(p,"kind")?,&text(p,"name")?]).map_err(db_error)?.map(|r|json!(r.get::<_,String>(0))).unwrap_or(Value::Null)),
  "definition.names"=>Ok(json!(tx.query("SELECT DISTINCT name FROM service_definitions WHERE kind=$1 ORDER BY name",&[&text(p,"kind")?]).map_err(db_error)?.iter().map(|r|r.get::<_,String>(0)).collect::<Vec<_>>())),
  "definition.manifest"=>{let d=digest(p,"digest")?;if tx.query_opt("SELECT 1 FROM service_manifests WHERE digest=$1",&[&d]).map_err(db_error)?.is_none(){return Ok(Value::Null);}let mut s=String::new();for r in tx.query("SELECT data FROM service_manifest_chunks WHERE digest=$1 ORDER BY part",&[&d]).map_err(db_error)?{s.push_str(r.get::<_,&str>(0));}decode(&s)},
+ "task.policy"=>Ok(tx.query_opt("SELECT max_tasks,max_pending,max_revisions FROM service_task_policy WHERE singleton",&[]).map_err(db_error)?.map(|r|json!({"max_tasks":r.get::<_,i64>(0),"max_pending":r.get::<_,i64>(1),"max_revisions":r.get::<_,i64>(2)})).unwrap_or(Value::Null)),
+ "task.principal_policy"=>Ok(tx.query_opt("SELECT max_tasks,max_pending FROM service_principal_limits WHERE principal=$1",&[&text(p,"principal")?]).map_err(db_error)?.map(|r|json!({"max_tasks":r.get::<_,i64>(0),"max_pending":r.get::<_,i64>(1)})).unwrap_or(Value::Null)),
+ "task.scheduler"=>{let Some(r)=tx.query_opt("SELECT policy,last_principal FROM service_scheduler WHERE singleton",&[]).map_err(db_error)? else{return Ok(Value::Null)};Ok(json!({"policy":decode(r.get(0))?,"last_principal":r.get::<_,String>(1),"occupied":tx.query_one("SELECT count(*) FROM service_slots",&[]).map_err(db_error)?.get::<_,i64>(0)}))},
  "task.pending"=>{let epoch=current_epoch(tx)?;Ok(json!(tx.query("SELECT t.id,t.principal,t.created FROM service_tasks t JOIN service_executions e ON e.task=t.id AND e.revision=t.revision WHERE e.state IN ('queued','running','blocked') AND (t.owner IS NULL OR t.owner_epoch<>$1) ORDER BY e.seq LIMIT 1000",&[&epoch]).map_err(db_error)?.iter().map(|r|json!({"task_id":r.get::<_,String>(0),"principal":r.get::<_,String>(1),"created_at":r.get::<_,i64>(2)})).collect::<Vec<_>>()))},
  "task.inspect"=>task(tx,text(p,"principal")?,text(p,"task")?),
  "task.request"=>{let principal=text(p,"principal")?;let ns=text(p,"namespace")?;let ep=optional_text(p,"epoch")?;open_epoch(tx,principal,ns,ep)?;Ok(tx.query_opt("SELECT digest,target,kind FROM service_requests WHERE principal=$1 AND namespace=$2 AND epoch=$3 AND key=$4",&[&principal,&ns,&ep,&text(p,"key")?]).map_err(db_error)?.map(|r|json!({"digest":r.get::<_,String>(0),"target":r.get::<_,String>(1),"kind":r.get::<_,String>(2)})).unwrap_or(Value::Null))},

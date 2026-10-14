@@ -28,6 +28,28 @@ class SharedControlBoundaryTests(unittest.TestCase):
         controller = SharedWorkerController(Authority(), {})
         self.assertFalse(controller.dispatch('worker', boot='boot', call_id='call', fence=1)['execute'])
 
+    def test_shared_operator_admin_reads_never_open_a_local_authority(self):
+        from mas_host.operator_service import OperatorService
+        class Authority:
+            def __init__(self): self.operations = []
+            def query(self, operation, payload):
+                self.operations.append(operation)
+                return {'native': operation}
+        class Service:
+            authority = Authority()
+            operations = None
+            state_dir = Path('/deliberately-absent-controller-cache')
+            def recovery_service(self, **kwargs): return object()
+            def deadline_service(self, **kwargs): return object()
+        service = Service()
+        operator = OperatorService(service, operators={'admin': {'owners': [], 'deployment_admin': True}})
+        for operation, payload in (('budget', {}), ('storage', {}),
+                ('archive_preview', {'kind': 'tasks', 'older_than_seconds': 0}), ('worker_status', {})):
+            result = operator.dispatch('admin', operation, payload)
+            self.assertTrue(result['native'].startswith('operator.'))
+        self.assertEqual(service.authority.operations,
+            ['operator.budget', 'operator.storage', 'operator.archive_preview', 'operator.status'])
+
 
 @unittest.skipUnless(os.environ.get('MAS_TEST_POSTGRES_DSN'), 'requires actual PostgreSQL backend fixture')
 class SharedControlIntegrationTests(unittest.TestCase):
@@ -152,6 +174,40 @@ class SharedControlIntegrationTests(unittest.TestCase):
         current = SharedWorkerController(successor, self.grants)
         self.assertTrue(current.receipt('worker', receipt=self.receipt(assignment))['authoritative'])
         self.assertEqual(successor.query('scope', {'scope': 'deployment'})['calls'], 1)
+
+    def test_shared_operator_ports_read_and_amend_native_state_without_local_repositories(self):
+        from mas_host.operator_service import OperatorService
+        from mas_host.shared_task_service import SharedTaskService
+        from mas_host.shared_service import SharedTaskFacade
+        from test_definition_versions import registered
+        workflow = registered()
+        service = SharedTaskFacade(SharedTaskService(self.authority, self.root / 'service-cache',
+            {'leaf': workflow}, {'alice': {'leaf'}}, supervised=False))
+        task = service.submit('alice', 'operator-task', 'leaf', {})
+        with patch('mas_host.operator_service.RecoveryService', side_effect=AssertionError('local recovery forbidden')):
+            operator = OperatorService(service, operators={'admin': {'owners': ['alice'], 'deployment_admin': True}})
+        def call(operation, payload=None):
+            return operator.dispatch('admin', operation, payload or {})
+        old = call('budget')
+        changed = call('budget_amend', {'request_key': 'fund', 'reason': 'Approved extension',
+            'expected_revision': 0, 'limits': {'max_runs': 11}})
+        self.assertEqual(changed['principal'], 'admin')
+        self.assertEqual(call('budget')['health']['usage'], old['health']['usage'])
+        self.assertEqual(call('budget')['health']['policy']['max_runs'], 11)
+        # Restart may still supply the immutable pre-amendment baseline.
+        self.authority.configure_scope('deployment', max_runs=10, max_calls=20, max_microusd=200)
+        self.assertEqual(call('storage')['format'], 'mas-shared-health/1')
+        self.assertEqual(call('peer_status')['peers']['items'], [])
+        self.assertEqual(call('periods')['items'], [])
+        self.assertFalse(call('worker_status')['draining'])
+        inbox = call('recovery_inbox', {'principal': 'alice', 'task_id': task['task_id']})
+        self.assertEqual(inbox['entries']['items'], [])
+        preview = call('archive_preview', {'kind': 'tasks', 'older_than_seconds': 0})
+        self.assertFalse(preview['items'][0]['eligible'])
+        service.cancel('alice', task['task_id'])
+        self.assertTrue(call('archive_preview', {'kind': 'tasks', 'older_than_seconds': 0})['items'][0]['eligible'])
+        self.assertTrue(call('definition', {'kind': 'workflow', 'name': 'leaf', 'identity': workflow.identity})['available'])
+        self.assertFalse(list(self.root.rglob('*.sqlite')))
 
     def test_shared_artifact_receipt_requires_verified_bytes_and_preserves_released_link(self):
         from mas_host.artifact_contracts import ArtifactPolicy

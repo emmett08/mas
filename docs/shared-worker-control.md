@@ -64,3 +64,12 @@ boundaries, including shared S3 metadata and corrupt output bytes. The backend C
 runs them with `MAS_TEST_POSTGRES_DSN` and the feature-enabled `MAS_SHARED_BIN`.
 A local run without that fixture reports skipped backend tests; it is not evidence
 of successful PostgreSQL failover or object-store replication qualification.
+
+The authenticated operator API selects the same shared recovery, deadline, peer,
+accounting and control repositories. Lifetime budget amendments increase only
+limits, retain original startup baselines and preserve all charges. Shared storage
+reports PostgreSQL relation sizes and reserved or unverified object bytes; it does
+not report a controller cache as the deployment's durable storage. Retention
+previews use shared task, invocation and remote-obligation records. Outstanding
+artefact links conservatively block eligibility until released. These previews
+are read-only and do not alter receipts or allocations.

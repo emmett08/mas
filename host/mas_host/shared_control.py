@@ -6,6 +6,7 @@ remain when a controller loses authority between verification and commit.
 """
 from __future__ import annotations
 
+from contextlib import contextmanager
 import hashlib
 import json
 
@@ -128,6 +129,12 @@ class SharedWorkerControl:
 
     def status(self):
         return self.authority.query('operator.status', {})
+
+    @contextmanager
+    def admission(self):
+        # This read avoids unnecessary local processes. The child's native task
+        # claim and effect admission recheck the drain gate in their transaction.
+        yield not self.status()['draining']
 
     def set(self, *, operator, request_key, reason, expected_revision, draining):
         return self.authority.command('operator.drain', {'operator': operator,

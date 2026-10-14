@@ -150,6 +150,26 @@ class ManagedPeerTests(unittest.TestCase):
                     operation()
             self.assertFalse(remote.inspect('alice', task['task_id'])['cancel_requested'])
 
+    def test_credential_rotation_cannot_change_principal_between_discovery_and_submit(self):
+        for profile in ('mas-http/1', 'mas-mcp/1', 'mas-a2a/1'):
+            with self.subTest(profile=profile):
+                self.state = self.root / profile.replace('/', '-')
+                self.registry = PeerRegistry(DeploymentLedger(self.root / ('local-' + profile.replace('/', '-'))))
+                self.token_file.write_text(TOKEN)
+                with self.peer(profile) as (peer, remote):
+                    original = remote.discover
+                    def rotate_after_discovery(principal):
+                        result = original(principal)
+                        self.token_file.write_text(OTHER)
+                        return result
+                    with mock.patch.object(remote, 'discover', side_effect=rotate_after_discovery):
+                        task = peer.submit('rotation', 'echo', {})
+                    self.assertEqual(remote.inspect('alice', task['task_id'])['task_id'], task['task_id'])
+                    self.assertEqual(remote.list_tasks('bob'), [])
+                    with self.assertRaisesRegex(ServiceError, 'peer identity mismatch'):
+                        peer.submit('next-operation', 'echo', {})
+                    self.assertEqual(remote.list_tasks('bob'), [])
+
     def test_workflow_and_deployment_drift_block_mutation(self):
         with self.peer('mas-mcp/1') as (peer, remote):
             original = remote.discover

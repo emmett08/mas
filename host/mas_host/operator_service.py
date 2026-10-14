@@ -7,6 +7,7 @@ and provider credentials remain trusted deployment configuration.
 from __future__ import annotations
 
 from .codec import JsonSizeError, integer_json
+from .contracts import RunnerError
 from .deadlines import DeadlineService
 from .operations import OperationsError, archive_workflows, prune_runs
 from .recovery import RecoveryService, _identity
@@ -53,10 +54,18 @@ class OperatorService:
         self.service = service
         self.grants = operator_grants(operators)
         owners = {actor: grant["owners"] for actor, grant in self.grants.items()}
-        self.recovery = RecoveryService(service, operators=owners, queries=reconciliation_queries)
-        self.deadlines = DeadlineService(service, operators=owners)
+        if hasattr(service, "authority"):
+            self.recovery = service.recovery_service(operators=owners, queries=reconciliation_queries)
+            self.deadlines = service.deadline_service(operators=owners)
+        else:
+            self.recovery = RecoveryService(service, operators=owners, queries=reconciliation_queries)
+            self.deadlines = DeadlineService(service, operators=owners)
         from .worker_control import WorkerControl
-        self.workers = WorkerControl(service.operations)
+        if hasattr(service, "authority"):
+            from .shared_control import SharedWorkerControl
+            self.workers = SharedWorkerControl(service.authority)
+        else:
+            self.workers = WorkerControl(service.operations)
 
     def dispatch(self, operator, operation, payload):
         grant = self.grants.get(operator)
@@ -80,7 +89,7 @@ class OperatorService:
             raise ServiceError("forbidden")
         try:
             return self._perform(operator, operation, payload)
-        except OperationsError:
+        except (OperationsError, RunnerError):
             # Local exception strings can contain storage locations. Never send
             # arbitrary diagnostics through the authenticated network boundary.
             raise ServiceError("operator_action_unavailable") from None
@@ -123,6 +132,10 @@ class OperatorService:
             return getattr(self.recovery, operation.removeprefix("recovery_"))(operator, **payload)
         if operation == "deadline_extend":
             return self.deadlines.extend(operator, **payload)
+        if hasattr(service, "authority") and operation in {"budget", "storage", "archive_preview"}:
+            return service.authority.query("operator." + operation, payload)
+        if hasattr(service, "authority") and operation == "budget_amend":
+            return service.authority.command("operator.budget_amend", {"principal": operator, **payload})["receipt"]
         if operation == "budget":
             history = service.operations.budget_history()
             return {"health": service.operations.health(), "revision": history[-1]["revision"] if history else 0,
@@ -131,7 +144,11 @@ class OperatorService:
             return service.operations.amend_budget(principal=operator, **payload)
         if operation in {"periods", "period_configure", "charge_record", "charge_reconcile"}:
             from .accounting import AccountingAdministration, PeriodPolicy
-            accounting = AccountingAdministration(service.operations)
+            if hasattr(service, "authority"):
+                from .shared_accounting import SharedAccountingAdministration
+                accounting = SharedAccountingAdministration(service.authority)
+            else:
+                accounting = AccountingAdministration(service.operations)
             if operation == "periods":
                 return page(accounting.periods(), **payload)
             if operation == "period_configure":
@@ -172,7 +189,11 @@ class OperatorService:
             return target.definition_status(name, identity)
         if operation in {"peer_status", "peer_register", "peer_revoke"}:
             from .peer_registry import PeerRegistry
-            registry = PeerRegistry(service.operations)
+            if hasattr(service, "authority"):
+                from .shared_remote import SharedPeerRegistry
+                registry = SharedPeerRegistry(service.authority)
+            else:
+                registry = PeerRegistry(service.operations)
             if operation == "peer_status":
                 status = registry.status()
                 return {**status, "peers": page(status["peers"], **payload)}

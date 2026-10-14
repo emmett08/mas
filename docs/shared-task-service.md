@@ -57,3 +57,18 @@ content is never assembled from an incomplete transfer.
 `host/tests/test_shared_service.py` exercises real PostgreSQL through the Rust
 private command binary. These tests require `MAS_TEST_POSTGRES_DSN` and
 `MAS_SHARED_BIN`; a skipped fixture is not evidence of backend qualification.
+
+The same PostgreSQL transaction checks deployment and principal outstanding
+submission limits across leaf tasks and compositions. Pauses and uncertain
+children retain pending capacity. Optional principal `max_tasks` bounds retained
+logical submissions; immutable request replays do not consume another slot.
+Principal call and reservation limits narrow the explicitly configured native
+allocation scope. Frozen policy changes are rejected rather than replacing
+existing allocation counters.
+
+The `scheduler` policy applies native shared slots to every started leaf run,
+including composition branches. Global, principal, workflow and resource caps
+are checked together; successful admission advances round-robin principal
+ordering. A fenced controller's assignment retains its slot until the original
+assignment is recovered or authoritatively classified. Capacity is not freed
+by cache loss or elapsed worker silence alone.

@@ -23,7 +23,8 @@ class SharedTaskService:
     authority records. Reconstructing this object cannot authorise a takeover.
     """
     def __init__(self, authority, cache_dir, workflows, grants, *, workflow_versions=None,
-                 max_pending=1000, max_tasks=10000, max_revisions=32, supervised=True):
+                 max_pending=1000, max_tasks=10000, max_revisions=32, supervised=True,
+                 scheduler_policy=None, principal_quotas=None):
         self.authority = self.operations = authority
         self.state_dir = Path(cache_dir).absolute()
         self.state_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -46,8 +47,10 @@ class SharedTaskService:
                     implementation_digest=workflow.verified_implementation.digest,
                     implementation_manifest=workflow.verified_implementation.manifest,
                     current=self.identities.get(name) == workflow.identity)
-        self.authority.command('task.configure', {'max_pending': max_pending,
-            'max_tasks': max_tasks, 'max_revisions': max_revisions})
+        from .shared_scheduler import configure_policy
+        self.capacity = configure_policy(authority, self.grants, max_pending=max_pending,
+            max_tasks=max_tasks, max_revisions=max_revisions, scheduler_policy=scheduler_policy,
+            principal_quotas=principal_quotas)
 
     def _authorise(self, principal, workflow=None):
         if principal not in self.grants or workflow is not None and workflow not in self.grants[principal]:
@@ -260,7 +263,7 @@ class SharedTaskService:
         return self.definitions.retire('workflow', name, identity)
 
     def pending(self):
-        return self.authority.query('task.pending', {})
+        return self.capacity.fair_order(self.authority.query('task.pending', {}))
 
     def execute_assignment(self, workflow, execution, *, ancestors=(), cancelled=None):
         """Execute a stable task or composition run through shared admission."""

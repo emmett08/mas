@@ -15,6 +15,8 @@ CREATE TABLE worker_receipts(id text PRIMARY KEY,call_id text NOT NULL REFERENCE
 CREATE TABLE worker_reconciliations(call_id text PRIMARY KEY REFERENCES worker_jobs(call_id),receipt text NOT NULL);
 CREATE INDEX worker_pending ON worker_jobs(state,created,call_id);
 CREATE INDEX worker_observations ON worker_receipts(call_id,fence);
+CREATE TABLE operator_budget_base(scope text PRIMARY KEY,max_runs bigint NOT NULL,max_calls bigint NOT NULL,max_microusd bigint NOT NULL);
+CREATE TABLE operator_budgets(revision bigint PRIMARY KEY,request_key text UNIQUE NOT NULL,digest text NOT NULL,receipt text NOT NULL);
 CREATE TABLE operator_control(singleton boolean PRIMARY KEY DEFAULT true CHECK(singleton),revision bigint NOT NULL,draining boolean NOT NULL);
 CREATE TABLE operator_changes(revision bigint PRIMARY KEY,request_key text UNIQUE NOT NULL,digest text NOT NULL,receipt text NOT NULL);
 CREATE TABLE event_policy(singleton boolean PRIMARY KEY DEFAULT true CHECK(singleton),max_subscriptions bigint NOT NULL,page_size bigint NOT NULL);
@@ -35,7 +37,7 @@ fn id<'a>(p: &'a Value, k: &str) -> Result<&'a str> {
         || s.len() > 200
         || !s
             .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || b"_.:/-".contains(&b))
+            .all(|b| b.is_ascii_alphanumeric() || b"_.:/@-".contains(&b))
     {
         return err("invalid_worker_request");
     }
@@ -277,6 +279,9 @@ fn control(tx: &mut Transaction) -> Result<Value> {
 pub(crate) fn apply(tx: &mut Transaction, operation: &str, p: &Value) -> Result<Value> {
     if operation.starts_with("event.") {
         return event_apply(tx, operation, p);
+    }
+    if operation == "operator.budget_amend" {
+        return budget_amend(tx, p);
     }
     if operation == "operator.drain" {
         fields(
@@ -792,6 +797,12 @@ pub(crate) fn query(tx: &mut Transaction, operation: &str, p: &Value) -> Result<
         return event_query(tx, operation, p);
     }
     match operation {
+        "operator.budget" => budget(tx, p),
+        "operator.storage" => {
+            fields(p, &[], &[])?;
+            health(tx)
+        }
+        "operator.archive_preview" => archive_preview(tx, p),
         "operator.status" => {
             fields(p, &[], &[])?;
             control(tx)
@@ -1094,4 +1105,241 @@ fn event_apply(tx: &mut Transaction, operation: &str, p: &Value) -> Result<Value
         }
         _ => err("unknown event command"),
     }
+}
+fn health(tx: &mut Transaction) -> Result<Value> {
+    let row=tx.query_one("SELECT max_runs,max_calls,max_microusd,runs,calls,microusd FROM host_scopes WHERE id='deployment'",&[]).map_err(db_error)?;
+    let policy = json!({"max_runs":row.get::<_,i64>(0),"max_calls":row.get::<_,i64>(1),"max_reserved_microusd":row.get::<_,i64>(2)});
+    let usage = json!({"runs":row.get::<_,i64>(3),"calls":row.get::<_,i64>(4),"reserved_microusd":row.get::<_,i64>(5)});
+    let identity = tx
+        .query_one(
+            "SELECT deployment,epoch FROM authority WHERE singleton",
+            &[],
+        )
+        .map_err(db_error)?;
+    let draining = control(tx)?["draining"] == true;
+    let database_bytes:i64=tx.query_one("SELECT coalesce(sum(pg_total_relation_size(c.oid)),0)::bigint FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname=current_schema() AND c.relkind IN ('r','m')",&[]).map_err(db_error)?.get(0);
+    let content=tx.query_one("SELECT count(*),coalesce(sum(size),0)::bigint,count(*) FILTER(WHERE NOT verified) FROM artifact_objects",&[]).map_err(db_error)?;
+    let retained: i64 = tx
+        .query_one("SELECT count(*) FROM host_runs", &[])
+        .map_err(db_error)?
+        .get(0);
+    let pending: i64 = tx
+        .query_one(
+            "SELECT count(*) FROM artifact_links WHERE state<>'released'",
+            &[],
+        )
+        .map_err(db_error)?
+        .get(0);
+    Ok(
+        json!({"format":"mas-shared-health/1","deployment_id":identity.get::<_,&str>(0),"epoch":identity.get::<_,i64>(1),"policy":policy,"usage":usage,"retained_runs":retained,"admission_state":if draining{"draining"}else{"active"},"admission_open":!draining&&row.get::<_,i64>(3)<row.get::<_,i64>(0)&&row.get::<_,i64>(4)<row.get::<_,i64>(1)&&row.get::<_,i64>(5)<row.get::<_,i64>(2),"state_bytes":database_bytes,"storage":{"database_bytes":database_bytes,"artifact_objects":content.get::<_,i64>(0),"artifact_reserved_bytes":content.get::<_,i64>(1),"unverified_artifact_objects":content.get::<_,i64>(2),"retained_artifact_links":pending},"expenditure_semantics":"reserved allocation; actual provider invoices require separate account controls"}),
+    )
+}
+fn pagination(p: &Value) -> Result<(i64, i64)> {
+    let offset = if p.get("offset").is_some() {
+        num(p, "offset", 0, i64::MAX)?
+    } else {
+        0
+    };
+    let limit = if p.get("limit").is_some() {
+        num(p, "limit", 1, 20)?
+    } else {
+        20
+    };
+    Ok((offset, limit))
+}
+fn budget(tx: &mut Transaction, p: &Value) -> Result<Value> {
+    fields(p, &[], &["offset", "limit"])?;
+    let (offset, limit) = pagination(p)?;
+    let count: i64 = tx
+        .query_one("SELECT count(*) FROM operator_budgets", &[])
+        .map_err(db_error)?
+        .get(0);
+    let mut items = Vec::new();
+    for row in tx
+        .query(
+            "SELECT receipt FROM operator_budgets ORDER BY revision OFFSET $1 LIMIT $2",
+            &[&offset, &limit],
+        )
+        .map_err(db_error)?
+    {
+        items.push(decode(row.get::<_, &str>(0))?);
+    }
+    let next = offset + items.len() as i64;
+    Ok(
+        json!({"health":health(tx)?,"revision":count,"amendments":{"items":items,"total":count,"next_offset":if next<count{Some(next)}else{None}}}),
+    )
+}
+fn budget_amend(tx: &mut Transaction, p: &Value) -> Result<Value> {
+    fields(
+        p,
+        &[
+            "principal",
+            "request_key",
+            "reason",
+            "expected_revision",
+            "limits",
+        ],
+        &[],
+    )?;
+    let principal = id(p, "principal")?;
+    let key = id(p, "request_key")?;
+    let reason = field(p, "reason")?;
+    if reason.trim().is_empty() || reason.len() > 2048 || reason.chars().any(|c| c.is_control()) {
+        return err("invalid_budget_amendment");
+    }
+    let expected = num(p, "expected_revision", 0, i64::MAX)?;
+    let limits = p["limits"].as_object().ok_or("invalid_budget_amendment")?;
+    if limits.is_empty()
+        || limits.keys().any(|k| {
+            !matches!(
+                k.as_str(),
+                "max_runs" | "max_calls" | "max_reserved_microusd"
+            )
+        })
+    {
+        return err("invalid_budget_amendment");
+    }
+    let digest = hash(p);
+    if let Some(row) = tx
+        .query_opt(
+            "SELECT digest,receipt FROM operator_budgets WHERE request_key=$1",
+            &[&key],
+        )
+        .map_err(db_error)?
+    {
+        if row.get::<_, &str>(0) != digest {
+            return err("budget_amendment_conflict");
+        }
+        return decode(row.get::<_, &str>(1));
+    }
+    let revision: i64 = tx
+        .query_one(
+            "SELECT coalesce(max(revision),0) FROM operator_budgets",
+            &[],
+        )
+        .map_err(db_error)?
+        .get(0);
+    if revision != expected {
+        return err("budget_revision_conflict");
+    }
+    if revision >= 10000 {
+        return err("budget_history_full");
+    }
+    let old = tx
+        .query_one(
+            "SELECT max_runs,max_calls,max_microusd FROM host_scopes WHERE id='deployment'",
+            &[],
+        )
+        .map_err(db_error)?;
+    let mut new = [
+        old.get::<_, i64>(0),
+        old.get::<_, i64>(1),
+        old.get::<_, i64>(2),
+    ];
+    let mut changed = false;
+    for (index, name) in ["max_runs", "max_calls", "max_reserved_microusd"]
+        .iter()
+        .enumerate()
+    {
+        if limits.contains_key(*name) {
+            let value = num(&p["limits"], name, 1, i64::MAX)?;
+            if value < new[index] {
+                return err("budget_must_increase");
+            }
+            changed |= value > new[index];
+            new[index] = value;
+        }
+    }
+    if !changed {
+        return err("budget_must_increase");
+    }
+    tx.execute("INSERT INTO operator_budget_base SELECT id,max_runs,max_calls,max_microusd FROM host_scopes WHERE id='deployment' ON CONFLICT(scope) DO NOTHING",&[]).map_err(db_error)?;
+    tx.execute(
+        "UPDATE host_scopes SET max_runs=$1,max_calls=$2,max_microusd=$3 WHERE id='deployment'",
+        &[&new[0], &new[1], &new[2]],
+    )
+    .map_err(db_error)?;
+    let receipt = json!({"revision":revision+1,"request_key":key,"principal":principal,"reason":reason,"policy":{"max_runs":new[0],"max_calls":new[1],"max_reserved_microusd":new[2]},"created":now(tx)?/1000});
+    tx.execute(
+        "INSERT INTO operator_budgets VALUES($1,$2,$3,$4)",
+        &[&(revision + 1), &key, &digest, &receipt.to_string()],
+    )
+    .map_err(db_error)?;
+    Ok(receipt)
+}
+fn settled_run(tx: &mut Transaction, r: &str) -> Result<bool> {
+    let unfinished=tx.query_one("SELECT EXISTS(SELECT 1 FROM host_runs h CROSS JOIN authority a WHERE h.run=$1 AND h.owner IS NOT NULL AND h.owner_epoch=a.epoch) OR EXISTS(SELECT 1 FROM tasks WHERE run=$1 AND state='open') OR EXISTS(SELECT 1 FROM host_invocations WHERE run=$1 AND state NOT IN ('completed','resolved','retry_allowed','not_executed','failed_known')) OR EXISTS(SELECT 1 FROM calls c WHERE c.run=$1 AND NOT EXISTS(SELECT 1 FROM host_invocations i WHERE i.run=c.run AND i.call_id=c.id)) OR EXISTS(SELECT 1 FROM worker_jobs WHERE run_id=$1 AND state IN ('pending','claimed','dispatched','unknown')) OR EXISTS(SELECT 1 FROM remote_effects WHERE run=$1 AND state NOT IN ('completed','failed','cancelled')) OR EXISTS(SELECT 1 FROM remote_operations WHERE run=$1 AND state<>'completed')",&[&r]).map_err(db_error)?.get::<_,bool>(0);
+    Ok(!unfinished)
+}
+fn archive_preview(tx: &mut Transaction, p: &Value) -> Result<Value> {
+    fields(p, &["kind", "older_than_seconds"], &["offset", "limit"])?;
+    let kind = field(p, "kind")?;
+    let age = num(p, "older_than_seconds", 0, i64::MAX / 1000)?;
+    let (offset, limit) = pagination(p)?;
+    let cutoff = now(tx)?.saturating_sub(age * 1000);
+    let retained_links: i64 = tx
+        .query_one(
+            "SELECT count(*) FROM artifact_links WHERE state<>'released'",
+            &[],
+        )
+        .map_err(db_error)?
+        .get(0);
+    let (sql,count_sql,key)=match kind{"tasks"=>("SELECT id,state,updated,owner IS NOT NULL AND owner_epoch=(SELECT epoch FROM authority WHERE singleton) FROM service_tasks ORDER BY created,id OFFSET $1 LIMIT $2","SELECT count(*) FROM service_tasks","task_id"),"workflows"=>("SELECT id,state,updated,owner IS NOT NULL AND owner_epoch=(SELECT epoch FROM authority WHERE singleton) FROM composition_instances ORDER BY created,id OFFSET $1 LIMIT $2","SELECT count(*) FROM composition_instances","instance_id"),"runs"=>("SELECT h.run,'completed',((r.deadline-(r.config::jsonb->>'wall_seconds')::bigint)*1000)::bigint,h.owner IS NOT NULL AND h.owner_epoch=(SELECT epoch FROM authority WHERE singleton) FROM host_runs h JOIN runs r ON r.id=h.run ORDER BY h.run OFFSET $1 LIMIT $2","SELECT count(*) FROM host_runs","run_id"),_=>return err("invalid_archive_kind")};
+    let total: i64 = tx.query_one(count_sql, &[]).map_err(db_error)?.get(0);
+    let mut items = Vec::new();
+    for row in tx.query(sql, &[&offset, &limit]).map_err(db_error)? {
+        let entity = row.get::<_, &str>(0);
+        let state = row.get::<_, &str>(1);
+        let mut reason = if !matches!(state, "completed" | "failed" | "cancelled" | "expired") {
+            Some("work is not terminal")
+        } else if row.get::<_, i64>(2) > cutoff {
+            Some("retention age not reached")
+        } else if row.get::<_, bool>(3) {
+            Some("current controller still owns work")
+        } else if retained_links > 0 {
+            Some("shared artefact retention links remain")
+        } else {
+            None
+        };
+        if reason.is_none() {
+            let references = match kind {
+                "tasks" => tx
+                    .query(
+                        "SELECT run,state FROM service_executions WHERE task=$1",
+                        &[&entity],
+                    )
+                    .map_err(db_error)?,
+                "workflows" => tx
+                    .query(
+                        "SELECT run_id,state FROM composition_attempts WHERE instance=$1",
+                        &[&entity],
+                    )
+                    .map_err(db_error)?,
+                _ => Vec::new(),
+            };
+            if kind == "runs" && !settled_run(tx, entity)? {
+                reason = Some("unsettled invocation or remote effect retained");
+            }
+            for reference in references {
+                if !matches!(
+                    reference.get::<_, &str>(1),
+                    "completed" | "failed" | "cancelled" | "expired"
+                ) || !settled_run(tx, reference.get::<_, &str>(0))?
+                {
+                    reason = Some("unsettled invocation or remote effect retained");
+                    break;
+                }
+            }
+        }
+        let mut result = json!({"eligible":reason.is_none(),"archived":false});
+        result[key] = json!(entity);
+        if let Some(reason) = reason {
+            result["reason"] = json!(reason);
+        }
+        items.push(result);
+    }
+    let next = offset + items.len() as i64;
+    Ok(
+        json!({"kind":kind,"dry_run":true,"items":items,"total":total,"next_offset":if next<total{Some(next)}else{None},"allocation_changed":false}),
+    )
 }

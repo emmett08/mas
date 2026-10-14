@@ -57,8 +57,12 @@ class ServiceDispatcher:
         self.interval, self.drain_seconds = interval, drain_seconds
         self.children = {}
         self.deferred = {}
-        from .worker_control import WorkerControl
-        self.control = WorkerControl(service.operations)
+        if hasattr(service, "authority"):
+            from .shared_control import SharedWorkerControl
+            self.control = SharedWorkerControl(service.authority)
+        else:
+            from .worker_control import WorkerControl
+            self.control = WorkerControl(service.operations)
 
     def _slot(self):
         # The monitor lock permits one active dispatcher. Scan the entire frozen
