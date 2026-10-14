@@ -3,6 +3,7 @@ from collections import deque
 from dataclasses import asdict
 
 from .scheduler_capacity import SchedulerPolicy
+from .definitions import canonical
 from .service_contracts import ServiceError
 
 
@@ -10,9 +11,9 @@ def configure_policy(authority, grants, *, max_tasks=10000, max_pending=1000,
                      max_revisions=32, scheduler_policy=None, principal_quotas=None,
                      preserve_existing=False):
     policy = authority.query('task.policy', {})
-    if policy is None or not preserve_existing:
-        authority.command('task.configure', {'max_tasks': max_tasks, 'max_pending': max_pending,
-            'max_revisions': max_revisions})
+    requested = {'max_tasks': max_tasks, 'max_pending': max_pending, 'max_revisions': max_revisions}
+    if policy is None or not preserve_existing and canonical(policy) != canonical(requested):
+        authority.command('task.configure', requested)
     else:
         max_tasks, max_pending = policy['max_tasks'], policy['max_pending']
     quotas = principal_quotas or {}
@@ -25,13 +26,14 @@ def configure_policy(authority, grants, *, max_tasks=10000, max_pending=1000,
         if any(type(limit) is not int or not 1 <= limit < 2**63 for limit in value.values()):
             raise ServiceError('invalid_principal_quotas')
         saved = authority.query('task.principal_policy', {'principal': principal})
-        if saved is None or not preserve_existing:
+        requested = {'max_tasks': value.get('max_tasks', max_tasks),
+                     'max_pending': value.get('max_pending', max_pending)}
+        if saved is None or not preserve_existing and canonical(saved) != canonical(requested):
             authority.command('task.configure_principal', {'principal': principal,
-                'max_tasks': value.get('max_tasks', max_tasks),
-                'max_pending': value.get('max_pending', max_pending)})
+                **requested})
     selected = scheduler_policy or SchedulerPolicy()
     saved = authority.query('task.scheduler', {})
-    if saved is None or not preserve_existing:
+    if saved is None or not preserve_existing and canonical(saved['policy']) != canonical(asdict(selected)):
         authority.command('task.configure_scheduler', {'policy': asdict(selected)})
     return SharedSchedulerCapacity(authority)
 

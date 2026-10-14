@@ -56,6 +56,7 @@ fn fields(v: &Value, required: &[&str], optional: &[&str]) -> Result<()> {
 }
 fn owner(tx: &mut Transaction<'_>, p: &Value) -> Result<String> {
     let run_id = id(p, "run")?;
+    crate::shared_archive::require_open(tx, run_id)?;
     let claim = id(p, "owner")?;
     let row=tx.query_opt("SELECT h.owner,h.owner_epoch,a.epoch FROM host_runs h CROSS JOIN authority a WHERE h.run=$1 AND a.singleton",&[&run_id]).map_err(db_error)?.ok_or("unknown host run")?;
     if row.get::<_, Option<String>>(0).as_deref() != Some(claim)
@@ -152,6 +153,77 @@ impl PostgresRepository {
             Ok(())
         })
     }
+    pub fn install_jobs_repository(&mut self) -> Result<()> {
+        self.transaction(|tx| {
+            let version: i64 = tx
+                .query_one("SELECT version FROM authority WHERE singleton", &[])
+                .map_err(db_error)?
+                .get(0);
+            if version >= 7 {
+                return Ok(());
+            }
+            if version != 6 {
+                return Err("recovery guards must be installed before shared jobs".into());
+            }
+            tx.batch_execute(crate::shared_jobs::DDL)
+                .map_err(db_error)?;
+            let digest = layout(tx)?;
+            tx.execute(
+                "UPDATE authority SET version=7,layout_digest=$1 WHERE singleton",
+                &[&digest],
+            )
+            .map_err(db_error)?;
+            Ok(())
+        })
+    }
+    pub fn install_retention_repository(&mut self) -> Result<()> {
+        self.transaction(|tx| {
+            let version: i64 = tx
+                .query_one("SELECT version FROM authority WHERE singleton", &[])
+                .map_err(db_error)?
+                .get(0);
+            if version >= 9 {
+                return Ok(());
+            }
+            if version != 8 {
+                return Err("command capacity must be installed before shared retention".into());
+            }
+            tx.batch_execute(crate::shared_control::RETENTION_DDL)
+                .map_err(db_error)?;
+            tx.batch_execute(crate::shared_composition::RETENTION_DDL)
+                .map_err(db_error)?;
+            let digest = layout(tx)?;
+            tx.execute(
+                "UPDATE authority SET version=9,layout_digest=$1 WHERE singleton",
+                &[&digest],
+            )
+            .map_err(db_error)?;
+            Ok(())
+        })
+    }
+    pub fn install_transfer_repository(&mut self) -> Result<()> {
+        self.transaction(|tx| {
+            let version: i64 = tx
+                .query_one("SELECT version FROM authority WHERE singleton", &[])
+                .map_err(db_error)?
+                .get(0);
+            if version >= 11 {
+                return Ok(());
+            }
+            if version != 10 {
+                return Err("archive must be installed before shared transfers".into());
+            }
+            tx.batch_execute(crate::shared_transfers::DDL)
+                .map_err(db_error)?;
+            let digest = layout(tx)?;
+            tx.execute(
+                "UPDATE authority SET version=11,layout_digest=$1 WHERE singleton",
+                &[&digest],
+            )
+            .map_err(db_error)?;
+            Ok(())
+        })
+    }
     pub fn host_command(
         &mut self,
         command_id: &str,
@@ -165,7 +237,15 @@ impl PostgresRepository {
         crate::validate_value(parameters, 0, &mut bytes).map_err(|e| e.message)?;
         crate::parse_shared_command(&parameters.to_string()).map_err(|e| e.message)?;
         if operation == "admit_invocation" {
-            self.reconcile(id(parameters, "run")?)?;
+            let retained = self.transaction(|tx| {
+                Ok(tx
+                    .query_opt("SELECT 1 FROM host_commands WHERE id=$1", &[&command_id])
+                    .map_err(db_error)?
+                    .is_some())
+            })?;
+            if !retained {
+                self.reconcile(id(parameters, "run")?)?;
+            }
         }
         let digest: String = Sha256::digest(json!([operation, parameters]).to_string().as_bytes())
             .iter()
@@ -190,11 +270,16 @@ impl PostgresRepository {
                 if row.get::<_, String>(0) != digest {
                     return Err("shared command identity conflict".into());
                 }
-                return Ok(json!({"replayed":true,"receipt":decoded(row.get::<_,&str>(1))?}));
+                let receipt=decoded(row.get::<_,&str>(1))?;
+                if receipt["format"]=="mas-archived-command/1" {return Err("command_result_archived".into());}
+                return Ok(json!({"replayed":true,"receipt":receipt}));
             }
             if matches!(
                 operation,
                 "create_run"
+                    | "cursor_job.prepare"
+                    | "transfer.begin"
+                    | "transfer.chunk"
                     | "prepare_invocation"
                     | "admit_invocation"
                     | "task.submit"
@@ -222,12 +307,17 @@ impl PostgresRepository {
             ) {
                 crate::shared_leadership::check_admission(tx)?;
             }
+            let version:i64=tx.query_one("SELECT version FROM authority WHERE singleton",&[]).map_err(db_error)?.get(0);
+            let class=crate::shared_commands::class(operation);
+            if version>=8 {crate::shared_commands::reserve(tx,class)?;}
             let receipt = apply(tx, operation, parameters)?;
-            tx.execute(
-                "INSERT INTO host_commands(id,digest,receipt) VALUES($1,$2,$3)",
-                &[&command_id, &digest, &receipt.to_string()],
-            )
-            .map_err(db_error)?;
+            if version>=10 {
+                let targets=crate::shared_commands::targets(tx,operation,parameters,&receipt)?;
+                let encoded=receipt.to_string();let receipt_digest=crate::shared_archive::digest(encoded.as_bytes());
+                tx.execute("INSERT INTO host_commands(id,digest,receipt,capacity_class,operation,targets,receipt_digest) VALUES($1,$2,$3,$4,$5,$6,$7)",&[&command_id,&digest,&encoded,&class,&operation,&targets,&receipt_digest]).map_err(db_error)?;
+            }
+            else if version>=8 {tx.execute("INSERT INTO host_commands(id,digest,receipt,capacity_class) VALUES($1,$2,$3,$4)",&[&command_id,&digest,&receipt.to_string(),&class]).map_err(db_error)?;}
+            else {tx.execute("INSERT INTO host_commands(id,digest,receipt) VALUES($1,$2,$3)",&[&command_id,&digest,&receipt.to_string()]).map_err(db_error)?;}
             Ok(json!({"replayed":false,"receipt":receipt}))
         })
     }
@@ -240,6 +330,11 @@ impl PostgresRepository {
             "steps"=>{fields(p,&["run"],&[])?;let mut out=Vec::new();for row in tx.query("SELECT key,kind,input,data,revision FROM host_steps WHERE run=$1 ORDER BY seq",&[&id(p,"run")?]).map_err(db_error)? {out.push(json!({"key":row.get::<_,String>(0),"kind":row.get::<_,String>(1),"input":decoded(row.get::<_,&str>(2))?,"data":decoded(row.get::<_,&str>(3))?,"revision":row.get::<_,i64>(4)}));}Ok(json!(out))},
             "invocations"=>{fields(p,&["run"],&[])?;let r=id(p,"run")?;let mut out=Vec::new();for row in tx.query("SELECT call_id FROM host_invocations WHERE run=$1 ORDER BY seq",&[&r]).map_err(db_error)? {out.push(invocation(tx,r,row.get::<_,&str>(0))?);}Ok(json!(out))},
             "recovery_snapshot"=>recovery_snapshot(tx,p),
+            "run_archive"=>crate::shared_archive::inspect(tx,id(p,"run")?),
+            "command_receipt"=>{fields(p,&["command_id"],&[])?;let row=tx.query_opt("SELECT receipt FROM host_commands WHERE id=$1",&[&id(p,"command_id")?]).map_err(db_error)?;row.map(|r|decoded(r.get(0))).unwrap_or(Ok(Value::Null))},
+            op if op.starts_with("command_capacity.")=>crate::shared_commands::query(tx,op,p),
+            op if op.starts_with("cursor_job.")=>crate::shared_jobs::query(tx,op,p),
+            op if op.starts_with("transfer.")=>crate::shared_transfers::query(tx,op,p),
             op if op.starts_with("accounting.")=>crate::shared_accounting::query(tx,op,p),
             op if op.starts_with("authority.")=>crate::shared_leadership::query(tx,op,p),
             "resolutions"=>{fields(p,&["run"],&[])?;let r=id(p,"run")?;let mut out=Vec::new();for row in tx.query("SELECT seq,call_id,principal,decision,evidence,(created*1000)::bigint FROM host_resolutions WHERE run=$1 ORDER BY seq",&[&r]).map_err(db_error)? {out.push(json!({"seq":row.get::<_,i64>(0),"call_id":row.get::<_,String>(1),"principal":row.get::<_,String>(2),"decision":row.get::<_,String>(3),"evidence":decoded(row.get::<_,&str>(4))?,"created_ms":row.get::<_,i64>(5)}));}Ok(json!(out))},
@@ -295,6 +390,7 @@ fn apply(tx: &mut Transaction<'_>, operation: &str, p: &Value) -> Result<Value> 
             Ok(json!({"scope":s}))
         }
         "create_run" => {
+            crate::shared_archive::require_open(tx, id(p, "run")?)?;
             fields(
                 p,
                 &["run", "principal", "ancestors", "configuration", "metadata"],
@@ -376,6 +472,7 @@ fn apply(tx: &mut Transaction<'_>, operation: &str, p: &Value) -> Result<Value> 
         "claim_run" => {
             fields(p, &["run", "owner"], &[])?;
             let r = id(p, "run")?;
+            crate::shared_archive::require_open(tx, r)?;
             let o = id(p, "owner")?;
             let epoch: i64 = tx
                 .query_one("SELECT epoch FROM authority WHERE singleton", &[])
@@ -625,6 +722,9 @@ fn apply(tx: &mut Transaction<'_>, operation: &str, p: &Value) -> Result<Value> 
             tx.execute("UPDATE host_invocations SET state=$1,output=$2,evidence=$3 WHERE run=$4 AND call_id=$5",&[&state,&output,&evidence,&r,&c]).map_err(db_error)?;
             invocation(tx, &r, c)
         }
+        op if op.starts_with("command_capacity.") => crate::shared_commands::apply(tx, op, p),
+        op if op.starts_with("cursor_job.") => crate::shared_jobs::apply(tx, op, p),
+        op if op.starts_with("transfer.") => crate::shared_transfers::apply(tx, op, p),
         op if op.starts_with("accounting.") => crate::shared_accounting::apply(tx, op, p),
         op if op.starts_with("authority.") => crate::shared_leadership::apply(tx, op, p),
         op if op.starts_with("task.")
@@ -672,6 +772,20 @@ fn recovery_snapshot(tx: &mut Transaction<'_>, p: &Value) -> Result<Value> {
     let mut remote = Vec::new();
     for row in tx.query("SELECT e.logical_key,e.remote_id,e.state,e.cancel_requested,e.updated,(e.pending_action IS NOT NULL OR e.state='unknown' OR EXISTS(SELECT 1 FROM remote_operations o WHERE o.key=e.key AND o.state='unknown')) FROM remote_effects e WHERE e.run=$1 ORDER BY e.key LIMIT 10001",&[&r]).map_err(db_error)?{
         remote.push(json!({"kind":"remote_task","key":row.get::<_,String>(0),"remote_id":row.get::<_,Option<String>>(1),"state":row.get::<_,String>(2),"cancel_requested":row.get::<_,bool>(3),"observed_at_ms":row.get::<_,i64>(4)*1000,"uncertain":row.get::<_,bool>(5)}));
+    }
+    let version: i64 = tx
+        .query_one("SELECT version FROM authority WHERE singleton", &[])
+        .map_err(db_error)?
+        .get(0);
+    if version >= 7 {
+        for row in tx.query("SELECT job_id,agent_id,run_id,state,cancel_requested,updated,snapshot::jsonb->>'remote_status' FROM cloud_jobs WHERE host_run=$1 AND principal=$2 ORDER BY job_id LIMIT 10001",&[&r,&principal]).map_err(db_error)? {
+            let job=row.get::<_,&str>(0);
+            let state=row.get::<_,&str>(3);
+            let remote_status=row.get::<_,Option<&str>>(6);
+            let pending=tx.query("SELECT operation_id,action,state FROM cloud_operations WHERE principal=$1 AND job_id=$2 AND state<>'completed' ORDER BY revision,operation_id LIMIT 21",&[&principal,&job]).map_err(db_error)?;
+            let operations:Vec<Value>=pending.iter().take(20).map(|operation|json!({"operation_id":operation.get::<_,&str>(0),"action":operation.get::<_,&str>(1),"state":operation.get::<_,&str>(2)})).collect();
+            remote.push(json!({"kind":"cursor_job","key":job,"agent_id":row.get::<_,&str>(1),"remote_id":row.get::<_,Option<&str>>(2),"state":if remote_status==Some("CANCELLED"){"cancelled"}else{state},"remote_status":remote_status,"cancel_requested":row.get::<_,bool>(4),"observed_at_ms":row.get::<_,i64>(5)*1000,"uncertain":state=="launch_unknown"||(state!="terminal"&&row.get::<_,bool>(4)),"pending_operations":operations,"more_pending_operations":pending.len()>20}));
+        }
     }
     if calls.len() > 10000 || remote.len() > 10000 {
         return Err("recovery snapshot capacity exceeded".into());

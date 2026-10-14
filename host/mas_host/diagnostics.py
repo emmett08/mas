@@ -55,13 +55,15 @@ def _schemas():
     from .worker_control import CONTROL
     from .request_namespaces import EPOCHS
     from .peer_registry import PEERS
+    from .retention_admin import RETENTION
     return {'deployment.sqlite': LEDGER, 'task-service.sqlite': SERVICE,
             'composition.sqlite': COMPOSITION, 'definition-registry.sqlite': DEFINITIONS,
             'scheduler-capacity.sqlite': CAPACITY, 'provider-circuits.sqlite': CIRCUITS,
             'remote-workers.sqlite': REMOTE, 'remote-tasks.sqlite': REMOTE_TASKS,
             'cursor-jobs.sqlite': JOBS, 'host.sqlite': JOURNAL, 'worker-spool.sqlite': SPOOL,
             'event-delivery.sqlite': EVENT_DELIVERY, 'worker-control.sqlite': CONTROL,
-            'request-epochs.sqlite': EPOCHS, 'peer-registry.sqlite': PEERS}
+            'request-epochs.sqlite': EPOCHS, 'peer-registry.sqlite': PEERS,
+            'operator-retention.sqlite': RETENTION}
 
 
 def _root(path):

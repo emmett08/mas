@@ -195,6 +195,9 @@ class JobStore:
         with self.open(readonly=True) as db:
             return CloudJobSpec(**json.loads(self.row(db, job_id)["spec"]))
 
+    def service(self, client=None):
+        return DurableJobService(self, client)
+
 
 def receipt(row: dict) -> dict:
     if row["run_id"] is None:

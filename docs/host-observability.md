@@ -181,7 +181,7 @@ integrity check of every per-run invocation journal.
 ## Correlated latency observations
 
 The deployment-admin `telemetry` operation is available through the operator API,
-MCP and portable client (`mas-client ENDPOINT operator --principal OPERATOR
+console and portable client (`mas-client ENDPOINT operator --principal OPERATOR
 --token-file PRIVATE_TOKEN --data REQUEST.json`, with request JSON
 `{"operation":"telemetry","payload":{}}`). It returns `mas-telemetry/1`: fixed-stage latency histograms and the
 last 20 retained spans. Stages distinguish HTTP handling, queue wait, dispatch,

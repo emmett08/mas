@@ -24,7 +24,23 @@ STATUS_FILE = ".bridge-worker-health.json"
 EXECUTION_OVERHEAD_SECONDS = 90
 
 
-def _state_health(state_dir: Path):
+def _state_health(state_dir: Path, config=None):
+    if config is not None and 'shared' in config:
+        from .bridge_config import build_shared_authority
+        authority = build_shared_authority(config)
+        try:
+            health = authority.query('operator.storage', {})
+            status = authority.query('authority.status', {})
+            # The database validates the configured controller/epoch. A probe
+            # never renews leadership or creates controller-local authority.
+            live = status['lease_until_ms'] > status['database_time_ms']
+            health['admission_open'] = health['admission_open'] and not status['draining'] and live
+            if not live:
+                health['admission_state'] = 'lease_expired'
+            health['task_service'] = {'backend': 'postgresql'}
+            return health
+        finally:
+            authority.close()
     ledger = DeploymentLedger(state_dir, readonly=True)
     with closing(connect(Path(state_dir) / "task-service.sqlite", SERVICE, readonly=True)) as db:
         if dict(db.execute("SELECT key,value FROM metadata")) != {"deployment_id": ledger.deployment_id}:
@@ -41,7 +57,7 @@ def ingress_health(state_dir: Path, config: dict, port: int = 8765) -> dict:
     """
     if type(port) is not int or not 1 <= port <= 65535:
         raise OperationsError("invalid readiness port")
-    health = _state_health(state_dir)
+    health = _state_health(state_dir, config)
     public_url = config.get("public_url", "http://127.0.0.1:8765")
     from .bridges.a2a import A2ABridge
     expected = A2ABridge(None, endpoint=public_url + "/a2a",
@@ -117,7 +133,7 @@ class _ObservedExecutor:
         return result
 
 
-def worker_health(state_dir: Path, max_age_seconds: float = 30) -> dict:
+def worker_health(state_dir: Path, max_age_seconds: float = 30, *, config=None) -> dict:
     """Require ownership, the same live process and a bounded current phase.
 
     An executing phase is healthy until its frozen workflow allowance expires;
@@ -126,7 +142,7 @@ def worker_health(state_dir: Path, max_age_seconds: float = 30) -> dict:
     if not math.isfinite(max_age_seconds) or not 0.1 <= max_age_seconds <= 3600:
         raise OperationsError("worker maximum age must be 0.1 to 3600 seconds")
     state_dir = _private_dir(Path(state_dir))
-    health = _state_health(state_dir)
+    health = _state_health(state_dir, config)
     try:
         value = json.loads(read_private_file(state_dir / STATUS_FILE, max_bytes=8192))
         details = state_dir.stat()

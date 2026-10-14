@@ -196,6 +196,13 @@ example. See [HTTP transport policy](http-transport-policy.md) for private CA an
 mTLS configuration. Preserve the worker spool across restarts. Do not share one
 spool between worker identities or use multiple live processes for one token.
 
+After an unclean machine reset, a writable repository owner lets SQLite recover
+its hot rollback journal before checking the recovered schema and receipt data.
+This recovery restores committed storage; it does not replay an application
+effect. Read-only audit opens never perform this recovery and may report that
+writable recovery is required. Keep database sidecars with their database;
+deleting a journal to force an inspection can destroy the retained evidence.
+
 In the controller's application factory, construct the controller with the same
 pinned grants and policy, then install a `RemoteWorkerAdapter` for the appropriate
 actor. Bind its user principal from the authenticated task admission context:

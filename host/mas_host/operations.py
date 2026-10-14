@@ -520,6 +520,18 @@ def retained_runs(state_dir: Path) -> list[dict]:
         return [dict(row) for row in db.execute("SELECT * FROM runs WHERE purged_at IS NULL ORDER BY admitted_at,run_id")]
 
 
+def _retention_pending_delivery(state_dir: Path, task_id: str) -> bool:
+    """Caller holds the deployment maintenance lock, excluding delivery writes."""
+    path = state_dir / 'event-delivery.sqlite'
+    if not path.exists() and not path.is_symlink():
+        return False
+    from contextlib import closing
+    from .event_delivery import EVENT_DELIVERY
+    from .schema import connect
+    with closing(connect(path, EVENT_DELIVERY, readonly=True)) as db:
+        return db.execute('SELECT 1 FROM pending p JOIN subscriptions s ON s.id=p.subscription WHERE s.task_id=? LIMIT 1', (task_id,)).fetchone() is not None
+
+
 def _retention_run_settled(state_dir: Path, name: str) -> bool:
     if type(name) is not str or Path(name).name != name or name in ('.', '..'):
         raise OperationsError('unsafe history run reference')
@@ -536,7 +548,7 @@ def _retention_run_settled(state_dir: Path, name: str) -> bool:
                 or _pending_artifacts(directory)) and _terminal_run(directory)
 
 
-def archive_workflows(state_dir: Path, older_than_seconds: int, apply: bool = False) -> dict:
+def archive_workflows(state_dir: Path, older_than_seconds: int, apply: bool = False, *, task_id=None) -> dict:
     """Compact settled composition payloads, retaining request tombstones.
 
     Archive first, then prune unreferenced terminal run directories with the
@@ -559,6 +571,8 @@ def archive_workflows(state_dir: Path, older_than_seconds: int, apply: bool = Fa
         store = WorkflowStore(state_dir, readonly=not apply)
         with store.transaction(readonly=not apply) as db:
             for row in db.execute('SELECT id FROM instances ORDER BY created,id').fetchall():
+                if task_id is not None and row['id'] != task_id:
+                    continue
                 item = store.instance(db, row['id'], include_input=True)
                 result = {'instance_id': item['id'], 'eligible': False, 'archived': False}
                 latest = db.execute('SELECT coalesce(max(created),?) FROM events WHERE instance=?',
@@ -567,12 +581,15 @@ def archive_workflows(state_dir: Path, older_than_seconds: int, apply: bool = Fa
                     result['reason'] = 'workflow is not terminal'
                 elif latest > time.time() - older_than_seconds:
                     result['reason'] = 'retention age not reached'
+                elif _retention_pending_delivery(state_dir, item['id']):
+                    result['reason'] = 'unacknowledged event delivery retained'
                 else:
-                    references = db.execute('SELECT run_directory,state FROM attempts WHERE instance=?',
+                    references = db.execute('SELECT run_directory,state,revision=(SELECT max(b.revision) FROM attempts b WHERE b.instance=a.instance AND b.path=a.path) AS latest FROM attempts a WHERE instance=?',
                                             (item['id'],)).fetchall()
                     settled = True
                     for reference in references:
-                        if (reference['state'] not in FINISHED_STATES
+                        if (not (reference['state'] in FINISHED_STATES or not reference['latest']
+                                 and reference['state'] in {'input_required', 'auth_required'})
                                 or not _retention_run_settled(state_dir, reference['run_directory'])):
                             settled = False
                     if not settled:

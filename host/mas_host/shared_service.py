@@ -51,6 +51,10 @@ class SharedTaskFacade:
             raise ServiceError('unsupported_capability')
         return owner.inspect_task(principal, task_id, path, revision)
 
+    def inspect_graph(self, principal, task_id, *, section='nodes', offset=0, limit=20):
+        from .graph_inspection import inspect_graph
+        return inspect_graph(self, principal, task_id, section=section, offset=offset, limit=limit)
+
     def events(self, principal, task_id, after=0):
         return self._owner(task_id).events(principal, task_id, after)
 
@@ -90,6 +94,7 @@ class SharedTaskFacade:
             plans = self.compositions.discover(principal)
             names = self.plan_names
             discovery['registrations'] = [r for r in discovery['registrations'] if r['name'] not in names] + plans
+            discovery['capabilities'] = sorted(set(discovery['capabilities']) | {'task_detail', 'graph'})
         return discovery
 
     def pending(self):
@@ -106,7 +111,7 @@ class SharedTaskFacade:
             self.compositions.expire_pending()
         for item in self.pending():
             result = self._owner(item['task_id']).run_once(item['task_id'])
-            if result is not None:
+            if result is not None and result['state'] != 'blocked':
                 return result
         return None
 

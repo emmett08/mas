@@ -21,6 +21,15 @@ CREATE TABLE composition_continuations(instance text NOT NULL REFERENCES composi
 CREATE TABLE composition_protocol_events(run_id text NOT NULL REFERENCES composition_attempts(run_id),message_id text NOT NULL,data text NOT NULL,PRIMARY KEY(run_id,message_id));
 CREATE TABLE composition_events(id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,instance text NOT NULL REFERENCES composition_instances(id),path text,event text NOT NULL,state text NOT NULL,data text,created bigint NOT NULL);
 ";
+pub(crate) const RETENTION_DDL: &str = "
+ALTER TABLE composition_instances ADD COLUMN archived_at bigint;
+ALTER TABLE composition_instances ADD COLUMN input_digest text;
+ALTER TABLE composition_instances ADD COLUMN output_digest text;
+ALTER TABLE composition_instances ADD COLUMN event_floor bigint NOT NULL DEFAULT 0;
+ALTER TABLE composition_attempts ADD COLUMN input_digest text;
+ALTER TABLE composition_attempts ADD COLUMN output_digest text;
+ALTER TABLE composition_attempts ADD COLUMN error_digest text;
+";
 fn text<'a>(p: &'a Value, key: &str) -> Result<&'a str> {
     p[key]
         .as_str()
@@ -79,9 +88,9 @@ fn event(
     Ok(())
 }
 fn instance(tx: &mut Transaction<'_>, id: &str) -> Result<Value> {
-    let r=tx.query_opt("SELECT id,principal,request_namespace,request_epoch,request_key,plan,identity,input,metadata,binding,limits,state,output,error,created,deadline,cancel_requested,updated FROM composition_instances WHERE id=$1",&[&id]).map_err(db_error)?.ok_or("composition not found")?;
+    let r=tx.query_opt("SELECT id,principal,request_namespace,request_epoch,request_key,plan,identity,input,metadata,binding,limits,state,output,error,created,deadline,cancel_requested,updated,archived_at,input_digest,output_digest,event_floor FROM composition_instances WHERE id=$1",&[&id]).map_err(db_error)?.ok_or("composition not found")?;
     Ok(
-        json!({"id":r.get::<_,&str>(0),"principal":r.get::<_,&str>(1),"request_namespace":r.get::<_,&str>(2),"request_epoch":r.get::<_,&str>(3),"request_key":r.get::<_,&str>(4),"plan":r.get::<_,&str>(5),"identity":r.get::<_,&str>(6),"input":decoded(r.get(7))?,"metadata":decoded(r.get(8))?,"binding":decoded(r.get(9))?,"limits":decoded(r.get(10))?,"state":r.get::<_,&str>(11),"output":optional(r.get(12))?,"error":optional(r.get(13))?,"created":r.get::<_,i64>(14),"deadline":r.get::<_,i64>(15),"cancel_requested":r.get::<_,bool>(16),"updated":r.get::<_,i64>(17),"clock":shared_timing::read(tx,id,"")?,"timing":shared_timing::status(tx,id,"")?}),
+        json!({"id":r.get::<_,&str>(0),"principal":r.get::<_,&str>(1),"request_namespace":r.get::<_,&str>(2),"request_epoch":r.get::<_,&str>(3),"request_key":r.get::<_,&str>(4),"plan":r.get::<_,&str>(5),"identity":r.get::<_,&str>(6),"input":decoded(r.get(7))?,"metadata":decoded(r.get(8))?,"binding":decoded(r.get(9))?,"limits":decoded(r.get(10))?,"state":r.get::<_,&str>(11),"output":optional(r.get(12))?,"error":optional(r.get(13))?,"created":r.get::<_,i64>(14),"deadline":r.get::<_,i64>(15),"cancel_requested":r.get::<_,bool>(16),"updated":r.get::<_,i64>(17),"archived":r.get::<_,Option<i64>>(18).is_some(),"archived_at":r.get::<_,Option<i64>>(18),"input_digest":r.get::<_,Option<&str>>(19),"output_digest":r.get::<_,Option<&str>>(20),"event_floor":r.get::<_,i64>(21),"clock":shared_timing::read(tx,id,"")?,"timing":shared_timing::status(tx,id,"")?}),
     )
 }
 fn owned(tx: &mut Transaction<'_>, p: &Value) -> Result<String> {
@@ -105,7 +114,7 @@ fn attempt_at(
     path: &str,
     revision: Option<i64>,
 ) -> Result<Value> {
-    tx.query_opt("SELECT revision,workflow,identity,run_id,input,wall_seconds,ancestors,state,output,error,queued_ms,started_ms FROM composition_attempts WHERE instance=$1 AND path=$2 AND ($3::bigint IS NULL OR revision=$3) ORDER BY revision DESC LIMIT 1",&[&id,&path,&revision]).map_err(db_error)?.map(|r|Ok(json!({"instance":id,"path":path,"revision":r.get::<_,i64>(0),"workflow":r.get::<_,&str>(1),"identity":r.get::<_,&str>(2),"run_id":r.get::<_,&str>(3),"run_directory":r.get::<_,&str>(3),"input":decoded(r.get(4))?,"wall_seconds":r.get::<_,i64>(5),"ancestors":decoded(r.get(6))?,"state":r.get::<_,&str>(7),"output":optional(r.get(8))?,"error":optional(r.get(9))?,"queued_at_ms":r.get::<_,i64>(10),"queue_elapsed_ms":r.get::<_,Option<i64>>(11).map(|started|(started-r.get::<_,i64>(10)).max(0))}))).unwrap_or(Ok(Value::Null))
+    tx.query_opt("SELECT revision,workflow,identity,run_id,input,wall_seconds,ancestors,state,output,error,queued_ms,started_ms,input_digest,output_digest,error_digest FROM composition_attempts WHERE instance=$1 AND path=$2 AND ($3::bigint IS NULL OR revision=$3) ORDER BY revision DESC LIMIT 1",&[&id,&path,&revision]).map_err(db_error)?.map(|r|Ok(json!({"instance":id,"path":path,"revision":r.get::<_,i64>(0),"workflow":r.get::<_,&str>(1),"identity":r.get::<_,&str>(2),"run_id":r.get::<_,&str>(3),"run_directory":r.get::<_,&str>(3),"input":decoded(r.get(4))?,"wall_seconds":r.get::<_,i64>(5),"ancestors":decoded(r.get(6))?,"state":r.get::<_,&str>(7),"output":optional(r.get(8))?,"error":optional(r.get(9))?,"queued_at_ms":r.get::<_,i64>(10),"queue_elapsed_ms":r.get::<_,Option<i64>>(11).map(|started|(started-r.get::<_,i64>(10)).max(0)),"input_digest":r.get::<_,Option<&str>>(12),"output_digest":r.get::<_,Option<&str>>(13),"error_digest":r.get::<_,Option<&str>>(14)}))).unwrap_or(Ok(Value::Null))
 }
 fn scope(
     tx: &mut Transaction<'_>,
@@ -242,7 +251,7 @@ pub(crate) fn apply(tx: &mut Transaction<'_>, operation: &str, p: &Value) -> Res
     if operation == "composition.expire" {
         let candidates = p["instances"].as_array().filter(|v| v.len()<=1000).ok_or("invalid expiry candidates")?;
         let candidates = candidates.iter().map(|v| v.as_str().map(str::to_owned).ok_or("invalid expiry candidate")).collect::<std::result::Result<Vec<_>,_>>()?;
-        let rows=tx.query("SELECT id FROM composition_instances WHERE id=ANY($1) AND owner IS NULL AND state IN ('queued','waiting','blocked_definition','input_required','auth_required')",&[&candidates]).map_err(db_error)?;
+        let rows=tx.query("SELECT id FROM composition_instances WHERE id=ANY($1) AND (owner IS NULL OR owner_epoch<>(SELECT epoch FROM authority WHERE singleton)) AND state IN ('queued','waiting','blocked_definition','input_required','auth_required')",&[&candidates]).map_err(db_error)?;
         let mut count = 0;
         for row in rows {
             let id = row.get::<_, &str>(0);
@@ -251,7 +260,7 @@ pub(crate) fn apply(tx: &mut Transaction<'_>, operation: &str, p: &Value) -> Res
             }
             let uncertain:bool=tx.query_one("SELECT EXISTS(SELECT 1 FROM composition_attempts WHERE instance=$1 AND state IN ('running','unknown'))",&[&id]).map_err(db_error)?.get(0);
             let state = if uncertain { "unknown" } else { "expired" };
-            tx.execute("UPDATE composition_instances SET state=$2,error=$3 WHERE id=$1",&[&id,&state,&json!({"code":if uncertain{"reconciliation_required"}else{"deadline_exceeded"}}).to_string()]).map_err(db_error)?;
+            tx.execute("UPDATE composition_instances SET state=$2,error=$3,owner=NULL,owner_epoch=NULL WHERE id=$1",&[&id,&state,&json!({"code":if uncertain{"reconciliation_required"}else{"deadline_exceeded"}}).to_string()]).map_err(db_error)?;
             shared_timing::transition(
                 tx,
                 id,
@@ -313,12 +322,14 @@ pub(crate) fn apply(tx: &mut Transaction<'_>, operation: &str, p: &Value) -> Res
         if let Some(r)=tx.query_opt("SELECT id FROM composition_instances WHERE principal=$1 AND request_namespace=$2 AND request_epoch=$3 AND request_key=$4",&[&principal,&namespace,&epoch,&key]).map_err(db_error)? {let saved=instance(tx,r.get(0))?;if ["plan","identity","input","metadata"].iter().any(|k|saved[k]!=p[k]){return Err("composition request conflict".into())}return Ok(saved)}
         let plan = text(p, "plan")?;
         let identity = text(p, "identity")?;
+        let current=tx.query_opt("SELECT a.identity,d.retired FROM service_aliases a JOIN service_definitions d ON d.kind=a.kind AND d.name=a.name AND d.identity=a.identity WHERE a.kind='plan' AND a.name=$1",&[&plan]).map_err(db_error)?;
+        if current.is_none_or(|r|r.get::<_,&str>(0)!=identity||r.get::<_,bool>(1)){return Err("workflow_changed".into())}
         if !p["input"].is_object() || !p["metadata"].is_object() || !p["binding"].is_object() {
             return Err("invalid composition submission".into());
         }
         crate::shared_tasks::check_submission(tx, principal)?;
         let count: i64 = tx
-            .query_one("SELECT count(*) FROM composition_instances", &[])
+            .query_one("SELECT count(*) FROM composition_instances WHERE archived_at IS NULL", &[])
             .map_err(db_error)?
             .get(0);
         let maximum: i64 = tx
@@ -369,6 +380,8 @@ pub(crate) fn apply(tx: &mut Transaction<'_>, operation: &str, p: &Value) -> Res
     if operation == "composition.claim" {
         let id = text(p, "instance")?;
         let claim = text(p, "owner")?;
+        let saved=instance(tx,id)?;
+        if saved["archived"]==true || terminal(saved["state"].as_str().unwrap_or("")) {return Err("composition_not_runnable".into())}
         let row=tx.query_opt("SELECT i.owner,i.owner_epoch,a.epoch FROM composition_instances i CROSS JOIN authority a WHERE i.id=$1 AND a.singleton",&[&id]).map_err(db_error)?.ok_or("composition not found")?;
         let epoch: i64 = row.get(2);
         if row.get::<_, Option<i64>>(1) == Some(epoch)
@@ -432,7 +445,7 @@ pub(crate) fn apply(tx: &mut Transaction<'_>, operation: &str, p: &Value) -> Res
         {
             return Err("deadline extension unavailable".into());
         }
-        let uncertain:bool=tx.query_one("SELECT EXISTS(SELECT 1 FROM composition_attempts WHERE instance=$1 AND state IN ('running','unknown')) OR EXISTS(SELECT 1 FROM composition_instances WHERE id=$1 AND owner IS NOT NULL)",&[&id]).map_err(db_error)?.get(0);
+        let uncertain:bool=tx.query_one("SELECT EXISTS(SELECT 1 FROM composition_attempts WHERE instance=$1 AND state IN ('running','unknown')) OR EXISTS(SELECT 1 FROM composition_instances i CROSS JOIN authority a WHERE i.id=$1 AND i.owner IS NOT NULL AND i.owner_epoch=a.epoch)",&[&id]).map_err(db_error)?.get(0);
         if uncertain || integer(&saved, "deadline", 1)? <= now(tx)? {
             return Err("deadline extension unavailable".into());
         }
@@ -990,22 +1003,30 @@ pub(crate) fn apply(tx: &mut Transaction<'_>, operation: &str, p: &Value) -> Res
         _ => Err("unknown composition command".into()),
     }
 }
+// Read selection avoids durable no-op receipts. start_attempt independently
+// checks the same assignment/capacity in its mutating admission transaction.
+fn slot_available(tx:&mut Transaction<'_>, item:&Value, attempt:&Value, owner:Option<&str>)->Result<bool> {
+    let epoch:i64=tx.query_one("SELECT epoch FROM authority WHERE singleton",&[]).map_err(db_error)?.get(0);
+    if let Some(row)=tx.query_opt("SELECT principal,workflow,identity,owner,epoch FROM service_slots WHERE assignment=$1",&[&text(attempt,"run_id")?]).map_err(db_error)? {
+        if row.get::<_,&str>(0)!=text(item,"principal")? || row.get::<_,&str>(1)!=text(attempt,"workflow")? || row.get::<_,&str>(2)!=text(attempt,"identity")? {return Err("scheduler_assignment_conflict".into())}
+        return Ok(row.get::<_,i64>(4)!=epoch || owner==Some(row.get::<_,&str>(3)))
+    }
+    Ok(crate::shared_tasks::available_resources(tx,text(item,"principal")?,text(attempt,"workflow")?,text(attempt,"identity")?)?.is_some())
+}
 pub(crate) fn query(tx: &mut Transaction<'_>, operation: &str, p: &Value) -> Result<Value> {
     if operation == "composition.expiring" {
         let after=p["after"].as_str();
         let instance=p["instance"].as_str();
-        let rows=tx.query("SELECT id FROM composition_instances WHERE owner IS NULL AND state IN ('queued','waiting','blocked_definition','input_required','auth_required') AND ($1::text IS NULL OR id>$1) AND ($2::text IS NULL OR id=$2) ORDER BY id LIMIT 1001",&[&after,&instance]).map_err(db_error)?;
+        let rows=tx.query("SELECT id FROM composition_instances WHERE (owner IS NULL OR owner_epoch<>(SELECT epoch FROM authority WHERE singleton)) AND state IN ('queued','waiting','blocked_definition','input_required','auth_required') AND ($1::text IS NULL OR id>$1) AND ($2::text IS NULL OR id=$2) ORDER BY id LIMIT 1001",&[&after,&instance]).map_err(db_error)?;
         let mut candidates=Vec::new();
         for row in rows.iter().take(1000) { let id=row.get::<_,&str>(0); if expired(tx,id)? { candidates.push(id.to_owned()); } }
         let next=if rows.len()>1000 { json!(rows[999].get::<_,&str>(0)) } else { Value::Null };
         return Ok(json!({"instances":candidates,"next":next}));
     }
     if operation == "composition.pending" {
-        let rows=tx.query("SELECT id FROM composition_instances WHERE state IN ('queued','running','waiting') ORDER BY created,id LIMIT 1000",&[]).map_err(db_error)?;
-        return Ok(json!(rows
-            .iter()
-            .map(|r| r.get::<_, String>(0))
-            .collect::<Vec<_>>()));
+        let after=p["after"].as_str();
+        let rows=tx.query("SELECT i.id,i.principal,i.created,i.plan FROM composition_instances i CROSS JOIN authority a WHERE i.state IN ('queued','running','waiting','blocked_definition') AND (i.owner IS NULL OR i.owner_epoch<>a.epoch) AND ($1::text IS NULL OR i.id>$1) ORDER BY i.id LIMIT 1001",&[&after]).map_err(db_error)?;
+        return Ok(json!({"items":rows.iter().take(1000).map(|r|json!({"id":r.get::<_,&str>(0),"principal":r.get::<_,&str>(1),"created":r.get::<_,i64>(2),"plan":r.get::<_,&str>(3)})).collect::<Vec<_>>(),"next":if rows.len()>1000{json!(rows[999].get::<_,&str>(0))}else{Value::Null}}));
     }
     if operation == "composition.list" {
         let principal = text(p, "principal")?;
@@ -1051,6 +1072,21 @@ pub(crate) fn query(tx: &mut Transaction<'_>, operation: &str, p: &Value) -> Res
     let path = p["path"].as_str().unwrap_or("root");
     match operation {
         "composition.instance" => Ok(item),
+        "composition.claimable" => {
+            if terminal(item["state"].as_str().unwrap_or("")) || matches!(item["state"].as_str(),Some("unknown"|"input_required"|"auth_required")) {return Ok(json!(false))}
+            let owned:bool=tx.query_one("SELECT EXISTS(SELECT 1 FROM composition_instances i CROSS JOIN authority a WHERE i.id=$1 AND i.owner IS NOT NULL AND i.owner_epoch=a.epoch)",&[&id]).map_err(db_error)?.get(0);
+            if owned {return Ok(json!(false))}
+            if item["cancel_requested"]==true || expired(tx,id)? {return Ok(json!(true))}
+            let rows=tx.query("SELECT path FROM composition_attempts WHERE instance=$1 AND latest AND state IN ('queued','running') ORDER BY path",&[&id]).map_err(db_error)?;
+            if rows.is_empty(){return Ok(json!(true))}
+            for row in rows {let saved=attempt(tx,id,row.get(0))?;if slot_available(tx,&item,&saved,None)? {return Ok(json!(true))}}
+            Ok(json!(false))
+        }
+        "composition.attempt_ready" => {
+            let saved=attempt(tx,id,path)?;
+            if saved.is_null() || saved["state"]!="queued" {return Ok(json!(false))}
+            Ok(json!(slot_available(tx,&item,&saved,p["owner"].as_str())?))
+        },
         "composition.cancelled" => {
             let root = node(tx, id, "root")?;
             Ok(json!(
@@ -1062,9 +1098,11 @@ pub(crate) fn query(tx: &mut Transaction<'_>, operation: &str, p: &Value) -> Res
             ))
         }
         "composition.node" => node(tx, id, path),
+        "composition.clock" => shared_timing::read(tx,id,path),
         "composition.attempt" => attempt_at(tx, id, path, p["revision"].as_i64()),
         "composition.progress" => progress(tx, id, path),
         "composition.join" => join(tx, id, path),
+        "composition.scope" => tx.query_opt("SELECT limits,deadline FROM composition_scopes WHERE instance=$1 AND path=$2",&[&id,&path]).map_err(db_error)?.map(|r|Ok(json!({"limits":decoded(r.get(0))?,"deadline":r.get::<_,i64>(1)}))).unwrap_or(Ok(Value::Null)),
         "composition.scopes" => {
             let mut out = Vec::new();
             for r in tx.query("SELECT s.path,s.id,s.limits,s.deadline,n.state FROM composition_scopes s LEFT JOIN composition_nodes n ON n.instance=s.instance AND n.path=s.path WHERE s.instance=$1 ORDER BY s.path",&[&id]).map_err(db_error)?{out.push(json!({"path":r.get::<_,&str>(0),"id":r.get::<_,&str>(1),"limits":decoded(r.get(2))?,"deadline":r.get::<_,i64>(3),"state":r.get::<_,Option<&str>>(4),"clock":shared_timing::read(tx,id,r.get(0))?,"timing":shared_timing::status(tx,id,r.get(0))?}))}
@@ -1109,6 +1147,7 @@ pub(crate) fn query(tx: &mut Transaction<'_>, operation: &str, p: &Value) -> Res
         }
         "composition.events" => {
             let after = integer(p, "after", 0)?;
+            if item["archived"]==true && after<item["event_floor"].as_i64().unwrap_or(0) {return Err("event_cursor_expired".into())}
             let limit = integer(p, "limit", 1)?.min(1000);
             let mut out = Vec::new();
             for r in tx.query("SELECT id,path,event,state,data,created FROM composition_events WHERE instance=$1 AND id>$2 ORDER BY id LIMIT $3",&[&id,&after,&limit]).map_err(db_error)?{out.push(json!({"id":r.get::<_,i64>(0),"path":r.get::<_,Option<&str>>(1),"event":r.get::<_,&str>(2),"state":r.get::<_,&str>(3),"data":optional(r.get(4))?,"created":r.get::<_,i64>(5)}))}
@@ -1118,6 +1157,56 @@ pub(crate) fn query(tx: &mut Transaction<'_>, operation: &str, p: &Value) -> Res
     }
 }
 
+/// Compact settled payloads while retaining identity, allocation and run references.
+/// The operator repository owns the permanent request-key receipt around this call.
+pub(crate) fn archive(tx: &mut Transaction<'_>, p: &Value) -> Result<Value> {
+    let id=text(p,"instance")?;
+    let principal=text(p,"principal")?;
+    let saved=instance(tx,id)?;
+    if saved["principal"]!=principal {return Err("not_found".into())}
+    if saved["archived"]==true {return Ok(saved)}
+    let age=integer(p,"older_than_seconds",0)?;
+    let current=shared_timing::now(tx)?;
+    let cutoff=current.saturating_sub(age.checked_mul(1000).ok_or("invalid_archive_age")?);
+    if !terminal(saved["state"].as_str().unwrap_or("")) || saved["updated"].as_i64().unwrap_or(current)>cutoff {
+        return Err("workflow_not_archivable".into())
+    }
+    let owned:bool=tx.query_one("SELECT EXISTS(SELECT 1 FROM composition_instances i CROSS JOIN authority a WHERE i.id=$1 AND i.owner IS NOT NULL AND i.owner_epoch=a.epoch)",&[&id]).map_err(db_error)?.get(0);
+    let retained:bool=tx.query_one("SELECT EXISTS(SELECT 1 FROM artifact_links WHERE state<>'released')",&[]).map_err(db_error)?.get(0);
+    if owned || retained {return Err("workflow_not_archivable".into())}
+    for row in tx.query("SELECT run_id,state,latest FROM composition_attempts WHERE instance=$1",&[&id]).map_err(db_error)? {
+        let state=row.get::<_,&str>(1);
+        let superseded_pause=!row.get::<_,bool>(2)&&matches!(state,"input_required"|"auth_required");
+        if (!terminal(state)&&!superseded_pause) || !crate::shared_control::settled_run(tx,row.get(0))? {return Err("workflow_not_archivable".into())}
+    }
+    let floor:i64=tx.query_one("SELECT coalesce(max(id),0) FROM composition_events WHERE instance=$1",&[&id]).map_err(db_error)?.get(0);
+    let digest=|value:&Value|->String{Sha256::digest(value.to_string().as_bytes()).iter().map(|b|format!("{b:02x}")).collect()};
+    let input_digest=digest(&saved["input"]);
+    let output_digest=if saved["output"].is_null(){None}else{Some(digest(&saved["output"]))};
+    // Compact payloads, never allocation counters, request digests, clocks,
+    // amendment audit or the original run and definition identities.
+    tx.execute("UPDATE composition_instances SET input='{}',output=NULL,binding='{}',archived_at=$2,input_digest=$3,output_digest=$4,event_floor=$5,owner=NULL,owner_epoch=NULL WHERE id=$1",&[&id,&current,&input_digest,&output_digest,&floor]).map_err(db_error)?;
+    for row in tx.query("SELECT path,revision,input,output,error FROM composition_attempts WHERE instance=$1",&[&id]).map_err(db_error)? {
+        let input_hash=digest(&decoded(row.get(2))?);
+        let output=optional(row.get(3))?;let error=optional(row.get(4))?;
+        let output_hash=if output.is_null(){None}else{Some(digest(&output))};
+        let error_hash=if error.is_null(){None}else{Some(digest(&error))};
+        tx.execute("UPDATE composition_attempts SET input='{}',output=NULL,error=NULL,input_digest=$4,output_digest=$5,error_digest=$6 WHERE instance=$1 AND path=$2 AND revision=$3",&[&id,&row.get::<_,&str>(0),&row.get::<_,i64>(1),&input_hash,&output_hash,&error_hash]).map_err(db_error)?;
+    }
+    for row in tx.query("SELECT request_key,receipt FROM composition_continuations WHERE instance=$1",&[&id]).map_err(db_error)? {
+        let receipt=decoded(row.get(1))?;
+        let tombstone=json!({"format":"mas-archived-continuation/1","archived":true,"instance":id,"path":receipt["path"],"revision":receipt["revision"],"run_id":receipt["run_id"],"receipt_sha256":digest(&receipt)});
+        tx.execute("UPDATE composition_continuations SET receipt=$3 WHERE instance=$1 AND request_key=$2",&[&id,&row.get::<_,&str>(0),&tombstone.to_string()]).map_err(db_error)?;
+    }
+    tx.execute("DELETE FROM composition_protocol_events WHERE run_id IN (SELECT run_id FROM composition_attempts WHERE instance=$1)",&[&id]).map_err(db_error)?;
+    for table in ["composition_nodes","composition_progress","composition_joins","composition_events"] {
+        tx.execute(&format!("DELETE FROM {table} WHERE instance=$1"),&[&id]).map_err(db_error)?;
+    }
+    let audit=json!({"operator":text(p,"operator")?,"reason":text(p,"reason")?,"request_key":text(p,"request_key")?,"input_digest":input_digest,"output_digest":output_digest,"event_floor":floor,"allocation_changed":false});
+    event(tx,id,None,"archived",saved["state"].as_str().unwrap(),Some(&audit))?;
+    instance(tx,id)
+}
+
 /// Definition retention follows every frozen dependency, including nested plans.
 pub(crate) fn definition_in_use(
     tx: &mut Transaction<'_>,
@@ -1125,7 +1214,7 @@ pub(crate) fn definition_in_use(
     name: &str,
     identity: &str,
 ) -> Result<bool> {
-    for r in tx.query("SELECT plan,identity,binding FROM composition_instances WHERE state NOT IN ('completed','failed','cancelled','expired')",&[]).map_err(db_error)? {
+    for r in tx.query("SELECT plan,identity,binding FROM composition_instances i WHERE state NOT IN ('completed','failed','cancelled','expired') OR EXISTS(SELECT 1 FROM composition_attempts a WHERE a.instance=i.id AND a.state IN ('running','unknown'))",&[]).map_err(db_error)? {
         if kind=="plan"&&r.get::<_,&str>(0)==name&&r.get::<_,&str>(1)==identity{return Ok(true)}
         let binding=decoded(r.get(2))?;let section=match kind{"workflow"=>"workflows","plan_source"=>"plans",_=>continue};
         if binding["binding"][section][name]==identity{return Ok(true)}

@@ -110,5 +110,28 @@
     "deterministic_safety_tests_passed": 5,
     "platform": "native Linux x86_64 with inherited one-CPU affinity; installed musl rerun is separate hosted evidence",
     "status": "PASS"
-  }
+  },
+  "consolidated_integration_checks": [
+    {
+      "source_commit": "04d10dce9b218e6f3746f27b042c5e4f1f546009",
+      "status": "PASS",
+      "tests": 1140,
+      "passed": 1082,
+      "skipped": 58,
+      "seconds": 256.565,
+      "skip_reasons": {
+        "requires actual PostgreSQL backend fixture": 55,
+        "requires explicitly enabled real Temporal server": 3
+      },
+      "python": "3.14.8",
+      "platform": "Linux x86_64",
+      "evidence_sha256": "3a93d0981c6c81f3056472b51c42cc0455bb24daa960e909f2a3314036635b5c",
+      "binary_sha256": {
+        "mas": "fd06dfd2baf885461a4d635ef9fd46585d747240e54a81d58c8cbb98d0ec0d87",
+        "mas-gateway": "6fb09d0b7476c20abc9232161b5c936eb10f2e0fe4ad6c3d6cab6f8842c7b351"
+      },
+      "scope": "Immutable source checkout with real Rust binaries and installed SDKs; PostgreSQL and real Temporal server gates are separate hosted checks. Does not qualify later commits."
+    }
+  ],
+  "historical_profile": "Top-level source_binding and original host/rust/formal counts describe the earlier diagnostics stack, not the later consolidated PR head."
 }

@@ -173,10 +173,12 @@ class Guest:
         def changed():
             try:
                 result = subprocess.run(self.ssh('cat /proc/sys/kernel/random/boot_id'),
-                                        capture_output=True, timeout=5)
+                                        capture_output=True, timeout=20)
+                (self.root/'reboot-readiness.log').write_bytes(result.stderr[-4096:])
                 value = result.stdout.decode().strip()
                 return value if result.returncode == 0 and value and value != before else False
             except subprocess.TimeoutExpired:
+                (self.root/'reboot-readiness.log').write_text('SSH handshake exceeded 20 seconds\n')
                 return False
         after = wait_for(changed, seconds=300, description=self.name+' new kernel after hard reset')
         self.ready()
@@ -446,6 +448,9 @@ def main():
     report = {'format': 'mas-multimachine-qualification/1', 'passed': False, 'profile': 'qemu-tcg-independent-kernels',
               'image_sha256': lock['sha256'], 'controller': machine(),
               'git_revision': subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip(),
+              'git_tracked_dirty': bool(subprocess.check_output(
+                  ['git', 'status', '--porcelain', '--untracked-files=no'], cwd=ROOT, text=True)),
+              'coordinator_sha256': digest(__file__),
               'runtime_archive_sha256': digest(archive), 'mas_sha256': digest(args.mas),
               'gateway_sha256': digest(args.gateway),
               'qemu_version': subprocess.check_output(['qemu-system-x86_64', '--version'], text=True).splitlines()[0]}

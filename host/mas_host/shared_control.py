@@ -113,6 +113,8 @@ class SharedWorkerController(WorkerController):
         self._grant(principal)
         validate_worker_receipt(receipt)
         context = self._query('receipt_context', {'principal': principal, 'receipt': receipt})
+        if context.get('archived'):
+            return context['acknowledgement']
         self._verify_artifacts(principal, context['binding'], receipt, retain=not context['prior'])
         return self._command('receipt', {'principal': principal, 'receipt': receipt,
             'artifacts_verified': receipt['output_profile'] == ARTIFACT_OUTPUT_PROFILE})

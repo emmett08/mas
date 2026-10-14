@@ -17,7 +17,7 @@ METHODS = {
     'discover': 'discover', 'submit': 'submit', 'inspect': 'inspect',
     'result': 'result', 'cancel': 'cancel', 'update': 'update',
     'recover': 'recover', 'events': 'events_page', 'wait': 'events_wait',
-    'task': 'inspect_task', 'list': 'list_task_page',
+    'task': 'inspect_task', 'graph': 'inspect_graph', 'list': 'list_task_page',
     'operator': 'operator', 'artifact': 'artifact',
 }
 

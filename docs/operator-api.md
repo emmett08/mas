@@ -50,6 +50,8 @@ validation. Listing responses include bounded pages and continuation offsets.
 | `periods`, `period_configure` | Deployment administrator | Inspect or install fixed allocation windows; preserve prior reservations. |
 | `charge_record`, `charge_reconcile` | Deployment administrator | Record attributed invoice observations and compare them with an admitted invocation's reservation. |
 | `storage`, `archive_preview` | Deployment administrator | Inspect storage/admission and preview task, workflow or run retention eligibility. |
+| `archive` | Deployment administrator and explicit owner grant | Archive one eligible task or composition under an immutable request key and reason. |
+| `command_capacity`, `command_capacity_amend` | Deployment administrator | Inspect shared command receipt capacity or apply an audited grow-only amendment. |
 | `definition`, `definition_retire` | Deployment administrator | Inspect exact definition availability or retire unused historical identities. |
 | `peer_status` | Deployment administrator or peer manager | Inspect bounded registered peer versions. |
 | `peer_register`, `peer_revoke` | Explicit `manage_peers: true` | Register pinned peer bindings or revoke a version; credentials stay outside request bodies. |
@@ -130,3 +132,45 @@ memory; disconnect, page close or reload clears them. Operator inputs, evidence,
 outputs and displayed state are cleared on disconnect. The console renders data
 as text, rejects unsafe browser integers and keeps its restrictive content
 security policy. The Python client supports larger integer values.
+
+Graph inspection is available to task owners as `POST /service/graph`,
+`TaskServiceClient.inspect_graph`, `mas-client ENDPOINT graph`, MCP `mas.graph`,
+and the A2A lifecycle-inspection extension. Operators use the owner-scoped
+`graph` operation. Select `nodes`, `attempts` or `scopes`, with an offset and a
+limit of 1–100; `next_offset` advances through bounded structural pages. The
+console provides the same graph and metadata/state search controls. Graph
+responses exclude application inputs and outputs; leaf inspection retains its
+separate owner-checked result contract. MCP `mas.page` exposes the unified
+search/cursor operation.
+
+Shared-profile ingress readiness reads the configured PostgreSQL authority
+without provisioning, renewing a lease, loading registration factories or
+opening local SQLite. Use `bridge worker-health --config CONFIG --state-dir
+CACHE` for shared workers. Local monitor files attest only to that process's
+liveness; current native epoch/lease and admission state remain authoritative.
+
+### Authorised history archival
+
+`archive` takes `kind` (`tasks` or `workflows`), `principal`, `task_id`,
+`request_key`, `reason`, and `older_than_seconds`. The server injects the
+operator identity. Preview is advisory; application rechecks terminal state,
+all execution attempts, effect uncertainty, retention links and unacknowledged
+event deliveries while holding the authoritative transaction or maintenance
+lock. Old human-pause revisions can be archived only after a later revision
+finishes and their effect references are settled.
+
+Local archival retains a recoverable administrative intent before changing the
+owning repository. Shared archival atomically compacts task/composition detail,
+run journals, protocol message/result bodies, worker result/evidence bodies,
+and corresponding native command receipts. It preserves original identifiers,
+digests, request mappings, charges, clock/amendment records and compact attempt
+references. Archived command replies explicitly return `command_result_archived`;
+they never rerun the old command. Exact worker receipt replay retains its prior
+acknowledgement without reopening artefact retention. A new receipt for an
+archived worker job is rejected. Pending webhook bytes block archival until
+acknowledgement, and expired event cursors require resynchronisation.
+
+Historical allocation is unchanged. Archival frees detailed-history capacity;
+it does not refund lifetime or period consumption. Legacy installations with
+unmapped native command receipts reject payload archival until their provenance
+can be established, instead of guessing which active work owns those receipts.

@@ -52,6 +52,7 @@ jobs:
             machine-evidence/worker-two/serial.log
             machine-evidence/worker-one/ssh-readiness.log
             machine-evidence/worker-two/ssh-readiness.log
+            machine-evidence/worker-one/reboot-readiness.log
             machine-evidence/worker-one/tunnel.log
             machine-evidence/worker-two/tunnel.log
             machine-evidence/*/controller.log

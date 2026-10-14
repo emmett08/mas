@@ -13,6 +13,14 @@ pub mod shared_leadership;
 #[cfg(feature = "postgres-repository")]
 pub mod shared_backup;
 #[cfg(feature = "postgres-repository")]
+pub mod shared_jobs;
+#[cfg(feature = "postgres-repository")]
+pub mod shared_commands;
+#[cfg(feature = "postgres-repository")]
+pub mod shared_archive;
+#[cfg(feature = "postgres-repository")]
+pub mod shared_transfers;
+#[cfg(feature = "postgres-repository")]
 pub mod shared_timing;
 #[cfg(feature = "postgres-repository")]
 pub mod shared_accounting;

@@ -264,6 +264,95 @@ class SharedServiceTests(unittest.TestCase):
         self.assertEqual(restored.run_once(task)['result'], {'answer': 5})
         self.assertEqual(self.effects, [{'x': 4}])
 
+    def test_unavailable_blocked_definition_does_not_starve_fresh_work_or_write_idle_receipts(self):
+        old = self.service.submit('alice', 'old-queue', 'work', {'x': 1})['task_id']
+        replacement = self.build('fresh-code', workflow=replace(self.workflow, version='shared-task/2'))
+        fresh = replacement.submit('alice', 'fresh-queue', 'work', {'x': 2})['task_id']
+        page = self.authority.query('task.pending', {'limit': 1})
+        self.assertEqual([item['task_id'] for item in page['tasks']], [old])
+        later = self.authority.query('task.pending', {'limit': 1, 'after': page['next']})
+        self.assertEqual([item['task_id'] for item in later['tasks']], [fresh])
+        self.assertIsNone(later['next'])
+        self.assertEqual(replacement.run_once()['task_id'], fresh)
+        self.assertEqual(replacement.inspect('alice', old)['state'], 'blocked')
+        with mock.patch.object(self.authority, 'command', wraps=self.authority.command) as command:
+            self.assertIsNone(replacement.run_once())
+            self.assertIsNone(replacement.run_once(old))
+        command.assert_not_called()
+        self.assertEqual(self.effects, [{'x': 2}])
+
+    def test_history_replays_without_code_and_new_pin_is_not_applied_to_old_request(self):
+        old = self.service.submit('alice', 'historical', 'work', {'x': 4})
+        newer = self.build('newer', workflow=replace(self.workflow, version='shared-task/2'))
+        self.assertEqual(newer.submit('alice', 'historical', 'work', {'x': 4}), old)
+        with self.assertRaises(ServiceError) as stale:
+            self.service.submit('alice', 'stale-process', 'work', {'x': 4})
+        self.assertEqual(stale.exception.code, 'workflow_changed')
+        with self.assertRaises(ServiceError) as conflict:
+            newer.submit('alice', 'historical', 'work', {'x': 4}, expected_identity=newer.leaves.identities['work'])
+        self.assertEqual(conflict.exception.code, 'workflow_identity_mismatch')
+        history = create_shared_service(self.authority, Path(self.temp.name) / 'history', {},
+            {'alice': {'work'}, 'bob': {'work'}}, allocation_limits=self.limits, supervised=False)
+        self.assertEqual(history.submit('alice', 'historical', 'work', {'x': 4}), old)
+        with self.assertRaises(ServiceError) as missing:
+            history.submit('alice', 'new', 'work', {'x': 4})
+        self.assertEqual(missing.exception.code, 'definition_unavailable')
+
+    def test_invalid_pin_and_epoch_retirement_options_fail_without_new_work(self):
+        for identity in (False, 12, {}, [], 'wrong'):
+            with self.subTest(identity=identity), self.assertRaises(ServiceError) as mismatch:
+                self.service.submit('alice', 'bad-pin', 'work', {'x': 1}, expected_identity=identity)
+            self.assertEqual(mismatch.exception.code, 'workflow_identity_mismatch')
+        self.assertEqual(self.service.list_tasks('alice'), [])
+        for options in ({'epoch': None}, {'epoch': 'test', 'prune': 'yes'}, {'epoch': 'test', 'authoriser': 12}):
+            with self.subTest(options=options), self.assertRaises(ServiceError):
+                self.service.retire_request_epoch('alice', reason='closed', **options)
+        retired = self.service.retire_request_epoch('alice', 'empty', reason='closed')
+        self.assertEqual(self.service.retire_request_epoch('alice', 'empty', reason='closed'), retired)
+        with self.assertRaises(ServiceError) as conflict:
+            self.service.retire_request_epoch('alice', 'empty', reason='changed')
+        self.assertEqual(conflict.exception.code, 'request_conflict')
+
+    def test_unchanged_definition_and_scheduler_registration_is_read_only(self):
+        from mas_host.shared_scheduler import configure_policy
+        with mock.patch.object(self.authority, 'command', wraps=self.authority.command) as command:
+            self.service.definitions.remember('workflow', 'work', self.workflow.identity,
+                descriptor=self.workflow.descriptor, implementation_digest=self.workflow.verified_implementation.digest,
+                implementation_manifest=self.workflow.verified_implementation.manifest, current=True)
+            configure_policy(self.authority, self.service.grants)
+        command.assert_not_called()
+
+    def test_archival_releases_retained_quota_and_retired_epoch_stays_closed(self):
+        service = self.isolated_policy(quotas={'alice': {'max_tasks': 1, 'max_pending': 1}})
+        original = service.submit('alice', 'archived', 'work', {'x': 3}, request_epoch='release')
+        task = original['task_id']
+        self.assertEqual(service.run_once(task)['state'], 'completed')
+        service.authority.command('operator.archive', {'kind': 'tasks', 'task_id': task,
+            'principal': 'alice', 'operator': 'operator', 'reason': 'retention elapsed',
+            'request_key': 'archive-one', 'older_than_seconds': 0})
+        archived = service.inspect('alice', task)
+        self.assertTrue(archived['archived'])
+        self.assertFalse(archived['result_available'])
+        self.assertIsNone(archived['result'])
+        self.assertEqual(len(archived['result_digest']), 64)
+        self.assertEqual(service.submit('alice', 'archived', 'work', {'x': 3}, request_epoch='release'), archived)
+        with self.assertRaises(ServiceError) as missing:
+            service.result('alice', task)
+        self.assertEqual(missing.exception.code, 'result_unavailable')
+        with self.assertRaises(ServiceError) as cursor:
+            service.events_page('alice', task, after=0)
+        self.assertEqual(cursor.exception.code, 'event_cursor_expired')
+        legacy = service.leaves.submit('alice', 'legacy', 'work', {'x': 4}, _request_namespace='legacy')
+        retired = service.retire_request_epoch('alice', 'release', reason='closed', prune=True)
+        self.assertTrue(retired['prune'])
+        for key in ('archived', 'new'):
+            with self.assertRaises(ServiceError) as closed:
+                service.submit('alice', key, 'work', {'x': 3}, request_epoch='release')
+            self.assertEqual(closed.exception.code, 'request_epoch_retired')
+        self.assertEqual(service.leaves.submit('alice', 'legacy', 'work', {'x': 4},
+            _request_namespace='legacy')['task_id'], legacy['task_id'])
+        self.assertEqual(service.inspect('alice', task)['task_id'], task)
+
     def test_queue_clock_expires_without_dispatch_after_cache_replacement(self):
         timed = replace(self.workflow, timing_policy={'format': 'mas-timing-policy/1',
             'business_seconds': 20, 'active_seconds': 5, 'queue_seconds': 1, 'pause_seconds': 5})
@@ -276,8 +365,8 @@ class SharedServiceTests(unittest.TestCase):
 
     def test_idle_facade_expires_paused_tasks_without_new_provider_calls(self):
         workflow = replace(self.workflow, classify=paused, continue_input=continued,
-            timing_policy={'format': 'mas-timing-policy/1', 'business_seconds': 30,
-                'active_seconds': 10, 'queue_seconds': 10, 'pause_seconds': 1})
+            timing_policy={'format': 'mas-timing-policy/1', 'business_seconds': 180,
+                'active_seconds': 60, 'queue_seconds': 60, 'pause_seconds': 1})
         service = self.build('paused-expiry', workflow=workflow)
         task = service.submit('alice', 'pause-expiry', 'work', {'x': 2})['task_id']
         self.assertEqual(service.run_once(task)['state'], 'input_required')
@@ -288,12 +377,12 @@ class SharedServiceTests(unittest.TestCase):
 
     def test_paused_clock_and_continuation_share_original_task(self):
         workflow = replace(self.workflow, classify=paused, continue_input=continued,
-            timing_policy={'format': 'mas-timing-policy/1', 'business_seconds': 30,
-                'active_seconds': 10, 'queue_seconds': 10, 'pause_seconds': 10})
+            timing_policy={'format': 'mas-timing-policy/1', 'business_seconds': 180,
+                'active_seconds': 60, 'queue_seconds': 60, 'pause_seconds': 60})
         service = self.build('pause-one', workflow=workflow)
         task = service.submit('alice', 'start', 'work', {'x': 8})['task_id']
         first = service.run_once(task)
-        self.assertEqual(first['state'], 'input_required')
+        self.assertEqual(first['state'], 'input_required', first)
         active = first['timing']['active_ms']
         time.sleep(.05)
         replacement = self.build('pause-two', workflow=workflow)

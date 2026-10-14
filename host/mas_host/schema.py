@@ -2,7 +2,8 @@
 
 Opening a known old format is an explicit transactional migration. Read-only
 inspection recognises that format without migrating it. Unknown identities,
-versions or layouts are rejected before any database write.
+versions or layouts are rejected before schema or application writes. Writable
+opens permit SQLite's own crash rollback before inspecting the recovered state.
 """
 from __future__ import annotations
 
@@ -125,7 +126,8 @@ def connect(path: Path, schema: Schema, *, readonly: bool = False,
     """Open an identified repository; only a new file can be initialised.
 
     The caller serialises initial creation. On an existing file, both preflight
-    inspection and transaction-local validation precede the first mutation.
+    inspection and transaction-local validation precede schema/application
+    mutations. SQLite crash recovery is allowed only for writable openings.
     """
     path = Path(path).absolute()
     if path.is_symlink() or (path.exists() and not path.is_file()):
@@ -135,7 +137,14 @@ def connect(path: Path, schema: Schema, *, readonly: bool = False,
         raise SchemaError(f"missing {schema.name}")
     fresh = not exists
     if exists:
-        with closing(sqlite3.connect(path.as_uri() + "?mode=ro", uri=True, timeout=10)) as check:
+        # A real machine reset can leave a hot rollback journal. Even SELECT
+        # needs SQLite to restore that transaction before reading its schema;
+        # mode=ro fails with SQLITE_READONLY_ROLLBACK. Permit native recovery for
+        # a writable owner, while query_only still forbids SQL data/DDL writes
+        # during preflight. Diagnostic readonly opens never perform recovery.
+        mode = 'ro' if readonly else 'rw'
+        with closing(sqlite3.connect(path.as_uri() + '?mode=' + mode, uri=True, timeout=10)) as check:
+            check.execute('PRAGMA query_only=ON')
             fresh = (initialise is not None and not _layout(check)
                      and check.execute("PRAGMA application_id").fetchone()[0] == 0
                      and check.execute("PRAGMA user_version").fetchone()[0] == 0)

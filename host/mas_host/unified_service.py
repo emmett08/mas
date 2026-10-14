@@ -234,6 +234,10 @@ class UnifiedTaskService:
             raise ServiceError('unsupported_capability')
         return self.compositions.inspect_task(principal, task_id, path, revision)
 
+    def inspect_graph(self, principal, task_id, *, section='nodes', offset=0, limit=20):
+        from .graph_inspection import inspect_graph
+        return inspect_graph(self, principal, task_id, section=section, offset=offset, limit=limit)
+
     def cancel(self, principal, task_id):
         if self._composition(task_id):
             return self._receipt(principal, self.compositions.cancel(principal, task_id))
@@ -296,7 +300,7 @@ class UnifiedTaskService:
                     'identity': workflow.identity if workflow else None,
                     'contract': workflow.contract_descriptor if workflow else None})
         return {'format': 'mas-task-service/1', 'principal': principal, 'deployment_id': self.operations.deployment_id,
-                'capabilities': ['submit', 'inspect', 'result', 'cancel', 'update', 'events_page', 'task_detail', 'recover', 'pinned_identity', 'request_epochs'],
+                'capabilities': ['submit', 'inspect', 'result', 'cancel', 'update', 'events_page', 'task_detail', 'graph', 'recover', 'pinned_identity', 'request_epochs'],
                 'registrations': registrations}
 
     def _page_ids(self, principal, *, limit, offset=0, after=None, state=None, metadata=None,

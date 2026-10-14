@@ -129,9 +129,7 @@ impl PostgresRepository {
         {
             return Err("stale protocol authority".into());
         }
-        if !matches!(row.get::<_, i64>(3), 1 | 2 | 3 | 4 | 5 | 6)
-            || row.get::<_, String>(4) != layout(&mut tx)?
-        {
+        if !matches!(row.get::<_, i64>(3), 1..=11) || row.get::<_, String>(4) != layout(&mut tx)? {
             return Err("incompatible PostgreSQL protocol schema".into());
         }
         tx.commit().map_err(db_error)?;
@@ -190,7 +188,7 @@ impl PostgresRepository {
         if row.get::<_, String>(0) != self.binding.deployment
             || row.get::<_, String>(1) != self.binding.controller
             || row.get::<_, i64>(2) != self.binding.epoch
-            || !matches!(row.get::<_, i64>(3), 1 | 2 | 3 | 4 | 5 | 6)
+            || !matches!(row.get::<_, i64>(3), 1..=11)
         {
             return Err("stale protocol authority".into());
         }
@@ -216,6 +214,7 @@ pub(crate) struct Run {
     expired: bool,
 }
 pub(crate) fn run(tx: &mut Transaction<'_>, id: &str, actor: Option<&str>) -> Result<Run> {
+    crate::shared_archive::require_open(tx,id)?;
     let row=tx.query_opt("SELECT config,deadline,message_count,byte_count,call_count,active,expired FROM runs WHERE id=$1",&[&id]).map_err(db_error)?.ok_or("unknown run")?;
     let config: Value = serde_json::from_str(row.get::<_, &str>(0)).map_err(json_error)?;
     if actor.is_some_and(|a| {
@@ -423,7 +422,7 @@ impl ProtocolRepository for PostgresRepository {
     }
     fn receive(&mut self, id: &str, actor: &str, limit: usize) -> Result<Value> {
         self.reconcile(id)?;
-        if !(1..=100).contains(&limit) {
+        if !(1..=110).contains(&limit) {
             return Err("limit must be 1..100".into());
         }
         self.transaction(|tx| {

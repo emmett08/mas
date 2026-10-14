@@ -465,15 +465,17 @@ class DurableTaskService:
             if self.operations.readonly or not self.operations.admission_enabled:
                 raise ServiceError('audit_only')
             with self.store.transaction(readonly=True) as db:
-                if db.execute("SELECT 1 FROM tasks WHERE workflow=? AND workflow_identity=? "
-                              "AND state NOT IN ('completed','failed','cancelled') LIMIT 1",
+                if db.execute("SELECT 1 FROM tasks t WHERE workflow=? AND workflow_identity=? "
+                              "AND (state NOT IN ('completed','failed','cancelled') OR EXISTS "
+                              "(SELECT 1 FROM executions e WHERE e.task_id=t.id AND e.state IN ('running','unknown'))) LIMIT 1",
                               (workflow, identity)).fetchone():
                     raise ServiceError('definition_in_use')
             if (self.state_dir / 'composition.sqlite').exists():
                 from .workflow_store import WorkflowStore
                 with WorkflowStore(self.state_dir, readonly=True).transaction(readonly=True) as db:
-                    references = db.execute("SELECT plan,identity FROM instances WHERE state NOT IN "
-                                            "('completed','failed','cancelled','expired')").fetchall()
+                    references = db.execute("SELECT plan,identity FROM instances i WHERE state NOT IN "
+                        "('completed','failed','cancelled','expired') OR EXISTS(SELECT 1 FROM attempts a "
+                        "WHERE a.instance=i.id AND a.state IN ('running','unknown'))").fetchall()
                 for reference in references:
                     record = self.definitions.inspect('plan', reference['plan'], reference['identity'])
                     if (record is None or record['descriptor'] is None

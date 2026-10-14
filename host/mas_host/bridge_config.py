@@ -160,11 +160,10 @@ def build_artifact_transfer(config: dict, state_dir: Path, *, authority=None):
     return ArtifactTransferService(Path(state_dir) / 'artifact-transfers', scopes, **options)
 
 
-def _build_shared_service(config, state_dir, workflows, *, plans=None, workflow_versions=None):
+def build_shared_authority(config):
+    """Bind the configured read/command port without provisioning or renewing it."""
     from .bridges.authentication import read_private_file, AuthenticationError
     from .shared_authority import SharedAuthority
-    from .shared_service import create_shared_service
-    from .scheduler_capacity import SchedulerPolicy
     value = config['shared']
     required = {'binary', 'dsn_file', 'namespace', 'deployment', 'controller', 'epoch',
                 'secret_key_file', 'secret_reference', 'allocation_limits'}
@@ -178,6 +177,14 @@ def _build_shared_service(config, state_dir, workflows, *, plans=None, workflow_
             secret_key=key, secret_reference=value['secret_reference'])
     except (AuthenticationError, UnicodeError, TypeError, ValueError):
         raise ServiceError('invalid_shared_configuration') from None
+    return authority
+
+
+def _build_shared_service(config, state_dir, workflows, *, plans=None, workflow_versions=None):
+    from .shared_service import create_shared_service
+    from .scheduler_capacity import SchedulerPolicy
+    authority = build_shared_authority(config)
+    value = config['shared']
     return create_shared_service(authority, state_dir, workflows,
         {principal: set(names) for principal, names in config['grants'].items()}, plans=plans,
         workflow_versions=workflow_versions, allocation_limits=value['allocation_limits'],

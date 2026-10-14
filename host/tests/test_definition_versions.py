@@ -184,6 +184,33 @@ class DefinitionVersionTests(unittest.TestCase):
         self.assertTrue(upgraded.retire_definition("leaf", self.original.identity)["retired"])
         self.assertEqual(upgraded.inspect("owner", old["task_id"])["state"], "cancelled")
 
+    def test_terminal_task_with_uncertain_execution_keeps_definition(self):
+        service = self.service()
+        old = service.submit('owner', 'old', 'leaf', {})
+        upgraded = self.service({'leaf': registered('2')})
+        with service.store.transaction() as db:
+            db.execute("UPDATE tasks SET state='failed' WHERE id=?", (old['task_id'],))
+            db.execute("UPDATE executions SET state='unknown' WHERE task_id=?", (old['task_id'],))
+        with self.assertRaises(ServiceError) as active:
+            upgraded.retire_definition('leaf', self.original.identity)
+        self.assertEqual(active.exception.code, 'definition_in_use')
+
+    def test_terminal_composition_with_uncertain_attempt_keeps_plan_and_leaf(self):
+        engine = self.engine()
+        old = engine.submit('owner', 'old', 'plan', {})
+        with engine.store.transaction() as db:
+            db.execute("UPDATE instances SET state='failed' WHERE id=?", (old['instance_id'],))
+            db.execute("INSERT INTO attempts(instance,path,revision,workflow,identity,run_directory,input,wall_seconds,state) "
+                "VALUES(?, 'root', 0, 'leaf', ?, 'retained-run', '{}', 30, 'unknown')",
+                (old['instance_id'], self.original.identity))
+        upgraded = self.engine(registered('2'), plans={'plan': source('2')})
+        service = self.service({'leaf': registered('2')})
+        for retire in (lambda: upgraded.retire_definition('plan', old['identity']),
+                       lambda: service.retire_definition('leaf', self.original.identity)):
+            with self.assertRaises(ServiceError) as active:
+                retire()
+            self.assertEqual(active.exception.code, 'definition_in_use')
+
     def test_composition_history_and_replay_survive_new_definition(self):
         engine = self.engine()
         first = engine.submit("owner", "old", "plan", {"value": 1})

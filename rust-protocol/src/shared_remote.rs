@@ -17,6 +17,30 @@ CREATE TABLE remote_effects(key text PRIMARY KEY,namespace text NOT NULL,logical
 CREATE TABLE remote_operations(key text NOT NULL REFERENCES remote_effects(key),operation_key text NOT NULL,action text NOT NULL,binding text NOT NULL,state text NOT NULL,output text,run text NOT NULL,call_id text NOT NULL,epoch bigint NOT NULL,selected text,PRIMARY KEY(key,operation_key),FOREIGN KEY(run,call_id) REFERENCES host_invocations(run,call_id));
 CREATE TABLE remote_audit(seq bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,key text NOT NULL REFERENCES remote_effects(key),event text NOT NULL,evidence text NOT NULL,created bigint NOT NULL);
 ";
+pub(crate) const ARCHIVE_DDL: &str =
+    "ALTER TABLE remote_effects ADD COLUMN archived boolean NOT NULL DEFAULT false;";
+
+pub(crate) fn archive_run(tx: &mut Transaction<'_>, run: &str) -> Result<Value> {
+    let mut saved = Vec::new();
+    for r in tx.query("SELECT key,input,result,state,remote_id,archived FROM remote_effects WHERE run=$1 ORDER BY key",&[&run]).map_err(db_error)? {
+        if r.get::<_,bool>(5) { continue }
+        if !terminal(r.get(3)) { return Err("run_not_settled".into()) }
+        let key:&str=r.get(0);
+        let input=json!({"format":"mas-archived-payload/1","sha256":digest(r.get(1))});
+        let output=r.get::<_,Option<&str>>(2).map(|s|json!({"format":"mas-archived-payload/1","sha256":digest(s)}));
+        tx.execute("UPDATE remote_effects SET input=$2,result=$3,archived=true WHERE key=$1",&[&key,&input.to_string(),&output.as_ref().map(Value::to_string)]).map_err(db_error)?;
+        for operation in tx.query("SELECT operation_key,output FROM remote_operations WHERE key=$1 AND output IS NOT NULL",&[&key]).map_err(db_error)? {
+            let retained=json!({"format":"mas-archived-payload/1","sha256":digest(operation.get(1))});
+            tx.execute("UPDATE remote_operations SET output=$3 WHERE key=$1 AND operation_key=$2",&[&key,&operation.get::<_,&str>(0),&retained.to_string()]).map_err(db_error)?;
+        }
+        for event in tx.query("SELECT seq,evidence FROM remote_audit WHERE key=$1",&[&key]).map_err(db_error)? {
+            let retained=json!({"format":"mas-archived-payload/1","sha256":digest(event.get(1))});
+            tx.execute("UPDATE remote_audit SET evidence=$2 WHERE seq=$1",&[&event.get::<_,i64>(0),&retained.to_string()]).map_err(db_error)?;
+        }
+        saved.push(json!({"key":key,"remote_id":r.get::<_,Option<String>>(4),"input":input,"result":output}));
+    }
+    Ok(json!(saved))
+}
 
 fn text<'a>(v: &'a Value, k: &str) -> Result<&'a str> {
     v[k].as_str()
@@ -421,6 +445,18 @@ fn admitted(tx: &mut Transaction<'_>, p: &Value) -> Result<()> {
     Ok(())
 }
 fn remote_row(tx: &mut Transaction<'_>, key: &str) -> Result<Value> {
+    let version: i64 = tx
+        .query_one("SELECT version FROM authority WHERE singleton", &[])
+        .map_err(db_error)?
+        .get(0);
+    if version >= 10
+        && tx
+            .query_opt("SELECT archived FROM remote_effects WHERE key=$1", &[&key])
+            .map_err(db_error)?
+            .is_some_and(|r| r.get::<_, bool>(0))
+    {
+        return Err("payload_archived".into());
+    }
     let row=tx.query_opt("SELECT namespace,logical_key,binding,descriptor,state,remote_id,context_id,result,run,call_id,cancel_requested,pending_action,active_operation,active_epoch,created,updated FROM remote_effects WHERE key=$1",&[&key]).map_err(db_error)?.ok_or("remote task not found")?;
     Ok(
         json!({"namespace":row.get::<_,String>(0),"key":row.get::<_,String>(1),"binding":row.get::<_,String>(2),"descriptor":decoded(row.get::<_,&str>(3))?,"state":row.get::<_,String>(4),"remote_id":row.get::<_,Option<String>>(5),"context_id":row.get::<_,Option<String>>(6),"result":row.get::<_,Option<String>>(7).as_deref().map(decoded).transpose()?,"host_run_dir":row.get::<_,String>(8),"call_id":row.get::<_,String>(9),"cancel_requested":row.get::<_,bool>(10),"pending_action":row.get::<_,Option<String>>(11),"active_operation":row.get::<_,Option<String>>(12),"active_epoch":row.get::<_,Option<i64>>(13),"created":row.get::<_,i64>(14),"updated":row.get::<_,i64>(15)}),

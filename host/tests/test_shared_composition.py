@@ -85,9 +85,9 @@ class SharedCompositionTests(unittest.TestCase):
             'max_calls': 5, 'wall_seconds': 120}, {'a': Echo(), 'b': Increment(self.receipt)}, 'a', 'b', 'work')
         self.plans = {'sequence': plan({'kind': 'sequence', 'steps': [{'kind': 'task', 'workflow': 'step'}] * 3})}
 
-    def service(self, authority=None, cache='cache', plans=None):
+    def service(self, authority=None, cache='cache', plans=None, **options):
         return SharedCompositionService(authority or self.authority, self.directory / cache,
-            plans or self.plans, {'step': self.leaf}, {'alice': set(plans or self.plans)}, supervised=False)
+            plans or self.plans, {'step': self.leaf}, {'alice': set(plans or self.plans)}, supervised=False, **options)
 
     def effects(self):
         return [json.loads(line) for line in self.receipt.read_text().splitlines()] if self.receipt.exists() else []
@@ -107,6 +107,11 @@ class SharedCompositionTests(unittest.TestCase):
         self.assertEqual(service.result('alice', accepted['task_id']), {'value': 2})
         self.assertEqual(self.authority.query('composition.expiring', {})['instances'], [])
         graph = service._graph('alice', accepted['task_id'])
+        structural = self.authority.query('operator.graph', {'principal': 'alice',
+            'task_id': accepted['task_id'], 'section': 'attempts', 'offset': 0, 'limit': 1})
+        self.assertEqual(len(structural['items']), 1)
+        self.assertNotIn('input', structural['items'][0])
+        self.assertNotIn('output', structural['items'][0])
         self.assertEqual(len(graph['attempts'][0]['ancestors']), 2)
         self.assertEqual(len(graph['attempts'][1]['ancestors']), 1)
         for attempt in graph['attempts']:
@@ -120,6 +125,105 @@ class SharedCompositionTests(unittest.TestCase):
         self.assertTrue(all(set(event) == {'run_id', 'message_id', 'sender', 'recipient', 'kind', 'task_id', 'revision'} for event in protocol))
         self.assertFalse(list(self.directory.rglob('*.sqlite')))
         self.assertEqual(service.submit('alice', 'nested', 'sequence', {'value': 0})['task_id'], accepted['task_id'])
+
+    def test_native_submission_rechecks_alias_after_stale_controller_read(self):
+        from mas_host.service_contracts import ServiceError
+        original = self.service()
+        accepted = original.submit('alice', 'old-alias', 'sequence', {'value': 0})
+        changed = json.loads(json.dumps(self.plans))
+        changed['sequence']['version'] = '2'
+        self.service(plans=changed)
+        with mock.patch.object(original.definitions, 'current', return_value=accepted['workflow_identity']):
+            with self.assertRaises((ServiceError, RunnerError)):
+                original.submit('alice', 'stale-new-request', 'sequence', {'value': 0})
+        self.assertEqual(original.submit('alice', 'old-alias', 'sequence', {'value': 0})['task_id'], accepted['task_id'])
+
+    def test_capacity_wait_polling_preserves_receipts_until_slot_release(self):
+        from mas_host.scheduler_capacity import SchedulerPolicy
+        from mas_host.shared_scheduler import configure_policy
+        configure_policy(self.authority, {'alice': {'sequence'}},
+                         scheduler_policy=SchedulerPolicy(max_workers=1, max_per_principal=1))
+        service = self.service()
+        first = service.submit('alice', 'held-slot', 'sequence', {'value': 0})['task_id']
+        second = service.submit('alice', 'waiting-slot', 'sequence', {'value': 10})['task_id']
+        item = service._frontier('alice', first)
+        with service._claim(item) as owner:
+            store = SharedWorkflowStore(self.authority, owner, {'step': self.leaf})
+            attempt = store.attempt(first, 'root/s0', 'step', {'value': 0}, item['deadline'])
+            store.command('start_attempt', first, path='root/s0', run_id=attempt['run_id'])
+            self.assertEqual(service.run_once(second)['state'], 'queued')
+            before = self.authority.query('command_capacity.status', {})
+            for _ in range(3):
+                self.assertIsNone(service.run_once(second))
+            self.assertEqual(self.authority.query('command_capacity.status', {}), before)
+            store.command('save_attempt', first, path='root/s0', run_id=attempt['run_id'],
+                          state='cancelled', output=None, error=None)
+            store.command('finish', first, state='cancelled', output=None, error=None)
+        self.assertEqual(service.run_once(second)['state'], 'completed')
+        self.assertEqual(len(self.effects()), 3)
+
+    def test_archive_compacts_payloads_preserving_identity_and_cumulative_allocation(self):
+        from mas_host.service_contracts import ServiceError
+        service = self.service(max_instances=1)
+        first = service.submit('alice', 'archive-original', 'sequence', {'value': 0})
+        task = first['task_id']
+        service.run_once(task)
+        prior = service._graph('alice', task)
+        runs = service.recovery_runs('alice', task)
+        scopes = self.authority.query('composition.scopes', {'instance': task})
+        archive = {'kind': 'workflows', 'principal': 'alice', 'task_id': task,
+            'operator': 'operator', 'reason': 'settled fixture history',
+            'request_key': 'archive-fixture', 'older_than_seconds': 0}
+        response = self.authority.command('operator.archive', archive)['receipt']
+        self.assertEqual(self.authority.command('operator.archive', archive)['receipt'], response)
+        saved = service.inspect('alice', task)
+        self.assertTrue(saved['archived'])
+        self.assertFalse(saved['result_available'])
+        self.assertEqual(saved['progress']['nodes'], len(prior['nodes']))
+        self.assertEqual(service.recovery_runs('alice', task), runs)
+        retained_scopes = self.authority.query('composition.scopes', {'instance': task})
+        self.assertEqual([{k: v for k, v in row.items() if k != 'state'} for row in retained_scopes],
+                         [{k: v for k, v in row.items() if k != 'state'} for row in scopes])
+        self.assertEqual(service._graph('alice', task)['nodes'], [])
+        self.assertTrue(service.submit('alice', 'archive-original', 'sequence', {'value': 0})['archived'])
+        with self.assertRaises(ServiceError):
+            service.submit('alice', 'archive-original', 'sequence', {'value': 9})
+        with self.assertRaises(ServiceError) as error:
+            service.result('alice', task)
+        self.assertEqual(error.exception.code, 'result_unavailable')
+        with self.assertRaises((ServiceError, RunnerError)):
+            service.events('alice', task)
+        audit = service.events('alice', task, saved['event_floor'])
+        self.assertEqual([event['event'] for event in audit], ['archived'])
+        self.assertEqual(self.authority.query('scope', {'scope': 'deployment'})['calls'], 3)
+        next_task = service.submit('alice', 'after-archive', 'sequence', {'value': 10})
+        self.assertNotEqual(next_task['task_id'], task)
+
+    def test_unknown_child_cannot_be_hidden_archived_or_lose_its_definition(self):
+        from mas_host.service_contracts import ServiceError
+        service = self.service()
+        task = service.submit('alice', 'uncertain-child', 'sequence', {'value': 0})['task_id']
+        item = service._frontier('alice', task)
+        with service._claim(item) as owner:
+            store = SharedWorkflowStore(self.authority, owner, {'step': self.leaf})
+            attempt = store.attempt(task, 'root/0', 'step', {'value': 0}, item['deadline'])
+            store.command('save_attempt', task, path='root/0', run_id=attempt['run_id'],
+                          state='unknown', output=None, error={'code': 'reconciliation_required'})
+            with self.assertRaises((ServiceError, RunnerError)):
+                store.command('finish', task, state='completed', output={}, error=None)
+            store.command('finish', task, state='unknown', output=None, error=None)
+        changed = json.loads(json.dumps(self.plans))
+        changed['sequence']['version'] = '2'
+        successor = self.service(plans=changed)
+        self.assertNotEqual(successor.bindings['sequence']['identity'], item['identity'])
+        with self.assertRaises((ServiceError, RunnerError)):
+            successor.retire_definition('sequence', item['identity'])
+        with self.assertRaises((ServiceError, RunnerError)):
+            self.authority.command('operator.archive', {'kind': 'workflows',
+                'principal': 'alice', 'task_id': task, 'operator': 'operator',
+                'reason': 'must keep uncertain child', 'request_key': 'blocked-archive',
+                'older_than_seconds': 0})
+        self.assertFalse(successor.inspect('alice', task).get('archived', False))
 
     def test_replacement_replays_original_leaf_after_completion_reply_lost(self):
         service = self.service()
@@ -265,3 +369,11 @@ class SharedCompositionTests(unittest.TestCase):
         self.assertEqual(current['revision'], 1)
         self.assertNotEqual(first['run_id'], current['run_id'])
         self.assertEqual(service.inspect_task('alice', task, 'root/s0', 0)['state'], 'input_required')
+        self.authority.command('operator.archive', {'kind': 'workflows', 'principal': 'alice',
+            'task_id': task, 'operator': 'operator', 'reason': 'all revisions settled',
+            'request_key': 'archive-continuation', 'older_than_seconds': 0})
+        self.assertTrue(service.update('alice', task, 'continue/1', request)['archived'])
+        attempt = self.authority.query('composition.attempt', {'instance': task, 'path': 'root/s0'})
+        self.assertEqual(attempt['input'], {})
+        self.assertIsNone(attempt['output'])
+        self.assertEqual(len(attempt['input_digest']), 64)

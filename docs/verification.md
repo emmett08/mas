@@ -1,5 +1,32 @@
 # Verification results
 
+## Consolidated implementation — 14 October 2026
+
+The single review is [PR #45](https://github.com/emmett08/mas/pull/45), against
+`main`; PRs #16–44 are superseded. Implementation and fault qualification continue.
+The earlier records below remain historical evidence for their recorded source.
+
+A fixed checkout at `04d10dce9b218e6f3746f27b042c5e4f1f546009` passed **1,140 host tests** in
+256.565 seconds: **1,082 passed and 58 skipped**. The skips are 55 tests requiring
+an actual PostgreSQL fixture and three explicitly enabled real Temporal server
+tests. Installed SDK tests and real Rust process tests ran. The
+[source receipt](verification/host-evolution-source.json) records the exact commit,
+binary digests and log digest. This does not qualify subsequent commits.
+
+At remote revision `7064567749466168721db184678f1baabcea4aa3`, native PostgreSQL
+protocol and accounting migration checks passed. Its Python shared-backend suite
+passed 50 of 51 tests, including sealed archive/restore/activation; the remaining
+pause/continuation timing case is being corrected and rerun. At
+`6c120aa487546e8d5bd4d63981978c4d168bbe44`, the full installed host step passed on
+amd64 and arm64, and native clients passed on Linux, macOS and Windows. Later
+container, real Temporal, shared backend and VM gates remain separate checks.
+
+The independent VM gate exposed a real SQLite hot-journal recovery issue after
+hard reset. A successful two-worker case or boot does not qualify that fault
+case. No completed machine-fault or production replication qualification is
+claimed until the full gate passes. The canonical
+[implementation record](host-evolution-plan.md) retains the acceptance conditions.
+
 ## Host service evolution — 14 October 2026
 
 The integrated source suite passed **946 host tests with no skips**, using the

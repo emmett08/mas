@@ -16,7 +16,7 @@ from unittest.mock import patch
 
 from mas_host.bridge_config import build_service
 from mas_host.bridge_health import (STATUS_FILE, WorkerMonitor, ingress_health,
-                                    worker_health, EXECUTION_OVERHEAD_SECONDS)
+                                    worker_health, EXECUTION_OVERHEAD_SECONDS, _state_health)
 from mas_host.operations import OperationsError, backup_state
 from mas_host.service_contracts import ServiceError
 
@@ -88,6 +88,24 @@ class BridgeHealthTests(unittest.TestCase):
         missing = self.root / "missing"
         with self.assertRaises(OperationsError):
             ingress_health(missing, self.config, self.port)
+        self.assertFalse(missing.exists())
+
+    def test_shared_health_reads_native_authority_without_local_provision_or_renewal(self):
+        calls = []
+        class Authority:
+            def query(self, operation, parameters):
+                calls.append((operation, parameters))
+                if operation == 'authority.status':
+                    return {'draining': False, 'lease_until_ms': 1, 'database_time_ms': 2}
+                return {'admission_open': True, 'admission_state': 'active'}
+            def close(self): calls.append(('close', {}))
+        missing = self.root / 'shared-cache'
+        with patch('mas_host.bridge_config.build_shared_authority', return_value=Authority()), \
+                patch('mas_host.bridge_health.DeploymentLedger', side_effect=AssertionError('local authority forbidden')):
+            health = _state_health(missing, {'shared': {}})
+        self.assertFalse(health['admission_open'])
+        self.assertEqual(health['admission_state'], 'lease_expired')
+        self.assertEqual(calls, [('operator.storage', {}), ('authority.status', {}), ('close', {})])
         self.assertFalse(missing.exists())
 
     def test_live_worker_stops_being_ready_after_sigterm(self):

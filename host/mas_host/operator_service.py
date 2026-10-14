@@ -76,6 +76,9 @@ class OperatorService:
                 or set(payload) - contract[0] - contract[1]):
             raise ServiceError("invalid_operator_request")
         integer_json(payload)
+        if operation == 'archive' and (not grant['deployment_admin']
+                or type(payload['principal']) is not str or payload['principal'] not in grant['owners']):
+            raise ServiceError('forbidden')
         if operation in OWNER_OPERATIONS:
             if type(payload["principal"]) is not str or payload["principal"] not in grant["owners"]:
                 raise ServiceError("forbidden")
@@ -123,6 +126,17 @@ class OperatorService:
             return service.inspect(**payload)
         if operation == "events":
             return service.events_page(**payload)
+        if operation == "graph":
+            return service.inspect_graph(**payload)
+        if operation == 'archive':
+            from .retention_admin import archive
+            return archive(service, operator, payload)
+        if operation in {'command_capacity', 'command_capacity_amend'}:
+            if not hasattr(service, 'authority'):
+                raise ServiceError('unsupported_capability')
+            if operation == 'command_capacity':
+                return service.authority.query('command_capacity.status', {})
+            return service.authority.command('command_capacity.amend', {**payload, 'operator': operator})['receipt']
         if operation == "recovery_inbox":
             inbox = self.recovery.inbox(operator, payload["principal"], payload["task_id"])
             offset, limit = payload.get("offset", 0), payload.get("limit", 20)

@@ -39,9 +39,20 @@ class SharedWorkflowStore:
         return self.authority.query('composition.' + operation, {'instance': instance, **parameters})
 
     def node(self, instance, path, kind, input, limits):
+        saved = self.query('node', instance, path=path)
+        if saved is not None and saved['kind'] == kind and saved['input'] == input:
+            return saved
         return self.command('node', instance, path=path, kind=kind, input=input)
 
     def finish_node(self, instance, path, state, output=None, error=None):
+        saved = self.query('node', instance, path=path)
+        if saved is not None and (saved['state'], saved['output'], saved['error']) == (state, output, error):
+            # The same state can still need its scope clock settled after the
+            # last losing parallel branch stops. Reads never suppress that write.
+            clock = self.query('clock', instance, path=path) if state in FINISHED_STATES | PAUSED_STATES else None
+            expected = 'terminal' if state in FINISHED_STATES else 'paused'
+            if clock is None or clock['phase'] == expected or clock['active_branches'] > 0:
+                return saved['state'], saved['output']
         saved = self.command('finish_node', instance, path=path, state=state, output=output, error=error)
         return saved['state'], saved['output']
 
@@ -56,11 +67,17 @@ class SharedWorkflowStore:
             next_index=next_index, output=output, consumed=consumed)
 
     def scope(self, instance, path, limits, deadline, *, timing_policy=None):
+        saved = self.query('scope', instance, path=path)
+        if saved is not None and saved['limits'] == limits:
+            return saved['deadline']
         return self.command('scope', instance, path=path, limits=limits,
             deadline=int(deadline), scope_id='ancestor/' + _identity(instance, path), timing_policy=timing_policy)
 
     def attempt(self, instance, path, workflow, input, deadline):
         leaf = self.workflows[workflow]
+        saved = self.query('attempt', instance, path=path)
+        if saved is not None and saved['workflow'] == workflow and saved['identity'] == leaf.identity:
+            return saved
         return self.command('attempt', instance, path=path, workflow=workflow,
             identity=leaf.identity, input=input, deadline=int(deadline),
             wall_seconds=leaf.topology.get('wall_seconds', 3600),
@@ -104,7 +121,8 @@ class SharedCompositionService:
         self.supervised = supervised
         from .shared_scheduler import configure_policy
         self.capacity = configure_policy(authority, self.grants, preserve_existing=True)
-        self.authority.command('composition.configure', {'max_instances': max_instances})
+        self.authority.command('composition.configure', {'max_instances': max_instances},
+            command_id='composition-policy-' + _identity(max_instances))
         self.state_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
         from .shared_task_service import SharedDefinitionRegistry
         self.definitions = SharedDefinitionRegistry(authority)
@@ -142,7 +160,7 @@ class SharedCompositionService:
         return {'task_id': graph['id'], 'kind': 'plan', 'workflow': graph['plan'],
             'workflow_identity': graph['identity'], 'request_key': graph['request_key'],
             'request_namespace': graph['request_namespace'], 'request_epoch': graph['request_epoch'],
-            'state': 'failed' if state == 'expired' else state,
+            'state': {'expired': 'failed', 'blocked_definition': 'blocked'}.get(state, state),
             'created_at': graph['created'] * 1000, 'updated_at': graph['updated'],
             'cancel_requested': graph['cancel_requested'],
             'result': {'pending_tasks': paused} if paused else graph['output'],
@@ -151,7 +169,9 @@ class SharedCompositionService:
             'capabilities': {'cancel': True, 'update': bool(paused), 'events': True, 'task_detail': True},
             'progress': graph.get('progress', {'nodes': len(graph.get('nodes', ())),
                          'completed_nodes': sum(n['state'] == 'completed' for n in graph.get('nodes', ()))}),
-            **({'timing': graph['timing']} if graph.get('timing') else {})}
+            **({'timing': graph['timing']} if graph.get('timing') else {}),
+            **({'archived': True, 'archived_at': graph['archived_at'], 'result_available': False,
+                'event_floor': graph['event_floor']} if graph.get('archived') else {})}
 
     def submit(self, principal, request_key, workflow, input, *, metadata=None,
                expected_identity=None, expected_deployment_id=None, request_epoch=None,
@@ -168,7 +188,7 @@ class SharedCompositionService:
             if previous['kind'] != 'composition':
                 raise ServiceError('request_conflict')
             saved = self._graph(principal, previous['target'])
-            if saved['plan'] != workflow or saved['input'] != value or saved['metadata'] != metadata:
+            if saved['plan'] != workflow or previous['digest'] != _identity(workflow, value, metadata):
                 raise ServiceError('request_conflict')
             if expected_identity is not None and saved['identity'] != expected_identity:
                 raise ServiceError('workflow_identity_mismatch')
@@ -205,7 +225,9 @@ class SharedCompositionService:
     def inspect_task(self, principal, task_id, path, revision=None):
         from .workflow_inspection import validate_task_selector
         validate_task_selector(path, revision)
-        graph = self._graph(principal, task_id)
+        graph = self._frontier(principal, task_id)
+        if graph.get('archived'):
+            raise ServiceError('workflow_task_not_found')
         attempt = self.authority.query('composition.attempt', {'instance': task_id,
             'principal': principal, 'path': path, 'revision': revision})
         if attempt is None:
@@ -397,6 +419,11 @@ class SharedCompositionService:
                 or scope.get('timing') and scope['timing']['expired']) for scope in scopes)
         if item['state'] in FINISHED_STATES or item['state'] in PAUSED_STATES and not expired:
             return self._receipt(item)
+        if item['state'] == 'blocked_definition' and not expired:
+            try:
+                self._definitions(item)
+            except ServiceError:
+                return self._receipt(item)
         from .workflow_scheduler import SchedulerOwnership
         with self._claim(item) as owner, SchedulerOwnership(self.state_dir, task_id) as ownership:
             if item['cancel_requested'] or expired or item['deadline'] <= time.time():
@@ -460,6 +487,8 @@ class SharedCompositionService:
                     if any(sum(a['path'] == scope['path'] or a['path'].startswith(scope['path'] + '/')
                                for a in live.values()) >= scope['limits']['max_parallel'] for scope in lineage):
                         continue
+                    if not store.query('attempt_ready', task_id, path=candidate['path'], owner=owner):
+                        continue
                     attempt = store.command('start_attempt', task_id, path=candidate['path'], run_id=candidate['run_id'])
                     if attempt is None:
                         continue
@@ -478,9 +507,10 @@ class SharedCompositionService:
         return self.inspect(principal, task_id)
 
     def pending(self):
-        values = self.authority.query('composition.pending', {})
+        page = self.authority.query('composition.pending', {'after': getattr(self, '_pending_cursor', None)})
+        self._pending_cursor = page['next']
         return [{'task_id': item['id'], 'principal': item['principal'], 'created_at': item['created'] * 1000}
-                for item in (self.authority.query('composition.instance', {'instance': identity}) for identity in values)]
+                for item in page['items'] if item['plan'] in self.grants.get(item['principal'], ())]
 
     def expire_pending(self, task_id=None):
         expiry = self.authority.query('composition.expiring', {'instance': task_id,
@@ -495,8 +525,16 @@ class SharedCompositionService:
         ids = [task_id] if task_id else [item['task_id'] for item in self.pending()]
         if not ids:
             return None
-        item = self.authority.query('composition.instance', {'instance': ids[0]})
-        return self.run(item['principal'], item['id'])
+        for identity in ids:
+            item = self.authority.query('composition.instance', {'instance': identity})
+            if task_id and item['state'] in FINISHED_STATES | PAUSED_STATES:
+                return self.inspect(item['principal'], identity)
+            if not self.authority.query('composition.claimable', {'instance': identity}):
+                continue
+            result = self.run(item['principal'], identity)
+            if task_id or result['state'] != 'blocked':
+                return result
+        return None
 
     def recovery_runs(self, principal, task_id):
         self._frontier(principal, task_id)
@@ -525,6 +563,8 @@ class SharedCompositionService:
             if previous['kind'] != 'composition' or previous['target'] != task_id or previous['digest'] != digest:
                 raise ServiceError('request_conflict')
             return self._receipt(item)
+        if item.get('archived') or item['state'] not in {'input_required', 'auth_required'}:
+            raise ServiceError('continuation_unavailable')
         with self._claim(item) as owner:
             _plans, workflows = self._definitions(item)
             store = SharedWorkflowStore(self.authority, owner, workflows)

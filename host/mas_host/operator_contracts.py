@@ -6,6 +6,7 @@ OPERATIONS = {
     "request_epoch_retire": ({"principal", "epoch", "reason"}, {"prune"}),
     "tasks": ({"principal"}, {"page_size", "after", "state", "metadata", "updated_after"}),
     "task": ({"principal", "task_id"}, {"path", "revision"}),
+    "graph": ({"principal", "task_id"}, {"section", "offset", "limit"}),
     "events": ({"principal", "task_id"}, {"after", "limit"}),
     "recovery_inbox": ({"principal", "task_id"}, {"offset", "limit"}),
     "recovery_query": ({"principal", "task_id", "call_id", "query_name", "query_version"}, set()),
@@ -20,6 +21,9 @@ OPERATIONS = {
     "storage": (set(), set()),
     "telemetry": (set(), set()),
     "archive_preview": ({"kind", "older_than_seconds"}, {"offset", "limit"}),
+    "archive": ({"kind", "principal", "task_id", "request_key", "reason", "older_than_seconds"}, set()),
+    "command_capacity": (set(), set()),
+    "command_capacity_amend": ({"request_key", "expected_revision", "normal_limit", "recovery_limit", "evidence"}, set()),
     "definition": ({"kind", "name", "identity"}, set()),
     "definition_retire": ({"kind", "name", "identity"}, set()),
     "peer_status": (set(), {"offset", "limit"}),
@@ -28,4 +32,4 @@ OPERATIONS = {
     "worker_status": (set(), set()),
     "worker_drain": ({"request_key", "reason", "expected_revision", "draining"}, set()),
 }
-OWNER_OPERATIONS = {"request_epoch_status", "request_epoch_retire", "registrations", "tasks", "task", "events", "recovery_inbox", "recovery_query", "recovery_resolve", "deadline_extend"}
+OWNER_OPERATIONS = {"request_epoch_status", "request_epoch_retire", "registrations", "tasks", "task", "graph", "events", "recovery_inbox", "recovery_query", "recovery_resolve", "deadline_extend"}

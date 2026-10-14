@@ -90,6 +90,11 @@ fn execute(request: Value) -> Result<Value, String> {
             repository.install_service_repository()?;
             repository.install_accounting_repository()?;
             repository.install_recovery_repository()?;
+            repository.install_jobs_repository()?;
+            repository.install_command_repository(request.get("command_capacity"))?;
+            repository.install_retention_repository()?;
+            repository.install_archive_repository()?;
+            repository.install_transfer_repository()?;
             Ok(json!({"installed":true}))
         }
         "recovery_seal" => repository.recovery_seal(&request["parameters"]),
@@ -217,6 +222,32 @@ fn main() {
                 | "budget_history_full"
                 | "budget_must_increase"
                 | "invalid_archive_kind"
+                | "invalid_graph_selector"
+                | "command_result_archived"
+                | "run_archived"
+                | "run_not_archivable"
+                | "legacy_archive_mapping_required"
+                | "invalid_retention_request"
+                | "retention_request_conflict"
+                | "task_not_archivable"
+                | "workflow_not_archivable"
+                | "event_cursor_expired"
+                | "invalid_epoch_retirement"
+                | "payload_archived"
+                | "worker_job_archived"
+                | "pending_delivery_retained"
+                | "run_not_settled"
+                | "workflow_changed"
+                | "artifact_staging_full"
+                | "artifact_chunk_conflict"
+                | "invalid_artifact_chunk"
+                | "artifact_integrity_mismatch"
+                | "artifact_configuration_conflict"
+                | "invalid_command_capacity"
+                | "command_capacity_conflict"
+                | "command_capacity_exhausted"
+                | "recovery_capacity_exhausted"
+                | "administration_capacity_exhausted"
                 | "task_admission_closed"
                 | "invalid_definition"
                 | "definition_identity_conflict"

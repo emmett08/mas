@@ -2,7 +2,7 @@
 
 Local directories are replaceable work/guardian caches. Native protocol state,
 run identity, checkpoints, effect intent and hierarchical allocations live in
-PostgreSQL. The broader task/composition service still needs shared repositories.
+PostgreSQL. Task and composition services use the same epoch-fenced transaction authority.
 """
 from __future__ import annotations
 
@@ -68,12 +68,12 @@ class SharedAuthority:
         except (OSError, ValueError, KeyError, TypeError, subprocess.TimeoutExpired):
             raise RunnerError('shared authority unavailable or command rejected; reconcile original identities') from None
 
-    def initialise(self):
+    def initialise(self, *, command_capacity=None):
         """Provision a new namespace; an existing namespace is never reset."""
-        return self._request('initialise')
+        return self._request('initialise', **({'command_capacity': command_capacity} if command_capacity is not None else {}))
 
-    def install_host(self):
-        return self._request('install_host')
+    def install_host(self, *, command_capacity=None):
+        return self._request('install_host', **({'command_capacity': command_capacity} if command_capacity is not None else {}))
 
     def command(self, operation, parameters, *, command_id=None):
         return self._request('command', command=operation, parameters=parameters,
@@ -83,8 +83,10 @@ class SharedAuthority:
         return self._request('query', query=operation, parameters=parameters)
 
     def configure_scope(self, scope, *, max_runs, max_calls, max_microusd):
-        return self.command('configure_scope', {'scope': scope, 'max_runs': max_runs,
-            'max_calls': max_calls, 'max_microusd': max_microusd})['receipt']
+        parameters = {'scope': scope, 'max_runs': max_runs,
+            'max_calls': max_calls, 'max_microusd': max_microusd}
+        command_id = 'scope-' + hashlib.sha256(canonical(parameters).encode()).hexdigest()
+        return self.command('configure_scope', parameters, command_id=command_id)['receipt']
 
     @property
     def admission_enabled(self):

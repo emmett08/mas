@@ -6,6 +6,8 @@ import io
 import json
 from pathlib import Path
 import sqlite3
+import subprocess
+import sys
 import tempfile
 import unittest
 
@@ -205,6 +207,49 @@ class SchemaTests(unittest.TestCase):
             db.commit()
         with closing(connect(path, schema, readonly=True)) as db:
             self.assertEqual(db.execute('PRAGMA foreign_keys').fetchone()[0], 1)
+
+    def hot_journal(self, path, schema):
+        with closing(connect(path, schema, initialise=lambda db: None)) as db:
+            db.execute('INSERT INTO durable VALUES(?)', (b'committed' * 16000,))
+            db.commit()
+        # Spill an uncommitted transaction onto real pages, then exit without
+        # closing SQLite. This is the recovery condition found by the VM gate.
+        child = """import os, sqlite3, sys
+db = sqlite3.connect(sys.argv[1])
+db.execute('PRAGMA cache_size=2')
+db.execute('BEGIN IMMEDIATE')
+db.execute('UPDATE durable SET value=?', (b'uncommitted' * 16000,))
+os._exit(0)
+"""
+        subprocess.run([sys.executable, '-c', child, str(path)], check=True, timeout=20)
+        self.assertGreater(Path(str(path) + '-journal').stat().st_size, 512)
+
+    def test_writable_preflight_recovers_hot_journal_but_diagnostic_does_not_write(self):
+        schema = Schema('crash recovery', 0x4D41535A, 1, (), ('CREATE TABLE durable(value BLOB)',))
+        path = self.root / 'crashed.sqlite'
+        self.hot_journal(path, schema)
+        journal = Path(str(path) + '-journal')
+        before = (path.read_bytes(), journal.read_bytes())
+        with self.assertRaises(sqlite3.OperationalError) as caught:
+            connect(path, schema, readonly=True)
+        self.assertEqual(caught.exception.sqlite_errorname, 'SQLITE_READONLY_ROLLBACK')
+        self.assertEqual(before, (path.read_bytes(), journal.read_bytes()))
+        with closing(connect(path, schema)) as db:
+            self.assertEqual(db.execute('SELECT value FROM durable').fetchone()[0], b'committed' * 16000)
+            self.assertEqual(db.execute('PRAGMA integrity_check').fetchone()[0], 'ok')
+        self.assertFalse(journal.exists())
+
+    def test_recovered_unknown_schema_is_rejected_without_initialising_or_migrating(self):
+        actual = Schema('foreign crash state', 0x4D41535B, 77, (), ('CREATE TABLE durable(value BLOB)',))
+        path = self.root / 'foreign-crashed.sqlite'
+        self.hot_journal(path, actual)
+        with self.assertRaises(SchemaError):
+            connect(path, JOURNAL, initialise=lambda _db: self.fail('unknown schema initialised'))
+        with closing(sqlite3.connect(path)) as db:
+            self.assertEqual(db.execute('PRAGMA application_id').fetchone()[0], actual.application_id)
+            self.assertEqual(db.execute('PRAGMA user_version').fetchone()[0], 77)
+            self.assertEqual(db.execute('SELECT value FROM durable').fetchone()[0], b'committed' * 16000)
+            self.assertEqual(db.execute('SELECT name FROM sqlite_master').fetchall(), [('durable',)])
 
 
 if __name__ == "__main__":

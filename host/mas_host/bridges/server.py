@@ -27,7 +27,7 @@ _SERVICE_SCOPES = {"submit": "mas:submit", "inspect": "mas:read", "result": "mas
                    "cancel": "mas:cancel", "update": "mas:update", "events": "mas:read",
                    "list": "mas:read", "page": "mas:read", "events_page": "mas:read",
                    "task": "mas:read", "discover": "mas:read", "recover": "mas:update",
-                   "events_wait": "mas:read"}
+                   "events_wait": "mas:read", "graph": "mas:read"}
 
 
 class _DeadlineReader:
@@ -462,13 +462,13 @@ def _service_call(service, principal, operation, payload, *, subscription_limit_
     required = {"submit": {"request_key", "workflow", "input"}, "inspect": {"task_id"},
                 "result": {"task_id"}, "cancel": {"task_id"},
                 "update": {"task_id", "request_key", "input"}, "events": {"task_id"}, "events_page": {"task_id"},
-                "list": set(), "page": set(), "task": {"task_id", "path"},
+                "list": set(), "page": set(), "task": {"task_id", "path"}, "graph": {"task_id"},
                 "discover": set(), "recover": {"task_id"}, "events_wait": {"task_id"}}[operation]
     optional = {"submit": {"metadata", "expected_identity", "expected_deployment_id", "request_epoch"},
                 "update": {"metadata", "expected_identity", "expected_deployment_id"},
                 "events": {"after"}, "events_page": {"after", "limit"},
                 "events_wait": {"after", "limit", "wait_ms"},
-                "list": {"limit", "offset"}, "task": {"revision"},
+                "list": {"limit", "offset"}, "task": {"revision"}, "graph": {"section", "offset", "limit"},
                 "page": {"page_size", "after", "state", "metadata", "updated_after"}}.get(operation, set())
     if not required.issubset(payload) or set(payload) - required - optional:
         raise ServiceError("invalid_parameters")
@@ -478,7 +478,7 @@ def _service_call(service, principal, operation, payload, *, subscription_limit_
         if type(wait_ms) is not int or not 0 <= wait_ms <= 25000:
             raise ServiceError('invalid_subscription_timeout')
         return wait_events(service, principal, **{**payload, 'wait_ms': min(wait_ms, subscription_limit_ms)})
-    method = getattr(service, {"list": "list_tasks", "page": "list_task_page", "task": "inspect_task"}.get(operation, operation), None)
+    method = getattr(service, {"list": "list_tasks", "page": "list_task_page", "task": "inspect_task", "graph": "inspect_graph"}.get(operation, operation), None)
     if not callable(method):
         raise ServiceError("unsupported_capability")
     return method(principal, **payload)
@@ -503,6 +503,8 @@ def _mcp_scope(payload):
 
 def _a2a_scope(payload):
     method = payload.get("method")
+    if method == 'mas/RecoverTask':
+        return 'mas:update'
     if method in {"CancelTask", "tasks/cancel"}:
         return "mas:cancel"
     if method == "SendMessage":

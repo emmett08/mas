@@ -28,6 +28,22 @@ class SharedControlBoundaryTests(unittest.TestCase):
         controller = SharedWorkerController(Authority(), {})
         self.assertFalse(controller.dispatch('worker', boot='boot', call_id='call', fence=1)['execute'])
 
+    def test_archived_receipt_replays_without_artifact_access_or_mutation(self):
+        ack = {'stored': True, 'receipt_id': 'receipt', 'authoritative': True}
+        class Authority:
+            def command(self, name, payload, **kwargs):
+                if name != 'worker.configure':
+                    raise AssertionError('archived ACK replay must be read-only')
+                return {'replayed': False, 'receipt': {}}
+            def query(self, name, payload):
+                return {'archived': True, 'acknowledgement': ack}
+        controller = SharedWorkerController(Authority(), {'worker': {'trust_zone': 'trusted',
+            'capacity': 1, 'capabilities': {'work': '1' * 64}}})
+        receipt = {'id': 'receipt', 'call_id': 'call', 'boot': 'boot', 'fence': 1,
+                   'status': 'completed', 'output': {}, 'evidence': {}, 'output_profile': 'inline-json/1'}
+        with patch.object(controller, '_verify_artifacts', side_effect=AssertionError('archived references must not reactivate')):
+            self.assertEqual(controller.receipt('worker', receipt=receipt), ack)
+
     def test_shared_operator_admin_reads_never_open_a_local_authority(self):
         from mas_host.operator_service import OperatorService
         class Authority:

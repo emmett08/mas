@@ -77,7 +77,7 @@ class SharedTaskService:
         return item
 
     def _receipt(self, item):
-        value = {k: v for k, v in item.items() if k not in {'input', 'principal', 'owner', 'run_id', 'clock', 'started', 'queue_wait_ms'}}
+        value = {k: v for k, v in item.items() if k not in {'input', 'principal', 'owner', 'run_id', 'clock', 'started', 'queue_wait_ms', 'event_floor'}}
         workflow = self.workflow_versions.get((item['workflow'], item['workflow_identity']))
         value['capabilities'] = {'cancel': True, 'events': True,
             'update': workflow is not None and workflow.continue_input is not None}
@@ -115,6 +115,8 @@ class SharedTaskService:
         if workflow not in self.workflows:
             raise ServiceError('definition_unavailable')
         selected = self._workflow(workflow, self.identities[workflow])
+        if expected_identity is not None and expected_identity != selected.identity:
+            raise ServiceError('workflow_identity_mismatch')
         contract = selected.contract_descriptor or {}
         if 'input_schema' in contract:
             from .operation_contracts import JsonObjectSchema, ContractError
@@ -146,6 +148,8 @@ class SharedTaskService:
         self._deployment(expected_deployment_id)
         _text(request_key, 'request_key')
         saved = self._owned(principal, task_id)
+        if expected_identity is not None and expected_identity != saved['workflow_identity']:
+            raise ServiceError('workflow_identity_mismatch')
         value, metadata = _object(input), _object(metadata or {})
         digest = self._digest('update', task_id, saved['workflow'], value, metadata)
         scope = RequestScope.retained(saved)
@@ -244,11 +248,14 @@ class SharedTaskService:
     def retire_request_epoch(self, principal, epoch, *, reason, prune=False, authoriser=None):
         self._authorise(principal)
         scope = RequestScope.supplied(VERSIONED, epoch)
-        _text(reason, 'retirement_reason', 4096)
-        # Shared records remain retained. Retirement is atomic across all owners;
-        # pruning a shared receipt never changes retained execution accounting.
+        if not scope.epoch:
+            raise ServiceError('request_namespace_not_retirable')
+        if (type(reason) is not str or not reason or len(reason.encode()) > 1024
+                or type(prune) is not bool or authoriser is not None and
+                (type(authoriser) is not str or not authoriser or len(authoriser.encode()) > 256)):
+            raise ServiceError('invalid_epoch_retirement')
         return self._command('epoch.retire', principal=principal, namespace=scope.namespace,
-            epoch=scope.epoch, reason=reason, authoriser=authoriser or principal, prune=bool(prune))
+            epoch=scope.epoch, reason=reason, authoriser=authoriser or principal, prune=prune)
 
     def definition_status(self, name, identity):
         record = self.definitions.inspect('workflow', name, identity)
@@ -263,7 +270,21 @@ class SharedTaskService:
         return self.definitions.retire('workflow', name, identity)
 
     def pending(self):
-        return self.capacity.fair_order(self.authority.query('task.pending', {}))
+        page = self.authority.query('task.pending', {'after': getattr(self, '_pending_cursor', None)})
+        self._pending_cursor = page['next']
+        return self.capacity.fair_order([item for item in page['tasks']
+                                        if not self._blocked_unavailable(item)])
+
+    def _blocked_unavailable(self, item):
+        if item['state'] != 'blocked' or item['workflow'] not in self.grants.get(item['principal'], ()):
+            return False
+        try:
+            self._workflow(item['workflow'], item['workflow_identity'])
+        except ServiceError as error:
+            if error.code == 'definition_unavailable' or error.code.startswith('implementation_'):
+                return True
+            raise
+        return False
 
     def execute_assignment(self, workflow, execution, *, ancestors=(), cancelled=None):
         """Execute a stable task or composition run through shared admission."""
@@ -313,12 +334,22 @@ class SharedTaskService:
         return self._command('task.expire', tasks=page['tasks']) if page['tasks'] else []
 
     def run_once(self, task_id=None):
+        if task_id is None:
+            self.expire_pending()
+            for item in self.pending():
+                result = self.run_once(item['task_id'])
+                if result is not None and result['state'] != 'blocked':
+                    return result
+            return None
         expired = self.expire_pending(task_id)
         if task_id is not None:
             for item in expired:
                 if item['task_id'] == task_id:
                     return self._receipt(self.authority.query('task.inspect',
                         {'principal': item['principal'], 'task': task_id}))
+        candidate = self.authority.query('task.peek', {'task': task_id})
+        if candidate is None or self._blocked_unavailable(candidate):
+            return None
         if not self.authority.query('task.claimable', {'task': task_id}):
             return None
         owner = 'worker-' + uuid.uuid4().hex

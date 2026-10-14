@@ -19,7 +19,19 @@ Source manifests are uploaded as immutable bounded chunks and verified against
 their complete SHA-256 before definition registration. Historical registrations
 retain their exact identity. Inspection requires only retained metadata;
 execution also verifies the registered loaded package. A missing historical
-implementation blocks its existing assignment instead of relabelling it.
+implementation blocks its existing assignment. Queue polling skips unavailable
+blocked definitions and rotates bounded pages so unrelated work can proceed.
+Restoring the exact source resumes the original assignment. A terminal parent
+with an uncertain child still retains its definitions.
+
+Completed `result` requests return the application output. Archival retains the
+task identity, ownership, definition identity, allocation and result digest,
+marks the result unavailable, and releases retained task capacity. Event cursors
+older than the retained floor fail explicitly. Exact request-key retries return
+the archived metadata. An explicitly retired versioned epoch rejects every
+later submission and continuation; `prune=True` removes only request markers
+for archived tasks and compositions while retaining the epoch retirement.
+Legacy arbitrary-key namespaces remain retained.
 
 The bridge configuration may select `shared` with exactly these fields:
 

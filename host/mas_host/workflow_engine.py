@@ -391,8 +391,9 @@ class WorkflowEngine:
             if self.operations.readonly or not self.operations.admission_enabled:
                 raise ServiceError('audit_only')
             with self.store.transaction(readonly=True) as db:
-                if db.execute("SELECT 1 FROM instances WHERE plan=? AND identity=? AND state NOT IN "
-                              "('completed','failed','cancelled','expired') LIMIT 1", (plan, identity)).fetchone():
+                if db.execute("SELECT 1 FROM instances i WHERE plan=? AND identity=? AND (state NOT IN "
+                              "('completed','failed','cancelled','expired') OR EXISTS(SELECT 1 FROM attempts a "
+                              "WHERE a.instance=i.id AND a.state IN ('running','unknown'))) LIMIT 1", (plan, identity)).fetchone():
                     raise ServiceError('definition_in_use')
             self.definitions.retire('plan', plan, identity)
             return self.definitions.inspect('plan', plan, identity)

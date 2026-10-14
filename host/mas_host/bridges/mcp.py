@@ -322,6 +322,11 @@ TOOLS = [
     {"name": "mas.task", "description": "Inspect a task within a composed workflow by its logical path.",
      "inputSchema": _schema(["task_id", "path"], {"task_id": _STRING, "path": _STRING,
          "revision": {"type": "integer", "minimum": 0}})},
+    {"name": "mas.graph", "description": "Read a bounded page of graph nodes, attempts or scopes.",
+     "inputSchema": _schema(["task_id"], {"task_id": _STRING,
+         "section": {"type": "string", "enum": ["nodes", "attempts", "scopes"]},
+         "offset": {"type": "integer", "minimum": 0},
+         "limit": {"type": "integer", "minimum": 1, "maximum": 100}})},
     {"name": "mas.discover", "description": "Discover workflows and capabilities available to the authenticated principal.",
      "inputSchema": _schema([], {})},
     {"name": "mas.recover", "description": "Resume the same task after an operator has reconciled its uncertain effects.",
@@ -329,6 +334,10 @@ TOOLS = [
     {"name": "mas.list", "description": "List tasks owned by the authenticated caller.",
      "inputSchema": _schema([], {"limit": {"type": "integer", "minimum": 1, "maximum": 100},
                                  "offset": {"type": "integer", "minimum": 0}})},
+    {"name": "mas.page", "description": "Search owned tasks with metadata and state filters and a stable resume cursor.",
+     "inputSchema": _schema([], {"page_size": {"type": "integer", "minimum": 1, "maximum": 1000},
+         "after": {"type": ["array", "null"]}, "state": {"type": ["string", "null"]},
+         "metadata": {"type": ["object", "null"]}, "updated_after": {"type": ["integer", "null"], "minimum": 0}})},
 ]
 TOOLS.sort(key=lambda tool: tool["name"])
 
@@ -459,6 +468,13 @@ class MCPBridge:
             after = _integer(arguments.get("after", 0))
             value = _event_page_for_wire(method(principal, arguments["task_id"], after=after,
                 limit=_integer(arguments.get("limit", 100), 1000)), after)
+        elif name == 'mas.page':
+            value = self.service.list_task_page(principal, **arguments)
+        elif name == 'mas.graph':
+            callback = getattr(self.service, 'inspect_graph', None)
+            if not callable(callback):
+                raise ServiceError('unsupported_capability')
+            value = callback(principal, **arguments)
         elif name in {"mas.task", "mas.discover", "mas.recover"}:
             method = getattr(self.service, {"mas.task": "inspect_task", "mas.discover": "discover",
                                            "mas.recover": "recover"}[name], None)

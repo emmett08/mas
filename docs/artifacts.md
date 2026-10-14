@@ -345,6 +345,24 @@ requests, each of which also has its transport's hard deadline. Automatic
 cross-session download resume is not implemented; explicit same-session offset
 reads are available until expiry.
 
+With the shared-authority profile, `SharedArtifactTransferService` retains the
+session descriptor, authenticated owner, immutable scope binding, database-clock
+expiry, acknowledged upload offsets and exact upload chunks in PostgreSQL.
+Replacement controllers use the same transfer IDs, including after a lost chunk
+or publication acknowledgement. Native transactions enforce the configured
+global session and staging-byte limits, a maximum of 65,536 chunks and 2 GiB per upload,
+and a 100,000-session retained-identity limit. Close and expiry release staging
+bytes while retaining identity tombstones; no closed ID can be reopened.
+Published references and verified content use the shared S3 repository.
+
+Shared download descriptors survive replacement too. A controller may keep a
+bounded, private, verified snapshot to avoid fetching the full object for each
+chunk. This cache is disposable: a replacement verifies the original S3 object
+again. Each read checks native ownership, scope, expiry, closure, grants and
+controller epoch before returning bytes, including after S3 I/O. Shared transfer
+configuration is immutable within its database namespace; changing it requires
+an explicitly provisioned namespace, rather than silently remapping live sessions.
+
 Only the mapped producer can `revoke` future remote downloads for selected
 readers. Revocation persists across restarts and applies to existing download
 sessions as well as new ones. It does not rewrite immutable local manifests,

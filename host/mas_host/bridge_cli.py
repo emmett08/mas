@@ -76,6 +76,7 @@ def main(argv=None):
     health.add_argument("--state-dir", type=Path, required=True)
     health.add_argument("--port", type=int, default=8765)
     worker_health = sub.add_parser("worker-health", help="check the live scheduling loop and its deadline")
+    worker_health.add_argument("--config", type=Path, help="required for the shared-authority profile")
     worker_health.add_argument("--state-dir", type=Path, required=True)
     worker_health.add_argument("--max-age-seconds", type=float, default=30)
     auth = sub.add_parser("init-auth", help="create a private bearer secret and hashed verifier file")
@@ -124,7 +125,8 @@ def main(argv=None):
         if args.command in ("health", "worker-health"):
             from .bridge_health import ingress_health, worker_health
             result = (ingress_health(args.state_dir, load_config(args.config), args.port)
-                      if args.command == "health" else worker_health(args.state_dir, args.max_age_seconds))
+                      if args.command == "health" else worker_health(args.state_dir, args.max_age_seconds,
+                                                                     config=load_config(args.config) if args.config else None))
             print(json.dumps(result), flush=True)
             return 0
         config = load_config(args.config)

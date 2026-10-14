@@ -14,6 +14,11 @@ class SharedDefinitionRegistry:
                  implementation_digest=None, implementation_manifest=None, current=False):
         if descriptor is not None and hashlib.sha256(canonical(descriptor).encode()).hexdigest() != identity:
             raise ServiceError('definition_identity_conflict')
+        saved = self.inspect(kind, name, identity)
+        if saved is not None and saved['retired'] and current:
+            raise ServiceError('definition_retired')
+        verified = (saved is not None and saved['implementation_digest'] == implementation_digest
+            and saved['implementation_provenance'] == 'verified_source_package')
         if implementation_manifest is not None:
             source = canonical(implementation_manifest)
             if (implementation_manifest.get('format') != 'mas-python-implementation/1'
@@ -23,12 +28,17 @@ class SharedDefinitionRegistry:
             # bound. No pickle, executable import path or mutable local mirror.
             if len(source.encode()) > 16 * 1024 * 1024:
                 raise ServiceError('implementation_package_too_large')
-            chunks = [source[n:n + 6000] for n in range(0, len(source), 6000)]
-            for part, data in enumerate(chunks):
-                self.authority.command('definition.chunk', {'digest': implementation_digest,
-                    'part': part, 'data': data}, command_id='manifest-' + implementation_digest + '-' + str(part))
-            self.authority.command('definition.manifest', {'digest': implementation_digest,
-                'parts': len(chunks)}, command_id='manifest-' + implementation_digest)
+            if not verified:
+                chunks = [source[n:n + 6000] for n in range(0, len(source), 6000)]
+                for part, data in enumerate(chunks):
+                    self.authority.command('definition.chunk', {'digest': implementation_digest,
+                        'part': part, 'data': data}, command_id='manifest-' + implementation_digest + '-' + str(part))
+                self.authority.command('definition.manifest', {'digest': implementation_digest,
+                    'parts': len(chunks)}, command_id='manifest-' + implementation_digest)
+        if (saved is not None and saved['descriptor'] == descriptor
+                and saved['implementation_digest'] == implementation_digest
+                and (not current or self.current(kind, name) == identity)):
+            return
         self.authority.command('definition.register', {'kind': kind, 'name': name,
             'identity': identity, 'descriptor': descriptor,
             'implementation_digest': implementation_digest, 'current': current})

@@ -375,6 +375,62 @@ python -m mas_host jobs --state-dir .mas-state submit review-001 \
   --spec cursor-job.json --resume /absolute/original/run-directory
 ```
 
+### Shared PostgreSQL job authority
+
+`SharedJobStore(authority, cache_dir, principal=...)` and
+`SharedDurableJobService` use the same native PostgreSQL namespace and controller
+epoch as the shared runner. They retain the original job ID, specification,
+client-assigned agent ID, exact remote run ID, submission allocation, cancellation
+intent and reconciliation audit. The local `JobStore` remains the default.
+Provision the shared authority and its deployment/principal allocation scopes
+before constructing this port; it never initialises over an existing database.
+
+A trusted deployment factory returns the bound store:
+
+```python
+def cloud_jobs():
+    from mas_host.shared_jobs import SharedJobStore
+    authority = configured_shared_authority()  # Resolve private credentials here.
+    return SharedJobStore(authority, '/var/cache/mas/jobs', principal='operator-1')
+```
+
+Use the same factory for submission and inspection:
+
+```sh
+python -m mas_host jobs --factory deployment:cloud_jobs submit review-001 --spec cursor-job.json
+python -m mas_host jobs --factory deployment:cloud_jobs status review-001 --audit
+python -m mas_host jobs --factory deployment:cloud_jobs reconcile review-001
+```
+
+The CLI uses shared native admission for this store. Job IDs are scoped to the
+factory's trusted principal. Status reads PostgreSQL without contacting Cursor;
+the cache has no authoritative SQLite database. In shared receipts,
+`host_run_dir` carries the original native run ID, which can be supplied to
+`--resume` from a replacement controller without the old cache directory.
+
+An epoch-checked transaction records `launch_unknown` before creating a cloud
+agent. It verifies the original native invocation, frozen principal, exact
+reservation and current run owner. A replayed dispatch grant cannot make another
+request. Attachment still requires an evidenced exact run and verifies the
+repository/ref against the frozen agent settings. Host resolution settles only
+the original submission receipt; it never refunds allocation or completes the
+remote repository work.
+
+Shared observations carry retained operation IDs and revisions. A late poll
+cannot overwrite a newer or terminal snapshot; its evidence is retained. A
+cancellation acknowledgement remains distinct from terminal confirmation, and
+repeating an uncertain cancellation requires `--retry`. Controller replacement
+does not replay an old mutation. The repository bounds retained jobs at 100,000
+per database namespace and operations at 10,000 per job; exhaustion rejects new
+operations. Guarded [shared recovery](shared-recovery.md) includes these tables
+and their original allocations in its sealed inventory.
+
+`test_shared_jobs.py` exercises actual PostgreSQL admission, lost create/begin
+receipts, controller replacement, evidenced attachment, principal isolation,
+late observations and explicit cancellation retry with controlled provider
+responses. It makes no live Cursor requests. The PostgreSQL workflow supplies
+the real database; a skipped local run is not backend acceptance evidence.
+
 ## Offline failure and recovery walkthrough
 
 Suppose a repository job is accepted remotely, but its launch response is lost.

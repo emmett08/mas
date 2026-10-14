@@ -272,6 +272,10 @@ class TaskServiceClient:
     def discover(self, principal):
         return self._request(principal, "discover", {})
 
+    def inspect_graph(self, principal, task_id, *, section='nodes', offset=0, limit=20):
+        return self._request(principal, 'graph', {'task_id': task_id, 'section': section,
+                                                'offset': offset, 'limit': limit})
+
     def recover(self, principal, task_id):
         return self._request(principal, "recover", {"task_id": task_id})
 

@@ -109,7 +109,7 @@ fn check_binding(tx: &mut Transaction<'_>, binding: &AuthorityBinding, lock: boo
     if r.get::<_, String>(0) != binding.deployment
         || r.get::<_, String>(1) != binding.controller
         || r.get::<_, i64>(2) != binding.epoch
-        || r.get::<_, i64>(3) != 6
+        || !matches!(r.get::<_, i64>(3), 6..=11)
         || r.get::<_, String>(4) != layout(tx)?
     {
         return Err("incompatible recovery authority".into());
@@ -161,7 +161,7 @@ impl PostgresRepository {
     pub fn install_recovery_repository(&mut self) -> Result<()> {
         self.transaction(|tx| {
             let version = schema_version(tx)?;
-            if version == 6 {
+            if version >= 6 {
                 return Ok(());
             }
             if version != 5 {
@@ -227,7 +227,7 @@ impl PostgresRepository {
         )
         .map_err(db_error)?;
         let state = inventory(&mut tx)?;
-        let payload = json!({"format":"mas-shared-seal/1","request":p,"source":database(&mut tx)?,"namespace":tx.query_one("SELECT current_schema()",&[]).map_err(db_error)?.get::<_,String>(0),"deployment":self.binding.deployment,"controller":self.binding.controller,"epoch":self.binding.epoch,"schema_version":6,"layout_digest":layout(&mut tx)?,"state":state,"created_ms":now(&mut tx)?,"operator":operator,"request_key":request,"key_reference":key_reference});
+        let payload = json!({"format":"mas-shared-seal/1","request":p,"source":database(&mut tx)?,"namespace":tx.query_one("SELECT current_schema()",&[]).map_err(db_error)?.get::<_,String>(0),"deployment":self.binding.deployment,"controller":self.binding.controller,"epoch":self.binding.epoch,"schema_version":schema_version(&mut tx)?,"layout_digest":layout(&mut tx)?,"state":state,"created_ms":now(&mut tx)?,"operator":operator,"request_key":request,"key_reference":key_reference});
         let seal = json!({"payload":payload,"signature":sign(&payload,&key)?});
         tx.execute(
             "UPDATE recovery_guard SET mode='sealed',key_fingerprint=$1,seal=$2 WHERE singleton",

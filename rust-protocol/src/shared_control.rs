@@ -28,6 +28,22 @@ CREATE TABLE event_acknowledgements(subscription text PRIMARY KEY REFERENCES eve
 fn err<T>(code: &str) -> Result<T> {
     Err(code.into())
 }
+pub(crate) const RETENTION_DDL: &str = "
+ALTER TABLE service_tasks ADD COLUMN archived_at bigint;
+ALTER TABLE service_tasks ADD COLUMN input_digest text;
+ALTER TABLE service_tasks ADD COLUMN output_digest text;
+ALTER TABLE service_tasks ADD COLUMN event_floor bigint NOT NULL DEFAULT 0;
+ALTER TABLE service_epochs ADD COLUMN prune boolean NOT NULL DEFAULT false;
+CREATE TABLE operator_retention(request_key text PRIMARY KEY,digest text NOT NULL,receipt text NOT NULL);
+";
+pub(crate) const WORKER_ARCHIVE_DDL: &str = "
+ALTER TABLE worker_jobs ADD COLUMN archived_at bigint;
+ALTER TABLE worker_jobs ADD COLUMN binding_digest text;
+ALTER TABLE worker_jobs ADD COLUMN output_digest text;
+ALTER TABLE worker_jobs ADD COLUMN evidence_digest text;
+ALTER TABLE worker_receipts ADD COLUMN archived_at bigint;
+ALTER TABLE worker_receipts ADD COLUMN payload_digest text;
+";
 fn field<'a>(p: &'a Value, k: &str) -> Result<&'a str> {
     p[k].as_str().ok_or_else(|| format!("invalid {k}"))
 }
@@ -216,7 +232,7 @@ fn expire(tx: &mut Transaction) -> Result<()> {
     .map_err(db_error)?;
     Ok(())
 }
-const JOB:&str="SELECT call_id,run_id,principal,binding,state,fence,worker,boot,expires,output,evidence FROM worker_jobs WHERE call_id=$1";
+const JOB:&str="SELECT call_id,run_id,principal,binding,state,fence,worker,boot,expires,output,evidence,archived_at,binding_digest,output_digest,evidence_digest FROM worker_jobs WHERE call_id=$1";
 fn job(tx: &mut Transaction, c: &str) -> Result<Row> {
     tx.query_opt(JOB, &[&c])
         .map_err(db_error)?
@@ -224,7 +240,7 @@ fn job(tx: &mut Transaction, c: &str) -> Result<Row> {
 }
 fn view(row: &Row) -> Result<Value> {
     Ok(
-        json!({"call_id":row.get::<_,String>(0),"state":row.get::<_,String>(4),"output":row.get::<_,Option<String>>(9).as_deref().map(decode).transpose()?,"evidence":row.get::<_,Option<String>>(10).as_deref().map(decode).transpose()?}),
+        json!({"call_id":row.get::<_,String>(0),"state":row.get::<_,String>(4),"output":row.get::<_,Option<String>>(9).as_deref().map(decode).transpose()?,"evidence":row.get::<_,Option<String>>(10).as_deref().map(decode).transpose()?,"archived":row.get::<_,Option<i64>>(11).is_some(),"result_available":row.get::<_,Option<i64>>(11).is_none(),"binding_digest":row.get::<_,Option<&str>>(12),"output_digest":row.get::<_,Option<&str>>(13),"evidence_digest":row.get::<_,Option<&str>>(14)}),
     )
 }
 fn assignment(tx: &mut Transaction, p: &Value, policy: &Value) -> Result<Row> {
@@ -279,6 +295,9 @@ fn control(tx: &mut Transaction) -> Result<Value> {
 pub(crate) fn apply(tx: &mut Transaction, operation: &str, p: &Value) -> Result<Value> {
     if operation.starts_with("event.") {
         return event_apply(tx, operation, p);
+    }
+    if operation == "operator.archive" {
+        return archive(tx, p);
     }
     if operation == "operator.budget_amend" {
         return budget_amend(tx, p);
@@ -588,6 +607,32 @@ fn owned_view(tx: &mut Transaction, p: &Value) -> Result<Value> {
     }
     view(&row)
 }
+// Exact historical acknowledgement survives payload reclamation; no new effect or
+// artefact retention transition follows a tombstone replay.
+fn prior_receipt(tx:&mut Transaction, principal:&str, r:&Value)->Result<Option<Value>> {
+    let receipt_id=id(r,"id")?;
+    let Some(row)=tx.query_opt("SELECT worker,payload,authoritative,archived_at,payload_digest FROM worker_receipts WHERE id=$1",&[&receipt_id]).map_err(db_error)? else { return Ok(None); };
+    let same=if row.get::<_,Option<i64>>(3).is_some() {row.get::<_,Option<&str>>(4)==Some(hash(r).as_str())} else {decode(row.get(1))?==*r};
+    if row.get::<_,&str>(0)!=principal || !same {return err("receipt_conflict");}
+    Ok(Some(json!({"stored":true,"receipt_id":receipt_id,"authoritative":row.get::<_,bool>(2)})))
+}
+pub(crate) fn archive_worker_run(tx:&mut Transaction,run:&str)->Result<Value> {
+    if tx.query_opt("SELECT 1 FROM worker_jobs WHERE run_id=$1 AND state IN ('pending','claimed','dispatched','unknown')",&[&run]).map_err(db_error)?.is_some() {return err("run_not_archivable");}
+    let current=now(tx)?;let mut jobs=0;let mut receipts=0;
+    for row in tx.query("SELECT call_id,binding,output,evidence FROM worker_jobs WHERE run_id=$1 AND archived_at IS NULL ORDER BY call_id",&[&run]).map_err(db_error)? {
+        let call:&str=row.get(0);
+        let binding_digest=hash(&decode(row.get(1))?);
+        let output_digest=row.get::<_,Option<&str>>(2).map(decode).transpose()?.as_ref().map(hash);
+        let evidence_digest=row.get::<_,Option<&str>>(3).map(decode).transpose()?.as_ref().map(hash);
+        for receipt in tx.query("SELECT id,payload FROM worker_receipts WHERE call_id=$1 AND archived_at IS NULL ORDER BY id",&[&call]).map_err(db_error)? {
+            let payload=decode(receipt.get(1))?;let digest=hash(&payload);let receipt_id:&str=receipt.get(0);
+            let tombstone=json!({"format":"mas-archived-worker-receipt/1","id":receipt_id,"call_id":call,"boot":payload["boot"],"fence":payload["fence"],"status":payload["status"],"output_profile":payload["output_profile"],"archived":true,"archived_at":current,"payload_digest":digest,"result_available":false});
+            tx.execute("UPDATE worker_receipts SET payload=$2,payload_digest=$3,archived_at=$4 WHERE id=$1",&[&receipt_id,&tombstone.to_string(),&digest,&current]).map_err(db_error)?;receipts+=1;
+        }
+        tx.execute("UPDATE worker_jobs SET binding='{}',output=NULL,evidence=NULL,archived_at=$2,binding_digest=$3,output_digest=$4,evidence_digest=$5 WHERE call_id=$1",&[&call,&current,&binding_digest,&output_digest,&evidence_digest]).map_err(db_error)?;jobs+=1;
+    }
+    Ok(json!({"worker_jobs":jobs,"worker_receipts":receipts,"identity_deleted":false}))
+}
 fn receipt(tx: &mut Transaction, p: &Value, policy: &Value) -> Result<Value> {
     fields(p, &["principal", "receipt", "artifacts_verified"], &[])?;
     let principal = id(p, "principal")?;
@@ -633,7 +678,9 @@ fn receipt(tx: &mut Transaction, p: &Value, policy: &Value) -> Result<Value> {
             return err("invalid_worker_receipt");
         }
     }
+    if let Some(ack) = prior_receipt(tx, principal, r)? { return Ok(ack); }
     let job = job(tx, c)?;
+    if job.get::<_,Option<i64>>(11).is_some() { return err("worker_job_archived"); }
     let b = decode(job.get::<_, &str>(3))?;
     if r["output_profile"] != b["output_profile"] {
         return err("worker_output_contract_mismatch");
@@ -670,20 +717,6 @@ fn receipt(tx: &mut Transaction, p: &Value, policy: &Value) -> Result<Value> {
     if r.to_string().len() > 131072 {
         return err("invalid_worker_receipt");
     }
-    if let Some(old) = tx
-        .query_opt(
-            "SELECT worker,payload,authoritative FROM worker_receipts WHERE id=$1",
-            &[&receipt_id],
-        )
-        .map_err(db_error)?
-    {
-        if old.get::<_, &str>(0) != principal || decode(old.get::<_, &str>(1))? != *r {
-            return err("receipt_conflict");
-        }
-        return Ok(
-            json!({"stored":true,"receipt_id":receipt_id,"authoritative":old.get::<_,bool>(2)}),
-        );
-    }
     let claim=tx.query_opt("SELECT dispatched FROM worker_claims WHERE fence=$1 AND call_id=$2 AND worker=$3 AND boot=$4",&[&fence,&c,&principal,&boot]).map_err(db_error)?.ok_or("receipt_without_dispatch")?;
     if !claim.get::<_, bool>(0) && status != "unknown" {
         return err("receipt_without_dispatch");
@@ -714,7 +747,7 @@ fn receipt(tx: &mut Transaction, p: &Value, policy: &Value) -> Result<Value> {
     }
     let timestamp = now(tx)?;
     tx.execute(
-        "INSERT INTO worker_receipts VALUES($1,$2,$3,$4,$5,$6,$7,$8)",
+        "INSERT INTO worker_receipts(id,call_id,fence,worker,boot,payload,authoritative,created) VALUES($1,$2,$3,$4,$5,$6,$7,$8)",
         &[
             &receipt_id,
             &c,
@@ -797,6 +830,7 @@ pub(crate) fn query(tx: &mut Transaction, operation: &str, p: &Value) -> Result<
         return event_query(tx, operation, p);
     }
     match operation {
+        "operator.graph" => graph_page(tx, p),
         "operator.budget" => budget(tx, p),
         "operator.storage" => {
             fields(p, &[], &[])?;
@@ -847,23 +881,16 @@ pub(crate) fn query(tx: &mut Transaction, operation: &str, p: &Value) -> Result<
             let r = &p["receipt"];
             let c = id(r, "call_id")?;
             let receipt_id = id(r, "id")?;
-            let prior = tx
-                .query_opt(
-                    "SELECT worker,payload FROM worker_receipts WHERE id=$1",
-                    &[&receipt_id],
-                )
-                .map_err(db_error)?;
-            if let Some(row) = &prior {
-                if row.get::<_, &str>(0) != principal || decode(row.get::<_, &str>(1))? != *r {
-                    return err("receipt_conflict");
-                }
-            } else {
-                let exists=tx.query_opt("SELECT dispatched FROM worker_claims WHERE fence=$1 AND call_id=$2 AND worker=$3 AND boot=$4",&[&num(r,"fence",1,i64::MAX)?,&c,&principal,&id(r,"boot")?]).map_err(db_error)?.ok_or("receipt_without_dispatch")?;
-                if !exists.get::<_, bool>(0) && r["status"] != "unknown" {
-                    return err("receipt_without_dispatch");
-                }
+            if let Some(ack) = prior_receipt(tx, principal, r)? {
+                let archived:bool=tx.query_one("SELECT archived_at IS NOT NULL FROM worker_receipts WHERE id=$1",&[&receipt_id]).map_err(db_error)?.get(0);
+                if archived { return Ok(json!({"archived":true,"acknowledgement":ack})); }
+                return Ok(json!({"binding":decode(job(tx,c)?.get::<_,&str>(3))?,"prior":true}));
             }
-            Ok(json!({"binding":decode(job(tx,c)?.get::<_,&str>(3))?,"prior":prior.is_some()}))
+            let row=job(tx,c)?;
+            if row.get::<_,Option<i64>>(11).is_some() {return err("worker_job_archived");}
+            let exists=tx.query_opt("SELECT dispatched FROM worker_claims WHERE fence=$1 AND call_id=$2 AND worker=$3 AND boot=$4",&[&num(r,"fence",1,i64::MAX)?,&c,&principal,&id(r,"boot")?]).map_err(db_error)?.ok_or("receipt_without_dispatch")?;
+            if !exists.get::<_, bool>(0) && r["status"] != "unknown" { return err("receipt_without_dispatch"); }
+            Ok(json!({"binding":decode(row.get::<_,&str>(3))?,"prior":false}))
         }
         _ => err("unknown shared control query"),
     }
@@ -1143,8 +1170,10 @@ fn health(tx: &mut Transaction) -> Result<Value> {
         )
         .map_err(db_error)?
         .get(0);
+    let command_capacity=crate::shared_commands::query(tx,"command_capacity.status",&json!({}))?;
+    let command_room=command_capacity["normal"]["remaining"].as_i64().unwrap_or(0)>0;
     Ok(
-        json!({"format":"mas-shared-health/1","deployment_id":identity.get::<_,&str>(0),"epoch":identity.get::<_,i64>(1),"policy":policy,"usage":usage,"retained_runs":retained,"admission_state":if draining{"draining"}else{"active"},"admission_open":!draining&&row.get::<_,i64>(3)<row.get::<_,i64>(0)&&row.get::<_,i64>(4)<row.get::<_,i64>(1)&&row.get::<_,i64>(5)<row.get::<_,i64>(2),"state_bytes":database_bytes,"storage":{"database_bytes":database_bytes,"artifact_objects":content.get::<_,i64>(0),"artifact_reserved_bytes":content.get::<_,i64>(1),"unverified_artifact_objects":content.get::<_,i64>(2),"retained_artifact_links":pending},"expenditure_semantics":"reserved allocation; actual provider invoices require separate account controls"}),
+        json!({"command_capacity":command_capacity,"format":"mas-shared-health/1","deployment_id":identity.get::<_,&str>(0),"epoch":identity.get::<_,i64>(1),"policy":policy,"usage":usage,"retained_runs":retained,"admission_state":if draining{"draining"}else{"active"},"admission_open":!draining&&command_room&&row.get::<_,i64>(3)<row.get::<_,i64>(0)&&row.get::<_,i64>(4)<row.get::<_,i64>(1)&&row.get::<_,i64>(5)<row.get::<_,i64>(2),"state_bytes":database_bytes,"storage":{"database_bytes":database_bytes,"artifact_objects":content.get::<_,i64>(0),"artifact_reserved_bytes":content.get::<_,i64>(1),"unverified_artifact_objects":content.get::<_,i64>(2),"retained_artifact_links":pending},"expenditure_semantics":"reserved allocation; actual provider invoices require separate account controls"}),
     )
 }
 fn pagination(p: &Value) -> Result<(i64, i64)> {
@@ -1280,9 +1309,12 @@ fn budget_amend(tx: &mut Transaction, p: &Value) -> Result<Value> {
     .map_err(db_error)?;
     Ok(receipt)
 }
-fn settled_run(tx: &mut Transaction, r: &str) -> Result<bool> {
-    let unfinished=tx.query_one("SELECT EXISTS(SELECT 1 FROM host_runs h CROSS JOIN authority a WHERE h.run=$1 AND h.owner IS NOT NULL AND h.owner_epoch=a.epoch) OR EXISTS(SELECT 1 FROM tasks WHERE run=$1 AND state='open') OR EXISTS(SELECT 1 FROM host_invocations WHERE run=$1 AND state NOT IN ('completed','resolved','retry_allowed','not_executed','failed_known')) OR EXISTS(SELECT 1 FROM calls c WHERE c.run=$1 AND NOT EXISTS(SELECT 1 FROM host_invocations i WHERE i.run=c.run AND i.call_id=c.id)) OR EXISTS(SELECT 1 FROM worker_jobs WHERE run_id=$1 AND state IN ('pending','claimed','dispatched','unknown')) OR EXISTS(SELECT 1 FROM remote_effects WHERE run=$1 AND state NOT IN ('completed','failed','cancelled')) OR EXISTS(SELECT 1 FROM remote_operations WHERE run=$1 AND state<>'completed')",&[&r]).map_err(db_error)?.get::<_,bool>(0);
+pub(crate) fn settled_run(tx: &mut Transaction, r: &str) -> Result<bool> {
+    let unfinished=tx.query_one("SELECT EXISTS(SELECT 1 FROM host_runs h CROSS JOIN authority a WHERE h.run=$1 AND h.owner IS NOT NULL AND h.owner_epoch=a.epoch) OR EXISTS(SELECT 1 FROM tasks WHERE run=$1 AND state='open') OR EXISTS(SELECT 1 FROM host_invocations WHERE run=$1 AND state NOT IN ('completed','resolved','retry_allowed','not_executed','failed_known')) OR EXISTS(SELECT 1 FROM calls c WHERE c.run=$1 AND NOT EXISTS(SELECT 1 FROM host_invocations i WHERE i.run=c.run AND i.call_id=c.id)) OR EXISTS(SELECT 1 FROM worker_jobs WHERE run_id=$1 AND state IN ('pending','claimed','dispatched','unknown')) OR EXISTS(SELECT 1 FROM remote_effects WHERE run=$1 AND state NOT IN ('completed','failed','cancelled')) OR EXISTS(SELECT 1 FROM remote_operations WHERE run=$1 AND state<>'completed') OR EXISTS(SELECT 1 FROM cloud_jobs WHERE host_run=$1 AND state<>'terminal')",&[&r]).map_err(db_error)?.get::<_,bool>(0);
     Ok(!unfinished)
+}
+fn pending_delivery(tx:&mut Transaction,task:&str)->Result<bool> {
+    Ok(tx.query_opt("SELECT 1 FROM event_pending p JOIN event_subscriptions s ON s.id=p.subscription WHERE s.task_id=$1 LIMIT 1",&[&task]).map_err(db_error)?.is_some())
 }
 fn archive_preview(tx: &mut Transaction, p: &Value) -> Result<Value> {
     fields(p, &["kind", "older_than_seconds"], &["offset", "limit"])?;
@@ -1297,13 +1329,14 @@ fn archive_preview(tx: &mut Transaction, p: &Value) -> Result<Value> {
         )
         .map_err(db_error)?
         .get(0);
-    let (sql,count_sql,key)=match kind{"tasks"=>("SELECT id,state,updated,owner IS NOT NULL AND owner_epoch=(SELECT epoch FROM authority WHERE singleton) FROM service_tasks ORDER BY created,id OFFSET $1 LIMIT $2","SELECT count(*) FROM service_tasks","task_id"),"workflows"=>("SELECT id,state,updated,owner IS NOT NULL AND owner_epoch=(SELECT epoch FROM authority WHERE singleton) FROM composition_instances ORDER BY created,id OFFSET $1 LIMIT $2","SELECT count(*) FROM composition_instances","instance_id"),"runs"=>("SELECT h.run,'completed',((r.deadline-(r.config::jsonb->>'wall_seconds')::bigint)*1000)::bigint,h.owner IS NOT NULL AND h.owner_epoch=(SELECT epoch FROM authority WHERE singleton) FROM host_runs h JOIN runs r ON r.id=h.run ORDER BY h.run OFFSET $1 LIMIT $2","SELECT count(*) FROM host_runs","run_id"),_=>return err("invalid_archive_kind")};
+    let (sql,count_sql,key)=match kind{"tasks"=>("SELECT id,state,updated,owner IS NOT NULL AND owner_epoch=(SELECT epoch FROM authority WHERE singleton),archived_at IS NOT NULL FROM service_tasks ORDER BY created,id OFFSET $1 LIMIT $2","SELECT count(*) FROM service_tasks","task_id"),"workflows"=>("SELECT id,state,updated,owner IS NOT NULL AND owner_epoch=(SELECT epoch FROM authority WHERE singleton),archived_at IS NOT NULL FROM composition_instances ORDER BY created,id OFFSET $1 LIMIT $2","SELECT count(*) FROM composition_instances","instance_id"),"runs"=>("SELECT h.run,'completed',((r.deadline-(r.config::jsonb->>'wall_seconds')::bigint)*1000)::bigint,h.owner IS NOT NULL AND h.owner_epoch=(SELECT epoch FROM authority WHERE singleton),false FROM host_runs h JOIN runs r ON r.id=h.run ORDER BY h.run OFFSET $1 LIMIT $2","SELECT count(*) FROM host_runs","run_id"),_=>return err("invalid_archive_kind")};
     let total: i64 = tx.query_one(count_sql, &[]).map_err(db_error)?.get(0);
     let mut items = Vec::new();
     for row in tx.query(sql, &[&offset, &limit]).map_err(db_error)? {
         let entity = row.get::<_, &str>(0);
         let state = row.get::<_, &str>(1);
-        let mut reason = if !matches!(state, "completed" | "failed" | "cancelled" | "expired") {
+        let archived=row.get::<_,bool>(4);
+        let mut reason = if archived { Some("already archived") } else if !matches!(state, "completed" | "failed" | "cancelled" | "expired") {
             Some("work is not terminal")
         } else if row.get::<_, i64>(2) > cutoff {
             Some("retention age not reached")
@@ -1314,17 +1347,18 @@ fn archive_preview(tx: &mut Transaction, p: &Value) -> Result<Value> {
         } else {
             None
         };
+        if reason.is_none() && pending_delivery(tx,entity)? { reason=Some("unacknowledged event delivery retained"); }
         if reason.is_none() {
             let references = match kind {
                 "tasks" => tx
                     .query(
-                        "SELECT run,state FROM service_executions WHERE task=$1",
+                        "SELECT run,state,revision=(SELECT revision FROM service_tasks WHERE id=$1) FROM service_executions WHERE task=$1",
                         &[&entity],
                     )
                     .map_err(db_error)?,
                 "workflows" => tx
                     .query(
-                        "SELECT run_id,state FROM composition_attempts WHERE instance=$1",
+                        "SELECT run_id,state,latest FROM composition_attempts WHERE instance=$1",
                         &[&entity],
                     )
                     .map_err(db_error)?,
@@ -1334,17 +1368,17 @@ fn archive_preview(tx: &mut Transaction, p: &Value) -> Result<Value> {
                 reason = Some("unsettled invocation or remote effect retained");
             }
             for reference in references {
-                if !matches!(
+                if !(matches!(
                     reference.get::<_, &str>(1),
                     "completed" | "failed" | "cancelled" | "expired"
-                ) || !settled_run(tx, reference.get::<_, &str>(0))?
+                ) || !reference.get::<_,bool>(2) && matches!(reference.get::<_,&str>(1),"input_required"|"auth_required")) || !settled_run(tx, reference.get::<_, &str>(0))?
                 {
                     reason = Some("unsettled invocation or remote effect retained");
                     break;
                 }
             }
         }
-        let mut result = json!({"eligible":reason.is_none(),"archived":false});
+        let mut result = json!({"eligible":reason.is_none(),"archived":archived});
         result[key] = json!(entity);
         if let Some(reason) = reason {
             result["reason"] = json!(reason);
@@ -1355,4 +1389,92 @@ fn archive_preview(tx: &mut Transaction, p: &Value) -> Result<Value> {
     Ok(
         json!({"kind":kind,"dry_run":true,"items":items,"total":total,"next_offset":if next<total{Some(next)}else{None},"allocation_changed":false}),
     )
+}
+
+fn graph_page(tx: &mut Transaction, p: &Value) -> Result<Value> {
+    fields(p, &["principal", "task_id", "section", "offset", "limit"], &[])?;
+    let principal = id(p, "principal")?;
+    let task = id(p, "task_id")?;
+    let section = field(p, "section")?;
+    let offset = num(p, "offset", 0, i64::MAX)?;
+    let limit = num(p, "limit", 1, 100)?;
+    let instance = tx.query_opt("SELECT plan,state,archived_at IS NOT NULL FROM composition_instances WHERE id=$1 AND principal=$2", &[&task,&principal]).map_err(db_error)?.ok_or("not_found")?;
+    let (table, columns, order) = match section {
+        "nodes" => ("composition_nodes", "json_build_object('path',path,'kind',kind,'state',state)::text", "path"),
+        "attempts" => ("composition_attempts", "json_build_object('path',path,'revision',revision,'workflow',workflow,'identity',identity,'run_id',run_id,'state',state)::text", "path,revision"),
+        "scopes" => ("composition_scopes", "json_build_object('path',path,'deadline',deadline)::text", "path"),
+        _ => return err("invalid_graph_selector"),
+    };
+    let total: i64 = tx.query_one(&format!("SELECT count(*) FROM {table} WHERE instance=$1"), &[&task]).map_err(db_error)?.get(0);
+    let mut items = vec![];
+    let mut size = 1024;
+    for row in tx.query(&format!("SELECT {columns} FROM {table} WHERE instance=$1 ORDER BY {order} LIMIT $2 OFFSET $3"), &[&task,&limit,&offset]).map_err(db_error)? {
+        let value = decode(row.get(0))?;
+        let bytes = value.to_string().len();
+        if !items.is_empty() && size + bytes > 24000 { break; }
+        size += bytes;
+        items.push(value);
+    }
+    let next = offset + items.len() as i64;
+    Ok(json!({"task_id":task,"archived":instance.get::<_,bool>(2),"workflow":instance.get::<_,&str>(0),"state":instance.get::<_,&str>(1),"section":section,"items":items,"total":total,"next_offset":if next<total {Some(next)} else {None}}))
+}
+
+fn archive_task(tx: &mut Transaction, p: &Value) -> Result<Value> {
+    let task = id(p, "task_id")?;
+    let principal = id(p, "principal")?;
+    let row = tx.query_opt("SELECT state,input,result,updated,archived_at,input_digest,output_digest,owner IS NOT NULL AND owner_epoch=(SELECT epoch FROM authority WHERE singleton),revision FROM service_tasks WHERE id=$1 AND principal=$2", &[&task,&principal]).map_err(db_error)?.ok_or("not_found")?;
+    if let Some(archived) = row.get::<_,Option<i64>>(4) {
+        return Ok(json!({"state":row.get::<_,&str>(0),"archived_at":archived,"input_digest":row.get::<_,Option<&str>>(5),"output_digest":row.get::<_,Option<&str>>(6)}));
+    }
+    let current = now(tx)?;
+    let age = num(p,"older_than_seconds",0,i64::MAX/1000)?;
+    if !matches!(row.get::<_,&str>(0),"completed"|"failed"|"cancelled") || row.get::<_,i64>(3)>current.saturating_sub(age*1000) || row.get::<_,bool>(7) {
+        return err("task_not_archivable");
+    }
+    let retained:bool=tx.query_one("SELECT EXISTS(SELECT 1 FROM artifact_links WHERE state<>'released')",&[]).map_err(db_error)?.get(0);
+    if retained { return err("task_not_archivable"); }
+    for execution in tx.query("SELECT run,state,revision FROM service_executions WHERE task=$1",&[&task]).map_err(db_error)? {
+        if !(matches!(execution.get::<_,&str>(1),"completed"|"failed"|"cancelled") || execution.get::<_,i64>(2)<row.get::<_,i64>(8) && matches!(execution.get::<_,&str>(1),"input_required"|"auth_required")) || !settled_run(tx,execution.get(0))? { return err("task_not_archivable"); }
+    }
+    let input_digest = hash(&decode(row.get(1))?);
+    let output_digest = row.get::<_,Option<&str>>(2).map(decode).transpose()?.as_ref().map(hash);
+    let floor:i64=tx.query_one("SELECT coalesce(max(seq),0) FROM service_task_events WHERE task=$1",&[&task]).map_err(db_error)?.get(0);
+    tx.execute("UPDATE service_tasks SET input='{}',result=NULL,archived_at=$2,input_digest=$3,output_digest=$4,event_floor=$5,owner=NULL,owner_epoch=NULL WHERE id=$1",&[&task,&current,&input_digest,&output_digest,&floor]).map_err(db_error)?;
+    tx.execute("UPDATE service_executions SET input='{}' WHERE task=$1",&[&task]).map_err(db_error)?;
+    tx.execute("DELETE FROM service_task_events WHERE task=$1",&[&task]).map_err(db_error)?;
+    let evidence=json!({"operator":p["operator"],"reason":p["reason"],"request_key":p["request_key"],"input_digest":input_digest,"output_digest":output_digest,"event_floor":floor,"allocation_changed":false});
+    tx.execute("INSERT INTO service_task_events(task,event,data,created) VALUES($1,'archived',$2,$3)",&[&task,&evidence.to_string(),&current]).map_err(db_error)?;
+    Ok(json!({"state":row.get::<_,&str>(0),"archived_at":current,"input_digest":input_digest,"output_digest":output_digest}))
+}
+
+fn archive(tx: &mut Transaction, p: &Value) -> Result<Value> {
+    fields(p,&["kind","task_id","principal","operator","reason","request_key","older_than_seconds"],&[])?;
+    let kind = field(p,"kind")?;
+    if !matches!(kind,"tasks"|"workflows") { return err("invalid_archive_kind"); }
+    id(p,"task_id")?;id(p,"principal")?;id(p,"operator")?;
+    let key=id(p,"request_key")?;
+    let reason=field(p,"reason")?;
+    if reason.trim().is_empty() || reason.len()>2048 || reason.chars().any(char::is_control) {return err("invalid_retention_request")}
+    num(p,"older_than_seconds",0,i64::MAX/1000)?;
+    let digest=hash(p);
+    if let Some(row)=tx.query_opt("SELECT digest,receipt FROM operator_retention WHERE request_key=$1",&[&key]).map_err(db_error)? {
+        if row.get::<_,&str>(0)!=digest {return err("retention_request_conflict")}
+        return decode(row.get(1));
+    }
+    let task=id(p,"task_id")?;
+    if pending_delivery(tx,task)? {return err("pending_delivery_retained");}
+    let run_sql=if kind=="tasks" {"SELECT DISTINCT run FROM service_executions WHERE task=$1"} else {"SELECT DISTINCT run_id FROM composition_attempts WHERE instance=$1"};
+    let runs:Vec<String>=tx.query(run_sql,&[&task]).map_err(db_error)?.into_iter().map(|r|r.get(0)).collect();
+    let saved=if kind=="tasks" {archive_task(tx,p)?} else {
+        let mut mapped=p.clone();mapped["instance"]=p["task_id"].clone();
+        crate::shared_composition::archive(tx,&mapped)?
+    };
+    for run in &runs {
+        if tx.query_opt("SELECT 1 FROM host_runs WHERE run=$1",&[&run]).map_err(db_error)?.is_some() { crate::shared_archive::archive_run(tx,run)?; }
+    }
+    let mut targets=runs;targets.push(task.to_owned());
+    let command_archive=crate::shared_commands::archive(tx,&targets)?;
+    let receipt=json!({"command_archive":command_archive,"format":"mas-retention/1","kind":kind,"task_id":p["task_id"],"principal":p["principal"],"operator":p["operator"],"reason":reason,"request_key":key,"archived":true,"archived_at":saved["archived_at"],"state":saved["state"],"input_digest":saved["input_digest"],"result_digest":saved["output_digest"],"allocation_changed":false});
+    tx.execute("INSERT INTO operator_retention(request_key,digest,receipt) VALUES($1,$2,$3)",&[&key,&digest,&receipt.to_string()]).map_err(db_error)?;
+    Ok(receipt)
 }

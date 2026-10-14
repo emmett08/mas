@@ -129,10 +129,13 @@ pub fn remember_request(
     tx.execute("INSERT INTO service_requests(principal,namespace,epoch,key,digest,kind,target) VALUES($1,$2,$3,$4,$5,$6,$7)",&[&principal,&namespace,&epoch,&key,&digest,&kind,&target]).map_err(db_error)?;
     Ok(())
 }
+fn prune_epoch_requests(tx:&mut Transaction<'_>,principal:&str,namespace:&str,epoch:&str)->Result<()> {
+    tx.execute("DELETE FROM service_requests r WHERE principal=$1 AND namespace=$2 AND epoch=$3 AND (EXISTS(SELECT 1 FROM service_tasks t WHERE t.id=r.target AND t.archived_at IS NOT NULL) OR EXISTS(SELECT 1 FROM composition_instances i WHERE i.id=r.target AND i.archived_at IS NOT NULL))",&[&principal,&namespace,&epoch]).map_err(db_error)?;Ok(())
+}
 pub(crate) fn check_submission(tx:&mut Transaction<'_>,principal:&str)->Result<()> {
     let global=tx.query_one("SELECT max_tasks,max_pending FROM service_task_policy WHERE singleton",&[]).map_err(db_error)?;
     let policy=tx.query_opt("SELECT max_tasks,max_pending FROM service_principal_limits WHERE principal=$1",&[&principal]).map_err(db_error)?.ok_or("principal_quota_unavailable")?;
-    let rows=tx.query_one("SELECT (SELECT count(*) FROM service_tasks)+(SELECT count(*) FROM composition_instances),(SELECT count(*) FROM service_tasks WHERE principal=$1)+(SELECT count(*) FROM composition_instances WHERE principal=$1)",&[&principal]).map_err(db_error)?;
+    let rows=tx.query_one("SELECT (SELECT count(*) FROM service_tasks WHERE archived_at IS NULL)+(SELECT count(*) FROM composition_instances WHERE archived_at IS NULL),(SELECT count(*) FROM service_tasks WHERE principal=$1 AND archived_at IS NULL)+(SELECT count(*) FROM composition_instances WHERE principal=$1 AND archived_at IS NULL)",&[&principal]).map_err(db_error)?;
     if rows.get::<_,i64>(0)>=global.get::<_,i64>(0){return Err("task_limit".into());}
     if rows.get::<_,i64>(1)>=policy.get::<_,i64>(0){return Err("principal_task_limit".into());}
     let rows=tx.query_one("WITH pending AS (SELECT principal FROM service_tasks t WHERE state NOT IN ('completed','failed','cancelled') OR EXISTS(SELECT 1 FROM service_executions e WHERE e.task=t.id AND e.state IN ('running','unknown')) UNION ALL SELECT principal FROM composition_instances i WHERE state NOT IN ('completed','failed','cancelled','expired') OR EXISTS(SELECT 1 FROM composition_attempts a WHERE a.instance=i.id AND a.state IN ('running','unknown'))) SELECT count(*),count(*) FILTER(WHERE principal=$1) FROM pending",&[&principal]).map_err(db_error)?;
@@ -150,7 +153,7 @@ pub(crate) fn acquire_slot(tx:&mut Transaction<'_>,assignment:&str,principal:&st
     tx.execute("INSERT INTO service_slots VALUES($1,$2,$3,$4,$5,$6,$7)",&[&assignment,&principal,&workflow,&identity,&json!(resources).to_string(),&owner,&epoch]).map_err(db_error)?;
     tx.execute("UPDATE service_scheduler SET last_principal=$1 WHERE singleton",&[&principal]).map_err(db_error)?;Ok(true)
 }
-fn available_resources(tx:&mut Transaction<'_>,principal:&str,workflow:&str,identity:&str)->Result<Option<Vec<Value>>> {
+pub(crate) fn available_resources(tx:&mut Transaction<'_>,principal:&str,workflow:&str,identity:&str)->Result<Option<Vec<Value>>> {
     let row=tx.query_one("SELECT policy FROM service_scheduler WHERE singleton",&[]).map_err(db_error)?;let policy=decode(row.get(0))?;
     let active=tx.query("SELECT principal,workflow,resources FROM service_slots",&[]).map_err(db_error)?;
     if active.len()>=number(&policy,"max_workers",1,256)? as usize||active.iter().filter(|r|r.get::<_,String>(0)==principal).count()>=number(&policy,"max_per_principal",1,256)? as usize||active.iter().filter(|r|r.get::<_,String>(1)==workflow).count()>=policy["workflows"][workflow].as_i64().unwrap_or(number(&policy,"max_workers",1,256)?) as usize{return Ok(None);}
@@ -164,11 +167,13 @@ pub(crate) fn release_slot(tx:&mut Transaction<'_>,assignment:&str,owner:&str)->
     let epoch=current_epoch(tx)?;tx.execute("DELETE FROM service_slots WHERE assignment=$1 AND owner=$2 AND epoch=$3",&[&assignment,&owner,&epoch]).map_err(db_error)?;Ok(())
 }
 fn task_row(row: Row) -> Result<Value> {
-    Ok(
-        json!({"task_id":row.get::<_,String>(0),"principal":row.get::<_,String>(1),"request_namespace":row.get::<_,String>(2),"request_epoch":row.get::<_,String>(3),"request_key":row.get::<_,String>(4),"workflow":row.get::<_,String>(5),"workflow_identity":row.get::<_,String>(6),"state":row.get::<_,String>(7),"input":decode(row.get::<_,&str>(8))?,"metadata":decode(row.get::<_,&str>(9))?,"result":row.get::<_,Option<String>>(10).as_deref().map(decode).transpose()?,"error":row.get::<_,Option<String>>(11).as_deref().map(decode).transpose()?,"revision":row.get::<_,i64>(12),"cancel_requested":row.get::<_,bool>(13),"created_at":row.get::<_,i64>(14),"updated_at":row.get::<_,i64>(15)}),
-    )
+    let mut value=
+        json!({"task_id":row.get::<_,String>(0),"principal":row.get::<_,String>(1),"request_namespace":row.get::<_,String>(2),"request_epoch":row.get::<_,String>(3),"request_key":row.get::<_,String>(4),"workflow":row.get::<_,String>(5),"workflow_identity":row.get::<_,String>(6),"state":row.get::<_,String>(7),"input":decode(row.get::<_,&str>(8))?,"metadata":decode(row.get::<_,&str>(9))?,"result":row.get::<_,Option<String>>(10).as_deref().map(decode).transpose()?,"error":row.get::<_,Option<String>>(11).as_deref().map(decode).transpose()?,"revision":row.get::<_,i64>(12),"cancel_requested":row.get::<_,bool>(13),"created_at":row.get::<_,i64>(14),"updated_at":row.get::<_,i64>(15)});
+    value["event_floor"]=json!(row.get::<_,i64>(19));
+    if let Some(archived)=row.get::<_,Option<i64>>(16){value["archived"]=json!(true);value["archived_at"]=json!(archived);value["result_available"]=json!(false);value["result_digest"]=json!(row.get::<_,Option<String>>(18));}
+    Ok(value)
 }
-const TASK:&str="SELECT id,principal,namespace,epoch,request_key,workflow,identity,state,input,metadata,result,error,revision,cancel_requested,created,updated FROM service_tasks";
+const TASK:&str="SELECT id,principal,namespace,epoch,request_key,workflow,identity,state,input,metadata,result,error,revision,cancel_requested,created,updated,archived_at,input_digest,output_digest,event_floor FROM service_tasks";
 fn task(tx: &mut Transaction<'_>, p: &str, t: &str) -> Result<Value> {
     let mut value = task_row(
         tx.query_opt(
@@ -327,7 +332,7 @@ pub fn apply(tx: &mut Transaction<'_>, op: &str, p: &Value) -> Result<Value> {
             {
                 return Err("definition_is_current".into());
             }
-            if tx.query_opt("SELECT 1 FROM service_tasks WHERE workflow=$1 AND identity=$2 AND state NOT IN ('completed','failed','cancelled') LIMIT 1",&[&n,&i]).map_err(db_error)?.is_some(){return Err("definition_in_use".into());}
+            if tx.query_opt("SELECT 1 FROM service_tasks t WHERE workflow=$1 AND identity=$2 AND (state NOT IN ('completed','failed','cancelled') OR EXISTS(SELECT 1 FROM service_executions e WHERE e.task=t.id AND e.state IN ('running','unknown'))) LIMIT 1",&[&n,&i]).map_err(db_error)?.is_some(){return Err("definition_in_use".into());}
             if crate::shared_composition::definition_in_use(tx, k, n, i)? {
                 return Err("definition_in_use".into());
             }
@@ -363,9 +368,7 @@ pub fn apply(tx: &mut Transaction<'_>, op: &str, p: &Value) -> Result<Value> {
             let ident = digest(p, "identity")?;
             if let Some(old) = request(tx, principal, ns, ep, key, dig, "task")? {
                 let saved = task(tx, principal, &old)?;
-                if p["expected_identity"]
-                    .as_str()
-                    .is_some_and(|i| saved["workflow_identity"] != i)
+                if !p["expected_identity"].is_null() && p["expected_identity"] != saved["workflow_identity"]
                 {
                     return Err("workflow_identity_mismatch".into());
                 }
@@ -378,7 +381,9 @@ pub fn apply(tx: &mut Transaction<'_>, op: &str, p: &Value) -> Result<Value> {
             {
                 return Err("definition_unavailable".into());
             }
-            if p["expected_identity"].as_str().is_some_and(|i| i != ident) {
+            let current=tx.query_opt("SELECT identity FROM service_aliases WHERE kind='workflow' AND name=$1",&[&name]).map_err(db_error)?;
+            if current.is_none_or(|row|row.get::<_,String>(0)!=ident){return Err("workflow_changed".into());}
+            if !p["expected_identity"].is_null() && p["expected_identity"] != ident {
                 return Err("workflow_identity_mismatch".into());
             }
             check_submission(tx,principal)?;
@@ -529,6 +534,8 @@ pub fn apply(tx: &mut Transaction<'_>, op: &str, p: &Value) -> Result<Value> {
             let key = text(p, "key")?;
             let dig = digest(p, "digest")?;
             if let Some(old) = request(tx, principal, ns, ep, key, dig, "task")? {
+                if old!=id{return Err("request_conflict".into());}
+                if !p["expected_identity"].is_null() && p["expected_identity"]!=saved["workflow_identity"]{return Err("workflow_identity_mismatch".into());}
                 return task(tx, principal, &old);
             }
             if !["input_required", "auth_required"].contains(&saved["state"].as_str().unwrap())
@@ -539,9 +546,7 @@ pub fn apply(tx: &mut Transaction<'_>, op: &str, p: &Value) -> Result<Value> {
             if p["expected_revision"].as_i64() != saved["revision"].as_i64() {
                 return Err("request_conflict".into());
             }
-            if p["expected_identity"]
-                .as_str()
-                .is_some_and(|i| saved["workflow_identity"] != i)
+            if !p["expected_identity"].is_null() && p["expected_identity"] != saved["workflow_identity"]
             {
                 return Err("workflow_identity_mismatch".into());
             }
@@ -629,12 +634,19 @@ pub fn apply(tx: &mut Transaction<'_>, op: &str, p: &Value) -> Result<Value> {
             if ns != "mas-unified/1" {
                 return Err("invalid_request_namespace".into());
             }
+            let reason = text(p, "reason")?;
+            let actor = text(p, "authoriser")?;
+            let prune=p["prune"].as_bool().ok_or("invalid_epoch_retirement")?;
+            if let Some(old)=tx.query_opt("SELECT reason,prune FROM service_epochs WHERE principal=$1 AND namespace=$2 AND epoch=$3",&[&principal,&ns,&ep]).map_err(db_error)?{
+                if old.get::<_,String>(0)!=reason||old.get::<_,bool>(1)!=prune{return Err("request_conflict".into());}
+                if prune{prune_epoch_requests(tx,principal,ns,ep)?;}
+                return query(tx,"epoch.status",p);
+            }
             if tx.query_opt("SELECT 1 FROM service_tasks t JOIN service_executions e ON e.task=t.id WHERE t.principal=$1 AND t.namespace=$2 AND t.epoch=$3 AND (t.state NOT IN ('completed','failed','cancelled') OR e.state IN ('running','unknown')) LIMIT 1",&[&principal,&ns,&ep]).map_err(db_error)?.is_some(){return Err("request_epoch_in_use".into());}
             if tx.query_opt("SELECT 1 FROM composition_instances i LEFT JOIN composition_attempts a ON a.instance=i.id WHERE i.principal=$1 AND i.request_namespace=$2 AND i.request_epoch=$3 AND (i.state NOT IN ('completed','failed','cancelled','expired') OR a.state IN ('running','unknown')) LIMIT 1",&[&principal,&ns,&ep]).map_err(db_error)?.is_some(){return Err("request_epoch_in_use".into());}
             let t = timestamp(tx)?;
-            let reason = text(p, "reason")?;
-            let actor = text(p, "authoriser")?;
-            tx.execute("INSERT INTO service_epochs VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT(principal,namespace,epoch) DO NOTHING",&[&principal,&ns,&ep,&reason,&actor,&t]).map_err(db_error)?;
+            tx.execute("INSERT INTO service_epochs(principal,namespace,epoch,reason,authoriser,created,prune) VALUES($1,$2,$3,$4,$5,$6,$7)",&[&principal,&ns,&ep,&reason,&actor,&t,&prune]).map_err(db_error)?;
+            if prune{prune_epoch_requests(tx,principal,ns,ep)?;}
             query(tx, "epoch.status", p)
         }
         _ => Err("unknown_shared_task_command".into()),
@@ -662,12 +674,18 @@ pub fn query(tx: &mut Transaction<'_>, op: &str, p: &Value) -> Result<Value> {
  "task.policy"=>Ok(tx.query_opt("SELECT max_tasks,max_pending,max_revisions FROM service_task_policy WHERE singleton",&[]).map_err(db_error)?.map(|r|json!({"max_tasks":r.get::<_,i64>(0),"max_pending":r.get::<_,i64>(1),"max_revisions":r.get::<_,i64>(2)})).unwrap_or(Value::Null)),
  "task.principal_policy"=>Ok(tx.query_opt("SELECT max_tasks,max_pending FROM service_principal_limits WHERE principal=$1",&[&text(p,"principal")?]).map_err(db_error)?.map(|r|json!({"max_tasks":r.get::<_,i64>(0),"max_pending":r.get::<_,i64>(1)})).unwrap_or(Value::Null)),
  "task.scheduler"=>{let Some(r)=tx.query_opt("SELECT policy,last_principal FROM service_scheduler WHERE singleton",&[]).map_err(db_error)? else{return Ok(Value::Null)};Ok(json!({"policy":decode(r.get(0))?,"last_principal":r.get::<_,String>(1),"occupied":tx.query_one("SELECT count(*) FROM service_slots",&[]).map_err(db_error)?.get::<_,i64>(0)}))},
- "task.pending"=>{let epoch=current_epoch(tx)?;Ok(json!(tx.query("SELECT t.id,t.principal,t.created FROM service_tasks t JOIN service_executions e ON e.task=t.id AND e.revision=t.revision WHERE e.state IN ('queued','running','blocked') AND (t.owner IS NULL OR t.owner_epoch<>$1) ORDER BY e.seq LIMIT 1000",&[&epoch]).map_err(db_error)?.iter().map(|r|json!({"task_id":r.get::<_,String>(0),"principal":r.get::<_,String>(1),"created_at":r.get::<_,i64>(2)})).collect::<Vec<_>>()))},
+ "task.pending"=>{
+    let epoch=current_epoch(tx)?;let after=p["after"].as_i64().unwrap_or(0);let limit=p["limit"].as_i64().unwrap_or(1000).clamp(1,1000);
+    let rows=tx.query("SELECT t.id,t.principal,t.created,t.workflow,t.identity,t.state,e.seq FROM service_tasks t JOIN service_executions e ON e.task=t.id AND e.revision=t.revision WHERE e.state IN ('queued','running','blocked') AND (t.owner IS NULL OR t.owner_epoch<>$1) AND e.seq>$2 ORDER BY e.seq LIMIT $3",&[&epoch,&after,&(limit+1)]).map_err(db_error)?;
+    let next=if rows.len()>limit as usize{json!(rows[limit as usize-1].get::<_,i64>(6))}else{Value::Null};
+    Ok(json!({"tasks":rows.iter().take(limit as usize).map(|r|json!({"task_id":r.get::<_,String>(0),"principal":r.get::<_,String>(1),"created_at":r.get::<_,i64>(2),"workflow":r.get::<_,String>(3),"workflow_identity":r.get::<_,String>(4),"state":r.get::<_,String>(5)})).collect::<Vec<_>>(),"next":next}))
+ },
+ "task.peek"=>Ok(tx.query_opt("SELECT id,principal,workflow,identity,state FROM service_tasks WHERE id=$1",&[&text(p,"task")?]).map_err(db_error)?.map(|r|json!({"task_id":r.get::<_,String>(0),"principal":r.get::<_,String>(1),"workflow":r.get::<_,String>(2),"workflow_identity":r.get::<_,String>(3),"state":r.get::<_,String>(4)})).unwrap_or(Value::Null)),
  "task.inspect"=>task(tx,text(p,"principal")?,text(p,"task")?),
  "task.request"=>{let principal=text(p,"principal")?;let ns=text(p,"namespace")?;let ep=optional_text(p,"epoch")?;open_epoch(tx,principal,ns,ep)?;Ok(tx.query_opt("SELECT digest,target,kind FROM service_requests WHERE principal=$1 AND namespace=$2 AND epoch=$3 AND key=$4",&[&principal,&ns,&ep,&text(p,"key")?]).map_err(db_error)?.map(|r|json!({"digest":r.get::<_,String>(0),"target":r.get::<_,String>(1),"kind":r.get::<_,String>(2)})).unwrap_or(Value::Null))},
- "task.events"=>{let principal=text(p,"principal")?;let id=text(p,"task")?;task(tx,principal,id)?;let after=number(p,"after",0,i64::MAX)?;let limit=number(p,"limit",1,1000)?;let rows=tx.query("SELECT seq,event,data,created FROM service_task_events WHERE task=$1 AND seq>$2 ORDER BY seq LIMIT $3",&[&id,&after,&(limit+1)]).map_err(db_error)?;let mut out=vec![];for r in rows.iter().take(limit as usize){out.push(json!({"id":r.get::<_,i64>(0),"event":r.get::<_,String>(1),"data":decode(r.get::<_,&str>(2))?,"created_at":r.get::<_,i64>(3)}));}Ok(json!({"has_more":rows.len()>limit as usize,"next_after":out.last().map(|x|x["id"].clone()).unwrap_or(json!(after)),"events":out}))},
+ "task.events"=>{let principal=text(p,"principal")?;let id=text(p,"task")?;let saved=task(tx,principal,id)?;let after=number(p,"after",0,i64::MAX)?;if after<saved["event_floor"].as_i64().unwrap_or(0){return Err("event_cursor_expired".into());}let limit=number(p,"limit",1,1000)?;let rows=tx.query("SELECT seq,event,data,created FROM service_task_events WHERE task=$1 AND seq>$2 ORDER BY seq LIMIT $3",&[&id,&after,&(limit+1)]).map_err(db_error)?;let mut out=vec![];for r in rows.iter().take(limit as usize){out.push(json!({"id":r.get::<_,i64>(0),"event":r.get::<_,String>(1),"data":decode(r.get::<_,&str>(2))?,"created_at":r.get::<_,i64>(3)}));}Ok(json!({"has_more":rows.len()>limit as usize,"next_after":out.last().map(|x|x["id"].clone()).unwrap_or(json!(after)),"events":out}))},
  "task.list"=>{let principal=text(p,"principal")?;let limit=number(p,"limit",1,1000)?;let names=p["workflows"].as_array().ok_or("invalid_workflows")?.iter().map(|x|x.as_str().map(str::to_owned).ok_or("invalid_workflows")).collect::<std::result::Result<Vec<String>,_>>()?;let state=p["state"].as_str();let updated=p["updated_after"].as_i64();let after_time=p["after"][0].as_i64();let after_id=p["after"][1].as_str();let metadata=obj(p,"metadata")?;let where_clause=" WHERE principal=$1 AND workflow=ANY($2) AND ($3::text IS NULL OR state=$3) AND ($4::bigint IS NULL OR updated>=$4) AND metadata::jsonb @> $5::text::jsonb";let count:i64=tx.query_one(&("SELECT count(*) FROM service_tasks".to_string()+where_clause),&[&principal,&names,&state,&updated,&metadata]).map_err(db_error)?.get(0);let rows=tx.query(&(TASK.to_string()+where_clause+" AND ($6::bigint IS NULL OR updated<$6 OR (updated=$6 AND id<$7)) ORDER BY updated DESC,id DESC LIMIT $8"),&[&principal,&names,&state,&updated,&metadata,&after_time,&after_id,&(limit+1)]).map_err(db_error)?;let mut more=rows.len()>limit as usize;let mut values:Vec<Value>=vec![];let mut size=1024;for row in rows.into_iter().take(limit as usize){let mut value=task_row(row)?;value.as_object_mut().unwrap().remove("input");let id=value["task_id"].as_str().unwrap().to_owned();value["timing"]=crate::shared_timing::status(tx,&id,"")?;let bytes=value.to_string().len();if size+bytes>512*1024{more=true;break;}size+=bytes;values.push(value);}let next=if more{let v=values.last().unwrap();json!([v["updated_at"],v["task_id"]])}else{Value::Null};Ok(json!({"tasks":values,"total_size":count,"next":next}))},
  "task.executions"=>{let principal=text(p,"principal")?;let id=text(p,"task")?;task(tx,principal,id)?;Ok(json!(tx.query("SELECT revision,run,state FROM service_executions WHERE task=$1 ORDER BY revision",&[&id]).map_err(db_error)?.iter().map(|r|json!({"revision":r.get::<_,i64>(0),"run_id":r.get::<_,String>(1),"state":r.get::<_,String>(2)})).collect::<Vec<_>>()))},
- "epoch.status"=>Ok(tx.query_opt("SELECT reason,authoriser,created FROM service_epochs WHERE principal=$1 AND namespace=$2 AND epoch=$3",&[&text(p,"principal")?,&text(p,"namespace")?,&text(p,"epoch")?]).map_err(db_error)?.map(|r|json!({"state":"retired","reason":r.get::<_,String>(0),"authoriser":r.get::<_,String>(1),"created":r.get::<_,i64>(2)})).unwrap_or(json!({"state":"open"}))),
+ "epoch.status"=>Ok(tx.query_opt("SELECT reason,authoriser,created,prune FROM service_epochs WHERE principal=$1 AND namespace=$2 AND epoch=$3",&[&text(p,"principal")?,&text(p,"namespace")?,&text(p,"epoch")?]).map_err(db_error)?.map(|r|json!({"principal":p["principal"],"namespace":p["namespace"],"epoch":p["epoch"],"state":"retired","reason":r.get::<_,String>(0),"authoriser":r.get::<_,String>(1),"created":r.get::<_,i64>(2),"prune":r.get::<_,bool>(3)})).unwrap_or(json!({"state":"open"}))),
  _=>Err("unknown_shared_task_query".into())}
 }

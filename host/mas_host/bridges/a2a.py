@@ -21,6 +21,14 @@ from .remote_http import BoundedJSONHTTP, endpoint_url
 
 VERSION = '1.0'
 SERVICE_PROFILE = 'urn:mas:task-service:1'
+LIFECYCLE_PROFILE = 'urn:mas:lifecycle-inspection:1'
+LIFECYCLE_METHODS = {
+    'mas/ListTaskPage': ('list_task_page', set(), {'page_size', 'after', 'state', 'metadata', 'updated_after'}),
+    'mas/InspectTask': ('inspect_task', {'task_id', 'path'}, {'revision'}),
+    'mas/InspectGraph': ('inspect_graph', {'task_id'}, {'section', 'offset', 'limit'}),
+    'mas/EventsPage': ('events_page', {'task_id'}, {'after', 'limit'}),
+    'mas/RecoverTask': ('recover', {'task_id'}, set()),
+}
 STATE_TO_WIRE = {
     'queued': 'TASK_STATE_SUBMITTED', 'running': 'TASK_STATE_WORKING',
     'input_required': 'TASK_STATE_INPUT_REQUIRED', 'auth_required': 'TASK_STATE_AUTH_REQUIRED',
@@ -168,7 +176,23 @@ class A2ABridge:
         card['capabilities']['extensions'] = [{'uri': SERVICE_PROFILE, 'required': False,
             'description': 'MAS pinned durable task-service lifecycle, version 1.',
             'params': {'service': discover(principal)}}]
+        card['capabilities']['extensions'].append({'uri': LIFECYCLE_PROFILE, 'required': False,
+            'description': 'MAS bounded graph, leaf and event inspection and evidence-resolved recovery.',
+            'params': {'methods': sorted(name for name, (target, _, _) in LIFECYCLE_METHODS.items()
+                                         if callable(getattr(self.service, target, None)))}})
         return card
+
+    def _lifecycle(self, principal, method, params):
+        target, required, optional = LIFECYCLE_METHODS[method]
+        _fields(params, required | optional)
+        if not required <= set(params):
+            raise A2AError(-32602, 'invalid_parameters')
+        if 'task_id' in params:
+            token(params['task_id'])
+        callback = getattr(self.service, target, None)
+        if not callable(callback):
+            raise A2AError(-32004, 'operation_not_supported')
+        return callback(principal, **params)
 
     def _task(self, receipt: dict, *, include_artifacts=True):
         state = receipt['state']
@@ -307,7 +331,9 @@ class A2ABridge:
         request_id = message.get('id') if type(message) is dict else None
         try:
             method, params = validate_request(message, metadata)
-            if method == 'SendMessage':
+            if method in LIFECYCLE_METHODS:
+                result = self._lifecycle(principal, method, params)
+            elif method == 'SendMessage':
                 result = self._send(principal, params)
             elif method == 'GetTask':
                 _fields(params, ('id', 'historyLength'))

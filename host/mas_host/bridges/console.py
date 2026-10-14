@@ -24,8 +24,8 @@ const status=text=>{$('status').textContent=text;};
 function parse(text){return JSON.parse(text,(_key,value)=>{if(typeof value==='number'&&!Number.isSafeInteger(value))throw Error('The browser requires safe integers. Use the Python client for larger integers or artefacts for scientific data.');return value;});}
 function object(id){const value=parse($(id).value);if(!value||Array.isArray(value)||typeof value!=='object')throw Error('Input must be a JSON object.');return value;}
 function reset(){generation++;for(const request of requests)request.abort();requests.clear();token='';selection=null;events=[];cursor=0;eventTask='';nextPage=null;
- for(const id of ['tasks','workflows','op-owner'])$(id).replaceChildren();for(const id of ['detail','leaf-detail','events','definitions','op-result','op-permissions'])$(id).textContent='';
- for(const id of ['token','task','path','key','reply-key','op-call','op-key','op-reason','op-name','op-identity','op-revision','op-epoch','op-peer-name','op-peer-version','op-query-name','op-query-version'])$(id).value='';for(const id of ['input','reply','op-evidence','op-output','op-limits','op-period','op-charge','op-peer'])$(id).value='{}';$('more').disabled=true;$('op-revision').value='0';$('op-offset').value='0';
+ for(const id of ['tasks','workflows','op-owner'])$(id).replaceChildren();for(const id of ['detail','leaf-detail','graph-detail','events','definitions','op-result','op-permissions'])$(id).textContent='';
+ for(const id of ['token','task','path','key','reply-key','updated-after','op-call','op-key','op-reason','op-name','op-identity','op-revision','op-epoch','op-peer-name','op-peer-version','op-query-name','op-query-version'])$(id).value='';for(const id of ['input','reply','search-metadata','op-evidence','op-output','op-limits','op-period','op-charge','op-peer'])$(id).value='{}';$('more').disabled=true;$('op-revision').value='0';$('op-offset').value='0';$('graph-offset').value='0';
 }
 async function api(operation,input){
  if(!token)throw Error('Connect with your service token first.');
@@ -40,6 +40,7 @@ const isOperator=()=>$('connection-role').value==='operator';
 async function refresh(){const value=isOperator()?await operatorCall('task',ownerTask()):await api('inspect',{task_id:$('task').value});show(value);}
 async function list(more=false){
  const query={page_size:30};if(more&&nextPage)query.after=nextPage;if($('state').value)query.state=$('state').value;
+ if($('search-metadata').value)query.metadata=object('search-metadata');if($('updated-after').value)query.updated_after=parse($('updated-after').value);
  const page=isOperator()?await operatorCall('tasks',{...query,principal:$('op-owner').value}):await api('page',query);if(!more)$('tasks').replaceChildren();
  for(const task of page.tasks){const button=document.createElement('button');button.textContent=task.workflow+' · '+task.state+' · '+task.task_id;button.addEventListener('click',()=>action(async()=>{show(task);await refresh();}));$('tasks').append(button);}
  nextPage=page.next;$('more').disabled=!nextPage;
@@ -60,6 +61,7 @@ $('cancel').onclick=()=>action(async()=>{show(await api('cancel',{task_id:$('tas
 $('recover').onclick=()=>action(async()=>{show(await api('recover',{task_id:$('task').value}));});
 $('continue').onclick=()=>action(async()=>{let input=object('reply');if(selection?.kind==='plan')input={path:$('path').value,input};show(await api('update',{task_id:$('task').value,request_key:$('reply-key').value,input}));});
 $('leaf').onclick=()=>action(async()=>{$('leaf-detail').textContent=JSON.stringify((isOperator()?await operatorCall('task',{...ownerTask(),path:$('path').value}):await api('task',{task_id:$('task').value,path:$('path').value})),null,2);});
+$('graph').onclick=()=>action(async()=>{const query={task_id:$('task').value,section:$('graph-section').value,offset:parse($('graph-offset').value),limit:20};const value=isOperator()?await operatorCall('graph',{...query,principal:$('op-owner').value}):await api('graph',query);$('graph-detail').textContent=JSON.stringify(value,null,2);if(value.next_offset!==null)$('graph-offset').value=String(value.next_offset);});
 $('progress').onclick=()=>action(progress);
 $('new-key').onclick=()=>{$('key').value=crypto.randomUUID();};
 async function operatorCall(operation,input={}){const result=await api('operator/'+operation,input);$('op-result').textContent=JSON.stringify(result,null,2);if(Number.isSafeInteger(result.revision))$('op-revision').value=String(result.revision);return result;}
@@ -92,6 +94,9 @@ $('op-peer-revoke').onclick=()=>action(()=>operatorCall('peer_revoke',{...amendm
 $('op-workers').onclick=()=>action(()=>operatorCall('worker_status'));
 $('op-drain').onclick=()=>action(()=>operatorCall('worker_drain',{...amendment(),draining:$('op-draining').value==='true'}));
 $('op-archive').onclick=()=>action(()=>operatorCall('archive_preview',{kind:$('op-archive-kind').value,older_than_seconds:parse($('op-age').value),...operatorPage()}));
+$('op-archive-apply').onclick=()=>action(()=>operatorCall('archive',{...ownerTask(),kind:$('op-archive-kind').value,older_than_seconds:parse($('op-age').value),request_key:$('op-key').value,reason:$('op-reason').value}));
+$('op-command-capacity').onclick=()=>action(()=>operatorCall('command_capacity'));
+$('op-command-amend').onclick=()=>action(()=>operatorCall('command_capacity_amend',{...object('op-limits'),request_key:$('op-key').value,expected_revision:parse($('op-revision').value),evidence:object('op-evidence')}));
 $('op-definition').onclick=()=>action(()=>operatorCall('definition',definition()));
 $('op-retire').onclick=()=>action(()=>operatorCall('definition_retire',definition()));
 window.addEventListener('pagehide',reset);
@@ -105,6 +110,7 @@ BODY = """<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewp
 <button id="connect">Connect</button><button id="disconnect" class="secondary">Disconnect</button>
 <p class="hint">The token stays in this page's memory. Refreshing or closing the page clears it.</p><p id="status" role="status" aria-live="polite"></p></section>
 <div class="grid"><section><h2>Your tasks</h2><label for="state">State</label><select id="state"><option value="">All states</option><option>queued</option><option>running</option><option>input_required</option><option>auth_required</option><option>blocked</option><option>unknown</option><option>completed</option><option>failed</option><option>cancelled</option></select>
+<label for="search-metadata">Metadata search JSON</label><textarea id="search-metadata" maxlength="8000">{}</textarea><label for="updated-after">Updated after UTC epoch milliseconds (optional)</label><input id="updated-after" inputmode="numeric">
 <button id="refresh-list">Refresh list</button><div id="tasks"></div><button id="more" disabled>Load more</button></section>
 <section><h2>Submit work</h2><label for="workflows">Registration</label><select id="workflows"></select>
 <label for="key">Request key</label><input id="key" maxlength="200"><button id="new-key" class="secondary">New key</button>
@@ -114,6 +120,7 @@ BODY = """<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewp
 <section><h2>Task detail</h2><label for="task">Task ID</label><input id="task" maxlength="200"><button id="inspect">Inspect</button><button id="cancel" class="secondary">Request cancellation</button><button id="recover" class="secondary">Recover after resolution</button>
 <pre id="detail"></pre><p class="hint">Unknown effects require evidence-backed resolution. Cancellation intent does not prove a remote effect stopped.</p>
 <label for="path">Composed leaf path</label><input id="path" maxlength="500" placeholder="root/0"><button id="leaf" class="secondary">Inspect leaf</button><pre id="leaf-detail"></pre>
+<label for="graph-section">Graph structure</label><select id="graph-section"><option value="nodes">Nodes</option><option value="attempts">Execution attempts</option><option value="scopes">Nested scopes</option></select><label for="graph-offset">Graph offset</label><input id="graph-offset" inputmode="numeric" value="0"><button id="graph" class="secondary">Read graph page</button><pre id="graph-detail"></pre>
 <label for="reply-key">Continuation request key</label><input id="reply-key" maxlength="200"><label for="reply">Human input JSON</label><textarea id="reply" maxlength="64000">{}</textarea><button id="continue">Continue paused work</button></section>
 <section><h2>Progress</h2><button id="progress">Read next events</button><p class="hint">Retained events resume from the last received ID. Archived history may require inspecting the compact receipt.</p><pre id="events"></pre></section>
 <section><h2>Operator controls</h2><p class="hint">Operator access requires a separate administrative token scope and explicit grants. Task ownership alone grants no administrative access.</p>
@@ -142,7 +149,8 @@ BODY = """<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewp
 <label for="op-draining">Local dispatcher state</label><select id="op-draining"><option value="true">Drain: stop new assignments</option><option value="false">Resume new assignments</option></select><button id="op-drain">Apply worker state</button>
 <p class="hint">Drain preserves running effects and receipts. It does not establish remote cancellation.</p>
 <label for="op-archive-kind">Retention preview</label><select id="op-archive-kind"><option value="tasks">Tasks</option><option value="workflows">Composed workflows</option><option value="runs">Run files</option></select>
-<label for="op-age">Minimum age in seconds</label><input id="op-age" inputmode="numeric" value="86400"><button id="op-archive">Preview retention eligibility</button></details>
+<label for="op-age">Minimum age in seconds</label><input id="op-age" inputmode="numeric" value="86400"><button id="op-archive">Preview retention eligibility</button><button id="op-archive-apply">Archive selected task or workflow</button><p class="hint">Archival requires both deployment administration and a grant for the selected owner. It removes eligible detailed history while retaining identities and charged allocations. Select Tasks or Composed workflows for this action; run pruning is separate.</p></details>
+<details><summary>Shared command receipt capacity</summary><button id="op-command-capacity">Inspect shared command capacity</button><button id="op-command-amend">Increase shared command capacity</button><p class="hint">Use the amendment fields above, limits JSON with normal_limit and recovery_limit, and evidence JSON. Existing command identities remain retained; this operation is available on the shared profile.</p></details>
 <details><summary>Federation peer administration</summary><button id="op-peer-status">Inspect peer registry</button><label for="op-peer">Versioned peer registration JSON</label><textarea id="op-peer" maxlength="32000">{}</textarea><button id="op-peer-register">Register exact peer version</button><label for="op-peer-name">Peer name to revoke</label><input id="op-peer-name" maxlength="200"><label for="op-peer-version">Peer version to revoke</label><input id="op-peer-version" maxlength="200"><button id="op-peer-revoke">Revoke peer version</button><p class="hint">Peer changes require a separate manage_peers grant. Registration pins endpoint, deployment, workflow identities, callers and capabilities. Credentials stay in trusted startup configuration. Revocation stops future authorisation and does not cancel earlier effects.</p></details>
 <details><summary>Request epoch retention</summary><label for="op-epoch">Explicit client request epoch</label><input id="op-epoch" maxlength="200"><label for="op-prune">Settled receipt retention</label><select id="op-prune"><option value="false">Retain receipts</option><option value="true">Prune eligible receipts after epoch retirement</option></select><button id="op-epoch-status">Inspect epoch</button><button id="op-epoch-retire">Retire drained epoch</button><p class="hint">Retirement permanently closes this epoch to new or delayed requests. The service rejects epochs with unfinished or uncertain work.</p></details>
 <details><summary>Definition availability</summary><label for="op-kind">Definition kind</label><select id="op-kind"><option value="workflow">Workflow</option><option value="plan">Plan</option></select>
