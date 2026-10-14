@@ -124,7 +124,9 @@ class BridgeOperationsTests(unittest.TestCase):
         self.assertTrue({"task-service.sqlite", "remote-tasks.sqlite"}.issubset(manifest["files"]))
         report = restore_state(bundle, restored)
         self.assertEqual(report["health"]["admission_state"], "restored_audit_only")
-        self.assertFalse(prune_runs(restored, 0, apply=True)["runs"][0]["eligible"])
+        self.assertFalse(prune_runs(restored, 0)["runs"][0]["eligible"])
+        with self.assertRaisesRegex(OperationsError, 'audit-only'):
+            prune_runs(restored, 0, apply=True)
         copy = RemoteTaskStore(restored)
         self.assertEqual(copy.status(self.remote_key)["host_run_dir"], directory.name)
         with self.assertRaises(ServiceError):
@@ -181,7 +183,7 @@ class BridgeOperationsTests(unittest.TestCase):
         bundle, restored = self.root / "backup", self.root / "restored"
         backup_state(self.state, bundle)
         restore_state(bundle, restored)
-        result = prune_runs(restored, 0, apply=True)["runs"][0]
+        result = prune_runs(restored, 0)["runs"][0]
         self.assertFalse(result["eligible"])
         self.assertIn("cloud job", result["reason"])
         self.assertTrue((restored / directory.name).exists())

@@ -28,7 +28,7 @@ def load_config(path: Path) -> dict:
         integer_json(value)
         if (type(value) is not dict or type(value.get("version")) is not int or value.get("version") != 1
                 or set(value) - {"version", "mode", "factory", "grants", "auth", "public_url",
-                                 "allowed_hosts", "allowed_origins", "max_pending", "max_tasks"}
+                                 "allowed_hosts", "allowed_origins", "max_pending", "max_tasks", "max_instances", "scheduler"}
                 or type(value.get("grants")) is not dict):
             raise ServiceError("invalid_configuration")
         for principal, workflows in value["grants"].items():
@@ -43,6 +43,11 @@ def load_config(path: Path) -> dict:
 def build_service(config: dict, state_dir: Path):
     from .task_service import DurableTaskService
     from .bridge_workflows import invoice_workflows
+    from .scheduler_capacity import SchedulerPolicy
+    try:
+        scheduler_policy = SchedulerPolicy(**config['scheduler']) if 'scheduler' in config else None
+    except (TypeError, ValueError):
+        raise ServiceError('invalid_scheduler_policy') from None
     if "factory" in config:
         target = config["factory"]
         if type(target) is not str or not re.fullmatch(r"[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*:[A-Za-z_]\w*", target):
@@ -50,11 +55,21 @@ def build_service(config: dict, state_dir: Path):
         module, name = target.split(":")
         # This is local operator configuration, never a remotely supplied name.
         workflows = getattr(importlib.import_module(module), name)()
+        if (type(workflows) is dict and 'plans' in workflows and 'workflows' in workflows
+                and set(workflows) <= {'plans', 'workflows', 'grants', 'workflow_versions'}):
+            from .unified_service import UnifiedTaskService
+            return UnifiedTaskService(state_dir, workflows['workflows'], workflows['plans'],
+                {principal: set(names) for principal, names in config['grants'].items()},
+                workflow_versions=workflows.get('workflow_versions'),
+                max_pending=config.get('max_pending', 1000), max_tasks=config.get('max_tasks', 10000),
+                max_instances=config.get('max_instances', 1000), scheduler_policy=scheduler_policy,
+                mas_bin=os.environ.get('MAS_BIN', 'mas'), gateway_bin=os.environ.get('MAS_GATEWAY_BIN', 'mas-gateway'))
     else:
         workflows = invoice_workflows(mode=config.get("mode", "mock"))
     return DurableTaskService(state_dir, workflows,
         {principal: set(names) for principal, names in config["grants"].items()},
         max_pending=config.get("max_pending", 1000), max_tasks=config.get("max_tasks", 10000),
+        scheduler_policy=scheduler_policy,
         mas_bin=os.environ.get("MAS_BIN", "mas"), gateway_bin=os.environ.get("MAS_GATEWAY_BIN", "mas-gateway"))
 
 
@@ -69,3 +84,4 @@ def build_verifier(config: dict):
             "type", "issuer", "resource", "introspection_url", "client_id", "client_secret_file"}:
         return OAuthIntrospectionVerifier(**{key: value for key, value in auth.items() if key != "type"})
     raise ServiceError("invalid_auth_configuration")
+

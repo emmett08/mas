@@ -323,14 +323,14 @@ class TaskServiceTests(unittest.TestCase):
         with self.assertRaisesRegex(ServiceError, "unsupported capability"):
             unsupported.update("alice", receipt["task_id"], "response", {})
 
-    def test_frozen_registration_rejects_changed_topology_and_mutation(self):
+    def test_version_upgrade_preserves_history_and_mutation_blocks_dispatch(self):
         service = self.service()
         task = service.submit("alice", "first", "echo", {})
-        with self.assertRaisesRegex(ServiceError, "workflow changed"):
-            self.service(workflow=replace(self.workflow, version="echo/2"))
+        upgraded = self.service(workflow=replace(self.workflow, version="echo/2"))
+        self.assertEqual(upgraded.inspect("alice", task["task_id"])["state"], "queued")
         self.workflow.topology["max_calls"] += 1
-        with self.assertRaisesRegex(ServiceError, "workflow changed"):
-            service.run_once()
+        self.assertEqual(service.run_once()["state"], "blocked")
+        self.assertEqual(service.inspect("alice", task["task_id"])["state"], "blocked")
         self.assertEqual(service.operations.health()["usage"]["runs"], 0)
 
     def test_future_schema_is_rejected_without_writing(self):

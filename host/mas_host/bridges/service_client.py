@@ -43,12 +43,12 @@ def validate_endpoint(endpoint, *, allow_loopback_http=False):
 
 def http_exchange(endpoint, *, method="POST", body=None, headers=None,
                   timeout_seconds=5, max_response_bytes=65536, allow_loopback_http=False,
-                  sse_response_id=None):
+                  sse_response_id=None, transport_policy=None):
     """One explicit HTTP request with an absolute, thread-compatible deadline.
 
     A small disposable subprocess prevents socket/DNS implementation details
     from defeating the deadline. Private pipes carry authentication. The child
-    uses stdlib HTTP directly, with no environment proxies and no redirects.
+    uses stdlib HTTP with explicit proxy/CA policy, no ambient settings or redirects.
     """
     validate_endpoint(endpoint, allow_loopback_http=allow_loopback_http)
     if (type(timeout_seconds) not in (int, float) or not 0 < timeout_seconds <= 300
@@ -64,10 +64,18 @@ def http_exchange(endpoint, *, method="POST", body=None, headers=None,
                 or any(ord(c) < 32 or ord(c) > 126 for c in value)
                 or len(value) > 16384):
             raise ServiceError("invalid_transport_configuration")
+        if key.lower() == 'proxy-authorization':
+            raise ServiceError('invalid_transport_configuration')
+    policy_wire = None
+    if transport_policy is not None:
+        from .http_policy import HTTPTransportPolicy
+        if not isinstance(transport_policy, HTTPTransportPolicy):
+            raise ServiceError('invalid_transport_policy')
+        policy_wire = transport_policy.wire(endpoint)
     wire = json.dumps({"endpoint": endpoint, "method": method, "headers": header_map,
                        "body": base64.b64encode(body).decode() if body is not None else None,
                        "timeout_seconds": timeout_seconds, "max_response_bytes": max_response_bytes,
-                       "sse_response_id": sse_response_id},
+                       "sse_response_id": sse_response_id, "transport_policy": policy_wire},
                       separators=(",", ":")).encode()
     process = None
     try:
@@ -121,7 +129,7 @@ def decode_integer_json(payload, *, max_bytes=65536):
 class TaskServiceClient:
     """TaskService port over authenticated HTTP, bound to one local principal."""
     def __init__(self, endpoint, *, token_file, principal, timeout_seconds=10,
-                 allow_loopback_http=False, transport=None):
+                 allow_loopback_http=False, transport=None, transport_policy=None):
         parsed = validate_endpoint(endpoint, allow_loopback_http=allow_loopback_http)
         if parsed.path not in ("", "/", "/service"):
             raise ServiceError("invalid_endpoint")
@@ -131,17 +139,19 @@ class TaskServiceClient:
         self.timeout_seconds = timeout_seconds
         self.allow_loopback_http = allow_loopback_http
         self._transport = transport or http_exchange
+        self.transport_policy = transport_policy
 
     def _request(self, principal, operation, payload):
         if principal != self.principal:
             raise ServiceError("principal_mismatch")
         body = integer_json(payload, MAX_WIRE_BYTES).encode()
+        options = {'transport_policy': self.transport_policy} if self.transport_policy is not None else {}
         status, _headers, raw = self._transport(
             self.endpoint + "/service/" + operation, method="POST", body=body,
             headers={"Authorization": "Bearer " + read_token_file(self.token_file),
                      "Content-Type": "application/json", "Accept": "application/json"},
             timeout_seconds=self.timeout_seconds, max_response_bytes=MAX_WIRE_BYTES,
-            allow_loopback_http=self.allow_loopback_http)
+            allow_loopback_http=self.allow_loopback_http, **options)
         if _headers.get("content-type", "").split(";", 1)[0].strip().lower() != "application/json":
             raise ServiceError("invalid_remote_content_type")
         response = decode_integer_json(raw, max_bytes=MAX_WIRE_BYTES)
@@ -164,10 +174,15 @@ class TaskServiceClient:
             raise ServiceError("invalid_remote_response")
         return result
 
-    def submit(self, principal, request_key, workflow, input, *, metadata=None):
+    def submit(self, principal, request_key, workflow, input, *, metadata=None, expected_identity=None,
+               expected_deployment_id=None):
         payload = {"request_key": request_key, "workflow": workflow, "input": input}
         if metadata is not None:
             payload["metadata"] = metadata
+        if expected_identity is not None:
+            payload["expected_identity"] = expected_identity
+        if expected_deployment_id is not None:
+            payload["expected_deployment_id"] = expected_deployment_id
         return self._request(principal, "submit", payload)
 
     def inspect(self, principal, task_id):
@@ -179,14 +194,49 @@ class TaskServiceClient:
     def cancel(self, principal, task_id):
         return self._request(principal, "cancel", {"task_id": task_id})
 
-    def update(self, principal, task_id, request_key, input, *, metadata=None):
+    def update(self, principal, task_id, request_key, input, *, metadata=None, expected_identity=None,
+               expected_deployment_id=None):
         payload = {"task_id": task_id, "request_key": request_key, "input": input}
         if metadata is not None:
             payload["metadata"] = metadata
+        if expected_identity is not None:
+            payload["expected_identity"] = expected_identity
+        if expected_deployment_id is not None:
+            payload["expected_deployment_id"] = expected_deployment_id
         return self._request(principal, "update", payload)
 
     def events(self, principal, task_id, after=0):
         return self._request(principal, "events", {"task_id": task_id, "after": after})
+
+    def events_page(self, principal, task_id, after=0, limit=100):
+        from ..observability import event_page_arguments, validate_event_page
+        event_page_arguments(after, limit)
+        value = self._request(principal, "events_page", {"task_id": task_id, "after": after, "limit": limit})
+        return validate_event_page(value, after=after, limit=limit)
+
+    def inspect_task(self, principal, task_id, path, revision=None):
+        payload = {"task_id": task_id, "path": path}
+        if revision is not None:
+            payload["revision"] = revision
+        return self._request(principal, "task", payload)
+
+    def discover(self, principal):
+        return self._request(principal, "discover", {})
+
+    def recover(self, principal, task_id):
+        return self._request(principal, "recover", {"task_id": task_id})
+
+    def iter_events(self, principal, task_id, *, after=0, page_size=100, max_pages=1000):
+        """Read bounded pages until caught up; never retry a failed request."""
+        if type(max_pages) is not int or not 1 <= max_pages <= 10000:
+            raise ServiceError("invalid_pagination")
+        for _ in range(max_pages):
+            page = self.events_page(principal, task_id, after=after, limit=page_size)
+            yield from page["events"]
+            after = page["next_after"]
+            if not page["has_more"]:
+                return
+        raise ServiceError("event_page_limit")
 
     def list_tasks(self, principal, limit=100, offset=0):
         return self._request(principal, "list", {"limit": limit, "offset": offset})
@@ -196,3 +246,9 @@ class TaskServiceClient:
         cursor = list(after) if type(after) is tuple else after
         return self._request(principal, "page", {"page_size": page_size, "after": cursor,
             "state": state, "metadata": metadata, "updated_after": updated_after})
+
+    def artifact(self, principal, operation, payload):
+        from .artifact_transfer import OPERATIONS
+        if operation not in OPERATIONS:
+            raise ServiceError("invalid_artifact_request")
+        return self._request(principal, "artifact/" + operation, payload)

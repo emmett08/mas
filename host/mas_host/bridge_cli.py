@@ -1,4 +1,4 @@
-"""Run the bridge server, exclusive worker or trusted local MCP stdio endpoint."""
+"""Run bridge ingress, a bounded process dispatcher or trusted local MCP."""
 from __future__ import annotations
 
 import argparse
@@ -65,6 +65,10 @@ def main(argv=None):
         elif name == "worker":
             command.add_argument("--once", action="store_true")
             command.add_argument("--interval", type=float, default=0.25)
+            command.add_argument("--processes", type=int,
+                                 help="concurrent assignment processes, bounded by scheduler max_workers")
+            command.add_argument("--drain-seconds", type=float, default=30,
+                                 help="graceful shutdown allowance before interrupting active assignments")
         else:
             command.add_argument("--principal", required=True)
     health = sub.add_parser("health", help="trusted local HTTP/state readiness without provider calls")
@@ -113,22 +117,15 @@ def main(argv=None):
             signal.signal(signal.SIGTERM, stop)
             signal.signal(signal.SIGINT, stop)
             from .bridge_health import WorkerMonitor
+            from .service_worker import ServiceDispatcher
             monitor = WorkerMonitor(args.state_dir)
-            service.executor = monitor.observe(service.executor)
+            dispatcher = ServiceDispatcher(service, args.config, config, processes=args.processes,
+                                           interval=args.interval, drain_seconds=args.drain_seconds)
             with monitor.ownership():
                 monitor.write("starting")
                 try:
-                    while not stopping:
-                        monitor.write("polling")
-                        result = service.run_once()
-                        monitor.polls += 1
-                        monitor.write("idle", allowance=max(30, args.interval + 5))
-                        if result is not None:
-                            print(json.dumps({"task_id": result["task_id"], "state": result["state"]}), flush=True)
-                        if args.once:
-                            return 0
-                        if result is None:
-                            time.sleep(args.interval)
+                    dispatcher.run(monitor, stopping=lambda: stopping, once=args.once,
+                                   on_result=lambda result: print(json.dumps(result), flush=True))
                 finally:
                     monitor.write("stopped")
             return 0

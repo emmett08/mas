@@ -67,11 +67,15 @@ def _layout(db: sqlite3.Connection):
             "SELECT type,name,tbl_name,sql FROM sqlite_master ORDER BY type,name"))
 
 
-LEDGER = Schema("deployment ledger", 0x4D415344, 2, ((0, 1),), (
+LEDGER_V2 = Schema("deployment ledger", 0x4D415344, 2, ((0, 1),), (
     "CREATE TABLE metadata(key TEXT PRIMARY KEY,value TEXT NOT NULL)",
     "CREATE TABLE runs(run_id TEXT PRIMARY KEY,directory TEXT UNIQUE NOT NULL,admitted_at INTEGER NOT NULL,purged_at INTEGER)",
     "CREATE TABLE calls(run_id TEXT NOT NULL,call_id TEXT NOT NULL,reserved_microusd INTEGER NOT NULL,admitted_at INTEGER NOT NULL,PRIMARY KEY(run_id,call_id),FOREIGN KEY(run_id) REFERENCES runs(run_id))",
 ))
+_BUDGET_AUDIT = "CREATE TABLE budget_amendments(revision INTEGER PRIMARY KEY,request_key TEXT UNIQUE NOT NULL,digest TEXT NOT NULL,principal TEXT NOT NULL,reason TEXT NOT NULL,policy TEXT NOT NULL,created INTEGER NOT NULL)"
+LEDGER = Schema("deployment ledger", 0x4D415344, 3, (),
+                (*LEDGER_V2.statements, _BUDGET_AUDIT),
+                ((LEDGER_V2, (_BUDGET_AUDIT,)),))
 JOURNAL = Schema("host journal", 0x4D41534A, 2, ((0, 0), (0x4D41534A, 1)), (
     "CREATE TABLE metadata(key TEXT PRIMARY KEY,value TEXT NOT NULL)",
     "CREATE TABLE steps(key TEXT PRIMARY KEY,kind TEXT NOT NULL,input TEXT NOT NULL,data TEXT NOT NULL)",

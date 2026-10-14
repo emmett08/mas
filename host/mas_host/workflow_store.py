@@ -16,7 +16,7 @@ from .service_contracts import ServiceError
 from .workflow_evaluator import FINISHED_STATES
 
 
-COMPOSITION = Schema('workflow composition', 0x4D415357, 1, (), (
+COMPOSITION_V1 = Schema('workflow composition', 0x4D415357, 1, (), (
     'CREATE TABLE instances(id TEXT PRIMARY KEY,principal TEXT NOT NULL,request_key TEXT NOT NULL,plan TEXT NOT NULL,identity TEXT NOT NULL,input TEXT NOT NULL,state TEXT NOT NULL,output TEXT,error TEXT,created INTEGER NOT NULL,deadline INTEGER NOT NULL,cancel_requested INTEGER NOT NULL DEFAULT 0,UNIQUE(principal,request_key))',
     'CREATE TABLE nodes(instance TEXT NOT NULL,path TEXT NOT NULL,kind TEXT NOT NULL,input TEXT NOT NULL,state TEXT NOT NULL,output TEXT,error TEXT,PRIMARY KEY(instance,path))',
     'CREATE TABLE attempts(instance TEXT NOT NULL,path TEXT NOT NULL,revision INTEGER NOT NULL,workflow TEXT NOT NULL,identity TEXT NOT NULL,run_directory TEXT UNIQUE NOT NULL,input TEXT NOT NULL,wall_seconds INTEGER NOT NULL,state TEXT NOT NULL,output TEXT,error TEXT,PRIMARY KEY(instance,path,revision))',
@@ -25,6 +25,20 @@ COMPOSITION = Schema('workflow composition', 0x4D415357, 1, (), (
     'CREATE TABLE scopes(instance TEXT NOT NULL,path TEXT NOT NULL,limits TEXT NOT NULL,deadline INTEGER NOT NULL,PRIMARY KEY(instance,path))',
     'CREATE TABLE events(id INTEGER PRIMARY KEY AUTOINCREMENT,instance TEXT NOT NULL,path TEXT,event TEXT NOT NULL,state TEXT NOT NULL,created INTEGER NOT NULL)',
 ))
+_ARCHIVES = "CREATE TABLE archives(id TEXT PRIMARY KEY,principal TEXT NOT NULL,request_key TEXT NOT NULL,plan TEXT NOT NULL,identity TEXT NOT NULL,input_digest TEXT NOT NULL,state TEXT NOT NULL,error TEXT,created INTEGER NOT NULL,deadline INTEGER NOT NULL,cancel_requested INTEGER NOT NULL,archived_at INTEGER NOT NULL,usage TEXT NOT NULL,output_digest TEXT,event_floor INTEGER NOT NULL,metadata TEXT NOT NULL DEFAULT '{}',clock TEXT,UNIQUE(principal,request_key))"
+_METADATA = "ALTER TABLE instances ADD COLUMN metadata TEXT NOT NULL DEFAULT '{}'"
+_CLOCK = 'ALTER TABLE instances ADD COLUMN clock TEXT'
+_CONTINUATION_TOMBSTONES = 'CREATE TABLE continuation_tombstones(instance TEXT NOT NULL,request_key TEXT NOT NULL,path TEXT NOT NULL,input_digest TEXT NOT NULL,revision INTEGER NOT NULL,metadata_digest TEXT NOT NULL,PRIMARY KEY(instance,request_key))'
+_CONTINUATION_METADATA = "ALTER TABLE continuations ADD COLUMN metadata TEXT NOT NULL DEFAULT '{}'"
+_JOIN_DECISIONS = 'CREATE TABLE join_decisions(instance TEXT NOT NULL,path TEXT NOT NULL,winners TEXT NOT NULL,obsolete TEXT NOT NULL,PRIMARY KEY(instance,path))'
+_CANCELLED_SCOPES = 'CREATE TABLE cancelled_scopes(instance TEXT NOT NULL,path TEXT NOT NULL,reason TEXT NOT NULL,PRIMARY KEY(instance,path))'
+_SCOPE_CLOCK = 'ALTER TABLE scopes ADD COLUMN clock TEXT'
+_EVENT_DATA = 'ALTER TABLE events ADD COLUMN data TEXT'
+_V2_MIGRATION = (_METADATA, _CLOCK, _ARCHIVES, _CONTINUATION_TOMBSTONES,
+                 _JOIN_DECISIONS, _CANCELLED_SCOPES, _SCOPE_CLOCK, _EVENT_DATA, _CONTINUATION_METADATA)
+COMPOSITION = Schema('workflow composition', 0x4D415357, 2, (),
+                     (*COMPOSITION_V1.statements, *_V2_MIGRATION),
+                     ((COMPOSITION_V1, _V2_MIGRATION),))
 
 
 def encode(value):
@@ -35,7 +49,7 @@ def decode(row):
     if row is None:
         return None
     result = dict(row)
-    for key in ('input', 'output', 'error'):
+    for key in ('input', 'output', 'error', 'metadata', 'clock'):
         if key in result and result[key] is not None:
             result[key] = json.loads(result[key])
     return result
@@ -85,13 +99,27 @@ class WorkflowStore:
     @staticmethod
     def instance(db, instance, principal=None, *, include_input=False):
         columns = 'id,principal,request_key,plan,identity,state,output,error,created,deadline,cancel_requested'
+        available = {row[1] for row in db.execute('PRAGMA table_info(instances)')}
+        for column in ('metadata', 'clock'):
+            if column in available:
+                columns += ',' + column
         if include_input:
             columns += ',input'
         query, values = f'SELECT {columns} FROM instances WHERE id=?', (instance,)
         if principal is not None:
             query += ' AND principal=?'
             values += (principal,)
-        return decode(db.execute(query, values).fetchone())
+        result = decode(db.execute(query, values).fetchone())
+        if result is not None:
+            result.setdefault('metadata', {})
+            result.setdefault('clock', None)
+            return result
+        if not db.execute("SELECT 1 FROM sqlite_master WHERE name='archives'").fetchone():
+            return None
+        query = 'SELECT * FROM archives WHERE id=?'
+        if principal is not None:
+            query += ' AND principal=?'
+        return WorkflowStore.archived_row(db.execute(query, values).fetchone())
 
     def read_instance(self, instance):
         with self.transaction(readonly=True) as db:
@@ -99,23 +127,50 @@ class WorkflowStore:
 
     @staticmethod
     def submitted(db, principal, request_key):
-        return decode(db.execute('SELECT * FROM instances WHERE principal=? AND request_key=?',
+        item = decode(db.execute('SELECT * FROM instances WHERE principal=? AND request_key=?',
                                  (principal, request_key)).fetchone())
+        if item is not None or not db.execute("SELECT 1 FROM sqlite_master WHERE name='archives'").fetchone():
+            return item
+        return WorkflowStore.archived_row(db.execute(
+            'SELECT * FROM archives WHERE principal=? AND request_key=?', (principal, request_key)).fetchone())
 
     @staticmethod
-    def create_instance(db, principal, request_key, plan, identity, input, *, wall_seconds, maximum):
+    def archived_row(row):
+        item = decode(row)
+        if item is not None:
+            item.update(archived=True, output=None, result_available=False, usage=json.loads(item['usage']))
+        return item
+
+    @staticmethod
+    def submission_matches(item, input):
+        if item.get('archived'):
+            return item['input_digest'] == hashlib.sha256(encode(input).encode()).hexdigest()
+        return encode(item['input']) == encode(input)
+
+    @staticmethod
+    def create_instance(db, principal, request_key, plan, identity, input, *, wall_seconds, maximum, metadata=None, clock=None):
         if db.execute('SELECT count(*) FROM instances').fetchone()[0] >= maximum:
             raise ServiceError('workflow_limit')
         instance, now = 'flow-' + uuid.uuid4().hex, int(time.time())
-        db.execute("INSERT INTO instances(id,principal,request_key,plan,identity,input,state,created,deadline) "
-                   "VALUES(?,?,?,?,?,?,'queued',?,?)",
-                   (instance, principal, request_key, plan, identity, encode(input), now, now + wall_seconds))
+        db.execute("INSERT INTO instances(id,principal,request_key,plan,identity,input,state,created,deadline,metadata,clock) "
+                   "VALUES(?,?,?,?,?,?,'queued',?,?,?,?)",
+                   (instance, principal, request_key, plan, identity, encode(input), now, now + wall_seconds,
+                    encode(metadata or {}), encode(clock) if clock is not None else None))
         event(db, instance, None, 'submitted', 'queued')
         return instance
 
     @staticmethod
     def graph(db, item):
         instance = item['id']
+        if item.get('archived'):
+            return {'instance_id': instance, 'plan': item['plan'], 'identity': item['identity'],
+                    'state': item['state'], 'output': None, 'error': item['error'],
+                    'deadline': item['deadline'], 'cancel_requested': bool(item['cancel_requested']),
+                    'usage': item['usage'], 'nodes': [], 'attempts': [], 'archived': True,
+                    'result_available': False, 'archived_at': item['archived_at'],
+                    'metadata': item['metadata'], 'created': item['created'], 'updated': item['archived_at'],
+                    **({'clock': item['clock']} if item.get('clock') is not None else {}),
+                    'output_digest': item['output_digest']}
         # Project before decoding: retained payloads can be much larger than
         # this graph, especially across many continuation revisions.
         nodes = [decode(row) for row in db.execute(
@@ -125,16 +180,70 @@ class WorkflowStore:
             (instance,))]
         usage = db.execute('SELECT count(*),coalesce(sum(amount),0) FROM allocations WHERE instance=?',
                            (instance,)).fetchone()
+        updated = db.execute('SELECT coalesce(max(created),?) FROM events WHERE instance=?',
+                             (item['created'], instance)).fetchone()[0]
         return {'instance_id': instance, 'plan': item['plan'], 'identity': item['identity'],
                 'state': item['state'], 'output': item['output'], 'error': item['error'],
                 'deadline': item['deadline'], 'cancel_requested': bool(item['cancel_requested']),
                 'usage': {'steps': len(nodes), 'calls': usage[0], 'reserved_microusd': usage[1]},
-                'nodes': nodes, 'attempts': attempts}
+                'nodes': nodes, 'attempts': attempts, 'metadata': item.get('metadata', {}),
+                'created': item['created'], 'updated': updated,
+                **({'clock': item['clock']} if item.get('clock') is not None else {})}
 
     @staticmethod
     def events(db, instance, after, limit):
-        return [dict(row) for row in db.execute(
-            'SELECT * FROM events WHERE instance=? AND id>? ORDER BY id LIMIT ?', (instance, after, limit))]
+        item = WorkflowStore.instance(db, instance)
+        if item and item.get('archived') and after < item['event_floor']:
+            raise ServiceError('event_cursor_expired')
+        result = []
+        for row in db.execute('SELECT * FROM events WHERE instance=? AND id>? ORDER BY id LIMIT ?', (instance, after, limit)):
+            value = dict(row)
+            data = value.pop('data', None)
+            if data is not None:
+                value['data'] = json.loads(data)
+            result.append(value)
+        return result
+
+    def protocol_event(self, instance, attempt, item):
+        data = {key: item[key] for key in ('sender', 'recipient', 'kind', 'message_id', 'task_id') if key in item}
+        if not isinstance(data.get('message_id'), str) or any(type(value) is not str or len(value) > 256 for value in data.values()):
+            raise ServiceError('invalid_protocol_event')
+        data.update(run_id=attempt['run_directory'], revision=attempt['revision'])
+        with self.transaction() as db:
+            if db.execute("SELECT 1 FROM events WHERE instance=? AND event='protocol' "
+                          "AND json_extract(data,'$.run_id')=? AND json_extract(data,'$.message_id')=? LIMIT 1",
+                          (instance, data['run_id'], data['message_id'])).fetchone():
+                return
+            db.execute('INSERT INTO events(instance,path,event,state,created,data) VALUES(?,?,?,?,?,?)',
+                       (instance, attempt['path'], 'protocol', 'running', int(time.time()), encode(data)))
+
+    @classmethod
+    def archive(cls, db, item):
+        """Compact settled history, preserving request identity indefinitely.
+
+        The caller holds exclusive deployment ownership and has verified all
+        referenced runs and remote effects are settled. Lifetime allocations
+        remain in this repository and in the deployment ledger.
+        """
+        if item['state'] not in FINISHED_STATES or item.get('archived'):
+            raise ServiceError('workflow_not_archivable')
+        graph = cls.graph(db, item)
+        floor = db.execute('SELECT coalesce(max(id),0) FROM events WHERE instance=?', (item['id'],)).fetchone()[0]
+        digest = lambda value: hashlib.sha256(encode(value).encode()).hexdigest()
+        db.execute('INSERT INTO archives VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+                   (item['id'], item['principal'], item['request_key'], item['plan'], item['identity'],
+                    digest(item['input']), item['state'], encode(item['error']) if item['error'] else None,
+                    item['created'], item['deadline'], item['cancel_requested'], int(time.time()),
+                    encode(graph['usage']), digest(item['output']) if item['output'] is not None else None, floor,
+                    encode(item.get('metadata', {})), encode(item['clock']) if item.get('clock') is not None else None))
+        for row in db.execute('SELECT * FROM continuations WHERE instance=?', (item['id'],)).fetchall():
+            db.execute('INSERT INTO continuation_tombstones VALUES(?,?,?,?,?,?)',
+                       (item['id'], row['request_key'], row['path'],
+                        digest(json.loads(row['input'])), row['revision'], digest(json.loads(row['metadata']))))
+        for table in ('nodes', 'attempts', 'continuations', 'scopes', 'events', 'join_decisions', 'cancelled_scopes'):
+            db.execute(f'DELETE FROM {table} WHERE instance=?', (item['id'],))
+        db.execute('DELETE FROM instances WHERE id=?', (item['id'],))
+        event(db, item['id'], None, 'archived', item['state'])
 
     @staticmethod
     def task_detail(db, instance, path, revision=None):
@@ -158,16 +267,34 @@ class WorkflowStore:
         db.execute('UPDATE instances SET cancel_requested=1 WHERE id=?', (instance,))
         # A running owner must classify and drain its workers first. Unknown
         # effects survive cancellation, even though future local work closes.
-        if state in {'queued', 'input_required', 'auth_required', 'unknown'}:
+        if state in {'queued', 'blocked', 'input_required', 'auth_required', 'unknown'}:
             cls.close_stopped_work(db, instance)
             if state != 'unknown':
                 state = 'cancelled'
                 db.execute('UPDATE instances SET state=?,output=NULL,error=? WHERE id=?',
                            (state, encode({'code': state}), instance))
+                from .service_timing import transition
+                transition(db, 'instances', item, 'terminal')
+                cls._settle_scope_clocks(db, instance, state)
         if not item['cancel_requested']:
             event(db, instance, None, 'cancellation_requested', state)
         elif state != item['state']:
             event(db, instance, None, 'state_changed', state)
+
+    def block_definition(self, instance, *, uncertain=False):
+        """Keep missing code distinct from an unresolved external effect."""
+        with self.transaction() as db:
+            item = self.instance(db, instance)
+            if item is None or item['state'] in FINISHED_STATES:
+                return
+            uncertain = uncertain or item['state'] == 'unknown'
+            state = 'unknown' if uncertain else 'blocked'
+            error = {'code': ('definition_unavailable_reconciliation_required'
+                              if uncertain else 'definition_unavailable')}
+            if item['state'] != state or item['error'] != error:
+                db.execute('UPDATE instances SET state=?,error=? WHERE id=?',
+                           (state, encode(error), instance))
+                event(db, instance, None, 'state_changed', state)
 
     def node(self, instance, path, kind, input, limits):
         with self.transaction() as db:
@@ -199,18 +326,24 @@ class WorkflowStore:
 
     def scopes(self, instance, path):
         with self.transaction(readonly=True) as db:
-            return [{'path': row['path'], 'limits': json.loads(row['limits']), 'deadline': row['deadline']}
+            return [{'path': row['path'], 'limits': json.loads(row['limits']), 'deadline': row['deadline'],
+                     'clock': json.loads(row['clock']) if row['clock'] else None}
                     for row in db.execute('SELECT * FROM scopes WHERE instance=? ORDER BY path', (instance,))
                     if path == row['path'] or path.startswith(row['path'] + '/')]
 
-    def scope(self, instance, path, limits, deadline):
+    def scope(self, instance, path, limits, deadline, *, timing_policy=None):
         with self.transaction() as db:
             row = db.execute('SELECT * FROM scopes WHERE instance=? AND path=?', (instance, path)).fetchone()
             if row is None:
-                bound = min(deadline, int(time.time()) + limits['wall_seconds'])
-                db.execute('INSERT INTO scopes VALUES(?,?,?,?)', (instance, path, encode(limits), bound))
+                from .execution_policy import timing_policy as policy_from
+                policy = policy_from(timing_policy)
+                clock = policy.start(int(time.time()*1000)) if policy else None
+                bound = min(deadline, int(time.time()) + (policy.business_seconds if policy else limits['wall_seconds']))
+                db.execute('INSERT INTO scopes(instance,path,limits,deadline,clock) VALUES(?,?,?,?,?)',
+                           (instance, path, encode(limits), bound, encode(clock) if clock else None))
                 return bound
-            if row['limits'] != encode(limits):
+            recorded = json.loads(row['clock']) if row['clock'] else None
+            if row['limits'] != encode(limits) or (recorded['policy'] if recorded else None) != timing_policy:
                 raise ServiceError('workflow_scope_conflict')
             return row['deadline']
 
@@ -262,11 +395,15 @@ class WorkflowStore:
         uncertain. This journal does not inspect external-effect evidence.
         """
         with self.transaction() as db:
+            cancelled = [row['path'] for row in db.execute('SELECT path FROM cancelled_scopes WHERE instance=?', (instance,))]
             for attempt, uncertain in reconciled:
-                state = 'unknown' if uncertain else 'queued'
+                obsolete = any(attempt['path'] == prefix or attempt['path'].startswith(prefix+'/') for prefix in cancelled)
+                state = 'unknown' if uncertain else 'cancelled' if obsolete else 'queued'
+                reason = ({'code': 'reconciliation_required'} if uncertain else
+                          {'code': 'superseded_effect_reconciled'} if obsolete else None)
                 db.execute("UPDATE attempts SET state=?,error=? WHERE instance=? AND path=? AND revision=? "
                            "AND identity=? AND state IN ('running','queued')",
-                           (state, encode({'code': 'reconciliation_required'}) if uncertain else None,
+                           (state, encode(reason) if reason else None,
                             instance, attempt['path'], attempt['revision'], attempt['identity']))
                 if state != attempt['state']:
                     event(db, instance, attempt['path'], 'task_state', state)
@@ -280,25 +417,61 @@ class WorkflowStore:
             uncertain = db.execute("SELECT 1 FROM attempts WHERE instance=? AND state='unknown' LIMIT 1",
                                    (instance,)).fetchone()
             final = 'unknown' if uncertain else 'expired' if expired else 'cancelled' if cancelled else state
+            from .service_timing import status, transition
+            item = self.instance(db, instance)
+            timing = status(item)
+            reason = {'code': final}
+            if final == 'expired' and timing and timing['expired']:
+                reason = {'code': timing['expired'][0], 'expired': timing['expired']}
+            elif final == 'expired' and item.get('error', {}) and item['error'].get('code') == 'scope_timing_expired':
+                reason = item['error']
+            transition(db, 'instances', item, 'paused' if final in {'unknown', 'input_required', 'auth_required'} else 'terminal')
             db.execute('UPDATE instances SET state=?,output=?,error=? WHERE id=?',
                        (final, encode(output) if final == 'completed' else None,
-                        encode({'code': final}) if final != 'completed' else None, instance))
+                        encode(reason) if final != 'completed' else None, instance))
             if cancelled or final in {'failed', 'cancelled', 'expired'}:
                 self.close_stopped_work(db, instance)
+            self._settle_scope_clocks(db, instance, final)
             event(db, instance, None, 'state_changed', final)
 
     @staticmethod
     def continuation(db, instance, request_key):
-        return db.execute('SELECT * FROM continuations WHERE instance=? AND request_key=?',
-                          (instance, request_key)).fetchone()
+        row = db.execute('SELECT * FROM continuations WHERE instance=? AND request_key=?',
+                         (instance, request_key)).fetchone()
+        if row is not None:
+            return dict(row)
+        if not db.execute("SELECT 1 FROM sqlite_master WHERE name='continuation_tombstones'").fetchone():
+            return None
+        row = db.execute('SELECT * FROM continuation_tombstones WHERE instance=? AND request_key=?',
+                         (instance, request_key)).fetchone()
+        return dict(row) if row is not None else None
+
+    @staticmethod
+    def continuation_matches(row, path, input, metadata=None):
+        if row['path'] != path:
+            return False
+        if 'input_digest' in row:
+            return (row['input_digest'] == hashlib.sha256(encode(input).encode()).hexdigest()
+                    and row['metadata_digest'] == hashlib.sha256(encode(metadata or {}).encode()).hexdigest())
+        return row['input'] == encode(input) and row.get('metadata', '{}') == encode(metadata or {})
 
     @classmethod
-    def continue_attempt(cls, db, item, attempt, request_key, supplied, input, *, wall_seconds):
+    def continue_attempt(cls, db, item, attempt, request_key, supplied, input, *, wall_seconds, metadata=None):
+        from .service_timing import require_open, transition
+        require_open(item)
+        from .execution_policy import transition_clock
+        for row in db.execute('SELECT path,clock FROM scopes WHERE instance=? AND clock IS NOT NULL', (item['id'],)).fetchall():
+            if attempt['path'] == row['path'] or attempt['path'].startswith(row['path']+'/'):
+                clock = json.loads(row['clock'])
+                require_open({'clock': clock})
+                clock = transition_clock(clock, int(time.time()*1000), 'queued')
+                db.execute('UPDATE scopes SET clock=? WHERE instance=? AND path=?', (encode(clock), item['id'], row['path']))
+        transition(db, 'instances', item, 'queued')
         revision = attempt['revision'] + 1
         cls.assign_attempt(db, item['id'], attempt['path'], attempt['workflow'], attempt['identity'],
                            revision, input, deadline=item['deadline'], wall_seconds=wall_seconds)
-        db.execute('INSERT INTO continuations VALUES(?,?,?,?,?)',
-                   (item['id'], request_key, attempt['path'], encode(supplied), revision))
+        db.execute('INSERT INTO continuations VALUES(?,?,?,?,?,?)',
+                   (item['id'], request_key, attempt['path'], encode(supplied), revision, encode(metadata or {})))
         db.execute("UPDATE instances SET state='queued',error=NULL WHERE id=?", (item['id'],))
         event(db, item['id'], attempt['path'], 'continued', 'queued')
 
@@ -309,9 +482,164 @@ class WorkflowStore:
 
     @staticmethod
     def requeue_unknown(db, instance):
-        db.execute("UPDATE attempts SET state='queued',error=NULL WHERE instance=? AND state='unknown'", (instance,))
+        from .service_timing import status, transition
+        from .execution_policy import clock_status
+        item = WorkflowStore.instance(db, instance)
+        timing = status(item)
+        scoped = []
+        for row in db.execute('SELECT path,clock FROM scopes WHERE instance=? AND clock IS NOT NULL', (instance,)):
+            clock = json.loads(row['clock'])
+            reasons = clock_status(clock, int(time.time()*1000))['expired']
+            if reasons and clock['phase'] != 'terminal':
+                scoped.append({'path': row['path'], 'expired': reasons})
+        if timing and timing['expired'] or scoped:
+            reason = ({'code': timing['expired'][0], 'expired': timing['expired']} if timing and timing['expired']
+                      else {'code': 'scope_timing_expired', 'scopes': scoped})
+            reason['effect_reconciliation'] = 'resolved'
+            db.execute("UPDATE attempts SET state='cancelled',error=? WHERE instance=? AND state='unknown'",
+                       (encode({'code': 'effect_reconciled_after_expiry'}), instance))
+            WorkflowStore.close_stopped_work(db, instance)
+            transition(db, 'instances', item, 'terminal')
+            WorkflowStore._settle_scope_clocks(db, instance, 'expired')
+            db.execute("UPDATE instances SET state='expired',error=? WHERE id=?", (encode(reason), instance))
+            event(db, instance, None, 'recovery_closed', 'expired')
+            return
+        transition(db, 'instances', item, 'queued')
+        cancelled = [row['path'] for row in db.execute('SELECT path FROM cancelled_scopes WHERE instance=?', (instance,))]
+        for row in db.execute("SELECT path,revision FROM attempts WHERE instance=? AND state='unknown'", (instance,)).fetchall():
+            obsolete = any(row['path'] == prefix or row['path'].startswith(prefix+'/') for prefix in cancelled)
+            state = 'cancelled' if obsolete else 'queued'
+            error = encode({'code': 'superseded_effect_reconciled'}) if obsolete else None
+            db.execute('UPDATE attempts SET state=?,error=? WHERE instance=? AND path=? AND revision=?',
+                       (state, error, instance, row['path'], row['revision']))
+            if obsolete:
+                db.execute("UPDATE nodes SET state='cancelled',error=? WHERE instance=? AND path=?", (error, instance, row['path']))
         db.execute("UPDATE instances SET state='queued',error=NULL WHERE id=?", (instance,))
         event(db, instance, None, 'recovery_queued', 'queued')
+
+    def clock_activity(self, instance, branches):
+        """Charge elapsed wall time once while any local leaf is active."""
+        from .service_timing import status, transition
+        with self.transaction() as db:
+            item = self.instance(db, instance)
+            observed = status(item)
+            if observed and not observed['expired']:
+                transition(db, 'instances', item, 'running' if branches else 'queued', branches=branches)
+            return observed
+
+    @staticmethod
+    def _scope_phase(db, instance, path, final=None):
+        node = db.execute('SELECT state FROM nodes WHERE instance=? AND path=?', (instance, path)).fetchone()
+        if node and node['state'] in {'completed', 'failed', 'cancelled', 'expired'}:
+            return 'terminal'
+        if final in {'completed', 'failed', 'cancelled', 'expired'}:
+            return 'terminal'
+        if final in {'input_required', 'auth_required', 'unknown'}:
+            return 'paused'
+        queued = db.execute("SELECT 1 FROM attempts WHERE instance=? AND (path=? OR substr(path,1,?)=?) "
+                            "AND state='queued' LIMIT 1", (instance, path, len(path)+1, path+'/')).fetchone()
+        return 'paused' if node and node['state'] in {'input_required', 'auth_required', 'unknown'} and not queued else 'queued'
+
+    @classmethod
+    def _settle_scope_clocks(cls, db, instance, final):
+        from .execution_policy import transition_clock
+        timestamp = int(time.time()*1000)
+        for row in db.execute('SELECT path,clock FROM scopes WHERE instance=? AND clock IS NOT NULL', (instance,)).fetchall():
+            clock = json.loads(row['clock'])
+            if clock['phase'] == 'terminal':
+                continue
+            clock = transition_clock(clock, timestamp, cls._scope_phase(db, instance, row['path'], final))
+            db.execute('UPDATE scopes SET clock=? WHERE instance=? AND path=?', (encode(clock), instance, row['path']))
+
+    def expired_scopes(self, instance):
+        from .execution_policy import clock_status
+        timestamp = int(time.time()*1000)
+        with self.transaction(readonly=True) as db:
+            expired = []
+            for row in db.execute('SELECT path,clock FROM scopes WHERE instance=? AND clock IS NOT NULL', (instance,)):
+                clock = json.loads(row['clock'])
+                reasons = clock_status(clock, timestamp)['expired']
+                if reasons and clock['phase'] != 'terminal':
+                    expired.append({'path': row['path'], 'expired': reasons})
+            return expired
+
+    def scope_clock_activity(self, instance, active_paths):
+        from .execution_policy import clock_status, transition_clock
+        timestamp = int(time.time()*1000)
+        with self.transaction() as db:
+            expired = []
+            for row in db.execute('SELECT path,clock FROM scopes WHERE instance=? AND clock IS NOT NULL', (instance,)).fetchall():
+                clock = json.loads(row['clock'])
+                if clock['phase'] == 'terminal':
+                    continue
+                observed = clock_status(clock, timestamp)
+                if observed['expired']:
+                    expired.append({'path': row['path'], 'expired': observed['expired']})
+                    continue
+                branches = sum(path == row['path'] or path.startswith(row['path']+'/') for path in active_paths)
+                phase = 'running' if branches else self._scope_phase(db, instance, row['path'])
+                clock = transition_clock(clock, timestamp, phase, active_branches=branches)
+                db.execute('UPDATE scopes SET clock=? WHERE instance=? AND path=?', (encode(clock), instance, row['path']))
+            if expired:
+                reason = encode({'code': 'scope_timing_expired', 'scopes': expired})
+                db.execute('UPDATE instances SET error=? WHERE id=?', (reason, instance))
+                db.execute("UPDATE attempts SET state='expired',error=? WHERE instance=? AND state IN ('queued','input_required','auth_required')",
+                           (reason, instance))
+            return expired
+
+    def join_decision(self, instance, path):
+        with self.transaction(readonly=True) as db:
+            row = db.execute('SELECT winners,obsolete FROM join_decisions WHERE instance=? AND path=?',
+                             (instance, path)).fetchone()
+            return {'winners': json.loads(row['winners']), 'obsolete': json.loads(row['obsolete'])} if row else None
+
+    def decide_join(self, instance, path, winners, obsolete):
+        """Persist selection before stopping future local sibling dispatch."""
+        decision = {'winners': list(winners), 'obsolete': list(obsolete)}
+        with self.transaction() as db:
+            previous = db.execute('SELECT winners,obsolete FROM join_decisions WHERE instance=? AND path=?',
+                                  (instance, path)).fetchone()
+            if previous:
+                retained = {'winners': json.loads(previous['winners']), 'obsolete': json.loads(previous['obsolete'])}
+                if retained != decision:
+                    raise ServiceError('workflow_join_conflict')
+                return retained
+            db.execute('INSERT INTO join_decisions VALUES(?,?,?,?)',
+                       (instance, path, encode(decision['winners']), encode(decision['obsolete'])))
+            for prefix in decision['obsolete']:
+                db.execute('INSERT OR IGNORE INTO cancelled_scopes VALUES(?,?,?)', (instance, prefix, path))
+                match = 'instance=? AND (path=? OR substr(path,1,?)=?)'
+                values = (instance, prefix, len(prefix)+1, prefix+'/')
+                reason = encode({'code': 'scope_superseded', 'decision': path})
+                # Running owners must observe cancellation and publish their
+                # own result or uncertainty after supervision drains.
+                db.execute("UPDATE attempts SET state='cancelled',error=? WHERE " + match +
+                           " AND state IN ('queued','input_required','auth_required')", (reason, *values))
+                db.execute("UPDATE nodes SET state='cancelled',error=? WHERE " + match +
+                           " AND state IN ('waiting','queued','input_required','auth_required')", (reason, *values))
+            event(db, instance, path, 'join_decided', 'waiting')
+            return decision
+
+    def join_drain_state(self, instance, path):
+        with self.transaction(readonly=True) as db:
+            row = db.execute('SELECT obsolete FROM join_decisions WHERE instance=? AND path=?', (instance, path)).fetchone()
+            if row is None:
+                raise ServiceError('workflow_join_missing')
+            prefixes = json.loads(row['obsolete'])
+            states = {row['state'] for row in db.execute('SELECT path,state FROM attempts WHERE instance=?', (instance,))
+                      if any(row['path'] == prefix or row['path'].startswith(prefix+'/') for prefix in prefixes)}
+            if 'running' in states:
+                return 'waiting'
+            if 'unknown' in states:
+                return 'unknown'
+            if 'queued' in states:
+                raise ServiceError('workflow_join_not_closed')
+            return 'drained'
+
+    def scope_cancelled(self, instance, path):
+        with self.transaction(readonly=True) as db:
+            return any(path == row['path'] or path.startswith(row['path']+'/') for row in db.execute(
+                'SELECT path FROM cancelled_scopes WHERE instance=?', (instance,)))
 
     @staticmethod
     def close_stopped_work(db, instance):

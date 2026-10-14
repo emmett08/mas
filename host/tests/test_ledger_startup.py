@@ -101,6 +101,9 @@ class LedgerStartupTests(unittest.TestCase):
         original = DeploymentLedger(self.state)
         identity = original.deployment_id
         with closing(sqlite3.connect(original.path)) as db:
+            # Reconstruct the actual legacy layout, not a current layout with
+            # an unsupported old version stamp.
+            db.execute('DROP TABLE budget_amendments')
             db.execute("PRAGMA application_id=0")
             db.execute("PRAGMA user_version=1")
         before = original.path.read_bytes()

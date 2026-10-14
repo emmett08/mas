@@ -131,9 +131,8 @@ class WorkflowEngineContractTests(unittest.TestCase):
         registered.contract_descriptor["operations"]["version"] = "2"
         self.assertEqual(engine.inspect("alice", first["instance_id"])["identity"], first["identity"])
         engine.workflows["echo"].contract_descriptor["operations"]["version"] = "3"
-        with self.assertRaises(ServiceError) as raised:
-            engine.inspect("alice", first["instance_id"])
-        self.assertEqual(raised.exception.code, "workflow_changed")
+        self.assertEqual(engine.inspect("alice", first["instance_id"])["identity"], first["identity"])
+        self.assertEqual(engine.run("alice", first["instance_id"])["state"], "blocked")
 
     def test_continuation_is_idempotent_under_reordered_object_keys(self):
         def classify(outcome):
@@ -152,9 +151,7 @@ class WorkflowEngineContractTests(unittest.TestCase):
         engine = self.engine(original)
         first = engine.submit("alice", "request", "example", {})
         restarted = self.engine(replace(original, contract_descriptor={"schema_version": "2"}))
-        with self.assertRaises(ServiceError) as raised:
-            restarted.run("alice", first["instance_id"])
-        self.assertEqual(raised.exception.code, "workflow_changed")
+        self.assertEqual(restarted.run("alice", first["instance_id"])["state"], "blocked")
         self.assertFalse(any(engine.state_dir.glob("run-flow-*")))
 
 

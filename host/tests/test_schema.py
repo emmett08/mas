@@ -12,7 +12,7 @@ import unittest
 from mas_host.admin import main
 from mas_host.journal import Journal, JournalError, inspect_run
 from mas_host.operations import DeploymentLedger, DeploymentPolicy, OperationsError
-from mas_host.schema import JOURNAL, LEDGER
+from mas_host.schema import JOURNAL, LEDGER, LEDGER_V2, Schema, SchemaError, connect
 
 
 META = {"run_id": "r", "workflow_version": "schema-test/1", "topology": {}, "max_depth": 8}
@@ -35,7 +35,7 @@ class SchemaTests(unittest.TestCase):
         state = self.root / name
         state.mkdir(mode=0o700)
         with closing(sqlite3.connect(state / "deployment.sqlite")) as db:
-            for statement in LEDGER.statements:
+            for statement in LEDGER_V2.statements:
                 db.execute(statement)
             db.execute("PRAGMA user_version=1")
             db.executemany("INSERT INTO metadata VALUES(?,?)", [
@@ -160,6 +160,51 @@ class SchemaTests(unittest.TestCase):
         with self.assertRaises(OperationsError):
             DeploymentLedger(state, DeploymentPolicy(max_runs=99))
         self.assertEqual(before, snapshot(state / "deployment.sqlite"))
+
+    def literal_schema(self, source):
+        return Schema('literal test', 0x4D41535A, 1, (), (source,))
+
+    def test_layout_preserves_quoted_literal_case_spaces_and_keyword_text(self):
+        expected = "CREATE TABLE values_table(value TEXT DEFAULT 'A B', CHECK(value != 'IF NOT EXISTS'))"
+        for index, altered in enumerate((expected.replace("'A B'", "'a b'"),
+                                         expected.replace("'A B'", "'AB'"),
+                                         expected.replace("'IF NOT EXISTS'", "''"))):
+            with self.subTest(source=altered):
+                path = self.root / f'literal-{index}.sqlite'
+                connect(path, self.literal_schema(altered), initialise=lambda db: None).close()
+                before = snapshot(path)
+                for readonly in (False, True):
+                    with self.assertRaises(SchemaError):
+                        connect(path, self.literal_schema(expected), readonly=readonly)
+                self.assertEqual(before, snapshot(path))
+
+    def test_layout_ignores_only_unquoted_case_spacing_comments_and_optional_create_guard(self):
+        source = "CREATE TABLE values_table(value TEXT DEFAULT 'It''s A B', CHECK(value != 'IF NOT EXISTS'))"
+        equivalent = """create table IF NOT EXISTS values_table (
+            value text /* harmless layout annotation */ default 'It''s A B',
+            check ( value != 'IF NOT EXISTS' ) )"""
+        path = self.root / 'equivalent.sqlite'
+        connect(path, self.literal_schema(equivalent), initialise=lambda db: None).close()
+        before = snapshot(path)
+        connect(path, self.literal_schema(source), readonly=True).close()
+        self.assertEqual(before, snapshot(path))
+
+    def test_foreign_keys_are_enforced_by_repository_connections(self):
+        path = self.root / 'foreign-keys.sqlite'
+        schema = Schema('foreign key test', 0x4D41535A, 1, (), (
+            'CREATE TABLE parents(id TEXT PRIMARY KEY)',
+            'CREATE TABLE children(id TEXT PRIMARY KEY,parent TEXT REFERENCES parents(id))',
+        ))
+        with closing(connect(path, schema, initialise=lambda db: None)) as db:
+            self.assertEqual(db.execute('PRAGMA foreign_keys').fetchone()[0], 1)
+            with self.assertRaises(sqlite3.IntegrityError):
+                db.execute("INSERT INTO children VALUES('child','missing')")
+            db.rollback()
+            db.execute("INSERT INTO parents VALUES('parent')")
+            db.execute("INSERT INTO children VALUES('child','parent')")
+            db.commit()
+        with closing(connect(path, schema, readonly=True)) as db:
+            self.assertEqual(db.execute('PRAGMA foreign_keys').fetchone()[0], 1)
 
 
 if __name__ == "__main__":

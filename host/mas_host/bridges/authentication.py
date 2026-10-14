@@ -19,7 +19,7 @@ from urllib.parse import urlencode, urlsplit
 
 from ..service_contracts import ServiceError
 
-SCOPES = frozenset({"mas:submit", "mas:read", "mas:cancel", "mas:update"})
+SCOPES = frozenset({"mas:submit", "mas:read", "mas:cancel", "mas:update", "mas:worker"})
 _TOKEN = re.compile(r"[A-Za-z0-9\-._~+/]+=*\Z")
 
 
@@ -185,7 +185,7 @@ class OAuthIntrospectionVerifier:
     restrict which frozen MAS workflows this identity can invoke.
     """
     def __init__(self, *, resource, issuer, introspection_url, client_id,
-                 client_secret_file, timeout_seconds=5, transport=None):
+                 client_secret_file, timeout_seconds=5, transport=None, transport_policy=None):
         self.resource = _https_url(resource)
         self.issuer = _https_url(issuer)
         self.introspection_url = _https_url(introspection_url)
@@ -197,6 +197,11 @@ class OAuthIntrospectionVerifier:
             raise AuthenticationError("invalid_verifier_configuration")
         self.timeout_seconds = timeout_seconds
         self._transport = transport
+        if transport_policy is not None:
+            from .http_policy import HTTPTransportPolicy
+            if not isinstance(transport_policy, HTTPTransportPolicy):
+                raise AuthenticationError('invalid_verifier_configuration')
+        self.transport_policy = transport_policy
 
     def metadata(self):
         return {"resource": self.resource, "authorization_servers": [self.issuer],
@@ -215,11 +220,12 @@ class OAuthIntrospectionVerifier:
                 exchange = http_exchange
             else:
                 exchange = self._transport
+            options = {'transport_policy': self.transport_policy} if self.transport_policy is not None else {}
             status, _headers, payload = exchange(
                 self.introspection_url, method="POST", body=body,
                 headers={"Authorization": "Basic " + basic,
                          "Content-Type": "application/x-www-form-urlencoded", "Accept": "application/json"},
-                timeout_seconds=self.timeout_seconds, max_response_bytes=65536)
+                timeout_seconds=self.timeout_seconds, max_response_bytes=65536, **options)
             if status != 200:
                 raise AuthenticationError("authentication_unavailable")
             data = json.loads(payload, object_pairs_hook=_unique,

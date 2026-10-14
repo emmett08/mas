@@ -16,7 +16,7 @@ from .schema import Schema, SchemaError, connect
 from .service_contracts import ServiceError
 
 
-SERVICE = Schema("task service", 0x4D415354, 1, (), (
+SERVICE_V1 = Schema("task service", 0x4D415354, 1, (), (
     "CREATE TABLE metadata(key TEXT PRIMARY KEY,value TEXT NOT NULL)",
     "CREATE TABLE workflows(name TEXT PRIMARY KEY,identity TEXT NOT NULL)",
     "CREATE TABLE tasks(id TEXT PRIMARY KEY,principal TEXT NOT NULL,request_key TEXT NOT NULL,workflow TEXT NOT NULL,workflow_identity TEXT NOT NULL,state TEXT NOT NULL,input TEXT NOT NULL,metadata TEXT NOT NULL,result TEXT,error TEXT,cancel_requested INTEGER NOT NULL DEFAULT 0,revision INTEGER NOT NULL DEFAULT 0,created_at INTEGER NOT NULL,updated_at INTEGER NOT NULL)",
@@ -27,6 +27,15 @@ SERVICE = Schema("task service", 0x4D415354, 1, (), (
     "CREATE INDEX execution_queue ON executions(state,sequence)",
     "CREATE INDEX task_events ON events(task_id,id)",
 ))
+_ARCHIVE_COLUMNS = (
+    'ALTER TABLE tasks ADD COLUMN archived_at INTEGER',
+    'ALTER TABLE tasks ADD COLUMN result_digest TEXT',
+    'ALTER TABLE tasks ADD COLUMN event_floor INTEGER NOT NULL DEFAULT 0',
+    'ALTER TABLE tasks ADD COLUMN clock TEXT',
+)
+SERVICE = Schema('task service', 0x4D415354, 2, (),
+                 (*SERVICE_V1.statements, *_ARCHIVE_COLUMNS),
+                 ((SERVICE_V1, _ARCHIVE_COLUMNS),))
 
 
 def canonical(value: object) -> str:
@@ -44,7 +53,7 @@ def event(db, task_id: str, kind: str, data: dict) -> None:
 
 def decoded(row) -> dict:
     result = dict(row)
-    for field in ("input", "result", "error", "data", "metadata"):
+    for field in ("input", "result", "error", "data", "metadata", "clock"):
         if field in result and result[field] is not None:
             result[field] = json.loads(result[field])
     if "cancel_requested" in result:
@@ -53,6 +62,48 @@ def decoded(row) -> dict:
 
 
 class TaskStore:
+    @staticmethod
+    def retained_count(db):
+        return db.execute('SELECT count(*) FROM tasks WHERE archived_at IS NULL').fetchone()[0]
+
+    @staticmethod
+    def check_event_cursor(task, after):
+        if task.get('archived_at') is not None and after < task.get('event_floor', 0):
+            raise ServiceError('event_cursor_expired')
+
+    @staticmethod
+    def archive(db, task):
+        """Caller has exclusive deployment ownership and verified references."""
+        import hashlib
+        if task['state'] not in {'completed', 'failed', 'cancelled'} or task.get('archived_at') is not None:
+            raise ServiceError('task_not_archivable')
+        result = canonical(task['result']) if task['result'] is not None else None
+        digest = hashlib.sha256(result.encode()).hexdigest() if result is not None else None
+        floor = db.execute('SELECT coalesce(max(id),0) FROM events WHERE task_id=?', (task['id'],)).fetchone()[0]
+        timestamp = now()
+        db.execute("UPDATE tasks SET input='{}',result=NULL,archived_at=?,result_digest=?,event_floor=?,updated_at=? WHERE id=?",
+                   (timestamp, digest, floor, timestamp, task['id']))
+        db.execute('DELETE FROM executions WHERE task_id=?', (task['id'],))
+        db.execute('DELETE FROM events WHERE task_id=?', (task['id'],))
+        event(db, task['id'], 'archived', {'state': task['state'], 'result_available': False})
+
+    @staticmethod
+    def block_definition(db, task, execution, *, started):
+        """Unavailable code closes dispatch, never erases an escaped effect."""
+        state = "unknown" if started else "blocked"
+        code = "definition_unavailable_reconciliation_required" if started else "definition_unavailable"
+        db.execute("UPDATE tasks SET state=?,error=?,updated_at=? WHERE id=?",
+                   (state, canonical({"code": code}), now(), task["id"]))
+        db.execute("UPDATE executions SET state=? WHERE sequence=?", (state, execution["sequence"]))
+        event(db, task["id"], "state_changed", {"state": state, "reason": code})
+
+    @staticmethod
+    def restore_definition(db, task_id, sequence):
+        db.execute("UPDATE tasks SET state='queued',error=NULL,updated_at=? WHERE id=? AND state='blocked'",
+                   (now(), task_id))
+        db.execute("UPDATE executions SET state='queued' WHERE sequence=? AND state='blocked'", (sequence,))
+        event(db, task_id, "definition_available", {"state": "queued"})
+
     def __init__(self, state_dir: Path, *, deployment_id: str, readonly: bool = False):
         from .operations import _file_lock
         self.path = Path(state_dir) / "task-service.sqlite"
@@ -62,7 +113,8 @@ class TaskStore:
             db.execute("INSERT INTO metadata VALUES('deployment_id',?)", (deployment_id,))
 
         try:
-            with _file_lock(Path(state_dir) / ".task-service-init.lock", True):
+            from contextlib import nullcontext
+            with (nullcontext() if readonly else _file_lock(Path(state_dir) / ".task-service-init.lock", True)):
                 db = connect(self.path, SERVICE, readonly=readonly,
                              initialise=None if readonly else initialise,
                              validate_content=self._validate)
