@@ -417,7 +417,9 @@ class Runner:
             state_dir = Path(state_dir).absolute()
             state_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
             self._operations = operations if operations is not None else DeploymentLedger(state_dir)
-            self._circuits = {actor: CircuitBreaker(self._operations, policy) for actor, policy in policies.items()}
+            circuit_factory = getattr(self._operations, 'circuit_breaker',
+                                      lambda policy: CircuitBreaker(self._operations, policy))
+            self._circuits = {actor: circuit_factory(policy) for actor, policy in policies.items()}
             if any(not callable(getattr(adapter, "handle", None)) for adapter in self._adapters.values()):
                 raise RunnerError("every adapter must implement handle")
             self._session = (session_factory or RunSession)(state_dir, operations=self._operations,
