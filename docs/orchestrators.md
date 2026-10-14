@@ -5,6 +5,10 @@ as MCP and A2A. The outer orchestrator owns business sequencing. MAS retains
 request identity, route permissions, call admission, spending reservations and
 recovery. A returned submission receipt is not a completed business result.
 
+For administrator-managed MAS peers, use the [versioned federation registry](managed-federation.md).
+It binds local caller grants to remote authenticated identities, executable pins,
+capabilities and artifact scopes across the HTTP, MCP and A2A lifecycle profiles.
+
 | Profile | Inbound | Outbound |
 |---|---|---|
 | Temporal Python SDK 1.34.0 | Seven registered activities over `TaskService` | Durable, exact-run workflow submission, observation, cancellation and reconciliation |

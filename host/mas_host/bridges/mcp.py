@@ -19,6 +19,7 @@ from ..service_contracts import ServiceError, TaskService
 VERSION = "2026-07-28"
 PREFIX = "io.modelcontextprotocol/"
 TASKS = PREFIX + "tasks"
+SERVICE_PROFILE = "org.mas/task-service/1"
 MAX_MESSAGE = 65_536
 
 
@@ -249,6 +250,9 @@ def task_result(receipt: dict, *, creation=False) -> dict:
               "status": status, "createdAt": _time(receipt["created_at"]),
               "lastUpdatedAt": _time(receipt["updated_at"]), "ttlMs": None, "pollIntervalMs": 1000,
               "_meta": {"org.mas/state": state, "org.mas/cancelRequested": bool(receipt["cancel_requested"])}}
+    if "workflow_identity" in receipt:
+        result["_meta"].update({"org.mas/workflow": receipt["workflow"],
+                               "org.mas/workflowIdentity": receipt["workflow_identity"]})
     if status == "completed":
         result["result"] = tool_result({"task_id": receipt["task_id"], "state": state,
                                        "result": receipt.get("result"), "error": receipt.get("error")},
@@ -299,14 +303,16 @@ _INPUT = {"type": "object", "description": "Bounded integer-only MAS JSON; decim
 TOOLS = [
     {"name": "mas.submit", "description": "Durably submit a workflow using a stable idempotency key.",
      "inputSchema": _schema(["request_key", "workflow", "input"],
-                            {"request_key": _STRING, "workflow": _STRING, "input": _INPUT})},
+                            {"request_key": _STRING, "workflow": _STRING, "input": _INPUT, "request_epoch": _STRING,
+                             "expected_identity": _STRING, "expected_deployment_id": _STRING})},
     *({"name": "mas." + name, "description": description,
        "inputSchema": _schema(["task_id"], {"task_id": _STRING})}
       for name, description in (("status", "Inspect an owned task."), ("result", "Retrieve an owned task result."),
                                 ("cancel", "Record cancellation intent; acknowledgement does not prove work stopped."))),
     {"name": "mas.update", "description": "Continue an interrupted task with a stable update key.",
      "inputSchema": _schema(["task_id", "request_key", "input"],
-                            {"task_id": _STRING, "request_key": _STRING, "input": _INPUT})},
+                            {"task_id": _STRING, "request_key": _STRING, "input": _INPUT,
+                             "expected_identity": _STRING, "expected_deployment_id": _STRING})},
     {"name": "mas.events", "description": "Read durable task events after a sequence number.",
      "inputSchema": _schema(["task_id"], {"task_id": _STRING, "after": {"type": "integer", "minimum": 0}})},
     {"name": "mas.events_page", "description": "Read a bounded event page with an explicit resume cursor.",
@@ -338,7 +344,7 @@ class MCPBridge:
 
     def discover(self) -> dict:
         return {"resultType": "complete", "supportedVersions": [VERSION], "cacheScope": "private", "ttlMs": 0,
-                "capabilities": {"tools": {"listChanged": False}, "extensions": {TASKS: {}}},
+                "capabilities": {"tools": {"listChanged": False}, "extensions": {TASKS: {}, SERVICE_PROFILE: {}}},
                 "instructions": "Integer JSON only. Preserve request_key across retries. Poll tasks; cancellation records intent."}
 
     def handle(self, principal: str, message: dict, metadata: dict | None = None) -> dict | None:
@@ -432,7 +438,9 @@ class MCPBridge:
         if name == "mas.submit":
             self._tasks(capabilities)  # Reject before creating any durable work.
             return require_input_capabilities(task_result(self.service.submit(principal, arguments["request_key"],
-                                                   arguments["workflow"], arguments["input"]), creation=True), capabilities)
+                                                   arguments["workflow"], arguments["input"],
+                                                   **{key: arguments[key] for key in ("request_epoch", "expected_identity", "expected_deployment_id")
+                                                      if key in arguments}), creation=True), capabilities)
         if name == "mas.status":
             value = self.service.inspect(principal, arguments["task_id"])
         elif name == "mas.result":
@@ -440,7 +448,8 @@ class MCPBridge:
         elif name == "mas.cancel":
             value = self.service.cancel(principal, arguments["task_id"])
         elif name == "mas.update":
-            value = self.service.update(principal, arguments["task_id"], arguments["request_key"], arguments["input"])
+            value = self.service.update(principal, arguments["task_id"], arguments["request_key"], arguments["input"],
+                **{key: arguments[key] for key in ("expected_identity", "expected_deployment_id") if key in arguments})
         elif name == "mas.events":
             value = {"events": self.service.events(principal, arguments["task_id"], _integer(arguments.get("after", 0)))}
         elif name == "mas.events_page":
