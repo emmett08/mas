@@ -15,6 +15,7 @@ import time
 from .operations import DeploymentLedger, _file_lock
 from .service_contracts import ServiceError
 from .service_mutation import service_mutation
+from .request_namespaces import RequestScope, epoch_guard
 from .task_service import RunnerExecutor, _object, _text
 from .workflow_allocation import WorkflowAllocation
 from .workflow_plan import WorkflowPlan, bind_plan, validate_registry
@@ -108,17 +109,18 @@ class WorkflowEngine:
             raise ServiceError('forbidden')
         return item
 
-    def _workflow(self, name, identity):
+    def _workflow(self, name, identity, *, verify=True):
         workflow = self.workflow_versions.get((name, identity))
         if workflow is None or workflow.identity != identity:
             raise ServiceError('definition_unavailable')
         record = self.definitions.inspect('workflow', name, identity)
         if not record or record['retired'] or record['implementation_provenance'] != 'verified_source_package':
             raise ServiceError('definition_unavailable')
-        try:
-            workflow.verify_implementation()
-        except ServiceError:
-            raise ServiceError('definition_unavailable') from None
+        if verify:
+            try:
+                workflow.verify_implementation()
+            except ServiceError:
+                raise ServiceError('definition_unavailable') from None
         return workflow
 
     @contextmanager
@@ -154,17 +156,20 @@ class WorkflowEngine:
         finally:
             self._active_workflows, self.evaluator = previous, previous_evaluator
 
-    def submit(self, principal, request_key, plan, input, *, metadata=None, expected_identity=None, expected_deployment_id=None):
+    def submit(self, principal, request_key, plan, input, *, metadata=None, expected_identity=None, expected_deployment_id=None,
+               request_epoch=None, _request_namespace=None):
         _text(request_key, 'request_key')
         if plan not in self.grants.get(principal, ()):
             raise ServiceError('forbidden')
         value = _object(input)
         metadata = _object(metadata) if metadata is not None else {}
+        scope = RequestScope.supplied(_request_namespace, request_epoch)
         from .principal_quotas import submission_mutation, check_submission_quota
-        with submission_mutation(self.operations, self.store, principal) as db:
+        with epoch_guard(self.operations, principal, scope), submission_mutation(self.operations, self.store, principal) as db:
+            scope.check_owner(db, principal)
             if expected_deployment_id is not None and expected_deployment_id != self.operations.deployment_id:
                 raise ServiceError('deployment_identity_mismatch')
-            row = self.store.submitted(db, principal, request_key)
+            row = self.store.submitted(db, principal, request_key, scope=scope)
             if row is not None:
                 if expected_identity is not None and row['identity'] != expected_identity:
                     raise ServiceError('workflow_identity_mismatch')
@@ -175,6 +180,12 @@ class WorkflowEngine:
             else:
                 if plan not in self.plans:
                     raise ServiceError('definition_unavailable')
+                if 'input_schema' in self.plans[plan].spec:
+                    from .operation_contracts import JsonObjectSchema, ContractError
+                    try:
+                        JsonObjectSchema(self.plans[plan].spec['input_schema']).validate(value)
+                    except ContractError:
+                        raise ServiceError('workflow_input_schema_mismatch') from None
                 if expected_identity is not None and self.bindings[plan]['identity'] != expected_identity:
                     raise ServiceError('workflow_identity_mismatch')
                 if bind_plan(plan, self.plans, self.workflows)['identity'] != self.bindings[plan]['identity']:
@@ -189,7 +200,7 @@ class WorkflowEngine:
                 instance = self.store.create_instance(
                     db, principal, request_key, plan, self.bindings[plan]['identity'], value,
                     wall_seconds=policy.business_seconds if policy else self.plans[plan].spec['limits']['wall_seconds'],
-                    maximum=self.max_instances, metadata=metadata, clock=clock)
+                    maximum=self.max_instances, metadata=metadata, clock=clock, scope=scope)
         return self.inspect(principal, instance)
 
     def inspect(self, principal, instance):
@@ -395,6 +406,13 @@ class WorkflowEngine:
                 stopped = current['cancel_requested'] or expired
                 if not live and (stopped or state in _PAUSED | {'expired', 'cancelled'}
                                  or state in _FINISHED and not ready):
+                    if state == 'completed' and not stopped and 'output_schema' in plan:
+                        from .operation_contracts import JsonObjectSchema, ContractError
+                        try:
+                            JsonObjectSchema(plan['output_schema']).validate(output)
+                        except ContractError:
+                            state = 'failed'
+                            self.store.finish_node(instance, 'root', 'failed', error={'code': 'workflow_output_schema_mismatch'})
                     self.store.finish_instance(instance, state, output, expired=expired)
                     return self.inspect(principal, instance)
                 if not stopped and state not in _PAUSED | {'expired', 'cancelled'}:
@@ -442,9 +460,10 @@ class WorkflowEngine:
         supplied = _object(input)
         metadata = _object(metadata) if metadata is not None else {}
         with self.store.transaction(readonly=True) as db:
-            self._owned(db, principal, instance)
-        with self._ownership(instance), self._mutation() as db:
+            scope = RequestScope.retained(self._owned(db, principal, instance))
+        with epoch_guard(self.operations, principal, scope), self._ownership(instance), self._mutation() as db:
             item = self._owned(db, principal, instance)
+            scope.check_owner(db, principal)
             if expected_deployment_id is not None and expected_deployment_id != self.operations.deployment_id:
                 raise ServiceError('deployment_identity_mismatch')
             if expected_identity is not None and expected_identity != item['identity']:

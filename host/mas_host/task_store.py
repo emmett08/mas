@@ -38,10 +38,25 @@ SERVICE_V2 = Schema('task service', 0x4D415354, 2, (),
                  (*SERVICE_V1.statements, *_ARCHIVE_COLUMNS),
                  ((SERVICE_V1, _ARCHIVE_COLUMNS),))
 
-SERVICE = Schema('task service', 0x4D415354, 3, (),
+SERVICE_V3 = Schema('task service', 0x4D415354, 3, (),
                  (*SERVICE_V2.statements, DEADLINE_AMENDMENTS),
                  ((SERVICE_V1, (*_ARCHIVE_COLUMNS, DEADLINE_AMENDMENTS)),
                   (SERVICE_V2, (DEADLINE_AMENDMENTS,))))
+
+from .request_namespaces import OWNER_EPOCHS
+_NAMESPACE_MIGRATION = (
+    "ALTER TABLE tasks ADD COLUMN request_namespace TEXT NOT NULL DEFAULT 'legacy'",
+    "ALTER TABLE tasks ADD COLUMN request_epoch TEXT NOT NULL DEFAULT ''",
+    'ALTER TABLE requests RENAME TO requests_legacy',
+    "CREATE TABLE requests(principal TEXT NOT NULL,request_key TEXT NOT NULL,digest TEXT NOT NULL,task_id TEXT NOT NULL,kind TEXT NOT NULL,request_namespace TEXT NOT NULL DEFAULT 'legacy',request_epoch TEXT NOT NULL DEFAULT '',PRIMARY KEY(principal,request_namespace,request_epoch,request_key))",
+    'INSERT INTO requests(principal,request_key,digest,task_id,kind) SELECT principal,request_key,digest,task_id,kind FROM requests_legacy',
+    'DROP TABLE requests_legacy', OWNER_EPOCHS,
+)
+SERVICE = Schema('task service', 0x4D415354, 4, (),
+                 (*SERVICE_V3.statements, *_NAMESPACE_MIGRATION),
+                 ((SERVICE_V1, (*_ARCHIVE_COLUMNS, DEADLINE_AMENDMENTS, *_NAMESPACE_MIGRATION)),
+                  (SERVICE_V2, (DEADLINE_AMENDMENTS, *_NAMESPACE_MIGRATION)),
+                  (SERVICE_V3, _NAMESPACE_MIGRATION)))
 
 
 def canonical(value: object) -> str:

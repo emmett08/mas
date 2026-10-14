@@ -16,6 +16,7 @@ from .service_contracts import ServiceError
 from .deadline_amendments import DEADLINE_AMENDMENTS
 from .workflow_progress import CONTROL_PROGRESS
 from .workflow_evaluator import FINISHED_STATES
+from .request_namespaces import RequestScope, OWNER_EPOCHS
 
 
 COMPOSITION_V1 = Schema('workflow composition', 0x4D415357, 1, (), (
@@ -47,11 +48,32 @@ COMPOSITION_V3 = Schema('workflow composition', 0x4D415357, 3, (),
                      ((COMPOSITION_V1, (*_V2_MIGRATION, DEADLINE_AMENDMENTS)),
                       (COMPOSITION_V2, (DEADLINE_AMENDMENTS,))))
 
-COMPOSITION = Schema('workflow composition', 0x4D415357, 4, (),
+COMPOSITION_V4 = Schema('workflow composition', 0x4D415357, 4, (),
                      (*COMPOSITION_V3.statements, CONTROL_PROGRESS),
                      ((COMPOSITION_V1, (*_V2_MIGRATION, DEADLINE_AMENDMENTS, CONTROL_PROGRESS)),
                       (COMPOSITION_V2, (DEADLINE_AMENDMENTS, CONTROL_PROGRESS)),
                       (COMPOSITION_V3, (CONTROL_PROGRESS,))))
+
+_INSTANCE_COLUMNS = 'id,principal,request_key,plan,identity,input,state,output,error,created,deadline,cancel_requested,metadata,clock'
+_ARCHIVE_FIELDS = 'id,principal,request_key,plan,identity,input_digest,state,error,created,deadline,cancel_requested,archived_at,usage,output_digest,event_floor,metadata,clock'
+_NEW_INSTANCES = COMPOSITION_V1.statements[0].replace(',UNIQUE(principal,request_key))',
+    ",metadata TEXT NOT NULL DEFAULT '{}',clock TEXT,request_namespace TEXT NOT NULL DEFAULT 'legacy',request_epoch TEXT NOT NULL DEFAULT '',UNIQUE(principal,request_namespace,request_epoch,request_key))")
+_NEW_ARCHIVES = _ARCHIVES.replace(',UNIQUE(principal,request_key))',
+    ",request_namespace TEXT NOT NULL DEFAULT 'legacy',request_epoch TEXT NOT NULL DEFAULT '',UNIQUE(principal,request_namespace,request_epoch,request_key))")
+_NAMESPACE_MIGRATION = (
+    'ALTER TABLE instances RENAME TO instances_legacy', _NEW_INSTANCES,
+    f'INSERT INTO instances({_INSTANCE_COLUMNS}) SELECT {_INSTANCE_COLUMNS} FROM instances_legacy',
+    'DROP TABLE instances_legacy',
+    'ALTER TABLE archives RENAME TO archives_legacy', _NEW_ARCHIVES,
+    f'INSERT INTO archives({_ARCHIVE_FIELDS}) SELECT {_ARCHIVE_FIELDS} FROM archives_legacy',
+    'DROP TABLE archives_legacy', OWNER_EPOCHS,
+)
+COMPOSITION = Schema('workflow composition', 0x4D415357, 5, (),
+                     (*COMPOSITION_V4.statements, *_NAMESPACE_MIGRATION),
+                     ((COMPOSITION_V1, (*_V2_MIGRATION, DEADLINE_AMENDMENTS, CONTROL_PROGRESS, *_NAMESPACE_MIGRATION)),
+                      (COMPOSITION_V2, (DEADLINE_AMENDMENTS, CONTROL_PROGRESS, *_NAMESPACE_MIGRATION)),
+                      (COMPOSITION_V3, (CONTROL_PROGRESS, *_NAMESPACE_MIGRATION)),
+                      (COMPOSITION_V4, _NAMESPACE_MIGRATION)))
 
 
 def encode(value):
@@ -150,7 +172,7 @@ class WorkflowStore:
     def instance(db, instance, principal=None, *, include_input=False):
         columns = 'id,principal,request_key,plan,identity,state,output,error,created,deadline,cancel_requested'
         available = {row[1] for row in db.execute('PRAGMA table_info(instances)')}
-        for column in ('metadata', 'clock'):
+        for column in ('metadata', 'clock', 'request_namespace', 'request_epoch'):
             if column in available:
                 columns += ',' + column
         if include_input:
@@ -176,13 +198,15 @@ class WorkflowStore:
             return self.instance(db, instance, include_input=True)
 
     @staticmethod
-    def submitted(db, principal, request_key):
-        item = decode(db.execute('SELECT * FROM instances WHERE principal=? AND request_key=?',
-                                 (principal, request_key)).fetchone())
+    def submitted(db, principal, request_key, *, scope=RequestScope()):
+        item = decode(db.execute('SELECT * FROM instances WHERE principal=? AND request_key=? '
+                                 'AND request_namespace=? AND request_epoch=?',
+                                 (principal, request_key, *scope.values)).fetchone())
         if item is not None or not db.execute("SELECT 1 FROM sqlite_master WHERE name='archives'").fetchone():
             return item
         return WorkflowStore.archived_row(db.execute(
-            'SELECT * FROM archives WHERE principal=? AND request_key=?', (principal, request_key)).fetchone())
+            'SELECT * FROM archives WHERE principal=? AND request_key=? AND request_namespace=? AND request_epoch=?',
+            (principal, request_key, *scope.values)).fetchone())
 
     @staticmethod
     def archived_row(row):
@@ -198,14 +222,14 @@ class WorkflowStore:
         return encode(item['input']) == encode(input)
 
     @staticmethod
-    def create_instance(db, principal, request_key, plan, identity, input, *, wall_seconds, maximum, metadata=None, clock=None):
+    def create_instance(db, principal, request_key, plan, identity, input, *, wall_seconds, maximum, metadata=None, clock=None, scope=RequestScope()):
         if db.execute('SELECT count(*) FROM instances').fetchone()[0] >= maximum:
             raise ServiceError('workflow_limit')
         instance, now = 'flow-' + uuid.uuid4().hex, int(time.time())
-        db.execute("INSERT INTO instances(id,principal,request_key,plan,identity,input,state,created,deadline,metadata,clock) "
-                   "VALUES(?,?,?,?,?,?,'queued',?,?,?,?)",
+        db.execute("INSERT INTO instances(id,principal,request_key,plan,identity,input,state,created,deadline,metadata,clock,request_namespace,request_epoch) "
+                   "VALUES(?,?,?,?,?,?,'queued',?,?,?,?,?,?)",
                    (instance, principal, request_key, plan, identity, encode(input), now, now + wall_seconds,
-                    encode(metadata or {}), encode(clock) if clock is not None else None))
+                    encode(metadata or {}), encode(clock) if clock is not None else None, *scope.values))
         event(db, instance, None, 'submitted', 'queued')
         return instance
 
@@ -215,6 +239,7 @@ class WorkflowStore:
         if item.get('archived'):
             return {'instance_id': instance, 'plan': item['plan'], 'identity': item['identity'],
                     'state': item['state'], 'output': None, 'error': item['error'],
+                    'request_namespace': item.get('request_namespace', 'legacy'), 'request_epoch': item.get('request_epoch', ''),
                     'deadline': item['deadline'], 'cancel_requested': bool(item['cancel_requested']),
                     'usage': item['usage'], 'nodes': [], 'attempts': [], 'archived': True,
                     'result_available': False, 'archived_at': item['archived_at'],
@@ -234,6 +259,7 @@ class WorkflowStore:
                              (item['created'], instance)).fetchone()[0]
         return {'instance_id': instance, 'plan': item['plan'], 'identity': item['identity'],
                 'state': item['state'], 'output': item['output'], 'error': item['error'],
+                'request_namespace': item.get('request_namespace', 'legacy'), 'request_epoch': item.get('request_epoch', ''),
                 'deadline': item['deadline'], 'cancel_requested': bool(item['cancel_requested']),
                 'usage': {'steps': len(nodes), 'calls': usage[0], 'reserved_microusd': usage[1]},
                 'nodes': nodes, 'attempts': attempts, 'metadata': item.get('metadata', {}),
@@ -280,12 +306,13 @@ class WorkflowStore:
         graph = cls.graph(db, item)
         floor = db.execute('SELECT coalesce(max(id),0) FROM events WHERE instance=?', (item['id'],)).fetchone()[0]
         digest = lambda value: hashlib.sha256(encode(value).encode()).hexdigest()
-        db.execute('INSERT INTO archives VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+        db.execute('INSERT INTO archives VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
                    (item['id'], item['principal'], item['request_key'], item['plan'], item['identity'],
                     digest(item['input']), item['state'], encode(item['error']) if item['error'] else None,
                     item['created'], item['deadline'], item['cancel_requested'], int(time.time()),
                     encode(graph['usage']), digest(item['output']) if item['output'] is not None else None, floor,
-                    encode(item.get('metadata', {})), encode(item['clock']) if item.get('clock') is not None else None))
+                    encode(item.get('metadata', {})), encode(item['clock']) if item.get('clock') is not None else None,
+                    *RequestScope.retained(item).values))
         for row in db.execute('SELECT * FROM continuations WHERE instance=?', (item['id'],)).fetchall():
             db.execute('INSERT INTO continuation_tombstones VALUES(?,?,?,?,?,?)',
                        (item['id'], row['request_key'], row['path'],

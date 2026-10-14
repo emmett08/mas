@@ -334,12 +334,23 @@ class PlanEvaluator:
                 return self.journal.finish_node(instance, path, 'failed', error={'code': 'iteration_limit'})
         elif kind == 'subworkflow':
             child = self.plans[node['workflow']].spec
+            from .operation_contracts import ContractError, JsonObjectSchema
+            if 'input_schema' in child:
+                try:
+                    JsonObjectSchema(child['input_schema']).validate(input)
+                except ContractError:
+                    return self.journal.finish_node(instance, path, 'failed', error={'code': 'workflow_input_schema_mismatch'})
             child_path = f'{path}/sub-{node["workflow"]}'
             timing = {'timing_policy': child['timing_policy']} if 'timing_policy' in child else {}
             child_deadline = self.journal.scope(instance, child_path, child['limits'], deadline, **timing)
             if child_deadline <= time.time():
                 return self.journal.finish_node(instance, path, 'expired')
             state, output = self.advance(instance, child_path, child['root'], input, limits, child_deadline, ready)
+            if state == 'completed' and 'output_schema' in child:
+                try:
+                    JsonObjectSchema(child['output_schema']).validate(output)
+                except ContractError:
+                    return self.journal.finish_node(instance, path, 'failed', error={'code': 'workflow_output_schema_mismatch'})
         else:
             raise ServiceError('invalid_node')
         return self.journal.finish_node(instance, path, state, output)

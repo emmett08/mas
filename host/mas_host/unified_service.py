@@ -11,6 +11,7 @@ from types import SimpleNamespace
 from .service_contracts import ServiceError
 from .task_service import DurableTaskService, ExecutionResult, _bounded_items, _object, _text
 from .workflow_engine import WorkflowEngine
+from .request_namespaces import RequestEpochStore, RequestScope, VERSIONED
 
 
 class _ExecutionRouter:
@@ -68,6 +69,10 @@ class UnifiedTaskService:
         self.capacity = self.leaves.capacity
         self.plan_names = plan_names
         self.executor = _ExecutionRouter(self, self.leaves.executor)
+        self.epochs = RequestEpochStore(self.state_dir,
+            readonly=self.operations.readonly or not self.operations.admission_enabled)
+        if not self.epochs.readonly:
+            self._repair_epochs()
 
     @property
     def executor(self):
@@ -96,7 +101,7 @@ class UnifiedTaskService:
             for row in db.execute("SELECT workflow,identity FROM attempts WHERE instance=? "
                                   "AND state IN ('input_required','auth_required')", (instance,)):
                 try:
-                    leaf = self.compositions._workflow(row['workflow'], row['identity'])
+                    leaf = self.compositions._workflow(row['workflow'], row['identity'], verify=False)
                     resumable |= leaf.continue_input is not None
                 except ServiceError:
                     pass
@@ -116,6 +121,8 @@ class UnifiedTaskService:
         return {'task_id': instance, 'kind': 'plan', 'workflow': item['plan'],
                 'workflow_identity': item['identity'],
                 'request_key': item['request_key'], 'state': public_state,
+                'request_namespace': item.get('request_namespace', 'legacy'),
+                'request_epoch': item.get('request_epoch', ''),
                 'created_at': graph.get('created', item['created']) * 1000,
                 'updated_at': graph.get('updated', item['created']) * 1000,
                 'cancel_requested': graph['cancel_requested'], 'result': result,
@@ -127,25 +134,87 @@ class UnifiedTaskService:
                 **({'archived': True, 'result_available': False, 'archived_at': graph['archived_at'] * 1000,
                     'result_digest': graph.get('output_digest')} if graph.get('archived') else {}), **receipt(item)}
 
-    def submit(self, principal, request_key, workflow, input, *, metadata=None, expected_identity=None, expected_deployment_id=None):
+    def _request_owner(self, principal, request_key, scope):
+        with self.leaves.store.transaction(readonly=True) as db:
+            leaf = db.execute('SELECT task_id FROM requests WHERE principal=? AND request_key=? '
+                              'AND request_namespace=? AND request_epoch=?',
+                              (principal, request_key, *scope.values)).fetchone()
+        with self.compositions.store.transaction(readonly=True) as db:
+            plan = self.compositions.store.submitted(db, principal, request_key, scope=scope)
+        return leaf, plan
+
+    def submit(self, principal, request_key, workflow, input, *, metadata=None, expected_identity=None,
+               expected_deployment_id=None, request_epoch=None):
         self._authorise(principal, workflow)
+        scope = RequestScope.supplied(VERSIONED, request_epoch)
+        if self.operations.readonly or not self.operations.admission_enabled:
+            raise ServiceError('audit_only')
         from .operations import _file_lock
-        # The durable target record is the enqueue intent. This lock serialises
-        # cross-store key arbitration without a vulnerable second queue write.
+        # The owner submission is the durable scheduling intent. Namespace
+        # columns distinguish arbitrary legacy keys without prefix encoding.
         with _file_lock(self.state_dir / '.unified-submission.lock', True):
-            with self.leaves.store.transaction(readonly=True) as db:
-                leaf = db.execute('SELECT task_id FROM requests WHERE principal=? AND request_key=?',
-                                  (principal, request_key)).fetchone()
-            with self.compositions.store.transaction(readonly=True) as db:
-                plan = self.compositions.store.submitted(db, principal, request_key)
+            self._repair_epochs(locked=True)
+            leaf, plan = self._request_owner(principal, request_key, scope)
+            if request_epoch is None and leaf is None and plan is None:
+                legacy_leaf, legacy_plan = self._request_owner(principal, request_key, RequestScope())
+                if legacy_leaf is not None or legacy_plan is not None:
+                    leaf, plan, scope = legacy_leaf, legacy_plan, RequestScope()
             if leaf is not None and (plan is not None or workflow in self.plan_names) or plan is not None and workflow not in self.plan_names:
                 raise ServiceError('request_conflict')
+            options = dict(metadata=metadata, expected_identity=expected_identity,
+                           expected_deployment_id=expected_deployment_id,
+                           request_epoch=scope.epoch or None, _request_namespace=scope.namespace)
             if workflow in self.plan_names:
-                return self._receipt(principal, self.compositions.submit(principal, request_key, workflow, input,
-                                                                        metadata=metadata, expected_identity=expected_identity,
-                                                                        expected_deployment_id=expected_deployment_id))
-            return self.leaves.submit(principal, request_key, workflow, input, metadata=metadata, expected_identity=expected_identity,
-                                      expected_deployment_id=expected_deployment_id)
+                return self._receipt(principal, self.compositions.submit(principal, request_key, workflow, input, **options))
+            return self.leaves.submit(principal, request_key, workflow, input, **options)
+
+    def _complete_epoch(self, record):
+        from .request_namespaces import RequestScope, retire_owner
+        scope = RequestScope(record['namespace'], record['epoch'])
+        # Each owner acknowledgement commits independently. The central closing
+        # record rejects every ingress throughout interruption and repair.
+        retire_owner(self.leaves.store, 'leaf', record['principal'], scope, prune=bool(record['prune']))
+        retire_owner(self.compositions.store, 'plan', record['principal'], scope, prune=bool(record['prune']))
+        return self.epochs.complete(record['principal'], scope)
+
+    def _repair_epochs(self, *, locked=False):
+        from contextlib import nullcontext
+        from .operations import _file_lock
+        from .request_namespaces import retirement_guard
+        if self.epochs.readonly:
+            return
+        with (nullcontext() if locked else _file_lock(self.state_dir / '.unified-submission.lock', True)):
+            for record in self.epochs.pending():
+                scope = RequestScope(record['namespace'], record['epoch'])
+                with retirement_guard(self.operations, record['principal'], scope), _file_lock(self.state_dir / '.deployment.lock', False):
+                    if self.operations.readonly or not self.operations.admission_enabled:
+                        raise ServiceError('audit_only')
+                    self._complete_epoch(record)
+
+    def retire_request_epoch(self, principal, epoch, *, reason, prune=False, authoriser=None):
+        """Close an owned, drained epoch; legacy arbitrary keys never retire."""
+        self._authorise(principal)
+        scope = RequestScope.supplied(VERSIONED, epoch)
+        if not scope.epoch:
+            raise ServiceError('request_namespace_not_retirable')
+        from .operations import _file_lock
+        from .request_namespaces import owner_live, retirement_guard
+        with _file_lock(self.state_dir / '.unified-submission.lock', True), retirement_guard(self.operations, principal, scope):
+            with _file_lock(self.state_dir / '.deployment.lock', True, nonblocking=True):
+                if self.operations.readonly or not self.operations.admission_enabled:
+                    raise ServiceError('audit_only')
+                old = self.epochs.inspect(principal, scope)
+                if old is None and (owner_live(self.leaves.store, 'leaf', principal, scope)
+                        or owner_live(self.compositions.store, 'plan', principal, scope)):
+                    raise ServiceError('request_epoch_in_use')
+                intent = self.epochs.begin_retirement(principal, scope, reason, prune, authoriser)
+                return self._complete_epoch(intent)
+
+    def request_epoch_status(self, principal, epoch):
+        self._authorise(principal)
+        scope = RequestScope.supplied(VERSIONED, epoch)
+        return self.epochs.inspect(principal, scope) or {'principal': principal,
+            'namespace': scope.namespace, 'epoch': scope.epoch, 'state': 'open'}
 
     def inspect(self, principal, task_id):
         if self._composition(task_id):
@@ -219,14 +288,15 @@ class UnifiedTaskService:
             if name in self.plan_names:
                 binding = self.compositions.bindings.get(name)
                 registrations.append({'name': name, 'kind': 'plan', 'available': binding is not None,
-                                      'identity': binding['identity'] if binding else None})
+                                      'identity': binding['identity'] if binding else None,
+                                      'contract': self.compositions.plans[name].contract_descriptor if binding else None})
             else:
                 workflow = self.leaves.workflows.get(name)
                 registrations.append({'name': name, 'kind': 'workflow', 'available': workflow is not None,
                     'identity': workflow.identity if workflow else None,
                     'contract': workflow.contract_descriptor if workflow else None})
-        return {'format': 'mas-task-service/1', 'deployment_id': self.operations.deployment_id,
-                'capabilities': ['submit', 'inspect', 'result', 'cancel', 'update', 'events_page', 'task_detail', 'recover', 'pinned_identity'],
+        return {'format': 'mas-task-service/1', 'principal': principal, 'deployment_id': self.operations.deployment_id,
+                'capabilities': ['submit', 'inspect', 'result', 'cancel', 'update', 'events_page', 'task_detail', 'recover', 'pinned_identity', 'request_epochs'],
                 'registrations': registrations}
 
     def _page_ids(self, principal, *, limit, offset=0, after=None, state=None, metadata=None,

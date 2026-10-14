@@ -23,6 +23,7 @@ from .execution_policy import RetryPolicy, TimingPolicy, retry_policy, timing_po
 from .circuit_breaker import circuit_policies
 from .service_contracts import ServiceError
 from .service_mutation import service_mutation
+from .request_namespaces import RequestScope, epoch_guard
 from .task_store import TaskStore, canonical, decoded, event, now
 
 
@@ -516,6 +517,8 @@ class DurableTaskService:
         return {"task_id": task["id"], 'workflow_identity': task['workflow_identity'], **{key: task[key] for key in (
             "state", "workflow", "request_key", "created_at", "updated_at",
             "cancel_requested", "result", "error", "revision", "metadata")},
+            "request_namespace": task.get("request_namespace", "legacy"),
+            "request_epoch": task.get("request_epoch", ""),
             "capabilities": {"cancel": True,
                 "update": workflow is not None and workflow.continue_input is not None,
                 "events": True},
@@ -533,8 +536,9 @@ class DurableTaskService:
         return hashlib.sha256(canonical({"kind": kind, "task_id": task_id,
             "workflow": workflow, "input": input, "metadata": metadata or {}}).encode()).hexdigest()
 
-    def _duplicate(self, db, principal, key, digest):
-        row = db.execute("SELECT digest,task_id FROM requests WHERE principal=? AND request_key=?", (principal, key)).fetchone()
+    def _duplicate(self, db, principal, key, digest, scope=RequestScope()):
+        row = db.execute("SELECT digest,task_id FROM requests WHERE principal=? AND request_key=? "
+                         "AND request_namespace=? AND request_epoch=?", (principal, key, *scope.values)).fetchone()
         if row:
             if row["digest"] != digest:
                 raise ServiceError("request_conflict")
@@ -559,18 +563,21 @@ class DurableTaskService:
         db.execute("INSERT INTO executions(task_id,revision,run_id,run_directory,input,state) VALUES(?,?,?,?,?,'queued')",
                    (task_id, revision, run_id, run_id, canonical(input)))
 
-    def submit(self, principal, request_key, workflow, input, *, metadata=None, expected_identity=None, expected_deployment_id=None):
+    def submit(self, principal, request_key, workflow, input, *, metadata=None, expected_identity=None, expected_deployment_id=None,
+               request_epoch=None, _request_namespace=None):
         _text(workflow, "workflow")
         self._authorise(principal, workflow)
         _text(request_key, "request_key")
         value = _object(input)
         metadata = _object(metadata) if metadata is not None else {}
         digest = self._digest("submit", None, workflow, value, metadata)
+        scope = RequestScope.supplied(_request_namespace, request_epoch)
         from .principal_quotas import submission_mutation, check_submission_quota
-        with submission_mutation(self.operations, self.store, principal) as db:
+        with epoch_guard(self.operations, principal, scope), submission_mutation(self.operations, self.store, principal) as db:
+            scope.check_owner(db, principal)
             if expected_deployment_id is not None and expected_deployment_id != self.operations.deployment_id:
                 raise ServiceError('deployment_identity_mismatch')
-            duplicate = self._duplicate(db, principal, request_key, digest)
+            duplicate = self._duplicate(db, principal, request_key, digest, scope)
             if duplicate:
                 if expected_identity is not None and duplicate['workflow_identity'] != expected_identity:
                     raise ServiceError('workflow_identity_mismatch')
@@ -589,10 +596,10 @@ class DurableTaskService:
             task_id, timestamp = "task-" + uuid.uuid4().hex, now()
             self._validate_execution_input(selected, task_id, 0, value)
             clock = selected.timing_policy.start(timestamp) if selected.timing_policy else None
-            db.execute("INSERT INTO tasks(id,principal,request_key,workflow,workflow_identity,state,input,metadata,created_at,updated_at,clock) VALUES(?,?,?,?,?,'queued',?,?,?,?,?)",
+            db.execute("INSERT INTO tasks(id,principal,request_key,workflow,workflow_identity,state,input,metadata,created_at,updated_at,clock,request_namespace,request_epoch) VALUES(?,?,?,?,?,'queued',?,?,?,?,?,?,?)",
                 (task_id, principal, request_key, workflow, self.identities[workflow], canonical(value), canonical(metadata), timestamp, timestamp,
-                 canonical(clock) if clock else None))
-            db.execute("INSERT INTO requests VALUES(?,?,?,?,?)", (principal, request_key, digest, task_id, "submit"))
+                 canonical(clock) if clock else None, *scope.values))
+            db.execute("INSERT INTO requests VALUES(?,?,?,?,?,?,?)", (principal, request_key, digest, task_id, "submit", *scope.values))
             self._execution(db, task_id, 0, value)
             event(db, task_id, "submitted", {"state": "queued", "revision": 0})
             return self._receipt(self._owned(db, principal, task_id))
@@ -609,8 +616,8 @@ class DurableTaskService:
             registrations.append({'name': name, 'kind': 'workflow', 'available': workflow is not None,
                 'identity': workflow.identity if workflow else None,
                 'contract': workflow.contract_descriptor if workflow else None})
-        return {'format': 'mas-task-service/1', 'deployment_id': self.operations.deployment_id,
-                'capabilities': ['submit', 'inspect', 'result', 'cancel', 'update', 'events_page', 'recover', 'pinned_identity'],
+        return {'format': 'mas-task-service/1', 'principal': principal, 'deployment_id': self.operations.deployment_id,
+                'capabilities': ['submit', 'inspect', 'result', 'cancel', 'update', 'events_page', 'recover', 'pinned_identity', 'request_epochs'],
                 'registrations': registrations}
 
     def result(self, principal, task_id):
@@ -647,14 +654,17 @@ class DurableTaskService:
         _text(request_key, "request_key")
         value = _object(input)
         metadata = _object(metadata) if metadata is not None else {}
-        with self._mutation() as db:
+        with self.store.transaction(readonly=True) as db:
+            scope = RequestScope.retained(self._owned(db, principal, task_id))
+        with epoch_guard(self.operations, principal, scope), self._mutation() as db:
             task = self._owned(db, principal, task_id)
+            scope.check_owner(db, principal)
             if expected_deployment_id is not None and expected_deployment_id != self.operations.deployment_id:
                 raise ServiceError('deployment_identity_mismatch')
             if expected_identity is not None and expected_identity != task['workflow_identity']:
                 raise ServiceError('workflow_identity_mismatch')
             digest = self._digest("update", task_id, task["workflow"], value, metadata)
-            duplicate = self._duplicate(db, principal, request_key, digest)
+            duplicate = self._duplicate(db, principal, request_key, digest, scope)
             if duplicate:
                 return duplicate
             from .service_timing import require_open, transition
@@ -674,7 +684,7 @@ class DurableTaskService:
                 raise ServiceError("invalid_continuation") from None
             revision = task["revision"] + 1
             self._validate_execution_input(workflow, task_id, revision, combined)
-            db.execute("INSERT INTO requests VALUES(?,?,?,?,?)", (principal, request_key, digest, task_id, "update"))
+            db.execute("INSERT INTO requests VALUES(?,?,?,?,?,?,?)", (principal, request_key, digest, task_id, "update", *scope.values))
             self._execution(db, task_id, revision, combined)
             transition(db, 'tasks', task, 'queued')
             db.execute("UPDATE tasks SET state='queued',revision=?,error=NULL,updated_at=? WHERE id=?", (revision, now(), task_id))

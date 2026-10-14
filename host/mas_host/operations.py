@@ -106,6 +106,9 @@ def _db(path: Path, readonly: bool = False):
         elif path.name == "composition.sqlite":
             from .workflow_store import COMPOSITION
             known = COMPOSITION
+        elif path.name == "request-epochs.sqlite":
+            from .request_namespaces import EPOCHS
+            known = EPOCHS
         elif path.name == "definition-registry.sqlite":
             from .definitions import DEFINITIONS
             known = DEFINITIONS

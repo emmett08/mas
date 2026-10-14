@@ -273,7 +273,13 @@ class WorkflowPlan:
     def __init__(self, spec: dict):
         checked = _copy(spec, "invalid_workflow_plan")
         _fields(checked, {"format", "name", "version", "limits", "root"},
-                optional=frozenset({"timing_policy"}))
+                optional=frozenset({"timing_policy", "input_schema", "output_schema"}))
+        for field in ("input_schema", "output_schema"):
+            if field in checked:
+                try:
+                    checked[field] = JsonObjectSchema(checked[field]).descriptor
+                except ContractError:
+                    raise ServiceError("invalid_workflow_contract_schema") from None
         if checked["format"] != PLAN_FORMAT:
             raise ServiceError("invalid_workflow_plan_format")
         _name(checked["name"])
@@ -301,6 +307,13 @@ class WorkflowPlan:
     def spec(self) -> dict:
         """A fresh application-owned copy of the validated source."""
         return json.loads(self._source)
+
+    @property
+    def contract_descriptor(self):
+        spec = self.spec
+        return {"input_schema": spec.get("input_schema", {"type": "object"}),
+                "output_schema": spec.get("output_schema", {"type": "object"}),
+                "json_profile": "bounded-integer-json"}
 
     @property
     def identity(self) -> str:
