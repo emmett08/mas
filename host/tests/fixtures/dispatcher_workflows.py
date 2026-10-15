@@ -8,6 +8,40 @@ from mas_host import Invocation, Outcome
 from mas_host.task_service import Workflow
 
 
+def _gate_shutdown_observation():
+    """Put only the active assignment inside telemetry when shutdown arrives."""
+    gate_path = os.environ.get("MAS_TEST_TELEMETRY_GATE")
+    if not gate_path:
+        return
+    from mas_host import telemetry
+    if getattr(telemetry._open, "_dispatcher_shutdown_gate", False):
+        return
+    gate = json.loads(Path(gate_path).read_text())
+    original = telemetry._open
+    entered = False
+
+    def gated_open(*args, **kwargs):
+        nonlocal entered
+        if not entered:
+            try:
+                owner = json.loads(Path(gate["started"]).read_text())["service"]
+            except (FileNotFoundError, ValueError):
+                owner = None
+            if owner == os.getpid():
+                # The adapter has started, so the assignment owner's real
+                # supervisor has installed its interruption handler. Keep this
+                # one observation open until the dispatcher sends SIGTERM.
+                entered = True
+                Path(gate["entered"]).touch()
+                deadline = time.monotonic() + 10
+                while time.monotonic() < deadline:
+                    time.sleep(0.01)
+        return original(*args, **kwargs)
+
+    gated_open._dispatcher_shutdown_gate = True
+    telemetry._open = gated_open
+
+
 class Barrier:
     def __init__(self):
         # Capture the assignment owner before the adapter guardian forks. Avoid
@@ -27,6 +61,7 @@ class Barrier:
 
 
 def workflows():
+    _gate_shutdown_observation()
     topology = {"agents": ["client", "worker"], "edges": [["client", "worker"], ["worker", "client"]],
                 "application": "agent-task/1", "mailbox_capacity": 10,
                 "max_messages": 20, "max_bytes": 100_000, "max_calls": 4, "wall_seconds": 20}

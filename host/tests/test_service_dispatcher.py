@@ -92,6 +92,36 @@ class ServiceDispatcherTests(unittest.TestCase):
     def completed(self, item):
         return self.service.inspect(item["principal"], item["task_id"])["state"] == "completed"
 
+    @staticmethod
+    def alive(pid):
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return False
+        return True
+
+    def wait_for_shutdown(self, process):
+        try:
+            self.assertEqual(process.wait(timeout=5), 0)
+        except subprocess.TimeoutExpired as error:
+            diagnostics = {"dispatcher_pid": process.pid, "tasks": []}
+            for item in self.records:
+                task = {"task_id": item["task_id"]}
+                try:
+                    task["state"] = self.service.inspect(item["principal"], item["task_id"])["state"]
+                    if item["started"].exists():
+                        task["processes"] = {role: {"pid": pid, "alive": self.alive(pid)}
+                            for role, pid in json.loads(item["started"].read_text()).items()}
+                except (OSError, ValueError, ServiceError, OperationsError) as diagnostic_error:
+                    task["diagnostic_error"] = str(diagnostic_error)
+                diagnostics["tasks"].append(task)
+            message = "shutdown diagnostics: " + json.dumps(diagnostics, sort_keys=True)
+            if hasattr(error, "add_note"):
+                error.add_note(message)
+            else:  # Python 3.10 has no exception notes.
+                print(message, file=sys.stderr)
+            raise
+
     def test_independent_assignments_overlap_and_process_limit_holds(self):
         first = self.submit("first")
         second = self.submit("second", "bob")
@@ -124,11 +154,29 @@ class ServiceDispatcherTests(unittest.TestCase):
         process = self.worker("--processes", "1")
         self.wait(lambda: first["started"].exists(), process)
         process.terminate()
-        self.assertEqual(process.wait(timeout=5), 0)
+        self.wait_for_shutdown(process)
         self.assertFalse(second["started"].exists())
         self.assertEqual(self.service.inspect("alice", second["task_id"])["state"], "queued")
         state = self.service.inspect("alice", first["task_id"])["state"]
         self.assertIn(state, {"unknown", "running"})
+
+    def test_shutdown_during_telemetry_stops_dispatch_and_reaps_adapter(self):
+        first, second = self.submit("first"), self.submit("second")
+        entered = self.root / "telemetry-entered"
+        gate = self.root / "telemetry-gate.json"
+        gate.write_text(json.dumps({"started": str(first["started"]), "entered": str(entered)}))
+        self.environment["MAS_TEST_TELEMETRY_GATE"] = str(gate)
+        process = self.worker("--processes", "1")
+        self.wait(entered.exists, process)
+        owners = json.loads(first["started"].read_text())
+        self.assertTrue(all(self.alive(pid) for pid in owners.values()))
+        process.terminate()
+        self.wait_for_shutdown(process)
+        self.assertFalse(second["started"].exists())
+        self.assertEqual(self.service.inspect("alice", second["task_id"])["state"], "queued")
+        self.assertEqual(self.service.inspect("alice", first["task_id"])["state"], "unknown")
+        for role, pid in owners.items():
+            self.assertFalse(self.alive(pid), f"{role} process {pid} survived dispatcher shutdown")
 
     def test_operator_drain_survives_restart_and_preserves_active_work(self):
         from mas_host.worker_control import WorkerControl
