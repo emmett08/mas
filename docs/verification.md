@@ -23,8 +23,8 @@ explicitly; a skip is not passing interoperability evidence.
 
 The native suite passed **72 tests**, with 13 actual-PostgreSQL cases and three
 SPIN-only unit entry points reserved for their separate fixture/verifier gates.
-All **45 script tests** passed, including the build-time provenance writer
-in the scripts suite; seven provenance reader tests also passed against a fresh
+The standalone scripts suite passed without an installed host package, including
+the build-time provenance writer; seven provenance reader tests also passed against a fresh
 installed wheel in a tests-only directory. Focused checks passed for phase deadlines,
 managed peers, provenance portability, generated codec/allocation contracts and
 strict native rejection decoding. The generated differential methods also
@@ -48,6 +48,17 @@ runtime provenance readers; their data and filesystem failures remain
 non-authoritative. The signal regressions failed before the repair and passed
 afterwards. The original five-second dispatcher shutdown assertion is retained;
 the final combined-head hosted checks must qualify the repair.
+
+An independent-VM partition run timed out waiting for its synchronous management
+SSH response on the same NIC that the fixture disconnected. That run is failed/inconclusive:
+it supplies no completion evidence for the partition case. The fixture now
+launches one detached guest invocation with a 60-second monotonic deadline and
+persists its actual exit and result before fresh SSH reads them after reconnect.
+The nonce, guest boot and launch identity must match; absent, failed, malformed
+or late completion fails qualification. The lease, receipt, single-effect and
+quota assertions are unchanged, and failure paths retain diagnostic snapshots.
+Standalone subprocess tests exercise completion and rejection boundaries; the
+real independent-kernel gate remains necessary on the submitted source.
 
 ### Formal verification and correspondence
 
