@@ -40,6 +40,15 @@ local run ended without a unittest summary; it is incomplete, despite the outer
 command's zero exit status. The complete recovery class passed separately.
 Exact-source hosted results, not either local run, must qualify the full suite.
 
+A later installed amd64 Cursor run reproduced the dispatcher shutdown timeout.
+Deterministic signal injection then demonstrated that best-effort telemetry
+could swallow the supervisor's `AdapterInterrupted` exception during a status
+poll. Observation handlers now preserve shutdown control flow, including the
+runtime provenance readers; their data and filesystem failures remain
+non-authoritative. The signal regressions failed before the repair and passed
+afterwards. The original five-second dispatcher shutdown assertion is retained;
+the final combined-head hosted checks must qualify the repair.
+
 ### Formal verification and correspondence
 
 The [hosted Protocol checks run](https://github.com/emmett08/mas/actions/runs/38696365514)
