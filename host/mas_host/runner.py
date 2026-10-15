@@ -34,7 +34,8 @@ def _encode_wire(command, mas_bin: str, run_id: str, sender: str, recipient: str
     """Use the authoritative Rust codec, including its complete wire bound."""
     envelope = {"message_id": message_id, "run_id": run_id, "sender": sender,
                 "recipient": recipient, "version": "1", "kind": kind, "payload": payload}
-    return command([mas_bin, "encode", "-"], _json(envelope, ENCODE_ENVELOPE_BYTES))["text"]
+    return command([mas_bin, "encode", "-"],
+                   _json(envelope, ENCODE_ENVELOPE_BYTES, max_depth=33))["text"]
 
 
 def _gateway_frame(token: str, **command) -> str:
