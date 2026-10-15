@@ -30,7 +30,12 @@ def _digest(value):
 
 
 def _read(path, maximum):
-    with os.fdopen(os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK), 'rb') as stream:
+    safeguards = [getattr(os, name, None) for name in ('O_NOFOLLOW', 'O_NONBLOCK')]
+    if any(type(flag) is not int for flag in safeguards):
+        # A plain open can follow a replaced symlink or block on a FIFO before
+        # fstat. Report unavailable on platforms without these safeguards.
+        raise ValueError('safe metadata open unavailable')
+    with os.fdopen(os.open(path, os.O_RDONLY | safeguards[0] | safeguards[1]), 'rb') as stream:
         before = os.fstat(stream.fileno())
         if not stat.S_ISREG(before.st_mode) or before.st_size > maximum:
             raise ValueError('bounded regular file required')

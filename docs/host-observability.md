@@ -145,7 +145,9 @@ and optionally `--build-arg MAS_RELEASE_TAG=v0.MINOR.PATCH`. A trusted wheel bui
 can run `scripts/write-runtime-provenance.py --host host --rust-manifest
 rust-protocol/Cargo.toml --binaries rust-protocol/target/release --source-commit
 <full SHA>` before building the wheel. The writer requires Python 3.11 or later;
-runtime inspection retains the host's Python 3.10 support. The receipt inherits
+runtime inspection retains the host's Python 3.10 support. A platform lacking
+no-follow/nonblocking file-open safeguards reports build evidence as unavailable
+without opening the file; it does not attempt an unsafe fallback. The receipt inherits
 the trust of the installed package. Its hashes establish content correspondence;
 release authentication still comes from the retained OCI provenance/signature
 and installation procedure, not from a label supplied by an arbitrary builder.

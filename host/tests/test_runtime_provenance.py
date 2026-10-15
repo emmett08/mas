@@ -1,6 +1,7 @@
 """Version evidence stays content-bound, bounded and read-only."""
 import hashlib
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -52,6 +53,16 @@ class ProvenanceTests(unittest.TestCase):
         self.assertEqual(result['status'], 'package_mismatch')
         self.assertIsNone(result['source_commit'])
         self.assertNotIn('binaries', result)
+
+    def test_missing_safe_open_flags_report_unavailable_without_opening(self):
+        self.write()
+        for flag in ('O_NOFOLLOW', 'O_NONBLOCK'):
+            with self.subTest(flag=flag), patch.dict(os.__dict__):
+                os.__dict__.pop(flag, None)
+                with patch('mas_host.runtime_provenance.os.open', side_effect=AssertionError('unsafe open')) as opened:
+                    result = build_record(self.package, self.binaries)
+                self.assertEqual(result['status'], 'unavailable')
+                opened.assert_not_called()
 
     def test_malformed_symlinked_and_duplicate_records_fail_without_details(self):
         for value in ({**self.record, 'source_commit': 'secret'},
