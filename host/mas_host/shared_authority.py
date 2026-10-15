@@ -72,8 +72,9 @@ class SharedAuthority:
             if len(result.stdout.encode('utf-8')) > 16 * 1024 * 1024:
                 raise ValueError
             decoded = json.loads(result.stdout)
-            if type(decoded) is not dict or (decoded.get('ok') is False
-                    and type(decoded.get('error')) is not dict):
+            if (type(decoded) is not dict or type(decoded.get('version')) is not int
+                    or decoded['version'] != 1 or (decoded.get('ok') is False
+                    and type(decoded.get('error')) is not dict)):
                 raise ValueError
             if (decoded.get('version') == 1 and decoded.get('ok') is False
                     and decoded.get('error', {}).get('code') in SharedAuthorityRejected.CODES):

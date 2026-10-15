@@ -204,6 +204,7 @@ class AuthorityRejectionBoundaryTests(unittest.TestCase):
 
     def test_transport_and_malformed_replies_are_not_semantic_rejections(self):
         replies = ['not JSON', '{}', '[]', '{"version":1,"ok":false,"error":null}',
+                   json.dumps({'version': True, 'ok': False, 'error': {'code': 'stale_protocol_authority'}}),
                    json.dumps({'version': 2, 'ok': False, 'error': {'code': 'stale_protocol_authority'}}),
                    json.dumps({'version': 1, 'ok': False, 'error': {'code': 'shared_authority_rejected'}})]
         for content in replies:
