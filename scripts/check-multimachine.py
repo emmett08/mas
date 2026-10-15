@@ -32,6 +32,7 @@ from mas_host.distributed import ARTIFACT_OUTPUT_PROFILE, REMOTE, RemoteWorkerAd
 from mas_host.journal import inspect_run
 from mas_host.schema import connect
 from machine_fixture import controller, machine
+from guest_job import completed_result
 
 
 def require(condition, message):
@@ -142,9 +143,12 @@ class Guest:
                 return False
         wait_for(available, seconds=60, description=self.name+' private tunnel')
 
-    def call(self, action, case='initial', payload=None, timeout=60):
-        command = shlex.join(['sudo', '-n', '/usr/bin/python3', '/opt/mas/scripts/qualification/machine_fixture.py',
-                             action, '--case', case])
+    def call(self, action, case='initial', payload=None, timeout=60, *, job=None):
+        arguments = ['sudo', '-n', '/usr/bin/python3', '/opt/mas/scripts/qualification/machine_fixture.py',
+                     action, '--case', case]
+        if job is not None:
+            arguments.extend(['--job', job])
+        command = shlex.join(arguments)
         result = subprocess.run(self.ssh(command), input=json.dumps(payload).encode() if payload is not None else None,
                                 capture_output=True, timeout=timeout)
         require(result.returncode == 0, self.name+' fixture failed: '+result.stderr.decode(errors='replace')[-1500:])
@@ -324,12 +328,53 @@ def effects(node, case, call_id):
     return [item for item in node.call('snapshot', case)['effects'] if item['call_id'] == call_id]
 
 
+def observe_original_job(node, case, launch):
+    # This is a separate, bounded observation budget. The original child already
+    # has its immutable 60-second guest deadline, which these reads cannot extend.
+    deadline = time.monotonic() + 60
+    while time.monotonic() < deadline:
+        remaining = deadline - time.monotonic()
+        observed = node.call('job', case, timeout=min(15, remaining), job=launch['nonce'])
+        require(observed.get('launch') == launch, 'original guest job identity changed')
+        if observed.get('supervisor_failure') is not None or observed.get('completion') is not None:
+            return observed
+        time.sleep(.1)
+    raise RuntimeError('timed out observing original guest job completion')
+
+
+def failure_evidence(case, node, call_id, observations, error):
+    """Retain bounded diagnostics even if a guest control connection is lost."""
+    result = {'case': case.name, 'passed': False, 'call_id': call_id,
+              'error': type(error).__name__, 'detail': str(error)[-1500:],
+              'observations': observations}
+    def capture(name, read):
+        try:
+            result[name] = {'available': True, 'value': read()}
+        except Exception as unavailable:
+            result[name] = {'available': False, 'error': type(unavailable).__name__,
+                            'detail': str(unavailable)[-1500:]}
+        (case.root/'failure.json').write_text(json.dumps(result, indent=2, sort_keys=True)+'\n')
+    # Save local facts first; a later guest timeout must not erase them.
+    capture('controller', lambda: case.report(call_id) if call_id else None)
+    capture('usage', lambda: case.authority.operations.health()['usage'])
+    capture('receipts', lambda: case.authority.evidence('alice', call_id) if call_id else [])
+    capture('invocations', lambda: [inspect_run(item['run_dir'])['invocations'] for item in case.results])
+    capture('spool', lambda: node.call('snapshot', case.name, timeout=15))
+    if observations.get('job_nonce'):
+        capture('original_job', lambda: node.call('job', case.name, timeout=15,
+                                                  job=observations['job_nonce']))
+
+
 def check_all(nodes, descriptions, tokens, proxy, args, root):
     evidence = []
     with ThreadPoolExecutor(max_workers=2) as workers:
         for name in ('twoworkers', 'lostack', 'partition', 'spoolloss', 'artifactloss'):
             print('qualifying '+name, file=sys.stderr, flush=True)
             case = Case(name, root, descriptions, tokens, proxy, args)
+            call_id = None
+            observations = {'case': name, 'timing': {}}
+            def save_observations():
+                (case.root/'observations.json').write_text(json.dumps(observations, indent=2, sort_keys=True)+'\n')
             try:
                 reboot = None
                 output, original_bytes, reference = None, None, None
@@ -343,25 +388,47 @@ def check_all(nodes, descriptions, tokens, proxy, args, root):
                 future, pending = case.submit(output=output, artifact=name == 'artifactloss',
                                                delay_ms=12000 if name == 'partition' else 0)
                 call_id = wait_for(pending, description=name+' admitted job')
+                observations['call_id'] = call_id
+                save_observations()
                 if name == 'lostack':
                     proxy.lose_ack = True
                 if name == 'spoolloss':
                     proxy.block_receipts = True
-                execution = workers.submit(nodes['worker-one'].call, 'run', name)
                 if name == 'partition':
-                    wait_for(lambda: effects(nodes['worker-one'], name, call_id), description='effect started in guest')
+                    observations['job_nonce'] = secrets.token_hex(16)
+                    save_observations()
+                    launch = nodes['worker-one'].call('start', name, job=observations['job_nonce'])
+                    require(launch['case'] == name and launch['nonce'] == observations['job_nonce'],
+                            'guest launched a different case or nonce')
+                    observations['job_launch'] = launch
+                    save_observations()
+                    observations['effect_start'] = wait_for(
+                        lambda: effects(nodes['worker-one'], name, call_id), description='effect started in guest')
+                    save_observations()
                     nodes['worker-one'].link(False)
                     try:
+                        observations['timing']['link_down_monotonic_ns'] = time.monotonic_ns()
+                        save_observations()
                         # A real virtual NIC disconnect, lasting beyond the lease.
                         time.sleep(case.config['lease_ms']/1000+1)
-                        require(case.report(call_id)['state'] == 'unknown', 'partition did not retain unknown')
+                        observations['controller_during_partition'] = case.report(call_id)
+                        save_observations()
+                        require(observations['controller_during_partition']['state'] == 'unknown',
+                                'partition did not retain unknown')
                     finally:
                         nodes['worker-one'].link(True)
+                        observations['timing']['link_up_monotonic_ns'] = time.monotonic_ns()
+                        save_observations()
                     nodes['worker-one'].connect()
-                worker_result = execution.result(timeout=60)
+                    observations['job_completion'] = observe_original_job(nodes['worker-one'], name, launch)
+                    save_observations()
+                    worker_result = completed_result(observations['job_completion'], launch)
+                else:
+                    execution = workers.submit(nodes['worker-one'].call, 'run', name)
+                    worker_result = execution.result(timeout=60)
                 snapshot = nodes['worker-one'].call('snapshot', name)
-                (case.root/'observations.json').write_text(json.dumps(
-                    {'worker_result': worker_result, 'spool': snapshot}, indent=2, sort_keys=True)+'\n')
+                observations.update(worker_result=worker_result, spool=snapshot)
+                save_observations()
                 receipts = [item['receipt'] for item in snapshot['attempts'] if item['receipt']]
                 if name in ('lostack', 'spoolloss', 'artifactloss'):
                     require(len(receipts) == 1, name+' did not retain unacknowledged receipt')
@@ -420,6 +487,12 @@ def check_all(nodes, descriptions, tokens, proxy, args, root):
                     'receipt_ids': [item['id'] for item in case.authority.evidence('alice', call_id)],
                     'invocations': [inspect_run(item['run_dir'])['invocations'] for item in case.results]})
                 (case.root/'case.json').write_text(json.dumps(evidence[-1], indent=2, sort_keys=True)+'\n')
+            except BaseException as error:
+                try:
+                    failure_evidence(case, nodes['worker-one'], call_id, observations, error)
+                except Exception as evidence_error:
+                    print('failure evidence unavailable: '+type(evidence_error).__name__, file=sys.stderr, flush=True)
+                raise
             finally:
                 case.close()
     return evidence
