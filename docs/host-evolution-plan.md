@@ -1,36 +1,36 @@
 **MAS host: complete implementation and delivery plan**
 
-Prepared 14 October 2026. Repository: https://github.com/emmett08/mas. Baseline: `ccc7bb85cede76398aee19b24b9281f2d2959046`, which includes PR #15. Status: implementation and qualification continue in the consolidated draft PR #45; release acceptance remains open. This document is the canonical plan for this review and should be updated in place as work progresses.
+Prepared 14 October 2026. Repository: https://github.com/emmett08/mas. Baseline: `ccc7bb85cede76398aee19b24b9281f2d2959046`, which includes PR #15. Status: PR #45 is merged; the post-merge requirements audit is being addressed on `feat/host-verification-completion`. Release acceptance remains open. This document is the canonical plan for this review and should be updated in place as work progresses.
 
 **Implementation record, 15 October 2026.** The source changes implement the
 bounded profiles below. The original W00–W17 requirements remain the acceptance
 contract; a partial profile does not close its whole work package or milestone.
-At the owner’s explicit request on 14 October, all changes are consolidated in
-[PR #45](https://github.com/emmett08/mas/pull/45), targeting `main`. PRs #16–44
-are closed as superseded, with their history retained. Further fixes use PR #45.
-This instruction supersedes the original focused-PR delivery guidance below.
-No merge, release or production activation is implied.
+The consolidated implementation in [PR #45](https://github.com/emmett08/mas/pull/45)
+was merged as `030f9f75396ad88d6289b01ba9bd47d8ab90ee66`. This follow-up
+implements the subsequent audit repairs and adds qualification evidence. Earlier
+PRs remain in Git history. A source implementation, a passing bounded fixture
+and production acceptance are distinct claims; none implies a release.
 
 | Package | Implemented source profile | Qualification and deployment acceptance |
 |---|---|---|
-| W00 | Pinned baseline, real Rust fixtures, sustained two-principal load gate, SDK/orchestrator and formal evidence. | The bounded load profile passed locally at c623904 (112 completed over 60.10 seconds) and in the 71e4d87 hosted gate. Production workload/SLOs, live provider profiles and availability objectives require deployment acceptance. |
+| W00 | Pinned baseline, real Rust fixtures, paced leaf and saturated mixed two-principal load gates, SDK/orchestrator and formal evidence. | The mixed fixture covers four active callbacks, full-queue rejection, short/long/paused work and retained history; reports identify exact tested source. Production workload/SLOs, live provider profiles and availability objectives require deployment acceptance. |
 | W01 | Durable immutable definitions/current aliases, loaded implementation-package digest verification, authorised history and retirement, in local and shared repositories. | Deployment signing-key operations and application-specific acceptance. |
 | W02 | Typed no-send/completed-invalid/refused/completed-valid-cleanup outcomes; bounded diagnostics and private completed output; original unknown records remain unknown. | Live credentialled provider acceptance and provider-specific proof of non-execution beyond the declared adapters. |
 | W03 | Unified leaf/composition lifecycle, versioned request-key epochs and retirement, discovery schemas, durable scheduling intent, native shared queues and historical routing. | Combined-head interface and PostgreSQL qualification. |
-| W04 | Atomic assignment claims; shared global/principal/workflow/resource slots; eligible-principal round-robin; bounded queues and principal call/spend quotas; drain. | Representative sustained fairness/load qualification. Priority and weight remain explicit future policy extension points under the specified initial round-robin policy. |
-| W05 | Per-peer and per-Cursor-job operation ownership outside database locks during network waits; exact binding validation; explicit HTTPS CONNECT proxy, CA and origin policy. | Deployment-specific OAuth/corporate proxy/private-CA qualification; independent DNS/TLS phase tuning is not a new guarantee. |
-| W06 | Reference-aware archive/prune, permanent tombstones, audited lifetime amendments, immutable UTC period budgets, retained attributed provider charge observations; local and shared accounting. | Combined-head migration/rollback and long-history capacity qualification; real provider invoice acceptance. |
+| W04 | Atomic assignment claims; shared global/principal/workflow/resource slots; eligible-principal round-robin; bounded queues and principal call/spend quotas; drain. | Exact-source mixed-load and sustained production fairness qualification. Priority and weight remain explicit future policy extension points under the specified initial round-robin policy. |
+| W05 | Per-peer and per-Cursor-job operation ownership outside database locks during network waits; exact binding validation; explicit HTTPS CONNECT proxy, CA and origin policy; opt-in cumulative DNS/connect/TLS/header/body phase deadlines inside the disposable transport process. | Deployment-specific OAuth/corporate proxy/private-CA qualification. The default transport identity is unchanged; phase budgets opt into a new identity. |
+| W06 | Reference-aware archive/prune, permanent tombstones, audited lifetime amendments, immutable UTC period budgets, retained attributed provider charge observations; local and shared accounting. | The archival regression removes 1,000 terminal fixture instances with actual admitted run/call allocations, retains old keys and charges, then completes a new public workflow. It is not 1,000 provider executions. Deployment migration/rollback and real invoice acceptance remain separate. |
 | W07 | Business, queue, active and human-pause clocks; audited authorised deadline extensions; summed worker time; native shared admission checks. | Combined-head parallel timing and restart qualification. |
 | W08 | Durable bounded retries/backoff, shared circuits, exact Cursor/peer observations, query extension contract, operator recovery inbox/resolution, and separate cancellation observations. | Additional built-in provider-specific network queries and credentialled recovery qualification. Unknown effects never become retryable merely through a timeout. |
-| W09 | Durable progress, subscriptions/webhook outbox, safe logs, operator API/CLI/console, read-only diagnostics, fixed-label metrics and bounded correlated latency spans. Native Linux/macOS/Windows clients passed on the earlier integrated head. | Final-head API/UI parity, redaction and instrumentation regression checks; deployment collector operations. |
+| W09 | Durable progress, subscriptions/webhook outbox, safe logs, operator API/CLI/console, read-only source/release/package/binary provenance and retained worker/provider version diagnostics, fixed-label metrics and bounded correlated latency spans. Native Linux/macOS/Windows clients passed on the earlier integrated head. | Final-head API/UI parity, portability and redaction checks; deployment collector operations. Installed provenance is content binding under installation trust, not independent release authentication. |
 | W10 | Trusted versioned provider registry, bounded map/reduce/while/switch/transforms, schemas, all/quorum/first-accepted joins and separately admitted recovery/compensation. | Application-specific acceptance and production workload qualification; compensation is never an assertion of automatic undo. |
 | W11 | Authorised chunked transfer with shared acknowledged chunks/session state, verified float64 encodings, S3-compatible content storage, native PostgreSQL artefact metadata, frozen backend identity and fenced publication. Real RustFS backend acceptance passed. | Combined-head PostgreSQL/object-store failure qualification and deployment lifecycle policy acceptance. |
-| W12 | Persistent Rust IPC, service-selected immutable registered workers, native process guardians/pidfd wakeups, persisted workflow progress/frontier and exact faster storage scanning. | Production performance targets and sustained measurements; native macOS/Windows workers remain a separately qualified profile. |
+| W12 | Persistent Rust IPC, service-selected immutable registered workers, native process guardians/pidfd wakeups, persisted workflow progress/frontier and full storage traversal; IPC benchmark compares CPU after both strategies close and reap children. | **Incremental authoritative storage accounting remains unimplemented.** Arbitrary SDK writes cannot be safely covered by a cached upper bound; full scans remain necessary and are not an atomic filesystem snapshot. Production performance targets and native macOS/Windows workers require separate qualification. |
 | W13 | Durable-service workspace dispatch with immutable tool/policy/output bindings, trusted workspaces and explicit isolated Linux containers with CPU/memory/process/network limits, immutable inputs and replayed output receipts. Real Docker qualification passed on the earlier integrated head. | Final-head containment checks and deployment-specific container image acceptance. |
 | W14 | Authenticated fenced remote workers, bounded durable spool, exact retained protocol/artefact receipts, revocation-aware transfer and shared native worker authority; independent VM fault gate implemented. | All five two-guest fault cases passed at 71e4d87, including the SQLite durability and workspace repairs. Physical-host and production-network acceptance remain separate. |
 | W15 | Managed immutable HTTP/MCP/A2A peers, pinned capability negotiation, operation-scoped credential snapshots, lost-receipt identity reuse and shared remote-intent/circuit authority. Three-profile local race tests passed. | Combined-head shared backend, deployment-specific OAuth/proxy/private-CA and cross-organisation acceptance. |
-| W16 | Native PostgreSQL authority for protocol, journals, queues, composition, workers, Cursor jobs, transfer sessions, definitions, accounting and events; S3 artefact bytes; controller epoch fencing and leases; guarded sealed backup/restore with independently evidenced activation. | Final integrated backend/failover/restore qualification and measured recovery objectives; production replication/fencing acceptance. No production activation is claimed. |
-| W17 | Source, real Rust/Temporal/CLI, native client, real Docker and S3 acceptance; installed amd64/arm64, PostgreSQL, security, formal and independent-VM CI gates. | Final combined-head checks and fault gates; live paid profiles, sustained workload/SLOs, release provenance and accepted release. |
+| W16 | Native PostgreSQL authority for protocol, journals, queues, composition, workers, Cursor jobs, transfer sessions, definitions, accounting and events; S3 artefact bytes; controller epoch fencing and leases; guarded sealed backup/restore with independently evidenced activation; populated rehearsal retains tasks, compositions, unknown effects, quotas, transfers, artefacts, events and grants. | Exact-source PostgreSQL execution of populated cutover and authority traces; production replication/fencing and measured recovery objectives. Controlled sealed-source recovery does not establish unforeseen-loss/PITR coverage. No production activation is claimed. |
+| W17 | Source, real Rust/Temporal/CLI, native client, real Docker and S3 acceptance; installed amd64/arm64, PostgreSQL, security, formal and independent-VM CI gates; generated cross-language codec/accounting checks and bounded authority/quota/recovery models with mutation controls. | Final combined-head checks and fault gates; live paid profiles, sustained workload/SLOs, release provenance and accepted release. |
 
 See [host-service-evolution.md](host-service-evolution.md),
 [provider-outcomes-recovery.md](provider-outcomes-recovery.md),
@@ -40,23 +40,13 @@ See [host-service-evolution.md](host-service-evolution.md),
 semantics and explicit limits. The remaining items above are not reclassified as
 completed simply because their extension points exist.
 
-**Review and integration.** Review and qualify the combined head of
-[PR #45](https://github.com/emmett08/mas/pull/45). Earlier passing checks do not
-qualify a later head. Commit boundaries retain the implementation history; no
-additional PR stack is required. No PR has been merged or released by this task.
-The qualification column identifies recurring gates and deployment acceptance;
+**Review and integration.** Qualify the combined head of the follow-up PR.
+Earlier passing checks do not qualify later source. The qualification column
+identifies outstanding implementation and deployment requirements;
 revision-specific results are recorded in [verification.md](verification.md)
-and the PR checks. A passing earlier gate does not waive the final-head run.
-
-The earlier diagnostics-stack source suite passed 946 host tests with no skips, using real Rust
-binaries and Temporal. Three subsequent bridge regression tests passed in a
-24-test supplement, with no runtime changes after the integrated run. Rust passed
-61 tests, scripts 43, executable examples 14, and SPIN 110 bounded cases. The
-[verification record](verification.md) and
-[machine-readable receipt](verification/host-evolution-source.json) distinguish
-these checks from installed-image, live-provider and production acceptance.
-Each intermediate PR boundary also passed its targeted source suite. Hosted
-checks remain revision-specific and are visible on the linked PRs.
+and the PR checks. Model verification covers the documented finite abstractions;
+selected native traces and generated tests provide implementation evidence, not
+a proof that all Rust/Python executions refine those models.
 
 **The intended outcome is a reusable MAS execution service that users can submit work to, observe, extend, upgrade and recover without manipulating internal databases.** Delivery proceeds from a dependable single-host service to distributed execution and then high availability. The existing Rust protocol authority, Python adapter ecosystem and conservative treatment of uncertain external effects remain the foundation.
 
@@ -66,7 +56,7 @@ All three GitHub Actions workflows for the baseline—Protocol checks, Host and 
 
 The working assumptions are Linux execution workers, trusted application registrations, compatibility with existing public interfaces, support for the current amd64 and arm64 image targets, and portable clients for macOS, Windows and Linux. Native macOS/Windows supervision is a separately qualified profile. Untrusted code execution requires an explicit containment profile; ordinary trusted adapters do not become sandboxed merely because they run in another process.
 
-**The release sequence is functional, rather than tied to an invented completion date.** Engineering estimates follow the baseline measurements and deployment profile in W00. Every work package below has dependencies and an exit condition. The original plan called for focused PRs. The owner has since explicitly requested one consolidated PR; preserve focused commits and review evidence within PR #45.
+**The release sequence is functional, rather than tied to an invented completion date.** Engineering estimates follow the baseline measurements and deployment profile in W00. Every work package below has dependencies and an exit condition. The original plan called for focused PRs. The consolidated delivery was merged in PR #45; preserve focused commits and review evidence in its audit follow-up.
 
 | Milestone | Outcome | Required packages | Claim permitted after its gate |
 |---|---|---|---|
