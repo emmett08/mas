@@ -10,9 +10,12 @@ import tempfile
 import threading
 import time
 import unittest
+from unittest import mock
 
 from mas_host import RecoveryRequired, Runner, RunnerError
+from mas_host.contracts import AdapterTimeout
 from mas_host.executable_worker import RegisteredProcessExecutor, WorkerLimits, WorkerRegistry, WorkerSpec
+from mas_host.supervision import _Channel
 from test_runner import topology
 
 
@@ -122,13 +125,35 @@ class ExecutableWorkerTests(unittest.TestCase):
     def test_deadline_reaps_worker_tree_and_preserves_uncertainty(self):
         record = self.directory / "pids.json"
         runner = self.runner(self.spec(configuration={"mode": "stall", "record_file": str(record)}),
-                             execution_deadline=time.monotonic() + 0.6)
-        with self.assertRaises(RecoveryRequired):
+                             execution_deadline=time.monotonic() + 15)
+        remaining = _Channel.remaining
+        armed = False
+
+        def after_admission(channel):
+            nonlocal armed
+            # The fixture writes this marker inside context.invoke's callback,
+            # after the parent commits admission and sends the execution grant.
+            if not armed and record.exists():
+                channel.deadline = min(channel.deadline, time.monotonic() + 0.1)
+                armed = True
+            return remaining(channel)
+
+        with mock.patch.object(_Channel, "remaining", after_admission), self.assertRaises(RecoveryRequired):
             runner.request("a", "b", "stall", {})
+        self.assertTrue(armed)
         pids = json.loads(record.read_text())
         self.assertTrue(self.gone(pids["worker"]))
         self.assertTrue(self.gone(pids["child"]))
         self.assertEqual(runner._journal.invocation(runner.status()["calls"][0]["id"])["state"], "unknown")
+
+    def test_expired_deadline_before_dispatch_has_no_uncertain_invocation(self):
+        record = self.directory / "pids.json"
+        runner = self.runner(self.spec(configuration={"mode": "stall", "record_file": str(record)}),
+                             execution_deadline=time.monotonic() - 1)
+        with self.assertRaises(AdapterTimeout):
+            runner.request("a", "b", "stall", {})
+        self.assertFalse(record.exists())
+        self.assertEqual(runner.status()["calls"], [])
 
     def test_host_death_keeps_guardian_until_descendants_are_reaped(self):
         record = self.directory / "pids.json"

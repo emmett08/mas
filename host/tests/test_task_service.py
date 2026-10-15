@@ -10,9 +10,9 @@ import time
 import unittest
 from unittest import mock
 
-from mas_host import Invocation, Outcome
+from mas_host import Invocation, Outcome, RunnerError
 from mas_host.journal import inspect_run, resolve_invocation
-from mas_host.operations import backup_state, restore_state
+from mas_host.operations import OperationsError, backup_state, restore_state
 from mas_host.service_contracts import ServiceError, TaskService
 from mas_host.task_service import DurableTaskService, ExecutionResult, PAGE_BYTES, RunnerExecutor, Workflow
 from mas_host.task_store import SERVICE, canonical, event
@@ -302,6 +302,70 @@ class TaskServiceTests(unittest.TestCase):
                                   cancelled=lambda: True, ownership_descriptor=0)
         self.assertEqual(result.state, 'cancelled')
         self.assertFalse(missing.exists())
+
+    def test_stop_during_runner_construction_preserves_unadmitted_identity(self):
+        service = self.service()
+        task = service.submit('alice', 'bootstrap-stop', 'echo', {})
+        execution = {**self.execution(service, task['task_id']), 'principal': 'alice', 'workflow': 'echo'}
+        stopped = False
+
+        def close_admission(*args, **kwargs):
+            nonlocal stopped
+            stopped = True
+            raise OperationsError('workflow admission closed')
+
+        with mock.patch.object(service.operations, 'admit_run', side_effect=close_admission):
+            result = service.executor.execute(self.workflow, execution, cancelled=lambda: stopped,
+                                              ownership_descriptor=0)
+        self.assertEqual(result.state, 'cancelled')
+        directory = self.state / execution['run_directory']
+        self.assertEqual(json.loads((directory / 'bootstrap.json').read_text())['run_id'], execution['run_id'])
+        self.assertFalse((directory / 'host.sqlite').exists())
+        self.assertEqual(service.operations.health()['usage']['runs'], 0)
+        self.assertEqual(service.operations.health()['usage']['calls'], 0)
+
+    def test_stop_during_runner_construction_preserves_original_unknown_call(self):
+        effects = []
+
+        def provider():
+            effects.append(True)
+            raise RuntimeError('effect reply lost')
+
+        workflow = replace(self.workflow, adapters=self.workflow.adapters | {
+            'b': FunctionAdapter(lambda c, r: Outcome(c.invoke(provider, input={})))})
+        service = self.service(workflow=workflow)
+        task = service.submit('alice', 'bootstrap-unknown', 'echo', {})
+        self.assertEqual(service.run_once()['state'], 'unknown')
+        execution = {**self.execution(service, task['task_id']), 'principal': 'alice', 'workflow': 'echo'}
+        directory = self.state / execution['run_directory']
+        original = inspect_run(directory)
+        stopped = False
+
+        def close_admission(*args, **kwargs):
+            nonlocal stopped
+            stopped = True
+            raise OperationsError('workflow admission closed')
+
+        with mock.patch.object(service.operations, 'admit_run', side_effect=close_admission):
+            result = service.executor.execute(workflow, execution, cancelled=lambda: stopped,
+                                              ownership_descriptor=0)
+        self.assertEqual(result.state, 'unknown')
+        self.assertEqual(result.error, {'code': 'reconciliation_required'})
+        retained = inspect_run(directory)
+        self.assertTrue(retained['recovery_required'])
+        self.assertEqual(retained['run_id'], original['run_id'])
+        self.assertEqual(retained['invocations'], original['invocations'])
+        self.assertEqual(service.operations.health()['usage']['calls'], 1)
+        self.assertEqual(effects, [True])
+
+    def test_runner_construction_error_without_stop_still_propagates(self):
+        service = self.service()
+        task = service.submit('alice', 'bootstrap-error', 'echo', {})
+        execution = {**self.execution(service, task['task_id']), 'principal': 'alice', 'workflow': 'echo'}
+        with mock.patch.object(service.operations, 'admit_run', side_effect=OperationsError('unavailable')):
+            with self.assertRaises(RunnerError):
+                service.executor.execute(self.workflow, execution, cancelled=lambda: False,
+                                         ownership_descriptor=0)
 
     def test_continuation_is_opt_in_and_has_own_run_with_idempotent_update(self):
         workflow = replace(self.workflow,

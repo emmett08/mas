@@ -3,9 +3,10 @@ from pathlib import Path
 import tempfile
 import time
 import unittest
+from unittest import mock
 
 from mas_host import Invocation, Outcome
-from mas_host.task_service import Workflow
+from mas_host.task_service import RunnerExecutor, Workflow
 from mas_host.workflow_engine import WorkflowEngine
 from mas_host.workflow_plan import WorkflowPlan
 from test_runner import FunctionAdapter, topology
@@ -78,6 +79,33 @@ class WorkflowScopeTests(unittest.TestCase):
         result=self.run_plan(self.engine(child,lambda c,r:(time.sleep(5),Outcome({}))[1]))
         self.assertEqual(result['state'],'expired')
         self.assertLess(time.monotonic()-started,3)
+
+    def test_nested_deadline_during_bootstrap_expires_without_unknown_effect(self):
+        child=plan('child',{'kind':'task','workflow':'leaf'},wall_seconds=1)
+        marker=self.root/'dispatched'
+
+        def handler(context, request):
+            marker.write_text('called')
+            return Outcome({})
+
+        engine=self.engine(child,handler)
+        bootstrap=RunnerExecutor._bootstrap
+
+        def cross_deadline(executor, workflow, execution):
+            path=bootstrap(executor,workflow,execution)
+            time.sleep(max(0,execution['execution_deadline']-time.monotonic())+.02)
+            return path
+
+        with mock.patch.object(RunnerExecutor,'_bootstrap',cross_deadline):
+            result=self.run_plan(engine)
+        self.assertEqual(result['state'],'expired')
+        self.assertFalse(marker.exists())
+        self.assertEqual(engine.operations.health()['usage']['runs'],0)
+        self.assertEqual(engine.operations.health()['usage']['calls'],0)
+        with engine.store.transaction(readonly=True) as db:
+            attempts=list(db.execute('SELECT state,run_directory FROM attempts'))
+        self.assertEqual([row['state'] for row in attempts],['cancelled'])
+        self.assertTrue((engine.state_dir/attempts[0]['run_directory']/'bootstrap.json').is_file())
 
     def test_scope_deadline_is_not_renewed_on_inspection(self):
         child=plan('child',{'kind':'task','workflow':'leaf'})

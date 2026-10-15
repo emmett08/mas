@@ -349,15 +349,18 @@ class RunnerExecutor:
             raise ServiceError("run_assignment_conflict")
         return path
 
+    def _stopped_result(self, execution):
+        from .bootstrap import requires_reconciliation
+        if requires_reconciliation(self.state_dir / execution['run_directory'], execution['run_id'],
+                                   operations=self.operations):
+            return ExecutionResult('unknown', error={'code': 'reconciliation_required'})
+        return ExecutionResult("cancelled")
+
     def execute(self, workflow, execution, *, cancelled, ownership_descriptor):
         from .runner import Runner
         from .executable_worker import ProfileExecutor
         if cancelled():
-            from .bootstrap import requires_reconciliation
-            if requires_reconciliation(self.state_dir / execution['run_directory'], execution['run_id'],
-                                       operations=self.operations):
-                return ExecutionResult('unknown', error={'code': 'reconciliation_required'})
-            return ExecutionResult("cancelled")
+            return self._stopped_result(execution)
         workflow.verify_implementation()
         path = self._bootstrap(workflow, execution)
         adapters = workflow.adapters
@@ -373,14 +376,23 @@ class RunnerExecutor:
         from .operations import DeploymentLedger
         from .principal_quotas import PrincipalAllocation
         allocation = PrincipalAllocation(self.operations or DeploymentLedger(self.state_dir), execution['principal'])
-        with Runner.resume(path, adapters, workflow_version=workflow.version,
+        try:
+            runner = Runner.resume(path, adapters, workflow_version=workflow.version,
                            max_depth=workflow.max_depth, operations=allocation,
                            executor=_CancellableExecutor(executor, cancelled, ownership_descriptor),
                            execution_deadline=execution.get("execution_deadline"),
                            retry_policy=workflow.retry_policy,
                            circuit_breakers=dict(workflow.circuit_breakers) if workflow.circuit_breakers is not None else None,
                            event_sink=execution.get("event_sink"),
-                           **self.options) as runner:
+                           **self.options)
+        except Exception:
+            # An ancestor may close admission during bootstrap. Construction
+            # has not dispatched a worker and has already released its run
+            # session; retained journal evidence still decides uncertainty.
+            if cancelled():
+                return self._stopped_result(execution)
+            raise
+        with runner:
             try:
                 outcome = runner.request(workflow.sender, workflow.recipient,
                                          workflow.operation, execution["input"])

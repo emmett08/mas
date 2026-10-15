@@ -14,6 +14,7 @@ from mas_host.peer_registry import PeerRegistration
 from mas_host.shared_authority import SharedAuthority
 from mas_host.shared_remote import SharedCircuitBreaker, SharedPeerRegistry, SharedRemoteTaskService
 from mas_host.bridges.remote import RemoteSnapshot
+from mas_host.bridges.http_policy import HTTPTransportPolicy
 
 
 class PeerClient:
@@ -143,6 +144,28 @@ class SharedRemoteTests(unittest.TestCase):
         self.assertEqual(circuit.status()['state'], 'closed')
         with self.assertRaises(RunnerError):
             SharedCircuitBreaker(self.authority, CircuitPolicy('provider/api', failure_threshold=2)).admit('changed')
+
+    def test_peer_transport_binding_survives_shared_roundtrip_without_rebinding_legacy(self):
+        peers = SharedPeerRegistry(self.authority)
+        options = dict(name='analysis', profile='mas-http/1', endpoint='https://analysis.example',
+            outbound_principal='alice', deployment_id='remote-deployment',
+            workflows={'analysis': 'a' * 64}, callers=['owner'])
+        legacy = PeerRegistration(version='1', **options)
+        peers.register(registration=legacy, operator='owner', request_key='legacy',
+            reason='Original direct binding', expected_revision=0)
+        policy = HTTPTransportPolicy(proxy_url='http://proxy.example:8080',
+            allowed_origins=('https://analysis.example',), proxy_authorization_file='/private/credential')
+        current = PeerRegistration(version='2', transport_policy=policy.descriptor(), timeout_seconds=17, **options)
+        peers.register(registration=current, operator='owner', request_key='configured',
+            reason='Explicit transport binding', expected_revision=1)
+        self.assertEqual(peers.resolve('analysis', 'owner')._encoded, current._encoded)
+        self.assertEqual(peers.resolve('analysis', 'owner', version='1')._encoded, legacy._encoded)
+        changed = PeerRegistration(version='2', transport_policy=policy.descriptor(), timeout_seconds=18, **options)
+        with self.assertRaises(RunnerError):
+            peers.register(registration=changed, operator='owner', request_key='changed',
+                reason='Must require a new version', expected_revision=2)
+        self.assertEqual(peers.resolve('analysis', 'owner').identity, current.identity)
+        self.assertNotIn('/private/', str(peers.status()))
 
     def test_remote_lifecycle_is_durable_without_local_shadow_databases(self):
         runner = self.runner()

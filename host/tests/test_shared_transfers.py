@@ -8,7 +8,6 @@ import shutil
 import subprocess
 import tempfile
 import threading
-import time
 import unittest
 import uuid
 
@@ -72,6 +71,16 @@ class SharedTransferTests(unittest.TestCase):
         for offset in range(0, len(data), 32768):
             self.chunk(transfer, offset, data[offset:offset + 32768])
         return transfer, self.service.upload_commit('alice', transfer)['reference']
+
+    def fixture_sql(self, source):
+        psql = shutil.which('psql')
+        self.assertIsNotNone(psql, 'CI must install native PostgreSQL client tools')
+        result = subprocess.run([psql, '--no-psqlrc', '--no-password', '--tuples-only',
+            '--no-align', '--quiet', '--set=ON_ERROR_STOP=1'], input=source,
+            text=True, env=postgres_environment(self.authority), stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL, timeout=30)
+        self.assertEqual(result.returncode, 0, 'native transfer fixture query failed')
+        return result.stdout.strip()
 
     def test_acknowledged_ids_offsets_and_downloads_survive_empty_replacement_cache(self):
         data = b'abcdef' * 7000
@@ -166,18 +175,38 @@ class SharedTransferTests(unittest.TestCase):
         self.schema = 'mas_transfer_expiry_' + uuid.uuid4().hex
         self.authority = self.authority_for('controller', 1)
         self.authority.initialise()
-        self.options = {'max_sessions': 2, 'max_staging_bytes': 100, 'ttl_seconds': 1, 'clock': lambda: 0}
+        self.options = {'max_sessions': 2, 'max_staging_bytes': 100, 'ttl_seconds': 3600, 'clock': lambda: 0}
         self.service = self.transfer_service()
         first = self.begin(b'a' * 70)
+        self.chunk(first, 0, b'a' * 70)
         with self.assertRaises(ServiceError):
             self.begin(b'b' * 40)
         self.service.close('alice', first)
         second = self.begin(b'b' * 40)
-        time.sleep(1.05)
+        self.chunk(second, 0, b'b' * 40)
+        self.assertEqual(self.service.status('alice', second)['next_offset'], 40)
         with self.assertRaises(ServiceError):
+            self.begin(b'c' * 90)
+        # Set one retained deadline behind the authoritative database clock.
+        # A one-second TTL can expire a fresh replacement between native
+        # commands; that timing race says nothing about quota reclamation.
+        expired = self.fixture_sql(f'''UPDATE {self.schema}.artifact_transfers
+            SET expires_at=floor(extract(epoch FROM clock_timestamp()))::bigint-1
+            WHERE id='{second}' RETURNING id;''')
+        self.assertEqual(expired, second)
+        with self.assertRaises(ServiceError) as rejected:
             self.service.status('alice', second)
+        self.assertEqual(rejected.exception.code, 'artifact_unavailable')
+        with self.assertRaises(ServiceError):
+            self.chunk(second, 0, b'b' * 40)
+        with self.assertRaises(ServiceError):
+            self.service.upload_commit('alice', second)
         third = self.begin(b'c' * 90)
         self.assertEqual(self.service.status('alice', third)['size'], 90)
+        retained = self.fixture_sql(f'''SELECT state || ':' ||
+            (SELECT count(*) FROM {self.schema}.artifact_transfer_chunks WHERE transfer_id='{second}')
+            FROM {self.schema}.artifact_transfers WHERE id='{second}';''')
+        self.assertEqual(retained, 'expired:0')
 
     def test_concurrent_exact_duplicates_do_not_advance_or_rewrite_offset(self):
         transfer = self.begin(b'exact bytes')

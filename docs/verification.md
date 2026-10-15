@@ -1,10 +1,64 @@
 # Verification results
 
-## Consolidated implementation — 14 October 2026
+## Consolidated implementation — 15 October 2026
 
 The single review is [PR #45](https://github.com/emmett08/mas/pull/45), against
 `main`; PRs #16–44 are superseded. Implementation and fault qualification continue.
 The earlier records below remain historical evidence for their recorded source.
+
+Revision `71e4d87dd661152d0202cbd76f23d8d524e64724` passed all five
+independent-kernel VM fault cases, the native Linux/macOS/Windows clients,
+real Linux containment, formal checks and dependency/image security gates.
+The tested merge `fc9f0a2d5912f0fbf294f60079e2eacf96aa55cd` has the same
+source tree, `6936ca2d2854426d834bdfcdbafdb5a7e7db33fc`. The VM run includes
+the repaired SQLite durability and workspace dispatch. The lost-acknowledgement
+case preserves the original receipt across controller restart and worker hard
+reset, with guest disk flushes enabled. The three uncertain-effect cases retain
+their original unknown state and allocations; their explicit second probes are
+refused before dispatch. This qualifies the recorded QEMU profile.
+
+Its PostgreSQL run passed all **13 native backend tests** and **100 of 102
+Python shared tests** in 528.996 seconds. Two test fixtures failed: composition
+children used a process-local object-store dictionary, and a one-second expiry
+could elapse before inspection. Commits `18c4eb6` and `cd45eda` repair those
+fixtures without changing production code. The first uses process-visible,
+immutable object bytes and verifies retained workspace manifests and native
+invocation records. The second expires only its isolated row using the actual
+database clock and checks denied access, removed chunks and released quota.
+The combined PostgreSQL/RustFS stage was skipped after these errors; the next
+combined-head run must qualify both repairs and that real backend stage.
+The [source receipt](verification/host-evolution-source.json) retains the failed
+run as well as the passing evidence. Final-head results are linked from PR #45.
+
+The same revision completed the full **arm64** workflow: native host, installed
+musl and Cursor images, real Temporal, independent reconciler, private credential
+injection and bridge restart. On **amd64**, the native suite and Temporal passed;
+the installed musl suite reported one timeout error and one nested-deadline
+failure among 1,223 tests (125 skips). Its later image/deployment stages were
+skipped. These failures are retained in the receipt and require a repaired-head
+rerun. The native suite ran 1,230 tests on each architecture, with 1,115 passed
+and 115 fixture/optional-dependency skips; separate gates exercise those profiles.
+
+The subsequent repair `980eb3e` classifies a stopped runner construction from
+retained bootstrap/invocation evidence: unadmitted work can stop, while an
+original unknown invocation remains unknown. Its 82-test source supplement
+passed, including deterministic expiry during bootstrap and both previous musl
+failures. The worker deadline fixture now arms after durable invocation admission;
+a separate regression verifies that timeout before dispatch creates no call.
+Repair `a3ef8f3` binds managed-peer public transport policy and timeout to an
+immutable registration in both repositories. Legacy direct/default registrations
+retain their exact identities, credential rotation remains separate, and changed
+client configuration is rejected before credentials or effects. Its 22-test
+source supplement and native validator test passed; the real PostgreSQL
+roundtrip is included in the final combined-head gate. These focused checks
+supplement the earlier full runs and do not replace the final installed-image run.
+
+The hosted fixed load gate passed on that amd64 source before the later musl
+failures: **101 completed tasks**, 51 for Alice and 50 for Bob, over **60.67
+seconds** of active load. Submission p99 was 44.55 ms, inspection p99 8.46 ms,
+and completion-observation p99 770.57 ms. It retained exactly 101 admissions and
+calls, no paid reservations, and no observed orphan processes. The receipt binds
+the clean tested source, binaries, bounds and CI artifact/report digests.
 
 The fixed checkout `c623904660e17c5ce4c552246d67e4fa90bc8290` ran **1,221
 host tests** in 273.931 seconds: **1,119 passed and 102 skipped**. The skips are
@@ -63,8 +117,8 @@ with rollback journals could lose the worker's last committed receipt. Writable
 preflight now permits SQLite recovery while prohibiting application writes;
 all Python and Rust write owners use `synchronous=EXTRA`. A separate ledger
 preflight regression verifies preserved identity, policy and allocations. The
-fresh VM rerun retains the original receipt-ID assertion and verifies that QEMU
-honours flushes. The full repaired-source gate remains a separate required rerun. The canonical
+fresh VM rerun at `71e4d87` passed with the original receipt-ID assertion and
+verified that QEMU honours flushes. The canonical
 [implementation record](host-evolution-plan.md) retains the acceptance conditions.
 
 ## Host service evolution — 14 October 2026

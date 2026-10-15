@@ -2,7 +2,7 @@
 
 Prepared 14 October 2026. Repository: https://github.com/emmett08/mas. Baseline: `ccc7bb85cede76398aee19b24b9281f2d2959046`, which includes PR #15. Status: implementation and qualification continue in the consolidated draft PR #45; release acceptance remains open. This document is the canonical plan for this review and should be updated in place as work progresses.
 
-**Implementation record, 14 October 2026.** The source changes implement the
+**Implementation record, 15 October 2026.** The source changes implement the
 bounded profiles below. The original W00–W17 requirements remain the acceptance
 contract; a partial profile does not close its whole work package or milestone.
 At the owner’s explicit request on 14 October, all changes are consolidated in
@@ -11,9 +11,9 @@ are closed as superseded, with their history retained. Further fixes use PR #45.
 This instruction supersedes the original focused-PR delivery guidance below.
 No merge, release or production activation is implied.
 
-| Package | Implemented source profile | Remaining implementation or acceptance |
+| Package | Implemented source profile | Qualification and deployment acceptance |
 |---|---|---|
-| W00 | Pinned baseline, real Rust fixtures, mock load sample, SDK/orchestrator and formal evidence. | Fixed two-principal sustained-load gate passed at c623904 (112 completed over 60.10 seconds); published-head rerun pending. Production workload/SLOs, live provider profiles and availability objectives require deployment acceptance. |
+| W00 | Pinned baseline, real Rust fixtures, sustained two-principal load gate, SDK/orchestrator and formal evidence. | The bounded load profile passed locally at c623904 (112 completed over 60.10 seconds) and in the 71e4d87 hosted gate. Production workload/SLOs, live provider profiles and availability objectives require deployment acceptance. |
 | W01 | Durable immutable definitions/current aliases, loaded implementation-package digest verification, authorised history and retirement, in local and shared repositories. | Deployment signing-key operations and application-specific acceptance. |
 | W02 | Typed no-send/completed-invalid/refused/completed-valid-cleanup outcomes; bounded diagnostics and private completed output; original unknown records remain unknown. | Live credentialled provider acceptance and provider-specific proof of non-execution beyond the declared adapters. |
 | W03 | Unified leaf/composition lifecycle, versioned request-key epochs and retirement, discovery schemas, durable scheduling intent, native shared queues and historical routing. | Combined-head interface and PostgreSQL qualification. |
@@ -27,7 +27,7 @@ No merge, release or production activation is implied.
 | W11 | Authorised chunked transfer with shared acknowledged chunks/session state, verified float64 encodings, S3-compatible content storage, native PostgreSQL artefact metadata, frozen backend identity and fenced publication. Real RustFS backend acceptance passed. | Combined-head PostgreSQL/object-store failure qualification and deployment lifecycle policy acceptance. |
 | W12 | Persistent Rust IPC, service-selected immutable registered workers, native process guardians/pidfd wakeups, persisted workflow progress/frontier and exact faster storage scanning. | Production performance targets and sustained measurements; native macOS/Windows workers remain a separately qualified profile. |
 | W13 | Durable-service workspace dispatch with immutable tool/policy/output bindings, trusted workspaces and explicit isolated Linux containers with CPU/memory/process/network limits, immutable inputs and replayed output receipts. Real Docker qualification passed on the earlier integrated head. | Final-head containment checks and deployment-specific container image acceptance. |
-| W14 | Authenticated fenced remote workers, bounded durable spool, exact retained protocol/artefact receipts, revocation-aware transfer and shared native worker authority; independent VM fault gate implemented. | All five two-guest fault cases passed at b7b84f2; repeat on the final SQLite durability/workspace revision. Physical-host and production-network acceptance remain separate. |
+| W14 | Authenticated fenced remote workers, bounded durable spool, exact retained protocol/artefact receipts, revocation-aware transfer and shared native worker authority; independent VM fault gate implemented. | All five two-guest fault cases passed at 71e4d87, including the SQLite durability and workspace repairs. Physical-host and production-network acceptance remain separate. |
 | W15 | Managed immutable HTTP/MCP/A2A peers, pinned capability negotiation, operation-scoped credential snapshots, lost-receipt identity reuse and shared remote-intent/circuit authority. Three-profile local race tests passed. | Combined-head shared backend, deployment-specific OAuth/proxy/private-CA and cross-organisation acceptance. |
 | W16 | Native PostgreSQL authority for protocol, journals, queues, composition, workers, Cursor jobs, transfer sessions, definitions, accounting and events; S3 artefact bytes; controller epoch fencing and leases; guarded sealed backup/restore with independently evidenced activation. | Final integrated backend/failover/restore qualification and measured recovery objectives; production replication/fencing acceptance. No production activation is claimed. |
 | W17 | Source, real Rust/Temporal/CLI, native client, real Docker and S3 acceptance; installed amd64/arm64, PostgreSQL, security, formal and independent-VM CI gates. | Final combined-head checks and fault gates; live paid profiles, sustained workload/SLOs, release provenance and accepted release. |
@@ -44,6 +44,9 @@ completed simply because their extension points exist.
 [PR #45](https://github.com/emmett08/mas/pull/45). Earlier passing checks do not
 qualify a later head. Commit boundaries retain the implementation history; no
 additional PR stack is required. No PR has been merged or released by this task.
+The qualification column identifies recurring gates and deployment acceptance;
+revision-specific results are recorded in [verification.md](verification.md)
+and the PR checks. A passing earlier gate does not waive the final-head run.
 
 The earlier diagnostics-stack source suite passed 946 host tests with no skips, using real Rust
 binaries and Temporal. Three subsequent bridge regression tests passed in a

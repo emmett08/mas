@@ -91,6 +91,37 @@ class HTTPTransportPolicy:
                 'additional_ca_sha256': hashlib.sha256(self.additional_ca_pem.encode('ascii')).hexdigest()
                     if self.additional_ca_pem is not None else None}
 
+    @classmethod
+    def validate_descriptor(cls, value):
+        """Validate a public binding without loading roots or resolving secrets."""
+        if (type(value) is not dict or set(value) != set(cls().descriptor())
+                or type(value['allowed_origins']) is not list
+                or type(value['proxy_authentication']) is not bool
+                or value['loopback_proxy_bypass'] is not True
+                or value['proxy_authentication'] and value['proxy_url'] is None
+                or value['additional_ca_sha256'] is not None and (
+                    type(value['additional_ca_sha256']) is not str
+                    or re.fullmatch(r'[0-9a-f]{64}', value['additional_ca_sha256']) is None)):
+            raise ServiceError('invalid_transport_policy')
+        expected = cls(proxy_url=value['proxy_url'],
+                       allowed_origins=tuple(value['allowed_origins'])).descriptor()
+        expected['proxy_authentication'] = value['proxy_authentication']
+        expected['additional_ca_sha256'] = value['additional_ca_sha256']
+        if expected != value:
+            raise ServiceError('invalid_transport_policy')
+        for origin in [*expected['allowed_origins'], *([expected['proxy_url']] if expected['proxy_url'] else [])]:
+            hostname = urlsplit(origin).hostname
+            if ':' in hostname:
+                try:
+                    if '%' in hostname:
+                        raise ValueError()
+                    ipaddress.IPv6Address(hostname)
+                except ValueError:
+                    raise ServiceError('invalid_transport_policy') from None
+            elif re.fullmatch(r'[a-z0-9_.-]+', hostname) is None:
+                raise ServiceError('invalid_transport_policy')
+        return expected
+
     def wire(self, endpoint):
         parsed = urlsplit(endpoint)
         origin = _origin(parsed.scheme + '://' + parsed.netloc)

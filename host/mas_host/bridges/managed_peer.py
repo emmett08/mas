@@ -11,6 +11,7 @@ from ..service_contracts import ServiceError
 from .orchestrator import OrchestratorConnector, PeerContract
 from .peer_clients import A2ATaskServiceClient, MCPTaskServiceClient
 from .authentication import read_token_file
+from .http_policy import HTTPTransportPolicy
 from .service_client import TaskServiceClient, http_exchange
 
 
@@ -34,6 +35,13 @@ class ManagedPeerConnector(OrchestratorConnector):
                  version=None, identity=None, timeout_seconds=30, transport_policy=None):
         registration = registry.resolve(name, caller, version=version, identity=identity)
         binding = registration.descriptor
+        if (type(timeout_seconds) is not int or not 1 <= timeout_seconds <= 60
+                or transport_policy is not None and not isinstance(transport_policy, HTTPTransportPolicy)):
+            raise ServiceError('invalid_peer_configuration')
+        actual_policy = (transport_policy or HTTPTransportPolicy()).descriptor()
+        if (actual_policy != binding.get('transport_policy', HTTPTransportPolicy().descriptor())
+                or timeout_seconds != binding.get('timeout_seconds', 30)):
+            raise ServiceError('peer_binding_changed')
         self.registry, self.caller, self.registration = registry, caller, registration
         self._token_file = token_file
         self._operation_token = ContextVar('managed_peer_token', default=None)
@@ -52,10 +60,12 @@ class ManagedPeerConnector(OrchestratorConnector):
             transport=self._transport, **options)
 
     def _token(self):
+        self._check_transport()
         return self._operation_token.get() or read_token_file(self._token_file)
 
     @contextmanager
     def _credentials(self):
+        self._check_transport()
         # Bind discovery and the subsequent effect to exactly the same bearer.
         # Context-local state prevents concurrent calls sharing rotation state.
         if self._operation_token.get() is not None:
@@ -72,11 +82,33 @@ class ManagedPeerConnector(OrchestratorConnector):
         return http_exchange(endpoint, **options)
 
     def descriptor(self):
-        return {'format': 'mas-managed-peer/1', 'name': self.registration.descriptor['name'],
+        self._check_transport()
+        binding = self.registration.descriptor
+        value = {'format': 'mas-managed-peer/1', 'name': binding['name'],
                 'version': self.registration.descriptor['version'], 'identity': self.registration.identity,
                 'caller': self.caller, 'principal': self.principal}
+        # Legacy omitted fields continue to mean direct transport and 30s.
+        for key in ('transport_policy', 'timeout_seconds'):
+            if key in binding:
+                value[key] = binding[key]
+        return value
+
+    def _check_transport(self):
+        binding = self.registration.descriptor
+        expected = binding.get('transport_policy', HTTPTransportPolicy().descriptor())
+        artifact_endpoint = urlunsplit(urlsplit(binding['endpoint'])._replace(path=''))
+        for client, endpoint in ((self.service, binding['endpoint']), (self._artifact_service, artifact_endpoint)):
+            policy = client.transport_policy
+            if (client.endpoint != endpoint or client.principal != binding['outbound_principal']
+                    or client.allow_loopback_http is not binding['allow_loopback_http']
+                    or policy is not None and not isinstance(policy, HTTPTransportPolicy)
+                    or (policy or HTTPTransportPolicy()).descriptor() != expected
+                    or type(client.timeout_seconds) is not int
+                    or client.timeout_seconds != binding.get('timeout_seconds', 30)):
+                raise ServiceError('peer_binding_changed')
 
     def _authorise(self, capability=None):
+        self._check_transport()
         binding = self.registration.descriptor
         self.registry.resolve(binding['name'], self.caller,
             version=binding['version'], identity=self.registration.identity)

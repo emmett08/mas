@@ -7,6 +7,40 @@ use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 type Result<T> = std::result::Result<T, String>;
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn peer_transport_binding_rejects_secrets_and_unbounded_options() {
+        assert!(peer_transport(&json!({})).is_ok());
+        let policy = json!({"format":"mas-http-policy/1", "proxy_url":"http://proxy.example:8080",
+            "proxy_authentication":true, "loopback_proxy_bypass":true,
+            "allowed_origins":["https://peer.example:443"], "additional_ca_sha256":"a".repeat(64)});
+        let binding = json!({"transport_policy":policy, "timeout_seconds":17});
+        assert!(peer_transport(&binding).is_ok());
+        for timeout in [json!(0), json!(30), json!(61), json!(true), json!(1.5), Value::Null] {
+            let mut invalid = binding.clone();
+            invalid["timeout_seconds"] = timeout;
+            assert!(peer_transport(&invalid).is_err());
+        }
+        for (key, value) in [("proxy_url", json!("http://user:secret@proxy.example:8080")),
+            ("proxy_url", json!("http://proxy.example")),
+            ("proxy_url", json!("http://proxy.example:not-a-port")),
+            ("proxy_url", json!("http://proxy.example:080")),
+            ("allowed_origins", json!(["https://b.example:443", "https://a.example:443"])),
+            ("allowed_origins", json!(["https://a.example:443", "https://a.example:443"])),
+            ("proxy_authorization_file", json!("/private/secret")),
+            ("additional_ca_pem", json!("secret")),
+            ("additional_ca_sha256", json!("invalid")),
+            ("loopback_proxy_bypass", json!(false))] {
+            let mut invalid = binding.clone();
+            invalid["transport_policy"][key] = value;
+            assert!(peer_transport(&invalid).is_err());
+        }
+    }
+}
+
 pub(crate) const DDL: &str = "
 CREATE TABLE federation_peers(name text NOT NULL,version text NOT NULL,identity text NOT NULL UNIQUE,descriptor text NOT NULL,revoked boolean NOT NULL DEFAULT false,PRIMARY KEY(name,version));
 CREATE TABLE federation_aliases(name text PRIMARY KEY,version text NOT NULL);
@@ -105,6 +139,49 @@ fn terminal(s: &str) -> bool {
     matches!(s, "completed" | "failed" | "cancelled")
 }
 
+fn peer_transport(reg: &Value) -> Result<()> {
+    if reg.get("timeout_seconds").is_some() {
+        if integer(reg, "timeout_seconds", 1, 60)? == 30 {
+            return Err("noncanonical peer timeout".into());
+        }
+    }
+    if let Some(policy) = reg.get("transport_policy") {
+        fields(policy, &["format", "proxy_url", "proxy_authentication", "loopback_proxy_bypass",
+            "allowed_origins", "additional_ca_sha256"], &[])?;
+        let origin = |value: &Value, proxy: bool| {
+            value.as_str().is_some_and(|s| {
+                let authority = s.strip_prefix("http://").or_else(||
+                    if proxy { None } else { s.strip_prefix("https://") });
+                s.len() <= 2048 && authority.is_some_and(|a| {
+                    let Some((host, port)) = a.rsplit_once(':') else { return false };
+                    let valid_host = if let Some(ip) = host.strip_prefix('[').and_then(|h| h.strip_suffix(']')) {
+                        ip.parse::<std::net::Ipv6Addr>().is_ok() && ip == ip.to_ascii_lowercase()
+                    } else {
+                        !host.is_empty() && host.bytes().all(|b| b.is_ascii_lowercase()
+                            || b.is_ascii_digit() || matches!(b, b'.' | b'-' | b'_'))
+                    };
+                    valid_host && port.parse::<u16>().is_ok_and(|p| p > 0 && p.to_string() == port)
+                })
+            })
+        };
+        if policy["format"] != "mas-http-policy/1"
+            || policy["loopback_proxy_bypass"] != true
+            || !policy["proxy_authentication"].is_boolean()
+            || policy["proxy_authentication"] == true && policy["proxy_url"].is_null()
+            || !policy["proxy_url"].is_null() && !origin(&policy["proxy_url"], true)
+            || policy["allowed_origins"].as_array().is_none_or(|a| a.len() > 256
+                || a.iter().any(|v| !origin(v, false))
+                || a.windows(2).any(|w| w[0].as_str() >= w[1].as_str()))
+            || !policy["additional_ca_sha256"].is_null()
+                && policy["additional_ca_sha256"].as_str().is_none_or(|s| s.len() != 64
+                    || !s.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)))
+        {
+            return Err("invalid peer transport policy".into());
+        }
+    }
+    Ok(())
+}
+
 fn peer_change(tx: &mut Transaction<'_>, op: &str, p: &Value) -> Result<Value> {
     let required = if op == "peer.register" {
         vec![
@@ -174,8 +251,9 @@ fn peer_change(tx: &mut Transaction<'_>, op: &str, p: &Value) -> Result<Value> {
                 "artifact_scopes",
                 "allow_loopback_http",
             ],
-            &[],
+            &["transport_policy", "timeout_seconds"],
         )?;
+        peer_transport(&reg)?;
         if reg["format"] != "mas-peer-registration/1"
             || !matches!(
                 text(&reg, "profile")?,

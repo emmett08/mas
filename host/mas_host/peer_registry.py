@@ -37,8 +37,9 @@ class PeerRegistration:
 
     def __init__(self, *, name, version, profile, endpoint, outbound_principal,
                  deployment_id, workflows, callers, capabilities=("submit", "inspect", "pinned_identity"),
-                 artifact_scopes=(), allow_loopback_http=False):
+                 artifact_scopes=(), allow_loopback_http=False, transport_policy=None, timeout_seconds=30):
         from .bridges.service_client import validate_endpoint
+        from .bridges.http_policy import HTTPTransportPolicy
         for value in (name, version, outbound_principal, deployment_id):
             identifier(value)
         parsed = validate_endpoint(endpoint, allow_loopback_http=allow_loopback_http)
@@ -50,7 +51,8 @@ class PeerRegistration:
                 or type(callers) not in (tuple, list) or not callers or len(callers) > 256
                 or type(capabilities) not in (tuple, list) or any(type(item) is not str for item in capabilities)
                 or not set(capabilities) <= CAPABILITIES
-                or type(artifact_scopes) not in (tuple, list) or len(artifact_scopes) > 64):
+                or type(artifact_scopes) not in (tuple, list) or len(artifact_scopes) > 64
+                or type(timeout_seconds) is not int or not 1 <= timeout_seconds <= 60):
             raise ServiceError("invalid_peer_registration")
         for value in (*callers, *artifact_scopes):
             identifier(value)
@@ -60,6 +62,10 @@ class PeerRegistration:
             "workflows": workflows, "callers": sorted(set(callers)),
             "capabilities": sorted(set(capabilities) | {"pinned_identity"}),
             "artifact_scopes": sorted(set(artifact_scopes)), "allow_loopback_http": allow_loopback_http}
+        if transport_policy is not None:
+            value['transport_policy'] = HTTPTransportPolicy.validate_descriptor(transport_policy)
+        if timeout_seconds != 30:
+            value['timeout_seconds'] = timeout_seconds
         object.__setattr__(self, "_encoded", integer_json(value, 32768))
 
     @property

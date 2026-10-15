@@ -5,7 +5,8 @@
 every operation to that immutable identity. Local callers cannot supply an
 endpoint, bearer token, deployment identity or workflow digest through task input.
 Peer records contain no credentials. Trusted startup supplies a private token
-file and any explicit CA/proxy policy. Managed operations freeze the credential
+file and the CA/proxy policy whose public descriptor is pinned in the registration.
+Managed operations freeze the credential
 across discovery and their subsequent effect, then read the file again for the
 next operation. Rotation cannot change the authenticated principal between
 negotiation and submission.
@@ -65,9 +66,21 @@ tool. Each change requires a reason, unique stable request key and expected
 registry revision. Repeating the same change returns its receipt; changing the
 same key conflicts. A version cannot be edited or revived after revocation.
 Register a new version to change endpoints, grants, credentials' principal,
-capabilities or executable pins. Existing connectors retain the old version
+capabilities, executable pins, transport policy or timeout. Existing connectors retain the old version
 until explicitly replaced. Backups preserve the registry and tombstones; audit
 restores permit reads and reject changes.
+
+For a configured HTTP policy, pass `transport_policy=policy.descriptor()` and
+an integer `timeout_seconds` from 1 to 60 to `PeerRegistration`; pass the actual
+`HTTPTransportPolicy` and the same timeout to `ManagedPeerConnector`. The policy
+descriptor includes proxy origin, origin allowlist, additional-CA digest and
+whether proxy authentication is required. Credential values and private file
+paths are excluded, so rotation preserves the binding. Lifecycle and artefact
+clients both check their effective settings before credentials or network use,
+including after discovery. A changed policy or timeout requires a new registered
+peer version. Historical registrations with neither optional field keep their
+exact identity and mean direct/system-trust transport with a 30-second timeout;
+an explicit default `HTTPTransportPolicy()` has the same transport meaning.
 
 Every use checks local caller grants and revocation, then confirms the remote
 authenticated principal, deployment, capabilities and workflow identities.

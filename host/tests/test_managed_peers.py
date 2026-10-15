@@ -12,6 +12,7 @@ from mas_host.service_contracts import ServiceError
 from mas_host.bridges.a2a import A2ABridge
 from mas_host.bridges.mcp import MCPBridge
 from mas_host.bridges.managed_peer import ManagedPeerConnector
+from mas_host.bridges.http_policy import HTTPTransportPolicy
 from mas_host.bridges.orchestrator import stable_request_key
 from test_bridge_server import ServerFixture, TOKEN, OTHER
 import test_task_service
@@ -77,6 +78,81 @@ class RegistryTests(unittest.TestCase):
         with self.assertRaisesRegex(ServiceError, 'audit only'):
             restored.revoke(operator='owner', request_key='no', reason='Read only', expected_revision=1,
                             name='worker-host', version='1')
+
+    def test_transport_policy_and_timeout_are_immutable_public_peer_bindings(self):
+        original = self.registration()
+        self.assertNotIn('transport_policy', original.descriptor)
+        self.assertNotIn('timeout_seconds', original.descriptor)
+        self.assertEqual(PeerRegistration.from_dict(original.descriptor)._encoded, original._encoded)
+        self.register(original)
+        default = ManagedPeerConnector(self.registry, 'worker-host', 'orchestrator', token_file='/unused')
+        explicit = ManagedPeerConnector(self.registry, 'worker-host', 'orchestrator', token_file='/unused',
+                                        transport_policy=HTTPTransportPolicy())
+        self.assertEqual(default.descriptor(), explicit.descriptor())
+        policy = HTTPTransportPolicy(proxy_url='http://proxy.example:8080',
+            proxy_authorization_file='/private/old-credential', allowed_origins=('https://worker.example',))
+        changed = self.registration(transport_policy=policy.descriptor(), timeout_seconds=17)
+        self.assertNotEqual(changed.identity, original.identity)
+        with self.assertRaisesRegex(ServiceError, 'peer version immutable'):
+            self.register(changed, key='changed-transport', revision=1)
+        pinned = self.registration(version='2', transport_policy=policy.descriptor(), timeout_seconds=17)
+        self.register(pinned, key='transport-v2', revision=1)
+        rotated = replace(policy, proxy_authorization_file='/private/rotated-credential')
+        peer = ManagedPeerConnector(self.registry, 'worker-host', 'orchestrator', token_file='/private/token',
+            transport_policy=rotated, timeout_seconds=17)
+        self.assertEqual(peer.registration.identity, pinned.identity)
+        self.assertEqual(peer.descriptor()['transport_policy'], policy.descriptor())
+        self.assertEqual(peer.descriptor()['timeout_seconds'], 17)
+        self.assertNotIn('/private/', str(pinned.descriptor) + str(peer.descriptor()))
+        self.assertEqual(PeerRegistration.from_dict(pinned.descriptor)._encoded, pinned._encoded)
+        # Old aliases/versions keep their original direct transport binding.
+        self.assertEqual(self.registry.resolve('worker-host', 'orchestrator', version='1').identity, original.identity)
+        for options in ({'transport_policy': None, 'timeout_seconds': 17},
+                        {'transport_policy': policy, 'timeout_seconds': 30},
+                        {'transport_policy': replace(policy, proxy_url='http://other.example:8080'), 'timeout_seconds': 17},
+                        {'transport_policy': replace(policy, allowed_origins=()), 'timeout_seconds': 17}):
+            with self.subTest(options=options), mock.patch(
+                    'mas_host.bridges.managed_peer.read_token_file') as secret:
+                with self.assertRaisesRegex(ServiceError, 'peer binding changed'):
+                    ManagedPeerConnector(self.registry, 'worker-host', 'orchestrator', token_file='/unused', **options)
+                secret.assert_not_called()
+
+    def test_transport_descriptor_rejects_secrets_and_invalid_timeout(self):
+        policy = HTTPTransportPolicy().descriptor()
+        for extra in ({'proxy_authorization_file': '/secret'}, {'additional_ca_pem': 'secret'},
+                      {'additional_ca_sha256': 'bad'}, {'loopback_proxy_bypass': False},
+                      {'proxy_authentication': True}):
+            with self.subTest(extra=extra), self.assertRaises(ServiceError):
+                self.registration(transport_policy=policy | extra)
+        for timeout in (0, 61, True, 1.5):
+            with self.subTest(timeout=timeout), self.assertRaises(ServiceError):
+                self.registration(timeout_seconds=timeout)
+        with self.assertRaises(ServiceError):
+            PeerRegistration.from_dict(self.registration().descriptor | {'timeout_seconds': 30})
+        for origins in (['https://worker.example'], ['https://worker.example:0443'],
+                        ['https://b.example:443', 'https://a.example:443'],
+                        ['https://a.example:443', 'https://a.example:443']):
+            with self.subTest(origins=origins), self.assertRaises(ServiceError):
+                self.registration(transport_policy=policy | {'allowed_origins': origins})
+        ca_one = self.registration(transport_policy=policy | {'additional_ca_sha256': 'a' * 64})
+        ca_two = self.registration(transport_policy=policy | {'additional_ca_sha256': 'b' * 64})
+        self.assertNotEqual(ca_one.identity, ca_two.identity)
+
+    def test_mutated_lifecycle_or_artifact_transport_fails_before_credentials(self):
+        self.register()
+        for target in ('service', '_artifact_service'):
+            for field, value in (('transport_policy', HTTPTransportPolicy(proxy_url='http://changed.example')),
+                                 ('timeout_seconds', 12), ('endpoint', 'https://changed.example'),
+                                 ('principal', 'outsider'), ('allow_loopback_http', True)):
+                peer = ManagedPeerConnector(self.registry, 'worker-host', 'orchestrator', token_file='/unused')
+                setattr(getattr(peer, target), field, value)
+                with self.subTest(target=target, field=field), mock.patch(
+                        'mas_host.bridges.managed_peer.read_token_file') as secret:
+                    with self.assertRaisesRegex(ServiceError, 'peer binding changed'):
+                        peer.negotiate()
+                    with self.assertRaisesRegex(ServiceError, 'peer binding changed'):
+                        peer.artifacts()
+                    secret.assert_not_called()
 
 
 class ManagedPeerTests(unittest.TestCase):
@@ -185,6 +261,22 @@ class ManagedPeerTests(unittest.TestCase):
                     with self.assertRaisesRegex(ServiceError, 'peer contract mismatch'):
                         peer.submit('drift', 'echo', {})
             self.assertEqual(remote.list_tasks('alice'), [])
+
+    def test_transport_drift_after_discovery_blocks_effect_across_profiles(self):
+        for profile in ('mas-http/1', 'mas-mcp/1', 'mas-a2a/1'):
+            with self.subTest(profile=profile):
+                self.state = self.root / profile.replace('/', '-')
+                self.registry = PeerRegistry(DeploymentLedger(self.root / ('local-' + profile.replace('/', '-'))))
+                with self.peer(profile) as (peer, remote):
+                    original = remote.discover
+                    def changed(principal):
+                        result = original(principal)
+                        peer.service.transport_policy = HTTPTransportPolicy(proxy_url='http://changed.example')
+                        return result
+                    with mock.patch.object(remote, 'discover', side_effect=changed):
+                        with self.assertRaisesRegex(ServiceError, 'peer binding changed'):
+                            peer.submit('transport-drift', 'echo', {})
+                    self.assertEqual(remote.list_tasks('alice'), [])
 
     def test_continuation_reuses_logical_key_across_profiles(self):
         self.workflow = replace(self.workflow,

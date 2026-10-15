@@ -186,6 +186,34 @@
       "native_accounting_legacy_migration_tests": 1,
       "combined_postgres_rustfs_boundaries": 5,
       "scope": "Real PostgreSQL 16.15 and RustFS 1.0.1: verified publication, lost PUT reply, controller handover, grant revocation and tampered content. Does not qualify subsequent schemas or transfers."
+    },
+    {
+      "remote_commit": "71e4d87dd661152d0202cbd76f23d8d524e64724",
+      "job_id": 116168123389,
+      "status": "FAIL",
+      "python_postgres_tests": 102,
+      "python_postgres_passed": 100,
+      "python_postgres_errors": 2,
+      "python_postgres_seconds": 528.996,
+      "native_postgres_conformance_tests": 12,
+      "native_accounting_legacy_migration_tests": 1,
+      "combined_postgres_rustfs_stage": "SKIPPED after Python fixture errors",
+      "evidence_sha256": "73f09f619e1a08a243418f74c1e15a8cf79dc9e149b17f79e5a91fa86ee7d62c",
+      "failures": [
+        {
+          "test": "test_shared_composition_dispatches_separate_registered_workspace_attempts",
+          "cause": "Forked composition children wrote bytes into a process-local test object-store dictionary.",
+          "repair_source_commit": "18c4eb65ad83e91c000637e805e68b1f21112f46",
+          "repair": "Process-visible immutable object bytes; assert two retained workspace manifests, native run identities and exact invocation outputs."
+        },
+        {
+          "test": "test_database_expiry_and_global_staging_quota_release_only_on_close_or_expiry",
+          "cause": "A one-second database TTL can expire before status because the server clock is floored to integer seconds.",
+          "repair_source_commit": "cd45eda0eb040c616662b5bc8ebff3ff70014156",
+          "repair": "Expire the isolated fixture row using the actual database clock; assert pre-expiry denial, expired chunk/commit denial, durable chunk deletion and quota reuse."
+        }
+      ],
+      "scope": "Runtime source unchanged by these two fixture repairs. Both repairs and the real PostgreSQL/RustFS stage require the next combined-head run."
     }
   ],
   "consolidated_hosted_checks": [
@@ -207,6 +235,69 @@
         "failure": "Cross-principal transfer was denied; fixed native error code was missing from the public allowlist. Subsequent repair requires rerun.",
         "combined_s3_stage": "SKIPPED after Python test error"
       }
+    },
+    {
+      "remote_commit": "71e4d87dd661152d0202cbd76f23d8d524e64724",
+      "run": 38656721988,
+      "amd64": {
+        "job": 116168123796,
+        "status": "FAIL",
+        "native": {
+          "tests": 1230,
+          "passed": 1115,
+          "skipped": 115,
+          "seconds": 241.846
+        },
+        "temporal": {
+          "tests": 26,
+          "passed": 26,
+          "seconds": 161.408
+        },
+        "installed_musl": {
+          "tests": 1223,
+          "passed": 1096,
+          "skipped": 125,
+          "failures": 1,
+          "errors": 1,
+          "seconds": 451.291
+        },
+        "failures": [
+          "test_deadline_reaps_worker_tree_and_preserves_uncertainty",
+          "test_nested_deadline_stops_long_adapter"
+        ],
+        "artifact_url": "https://github.com/emmett08/mas/actions/runs/38656721988/artifacts/11938121291",
+        "artifact_sha256": "10263574ff1154337c918344b957b08e772bdc55145bec68a560bffd7bff130a"
+      },
+      "arm64": {
+        "job": 116168123646,
+        "status": "PASS",
+        "native": {
+          "tests": 1230,
+          "passed": 1115,
+          "skipped": 115,
+          "seconds": 232.916
+        },
+        "temporal": {
+          "tests": 26,
+          "passed": 26,
+          "seconds": 136.266
+        },
+        "installed_musl": {
+          "tests": 1223,
+          "passed": 1098,
+          "skipped": 125,
+          "seconds": 325.77
+        },
+        "installed_cursor": {
+          "tests": 1228,
+          "passed": 1110,
+          "skipped": 118,
+          "seconds": 175.567
+        },
+        "artifact_url": "https://github.com/emmett08/mas/actions/runs/38656721988/artifacts/11937124485",
+        "artifact_sha256": "0ec3255112ef5e38ef56f35d8936c5ddf9357cce88884b27401d6c46edb0f983"
+      },
+      "scope": "Architecture-specific results. Arm64 completed all image, reconciliation, secret-injection and bridge restart checks. The amd64 musl failures require repair and full rerun; its later Cursor/deployment stages were skipped."
     }
   ],
   "consolidated_machine_checks": [
@@ -257,6 +348,63 @@
         }
       ],
       "scope": "Two QEMU guests with independent kernels. Lost-ack case preserves the original receipt across controller restart and worker hard reset; partition/spool/artifact-loss cases retain uncertainty and allocations. This predates the EXTRA durability fix; it does not qualify later source or physical hosts."
+    },
+    {
+      "remote_commit": "71e4d87dd661152d0202cbd76f23d8d524e64724",
+      "tested_merge_commit": "fc9f0a2d5912f0fbf294f60079e2eacf96aa55cd",
+      "source_tree": "6936ca2d2854426d834bdfcdbafdb5a7e7db33fc",
+      "tracked_dirty": false,
+      "profile": "qemu-tcg-independent-kernels",
+      "status": "PASS",
+      "job": 116168123251,
+      "artifact_url": "https://github.com/emmett08/mas/actions/runs/38656722018/artifacts/11936574822",
+      "artifact_sha256": "ec07c3c484178d2bd1dbc40837f70fe9c3a4d6732260b1505c78c9c1eb7cbdd3",
+      "cases": [
+        {
+          "case": "twoworkers",
+          "passed": true,
+          "state": "completed",
+          "calls": 2,
+          "reserved_microusd": 10
+        },
+        {
+          "case": "lostack",
+          "passed": true,
+          "state": "completed",
+          "calls": 1,
+          "reserved_microusd": 5
+        },
+        {
+          "case": "partition",
+          "passed": true,
+          "state": "unknown",
+          "calls": 2,
+          "reserved_microusd": 10
+        },
+        {
+          "case": "spoolloss",
+          "passed": true,
+          "state": "unknown",
+          "calls": 2,
+          "reserved_microusd": 10
+        },
+        {
+          "case": "artifactloss",
+          "passed": true,
+          "state": "unknown",
+          "calls": 2,
+          "reserved_microusd": 10
+        }
+      ],
+      "disk_flush_enabled": true,
+      "binary_sha256": {
+        "mas": "70a14124b444eee08264517c3772950410d66f6789a3503708b6492012208951",
+        "gateway": "b31d41461876d8866629a54087c4a269ac05054b398892173ba0936ac39a4267",
+        "coordinator": "bb177ef342f1fffd9158fec12884880125a0ccb795dc11c6177bb69d07394aba",
+        "image": "6a81c37564db9b1ee84e141922625e1d7c5b389b99bb3c572e0243607d5bb4d2",
+        "runtime_archive": "1419171b0b3c87ff3e821807d0cd1d3be78fe4f08e5c9e11e90b6b6b186325a1"
+      },
+      "scope": "Includes synchronous=EXTRA in all write owners and writable hot-journal preflight. Two independent guest kernels; lost acknowledgement preserves the original receipt across controller restart and hard reset. In the three uncertain cases, an explicit second probe is refused as operation_busy/not_sent while the original unknown and both allocations remain. No automatic retry or physical-host/production-network qualification is claimed."
     }
   ],
   "consolidated_native_check": {
@@ -295,5 +443,150 @@
     "status": "PASS",
     "evidence_sha256": "9e32e7dc66f1fe0dfdc0da1626235891bf536fee35d979ebf15be02925bdf71e",
     "scope": "Local Cursor job per-operation ownership, exact response correlation, lost create/cancel replies, immutable terminal snapshots and truthful cancellation recovery. Runs after the frozen c623904 host suite."
-  }
+  },
+  "consolidated_formal_check": {
+    "remote_commit": "71e4d87dd661152d0202cbd76f23d8d524e64724",
+    "job": 116168123412,
+    "status": "PASS",
+    "rust_passed": 61,
+    "rust_ignored_formal_cases": 2,
+    "spin_cases": 110,
+    "examples": 14,
+    "artifact_url": "https://github.com/emmett08/mas/actions/runs/38656722044/artifacts/11937063431",
+    "artifact_sha256": "a66ffd0f12bfbf4a1930c999015859de4eecca5711630758755318cf252b8e58"
+  },
+  "consolidated_security_check": {
+    "remote_commit": "71e4d87dd661152d0202cbd76f23d8d524e64724",
+    "status": "PASS",
+    "run": 38656721977,
+    "dependency_job": 116168123246,
+    "image_job": 116168123023,
+    "artifacts": [
+      11936293970,
+      11936529154
+    ],
+    "scope": "Six Python dependency groups, Cargo audit, standard and Cursor image scans including unfixed HIGH/CRITICAL findings, and SBOM generation. No paid provider calls."
+  },
+  "consolidated_hosted_reference_load": {
+    "remote_commit": "71e4d87dd661152d0202cbd76f23d8d524e64724",
+    "tested_merge_commit": "fc9f0a2d5912f0fbf294f60079e2eacf96aa55cd",
+    "source_clean": true,
+    "expected_commit_checked": true,
+    "status": "PASS",
+    "job": 116168123796,
+    "artifact_url": "https://github.com/emmett08/mas/actions/runs/38656721988/artifacts/11938121291",
+    "report_sha256": "6ca0398690211c1a3d71882299a52a5c3b2635dbaf121f6a1df63f3b8d85e08c",
+    "submitted": 101,
+    "completed_by_principal": {
+      "alice": 51,
+      "bob": 50
+    },
+    "active_load_seconds": 60.66731313300002,
+    "elapsed_to_drain_seconds": 61.23206090900001,
+    "deployment_usage": {
+      "calls": 101,
+      "reserved_microusd": 0,
+      "runs": 101
+    },
+    "latency_seconds": {
+      "inspect": {
+        "maximum": 0.009692903999990676,
+        "minimum": 0.003325210000014067,
+        "p50": 0.004017666999999392,
+        "p95": 0.006681428999996797,
+        "p99": 0.008458318999998937,
+        "quantile_method": "nearest_rank",
+        "samples": 536
+      },
+      "submission_to_completion_observation": {
+        "maximum": 0.7753188050000119,
+        "minimum": 0.5887366629999917,
+        "p50": 0.6091829169999983,
+        "p95": 0.7623931439999865,
+        "p99": 0.7705664109999759,
+        "quantile_method": "nearest_rank",
+        "samples": 101
+      },
+      "submit": {
+        "maximum": 0.04497866200000544,
+        "minimum": 0.024264783999996098,
+        "p50": 0.03116830600001208,
+        "p95": 0.0391827889999945,
+        "p99": 0.04454846699999848,
+        "quantile_method": "nearest_rank",
+        "samples": 101
+      }
+    },
+    "resource_peaks": {
+      "descendant_processes": 4,
+      "descendant_rss_bytes": 126500864,
+      "descendant_threads": 4,
+      "distinct_descendants_observed": 304,
+      "observed_orphans": 0,
+      "observer_rss_bytes": 38899712
+    },
+    "retained_state_growth": {
+      "allocated_bytes": 11689984,
+      "apparent_bytes": 10180306,
+      "files": 920
+    },
+    "final_processes": {
+      "descendant_processes": 0,
+      "descendant_rss_bytes": 0,
+      "descendant_threads": 0,
+      "distinct_descendants_observed": 304,
+      "observed_orphans": 0,
+      "observer_rss_bytes": 38899712
+    },
+    "checks": {
+      "all_observed_descendants_reaped": true,
+      "all_submissions_completed": true,
+      "both_principals_progressed": true,
+      "cleanup_within_fixture_bound": true,
+      "completion_p99_within_fixture_ceiling": true,
+      "control_p99_within_fixture_ceiling": true,
+      "effect_trace_exact_once": true,
+      "four_slots_admitted": true,
+      "global_capacity_denied": true,
+      "minimum_active_load_duration": true,
+      "minimum_completed_samples": true,
+      "no_paid_reservations": true,
+      "observed_callback_capacity": true,
+      "observer_growth_within_limit": true,
+      "one_admission_and_call_per_submission": true,
+      "principal_capacity_denied": true,
+      "process_peak_within_limit": true,
+      "released_capacity_reusable": true,
+      "retained_state_growth_within_limit": true,
+      "round_robin_fifo": true,
+      "rss_peak_within_limit": true,
+      "source_and_binaries_stable": true,
+      "state_below_deployment_ceiling": true
+    },
+    "scope": "Native installed amd64 fixed regression workload, not saturated capacity or production SLO acceptance. This load stage passed before the later musl deadline failures."
+  },
+  "consolidated_final_repairs": [
+    {
+      "repair_commit": "980eb3e8f91f218e442bbb248a4790c98e61e73a",
+      "tests": 82,
+      "passed": 82,
+      "seconds": 17.03,
+      "status": "PASS",
+      "python": "3.12.14",
+      "evidence_sha256": "be0dbf0f36e85eabf0240a84ccf4bdce09e069b6beed2b4b363da818b45db44e",
+      "scope": "Focused task-service, workflow-scope, executable-worker, bootstrap and supervision suites on the source worktree. Includes zero-effect stop during construction, retained original unknown calls, unrelated error propagation, and deterministic admitted/pre-admission timeout tests. The peer-policy repair was also present in this worktree; this is not an isolated full-checkout qualification."
+    },
+    {
+      "repair_commit": "a3ef8f33c3dc8d939c2bf9dfce62e98cefa928fa",
+      "tests": 22,
+      "passed": 22,
+      "seconds": 7.671,
+      "status": "PASS",
+      "native_validator_tests": 1,
+      "release_shared_build": "PASS",
+      "native_tree": "2206b9424bb9dec0251a851d1650803ed831c533",
+      "mas_shared_sha256": "0c40cd8b71148cde67a8321269da24019adbb95b2898dc9be7b5ca6593f42cad",
+      "scope": "Managed peer and HTTP transport source suites after the deadline repair; legacy identities, secret rotation, policy/timeout canonicalisation, native public-field validation and pre-effect drift rejection. Independent review passed. The added PostgreSQL roundtrip and full installed-image checks require final combined-head CI."
+    }
+  ]
 }

@@ -1,4 +1,9 @@
-"""Native shared workspace lifecycle with real exec and fault-controlled S3 bytes."""
+"""Native shared workspace lifecycle with real exec and process-shared S3 doubles."""
+import base64
+import hashlib
+from io import BytesIO
+import json
+import multiprocessing
 import os
 from pathlib import Path
 import tempfile
@@ -6,19 +11,93 @@ import unittest
 from unittest import mock
 import uuid
 
-from mas_host.artifacts import ArtifactRef
+from mas_host.artifacts import ArtifactPolicy, ArtifactRef
 from mas_host.executable_worker import ProfileExecutor
 from mas_host.s3_artifacts import S3ArtifactContent
 from mas_host.s3_transport import S3ContentConfig
 from mas_host.shared_artifacts import SharedArtifactStore
 from mas_host.shared_authority import SharedAuthority
 from mas_host.shared_service import create_shared_service
-from mas_host.workspaces import WorkspaceAdapter
-from test_s3_artifacts import ObjectClient
+from mas_host.workspaces import WorkspaceAdapter, WorkspaceRef
+from test_s3_artifacts import PreconditionFailed
 from test_service_workspaces import ROOT, LostServiceReceipt, WorkspaceRegistration
 
 
 GATEWAY = os.environ.get('MAS_GATEWAY_BIN') or str(ROOT / 'rust-protocol/target/debug/mas-gateway')
+
+
+class ProcessSharedObjectClient:
+    """Test-only S3 bytes outside disposable execution caches.
+
+    A child process publishes a complete temporary file then links it into the
+    immutable object namespace. Existing names return S3's conditional-write
+    failure, and readers never observe a partially written object.
+    """
+    def __init__(self, root):
+        self.root = Path(root)
+        self.root.mkdir(mode=0o700, parents=True, exist_ok=True)
+
+    def _path(self, request):
+        key = json.dumps([request['Bucket'], request['Key']], separators=(',', ':')).encode()
+        return self.root / hashlib.sha256(key).hexdigest()
+
+    def put_object(self, **request):
+        data = request['Body'].read()
+        if (request['IfNoneMatch'] != '*' or len(data) != request['ContentLength']
+                or hashlib.sha256(data).digest() != base64.b64decode(request['ChecksumSHA256'], validate=True)):
+            raise ValueError('invalid object publication')
+        temporary = self.root / ('.pending-' + uuid.uuid4().hex)
+        try:
+            with temporary.open('xb') as stream:
+                stream.write(data)
+                stream.flush()
+                os.fsync(stream.fileno())
+            try:
+                os.link(temporary, self._path(request))
+            except FileExistsError:
+                raise PreconditionFailed() from None
+        finally:
+            temporary.unlink(missing_ok=True)
+        return {}
+
+    def get_object(self, **request):
+        data = self._path(request).read_bytes()
+        return {'ContentLength': len(data), 'Body': BytesIO(data)}
+
+
+@unittest.skipUnless('fork' in multiprocessing.get_all_start_methods(), 'requires forked composition workers')
+class WorkspaceObjectTransportTests(unittest.TestCase):
+    def test_forked_publication_is_visible_to_parent_and_cannot_overwrite(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            client = ProcessSharedObjectClient(root / 'objects')
+            backend = S3ArtifactContent(S3ContentConfig('https://objects.example', 'test-bucket',
+                'mas', 'us-east-1', root / 'unused-credentials'), client=client)
+            data = b'published by a composition child'
+            reference = ArtifactRef('results', '0' * 64, hashlib.sha256(data).hexdigest(),
+                                    len(data), 'text/plain', 'alice')
+            process = multiprocessing.get_context('fork').Process(target=backend.publish_object,
+                args=('0' * 32, reference, BytesIO(data), ArtifactPolicy()))
+            process.start()
+            try:
+                process.join(10)
+                self.assertFalse(process.is_alive(), 'object fixture publication hung')
+                self.assertEqual(process.exitcode, 0)
+            finally:
+                if process.is_alive():
+                    process.terminate()
+                    process.join(5)
+                process.close()
+            self.assertEqual(backend.verify_object('0' * 32, reference, collect=True), data)
+            key = {'Bucket': 'test-bucket', 'Key': 'conditional-write', 'IfNoneMatch': '*',
+                   'ContentLength': len(data), 'ChecksumSHA256': base64.b64encode(hashlib.sha256(data).digest()).decode()}
+            client.put_object(**key, Body=BytesIO(data))
+            with self.assertRaises(PreconditionFailed):
+                client.put_object(**key, Body=BytesIO(data))
+            invalid = {**key, 'Key': 'invalid-checksum', 'ChecksumSHA256': base64.b64encode(b'x' * 32).decode()}
+            with self.assertRaises(ValueError):
+                client.put_object(**invalid, Body=BytesIO(data))
+            self.assertFalse(list(client.root.glob('.pending-*')))
 
 
 @unittest.skipUnless(os.environ.get('MAS_TEST_POSTGRES_DSN'), 'requires actual PostgreSQL backend fixture')
@@ -34,7 +113,8 @@ class SharedWorkspaceServiceTests(unittest.TestCase):
         self.authority = self.authority_for()
         self.authority.initialise()
         self.backend = S3ArtifactContent(S3ContentConfig('https://objects.example', 'test-bucket',
-            'mas', 'us-east-1', self.directory / 'unused-credentials'), client=ObjectClient())
+            'mas', 'us-east-1', self.directory / 'unused-credentials'),
+            client=ProcessSharedObjectClient(self.directory / 'object-storage-fixture'))
 
     def authority_for(self, **overrides):
         authority = SharedAuthority(**(self.config | overrides))
@@ -106,14 +186,27 @@ class SharedWorkspaceServiceTests(unittest.TestCase):
         self.assertEqual(done['state'], 'completed', done)
         result = service.result('alice', queued['task_id'])
         self.assertEqual(fixture.artifacts.read_bytes(ArtifactRef.from_dict(result['artifacts'][0])), b'APPROVED SOURCE')
-        self.assertEqual(len(fixture.references), 2)
-        self.assertNotEqual(fixture.references[0].identity, fixture.references[1].identity)
+        # The factory executes in composition child processes. Inspect their
+        # retained manifests, not the parent's unchanged Python list.
+        references = [WorkspaceRef(json.loads(path.read_text()))
+                      for path in fixture.manager.root.glob('ws-*/manifest.json')]
+        self.assertEqual(len(references), 2)
+        self.assertNotEqual(references[0].identity, references[1].identity)
         runs = service.recovery_runs('alice', queued['task_id'])
         self.assertEqual(len(runs), 2)
+        by_run = {reference.descriptor['run']: reference for reference in references}
+        self.assertEqual(set(by_run), {run['run_id'] for run in runs})
         for run in runs:
+            reference = by_run[run['run_id']]
+            self.assertEqual(reference.descriptor['inputs'],
+                             [{'path': 'source.txt', 'reference': fixture.source.to_dict()}])
             calls = self.authority.query('invocations', {'run': run['run_id']})
             self.assertEqual(len(calls), 1)
             self.assertEqual(calls[0]['state'], 'completed')
+            self.assertEqual(calls[0]['output']['workspace'], reference.identity)
+            self.assertEqual(fixture.artifacts.read_bytes(ArtifactRef.from_dict(calls[0]['output']['artifacts'][0])),
+                             b'APPROVED SOURCE')
+        self.assertIn(result['workspace'], {reference.identity for reference in references})
         self.assertFalse(list(self.directory.rglob('*.sqlite')))
 
 
