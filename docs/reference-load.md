@@ -89,3 +89,58 @@ growth a leak.
 The older `mas acceptance --soak-seconds` retains its documented maximum
 admission-window meaning. This separate qualification provides the minimum
 exposure requirement without changing that interface.
+
+## Mixed lifecycle and retained-history profile
+
+Run the companion profile with `--profile mixed`. CI runs **both** full profiles:
+leaf exposure retains its existing duration and compatibility contract, while the
+mixed profile measures actual saturation, backpressure and continuation among
+heterogeneous tasks. Each prints its fixed limits before measurement and emits
+an independent, exact-source report.
+
+| Property | Full mixed profile |
+| --- | --- |
+| Retained history before mixed load | 1,024 cancelled task receipts plus 32 completed executions |
+| History creation | Public submit/cancel APIs and the real dispatcher; no fabricated database rows |
+| Mixed exposure | Four rounds of 16 tasks, eight per principal per round |
+| Callback classes | 50 ms short wait; two-second long wait; saturation barrier; continued paused work |
+| Pause lifecycle | `input_required`, held for at least three seconds, then public `update` and a fresh execution revision |
+| Saturation | Four callbacks held concurrently, two per principal, until the observer releases their barrier |
+| Backpressure | Fill all 16 pending positions during saturation; a further submit must return `queue_full` |
+| Reuse | The rejected request key must become admissible after draining; the queued probe is then cancelled |
+| Retained task ceiling | 2,048, fixed before the deployment is created |
+| Preparation / each execution phase | At most 180 seconds; saturation observation at most 30 seconds |
+| State / process / RSS ceilings | 512 MiB / 64 descendant processes / 2 GiB summed descendant RSS |
+| p99 fixture ceilings | Two seconds for submit/inspect; 60 seconds to completion observation |
+
+Each round gives both principals the same workload mixture. All rounds must
+complete eight tasks per principal. The report separates completion latency by
+principal and workload class, records callback-start latency by principal,
+checks that other work progresses during an observed pause, and verifies one
+callback per task plus a separately charged run for each continuation. The
+saturation check requires an observed overlap of all four callbacks, rather
+than inferring saturation from configured limits. The overload probe runs
+before the barrier is released, so the queue cannot drain during that check.
+
+The cancelled history retains real task, request, execution and event records.
+Those tasks have never run and therefore do not provide evidence about 1,000
+retained **run directories** or cumulative run-budget exhaustion. Completed
+history supplies 32 real retained executions; the separate archival-capacity
+regression covers exceeding the original 1,000-instance boundary. Preparation,
+startup and mixed execution durations are separate report fields. Resource
+samples include preparation, and final checks cover descendant reaping, bounded
+state and observer memory growth.
+
+```sh
+python scripts/check-reference-load.py --profile mixed \
+  --expected-commit "$(git rev-parse HEAD)" \
+  --report /tmp/mas-reference-mixed.json
+```
+
+`--profile mixed --smoke` uses 16 cancelled and four completed historical tasks
+and two mixed rounds, retaining the same saturation and pause checks. It always
+records `qualification: false`. Both profiles use local no-network callbacks
+and unchanged default cumulative run/call/spending budgets. Their joint result
+is a bounded local regression qualification. Corporate networking, shared
+PostgreSQL authority, remote-provider latency, long-duration endurance and
+production capacity still require their own deployment measurements.

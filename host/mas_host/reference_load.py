@@ -168,6 +168,9 @@ def trace_metrics(path, jobs, profile):
                 value <= profile.workers_per_principal for value in principal_peak.values()),
             'simulated_provider_wait_seconds': distribution(wait),
             'submission_to_callback_start_seconds': distribution(before),
+            'submission_to_callback_start_seconds_by_principal': {owner: distribution([
+                starts[key] - jobs[key]['submitted'] for key in starts if jobs[key]['principal'] == owner])
+                for owner in principal_peak},
             'completion_minus_callback_wait_seconds': distribution(overhead)}
 
 

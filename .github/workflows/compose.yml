@@ -50,6 +50,10 @@ jobs:
               --expected-commit "$(git rev-parse HEAD)" \
               --report "$RUNNER_TEMP/reference-load.json" \
               > "$RUNNER_TEMP/reference-load.log" 2>&1
+            PYTHONPATH="$GITHUB_WORKSPACE/host" python scripts/check-reference-load.py \
+              --profile mixed --expected-commit "$(git rev-parse HEAD)" \
+              --report "$RUNNER_TEMP/reference-mixed.json" \
+              > "$RUNNER_TEMP/reference-mixed.log" 2>&1
           fi
           python -m unittest discover -s host/tests -v 2>&1 | tee native-host-tests.log
           python -m unittest discover -s scripts/tests -v
@@ -91,7 +95,9 @@ jobs:
           docker compose config --quiet
           docker compose -f compose.yaml -f compose.production.yaml config --quiet
       - name: Build and run mock mesh in Docker
-        run: docker compose up --build --abort-on-container-exit --exit-code-from mesh
+        run: |
+          docker compose build --build-arg MAS_SOURCE_COMMIT="$GITHUB_SHA"
+          docker compose up --no-build --abort-on-container-exit --exit-code-from mesh
       - name: Test installed musl runtime and shared libraries
         run: |
           docker run --rm --init --network none --user 10001:10001 --read-only \
@@ -124,7 +130,7 @@ jobs:
           PY
       - name: Build optional Cursor runtime and test without network or API calls
         run: |
-          docker build -f Dockerfile.cursor -t mas-mesh-cursor:local .
+          docker build --build-arg MAS_SOURCE_COMMIT="$GITHUB_SHA" -f Dockerfile.cursor -t mas-mesh-cursor:local .
           docker run --rm --init --network none --user 10001:10001 --read-only \
             --cap-drop ALL --security-opt no-new-privileges --cpus 2 \
             --memory 1g --memory-swap 1g --pids-limit 128 \
@@ -312,3 +318,5 @@ jobs:
             bridge-production.log
             ${{ runner.temp }}/reference-load.json
             ${{ runner.temp }}/reference-load.log
+            ${{ runner.temp }}/reference-mixed.json
+            ${{ runner.temp }}/reference-mixed.log
