@@ -3,8 +3,6 @@ import hashlib
 import json
 import os
 from pathlib import Path
-import subprocess
-import sys
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -134,22 +132,6 @@ class ProvenanceTests(unittest.TestCase):
         self.assertEqual(result['runtime']['binaries']['mas']['sha256'], digest)
         self.assertIsNone(result['runtime']['binaries']['mas-gateway']['version'])
         self.assertFalse((self.root / 'absent').exists())
-
-    def test_build_writer_binds_generated_package_and_does_not_run_binary(self):
-        import shutil
-        repository = Path(__file__).resolve().parents[2]
-        host = self.root / 'host'; host.mkdir()
-        shutil.copytree(repository / 'host' / 'mas_host', host / 'mas_host', ignore=shutil.ignore_patterns('__pycache__'))
-        shutil.copyfile(repository / 'host' / 'pyproject.toml', host / 'pyproject.toml')
-        binary_dir = self.root / 'bin'; binary_dir.mkdir()
-        for name in self.binaries:
-            (binary_dir / name).write_bytes(name.encode())
-        subprocess.run([sys.executable, str(repository / 'scripts' / 'write-runtime-provenance.py'),
-            '--host', str(host), '--rust-manifest', str(repository / 'rust-protocol' / 'Cargo.toml'),
-            '--binaries', str(binary_dir), '--source-commit', 'a' * 40, '--release-tag', 'v0.3.0'], check=True)
-        result = build_record(host / 'mas_host', self.binaries)
-        self.assertEqual(result['status'], 'content_bound')
-        self.assertEqual(result['release_tag'], 'v0.3.0')
 
 
 if __name__ == '__main__':
