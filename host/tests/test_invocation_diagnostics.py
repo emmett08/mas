@@ -190,18 +190,21 @@ class InvocationDiagnosticTests(unittest.TestCase):
                 self.assertEqual(marker.read_text().splitlines(), ["attempt"])
                 self.assertEqual(inspect_run(runner.run_dir)["invocations"][0]["evidence"], call["evidence"])
 
-    def test_cleanup_only_failure_keeps_invocation_unknown(self):
+    def test_cleanup_only_failure_retains_known_valid_completion(self):
         client = FakeClient()
         client.agent.close = lambda: fail(RuntimeError("SECRET close"))
         provider = CursorLocalProvider("model", "planner", client=client)
         runner, _ = self.runner(lambda context, _request: Outcome(context.invoke(
             lambda: provider.total(INVOICE), input={"provider": "cursor-local"})))
-        with self.assertRaises(RecoveryRequired):
+        from mas_host.contracts import AdapterError
+        with self.assertRaises(AdapterError) as failure:
             runner.request("a", "b", "diagnose", {})
+        self.assertNotIsInstance(failure.exception, RecoveryRequired)
         call = inspect_run(runner.run_dir)["invocations"][0]
-        self.assertEqual(call["state"], "unknown")
-        self.assertIsNone(call["output"])
-        self.assertEqual(call["evidence"]["diagnostic"], diagnostic("cleanup", True))
+        self.assertEqual(call["state"], "failed_known")
+        self.assertEqual(call["output"], {"total_cents": 2998})
+        self.assertEqual(call["evidence"]["provider_outcome"]["output_status"], "valid")
+        self.assertTrue(call["evidence"]["provider_outcome"]["cleanup_failed"])
 
     def test_failed_frames_accept_legacy_but_reject_unbounded_diagnostics(self):
         invalid = [None, [], diagnostic("SECRET"), diagnostic("stream") | {"detail": "SECRET"},

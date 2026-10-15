@@ -20,16 +20,26 @@ from .remote import RemoteSnapshot, RemoteTaskService, bounded, digest, peer_ide
 from .remote_http import BoundedJSONHTTP, endpoint_url
 
 VERSION = '1.0'
+SERVICE_PROFILE = 'urn:mas:task-service:1'
+LIFECYCLE_PROFILE = 'urn:mas:lifecycle-inspection:1'
+LIFECYCLE_METHODS = {
+    'mas/ListTaskPage': ('list_task_page', set(), {'page_size', 'after', 'state', 'metadata', 'updated_after'}),
+    'mas/InspectTask': ('inspect_task', {'task_id', 'path'}, {'revision'}),
+    'mas/InspectGraph': ('inspect_graph', {'task_id'}, {'section', 'offset', 'limit'}),
+    'mas/EventsPage': ('events_page', {'task_id'}, {'after', 'limit'}),
+    'mas/RecoverTask': ('recover', {'task_id'}, set()),
+}
 STATE_TO_WIRE = {
     'queued': 'TASK_STATE_SUBMITTED', 'running': 'TASK_STATE_WORKING',
     'input_required': 'TASK_STATE_INPUT_REQUIRED', 'auth_required': 'TASK_STATE_AUTH_REQUIRED',
     'completed': 'TASK_STATE_COMPLETED', 'failed': 'TASK_STATE_FAILED',
     'cancelled': 'TASK_STATE_CANCELED', 'unknown': 'TASK_STATE_UNSPECIFIED',
+    'blocked': 'TASK_STATE_SUBMITTED',
 }
-WIRE_TO_STATE = {value: key for key, value in STATE_TO_WIRE.items()} | {'TASK_STATE_REJECTED': 'failed'}
+WIRE_TO_STATE = {value: key for key, value in STATE_TO_WIRE.items() if key != 'blocked'} | {'TASK_STATE_REJECTED': 'failed'}
 # An unresolved effect is neither a terminal result nor an interruption. Keep
 # blocking callers behind the same bounded wait until recovery settles it.
-WAITING = frozenset({'queued', 'running', 'unknown'})
+WAITING = frozenset({'queued', 'running', 'unknown', 'blocked'})
 
 
 class A2AError(ServiceError):
@@ -148,7 +158,8 @@ class A2ABridge:
         return {'name': self.name, 'description': 'Bounded durable MAS workflows. Send one JSON data part with workflow and input; use returnImmediately for polling.',
                 'version': '1.0.0',
                 'supportedInterfaces': [{'url': self.endpoint, 'protocolBinding': 'JSONRPC', 'protocolVersion': VERSION}],
-                'capabilities': {'streaming': False, 'pushNotifications': False, 'extendedAgentCard': False},
+                'capabilities': {'streaming': False, 'pushNotifications': False,
+                                 'extendedAgentCard': callable(getattr(self.service, 'discover', None))},
                 'securitySchemes': {'bearer': {'httpAuthSecurityScheme': {'scheme': 'Bearer'}}},
                 'securityRequirements': [{'schemes': {'bearer': {'list': []}}}],
                 'defaultInputModes': ['application/json'], 'defaultOutputModes': ['application/json'],
@@ -156,6 +167,32 @@ class A2ABridge:
                             'description': 'Submit an authorised workflow with a stable message identifier, inspect it, cancel it, or supply additional input.',
                             'tags': ['workflow', 'durable', 'integer-json'],
                             'inputModes': ['application/json'], 'outputModes': ['application/json']}]}
+
+    def extended_agent_card(self, principal):
+        discover = getattr(self.service, 'discover', None)
+        if not callable(discover):
+            raise A2AError(-32004, 'operation_not_supported')
+        card = self.agent_card()
+        card['capabilities']['extensions'] = [{'uri': SERVICE_PROFILE, 'required': False,
+            'description': 'MAS pinned durable task-service lifecycle, version 1.',
+            'params': {'service': discover(principal)}}]
+        card['capabilities']['extensions'].append({'uri': LIFECYCLE_PROFILE, 'required': False,
+            'description': 'MAS bounded graph, leaf and event inspection and evidence-resolved recovery.',
+            'params': {'methods': sorted(name for name, (target, _, _) in LIFECYCLE_METHODS.items()
+                                         if callable(getattr(self.service, target, None)))}})
+        return card
+
+    def _lifecycle(self, principal, method, params):
+        target, required, optional = LIFECYCLE_METHODS[method]
+        _fields(params, required | optional)
+        if not required <= set(params):
+            raise A2AError(-32602, 'invalid_parameters')
+        if 'task_id' in params:
+            token(params['task_id'])
+        callback = getattr(self.service, target, None)
+        if not callable(callback):
+            raise A2AError(-32004, 'operation_not_supported')
+        return callback(principal, **params)
 
     def _task(self, receipt: dict, *, include_artifacts=True):
         state = receipt['state']
@@ -165,6 +202,9 @@ class A2ABridge:
         result = {'id': receipt['task_id'], 'contextId': context_id,
                   'status': {'state': STATE_TO_WIRE[state], 'timestamp': _time(receipt['updated_at'])},
                   'metadata': {'mas': {'workflow': receipt['workflow'], 'cancelRequested': receipt['cancel_requested']}}}
+        result['metadata']['mas']['state'] = state
+        if 'workflow_identity' in receipt:
+            result['metadata']['mas']['workflowIdentity'] = receipt['workflow_identity']
         if include_artifacts:
             result['artifacts'] = ([] if receipt.get('result') is None else
                                    [{'artifactId': receipt['task_id'] + '-result', 'name': 'result',
@@ -188,7 +228,8 @@ class A2ABridge:
         if len(parts) != 1 or type(parts[0]['data']) is not dict:
             raise A2AError(-32005, 'one_json_object_part_required')
         data = parts[0]['data']
-        _fields(data, ('workflow', 'input'))
+        _fields(data, ('workflow', 'input', 'request_epoch', 'expected_identity', 'expected_deployment_id'))
+        pins = {key: data[key] for key in ('expected_identity', 'expected_deployment_id') if key in data}
         if type(data.get('input')) is not dict:
             raise A2AError(-32602, 'workflow_input_required')
         workflow = data.get('workflow', self.workflow)
@@ -212,18 +253,21 @@ class A2ABridge:
             bounded(message['metadata'], 4096)
         metadata = {'message_digest': digest(message), 'request_metadata': params.get('metadata', {})}
         if task_id is not None:
+            if 'request_epoch' in data:
+                raise A2AError(-32602, 'continuation_inherits_request_epoch')
             existing = self.service.inspect(principal, task_id)
             context_id = existing.get('metadata', {}).get('context_id', 'context-' + task_id)
             if message.get('contextId', context_id) != context_id or workflow != existing['workflow']:
                 raise A2AError(-32602, 'task_context_mismatch')
-            receipt = self.service.update(principal, task_id, request_key, data['input'], metadata=metadata)
+            receipt = self.service.update(principal, task_id, request_key, data['input'], metadata=metadata, **pins)
         else:
             context_id = message.get('contextId')
             if context_id is None:
                 context_id = 'context-' + hashlib.sha256((principal + '\x00' + message_id).encode()).hexdigest()[:40]
             peer_identifier(context_id)
             metadata['context_id'] = context_id
-            receipt = self.service.submit(principal, request_key, workflow, data['input'], metadata=metadata)
+            receipt = self.service.submit(principal, request_key, workflow, data['input'], metadata=metadata,
+                                          **pins, **({'request_epoch': data['request_epoch']} if 'request_epoch' in data else {}))
         if not config.get('returnImmediately', False):
             deadline = time.monotonic() + self.wait_seconds
             while receipt['state'] in WAITING:
@@ -287,7 +331,9 @@ class A2ABridge:
         request_id = message.get('id') if type(message) is dict else None
         try:
             method, params = validate_request(message, metadata)
-            if method == 'SendMessage':
+            if method in LIFECYCLE_METHODS:
+                result = self._lifecycle(principal, method, params)
+            elif method == 'SendMessage':
                 result = self._send(principal, params)
             elif method == 'GetTask':
                 _fields(params, ('id', 'historyLength'))
@@ -305,7 +351,10 @@ class A2ABridge:
                 result = self._task(receipt)
             elif method == 'ListTasks':
                 result = self._list(principal, params)
-            elif method in ('SendStreamingMessage', 'SubscribeToTask', 'GetExtendedAgentCard'):
+            elif method == 'GetExtendedAgentCard':
+                _fields(params, ())
+                result = self.extended_agent_card(principal)
+            elif method in ('SendStreamingMessage', 'SubscribeToTask'):
                 raise A2AError(-32004, 'operation_not_supported')
             elif method in ('CreateTaskPushNotificationConfig', 'GetTaskPushNotificationConfig', 'ListTaskPushNotificationConfigs', 'DeleteTaskPushNotificationConfig'):
                 raise A2AError(-32003, 'push_not_supported')
@@ -323,6 +372,10 @@ def _remote_task(task: dict) -> RemoteSnapshot:
     state = WIRE_TO_STATE.get(wire_state) if type(wire_state) is str else None
     if state is None:
         raise ServiceError('invalid_remote_task')
+    if (state == 'queued' and type(task.get('metadata')) is dict
+            and type(task['metadata'].get('mas')) is dict
+            and task['metadata']['mas'].get('state') == 'blocked'):
+        state = 'blocked'
     peer_identifier(task.get('id'))
     context_id = task.get('contextId')
     if context_id is not None:

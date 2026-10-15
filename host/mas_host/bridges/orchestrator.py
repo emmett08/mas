@@ -8,14 +8,39 @@ from __future__ import annotations
 import hashlib
 import math
 import time
+from dataclasses import dataclass
+from types import MappingProxyType
 from typing import Callable
 
 from ..codec import integer_json
 from ..service_contracts import ServiceError, TaskLifecycle
 
 STATES = frozenset({"queued", "running", "input_required", "auth_required",
-                    "completed", "failed", "cancelled", "unknown"})
+                    "completed", "failed", "cancelled", "unknown", "blocked"})
 WAIT_STATES = frozenset({"queued", "running"})
+
+
+@dataclass(frozen=True)
+class PeerContract:
+    """Operator-pinned deployment and executable identities for federation."""
+    deployment_id: str
+    workflows: dict[str, str]
+    capabilities: tuple[str, ...] = ("submit", "inspect", "pinned_identity")
+
+    def __post_init__(self):
+        import re
+        if (type(self.deployment_id) is not str or not 1 <= len(self.deployment_id) <= 256
+                or type(self.workflows) is not dict or not self.workflows or len(self.workflows) > 256
+                or any(type(name) is not str or not name or len(name) > 128
+                       or type(identity) is not str or not re.fullmatch(r"[0-9a-f]{64}", identity)
+                       for name, identity in self.workflows.items())
+                or not isinstance(self.capabilities, (tuple, list))
+                or len(self.capabilities) > 32
+                or any(type(value) is not str or not re.fullmatch(r"[a-z_]{1,64}", value)
+                       for value in self.capabilities)):
+            raise ServiceError("invalid_peer_contract")
+        object.__setattr__(self, "workflows", MappingProxyType(dict(self.workflows)))
+        object.__setattr__(self, "capabilities", tuple(sorted(set(self.capabilities) | {"pinned_identity"})))
 
 
 def stable_request_key(*parts: str) -> str:
@@ -45,17 +70,56 @@ class OrchestratorConnector:
     """One authenticated principal with narrow, injectable service capabilities."""
     def __init__(self, service: TaskLifecycle, principal: str, *,
                  clock: Callable[[], float] = time.monotonic,
-                 sleep: Callable[[float], None] = time.sleep):
+                 sleep: Callable[[float], None] = time.sleep,
+                 peer_contract: PeerContract | None = None):
         if type(principal) is not str or not principal:
             raise ServiceError("invalid_principal")
         self.service, self.principal = service, principal
         self._clock, self._sleep = clock, sleep
+        if peer_contract is not None and not isinstance(peer_contract, PeerContract):
+            raise ServiceError("invalid_peer_contract")
+        self.peer_contract = peer_contract
+
+    def negotiate(self) -> dict:
+        """Read-only capability check; submission also enforces pinned identities."""
+        discover = getattr(self.service, "discover", None)
+        if not callable(discover):
+            raise ServiceError("unsupported_capability")
+        observed = discover(self.principal)
+        if type(observed) is not dict:
+            raise ServiceError("invalid_peer_contract")
+        integer_json(observed, 131072)
+        if self.peer_contract is not None:
+            pin = self.peer_contract
+            capabilities = observed.get("capabilities")
+            if (observed.get("format") != "mas-task-service/1"
+                    or observed.get("deployment_id") != pin.deployment_id
+                    or type(capabilities) is not list or any(type(name) is not str for name in capabilities)
+                    or not set(pin.capabilities).issubset(capabilities)):
+                raise ServiceError("peer_contract_mismatch")
+        return observed
+
+    def _receipt(self, value, task_id=None):
+        value = receipt(value, task_id)
+        if self.peer_contract is not None:
+            expected = self.peer_contract.workflows.get(value.get("workflow"))
+            if expected is None or value.get("workflow_identity") != expected:
+                raise ServiceError("peer_contract_mismatch")
+        return value
 
     def submit(self, request_key: str, workflow: str, input: dict) -> dict:
-        return receipt(self.service.submit(self.principal, request_key, workflow, input))
+        options = {}
+        if self.peer_contract is not None:
+            self.negotiate()
+            identity = self.peer_contract.workflows.get(workflow)
+            if identity is None:
+                raise ServiceError("peer_contract_mismatch")
+            options = {"expected_identity": identity,
+                       "expected_deployment_id": self.peer_contract.deployment_id}
+        return self._receipt(self.service.submit(self.principal, request_key, workflow, input, **options))
 
     def inspect(self, task_id: str) -> dict:
-        return receipt(self.service.inspect(self.principal, task_id), task_id)
+        return self._receipt(self.service.inspect(self.principal, task_id), task_id)
 
     def result(self, task_id: str) -> dict:
         """Retrieve only a completed payload; inspect retains failure receipts."""
@@ -70,10 +134,16 @@ class OrchestratorConnector:
 
     def cancel(self, task_id: str) -> dict:
         """Return observed state: cancellation intent is not stopped execution."""
-        return receipt(self.service.cancel(self.principal, task_id), task_id)
+        return self._receipt(self.service.cancel(self.principal, task_id), task_id)
 
     def update(self, task_id: str, request_key: str, input: dict) -> dict:
-        return receipt(self.service.update(self.principal, task_id, request_key, input), task_id)
+        options = {}
+        if self.peer_contract is not None:
+            self.negotiate()
+            current = self.inspect(task_id)
+            options = {"expected_identity": self.peer_contract.workflows[current["workflow"]],
+                       "expected_deployment_id": self.peer_contract.deployment_id}
+        return self._receipt(self.service.update(self.principal, task_id, request_key, input, **options), task_id)
 
     def wait(self, task_id: str, *, timeout_seconds: float = 30,
              poll_seconds: float = 1, heartbeat: Callable[[dict], None] | None = None,

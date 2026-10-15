@@ -114,10 +114,10 @@ class WorkflowInspectionTests(unittest.TestCase):
             self.detail(instance)
         self.assertEqual(caught.exception.code, 'forbidden')
         self.engine.grants['alice'] = frozenset({'example'})
+        retained = self.detail(instance)
         self.engine.workflows['echo'] = replace(self.engine.workflows['echo'], version='changed')
-        with self.assertRaises(ServiceError) as caught:
-            self.detail(instance)
-        self.assertEqual(caught.exception.code, 'workflow_changed')
+        self.assertEqual(self.detail(instance), retained,
+                         'retained authorised history does not require executable adapter availability')
 
     def test_missing_controls_unexecuted_tasks_and_revisions_have_fixed_errors(self):
         instance = self.engine.submit('alice', 'request', 'example', {})['instance_id']

@@ -1,8 +1,9 @@
-"""Bounded immutable local artefacts with explicit provenance and read grants.
+"""Bounded immutable artefacts with explicit provenance and read grants.
 
 The host supplies authenticated principals; this module does not authenticate
 strings supplied by remote callers. Store below a run directory as ``artifacts``
-to include content in deployment backups and run retention. References are data,
+to include metadata and local content in deployment backups and run retention.
+Remote content requires the separately retained object backend. References are data,
 not bearer capabilities or filesystem paths. No remote URLs are dereferenced.
 """
 from __future__ import annotations
@@ -17,133 +18,13 @@ from pathlib import Path
 import re
 import stat
 import uuid
-from typing import BinaryIO, ContextManager, Iterator, Protocol
+from typing import BinaryIO, ContextManager, Iterator, Protocol, runtime_checkable
 
 from .codec import is_actor_identity
 from .operations import OperationsError, _file_lock
 
 
-class ArtifactError(RuntimeError):
-    """Fixed diagnostic suitable for an application boundary."""
-
-
-_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}\Z")
-_DIGEST = re.compile(r"[0-9a-f]{64}\Z")
-_MEDIA = re.compile(r"[a-z0-9!#$&^_.+-]+/[a-z0-9!#$&^_.+-]+\Z")
-_FORMAT = "mas-artifact/1"
-_INDEX_FORMAT = "mas-artifact-store/1"
-_MAX_INDEX = 16 * 1024 * 1024
-_MAX_REF = 8192
-_CHUNK = 1024 * 1024
-
-
-def _identity(value: str) -> str:
-    if type(value) is not str or not _ID.fullmatch(value):
-        raise ArtifactError("invalid artefact identity")
-    return value
-
-
-def _principal(value: str) -> str:
-    """Rust actor identity; opaque metadata, never a filesystem component."""
-    if not is_actor_identity(value):
-        raise ArtifactError("invalid artefact principal")
-    return value
-
-
-def _digest(value: str) -> str:
-    if type(value) is not str or not _DIGEST.fullmatch(value):
-        raise ArtifactError("invalid artefact digest")
-    return value
-
-
-def _json(value: object) -> bytes:
-    return json.dumps(value, sort_keys=True, separators=(",", ":"), allow_nan=False).encode("utf-8")
-
-
-def _load_json(data: bytes) -> object:
-    def pairs(items):
-        result = {}
-        for key, value in items:
-            if key in result:
-                raise ArtifactError("duplicate artefact metadata key")
-            result[key] = value
-        return result
-    try:
-        return json.loads(data, object_pairs_hook=pairs)
-    except (ValueError, UnicodeError, RecursionError):
-        raise ArtifactError("invalid artefact metadata") from None
-
-
-@dataclass(frozen=True)
-class ArtifactPolicy:
-    max_artifact_bytes: int = 16 * 1024 * 1024
-    max_total_bytes: int = 64 * 1024 * 1024
-    max_artifacts: int = 1024
-    max_links: int = 4096
-
-    def __post_init__(self):
-        if any(type(v) is not int or v <= 0 or v > 2**63 - 1 for v in asdict(self).values()):
-            raise ArtifactError("artefact limits must be positive bounded integers")
-        if self.max_artifact_bytes > self.max_total_bytes or self.max_artifacts > 4096 or self.max_links > 16384:
-            raise ArtifactError("invalid artefact policy bounds")
-
-
-@dataclass(frozen=True)
-class ArtifactRef:
-    namespace: str
-    artifact_id: str
-    sha256: str
-    size: int
-    media_type: str
-    producer: str
-    input_sha256s: tuple[str, ...] = ()
-    format: str = _FORMAT
-
-    def __post_init__(self):
-        if self.format != _FORMAT:
-            raise ArtifactError("unsupported artefact reference version")
-        _identity(self.namespace)
-        _principal(self.producer)
-        _digest(self.artifact_id)
-        _digest(self.sha256)
-        if type(self.size) is not int or self.size < 0 or self.size > 2**63 - 1:
-            raise ArtifactError("invalid artefact size")
-        if type(self.media_type) is not str or len(self.media_type) > 128 or not _MEDIA.fullmatch(self.media_type):
-            raise ArtifactError("invalid artefact media type")
-        if type(self.input_sha256s) is not tuple or len(self.input_sha256s) > 32:
-            raise ArtifactError("invalid artefact input digests")
-        for item in self.input_sha256s:
-            _digest(item)
-        if tuple(sorted(set(self.input_sha256s))) != self.input_sha256s:
-            raise ArtifactError("artefact input digests must be unique and sorted")
-        if len(_json(self.to_dict())) > _MAX_REF:
-            raise ArtifactError("artefact reference exceeds message bound")
-
-    def to_dict(self) -> dict:
-        return {**asdict(self), "input_sha256s": list(self.input_sha256s)}
-
-    @classmethod
-    def from_dict(cls, value: dict) -> "ArtifactRef":
-        if type(value) is not dict or set(value) != set(cls.__dataclass_fields__):
-            raise ArtifactError("invalid artefact reference fields")
-        if type(value["input_sha256s"]) is not list:
-            raise ArtifactError("invalid artefact input digests")
-        return cls(**{**value, "input_sha256s": tuple(value["input_sha256s"])})
-
-
-class ArtifactRepository(Protocol):
-    """Backend boundary; implementations must preserve authorisation and hashes."""
-
-    def put_bytes(self, data: bytes, *, media_type: str = "application/octet-stream",
-                  input_sha256s: tuple[str, ...] = (), readers: tuple[str, ...] = ()) -> ArtifactRef: ...
-    def put_file(self, path: Path, *, media_type: str = "application/octet-stream",
-                 input_sha256s: tuple[str, ...] = (), readers: tuple[str, ...] = ()) -> ArtifactRef: ...
-    def read_bytes(self, reference: ArtifactRef | dict) -> bytes: ...
-    def open(self, reference: ArtifactRef | dict) -> ContextManager[BinaryIO]: ...
-    def verify(self, reference: ArtifactRef | dict) -> bool: ...
-    def inspect(self, reference: ArtifactRef | dict) -> dict: ...
-    def link(self, link_id: str, references: list[ArtifactRef | dict], *, state: str = "live") -> dict: ...
-    def status(self) -> dict: ...
+from .artifact_contracts import (ArtifactError, ArtifactPolicy, ArtifactRef, ArtifactRepository, _identity, _principal, _digest, _json, _load_json, _INDEX_FORMAT, _MAX_INDEX, _MAX_REF, _CHUNK, _FORMAT, _DIGEST, _ID, _MEDIA)
 
 
 def _manifest_identity(reference: ArtifactRef, readers: list[str]) -> str:
@@ -264,7 +145,7 @@ def _validate_index(index: object, namespace: str) -> ArtifactPolicy:
 
 
 class ArtifactStore:
-    """Local per-namespace store. All publications are immutable and idempotent.
+    """Per-namespace metadata owner with local or explicit remote content storage.
 
     Quotas count physical blobs, including crash-orphaned blobs. There is no
     automatic object deletion. Explicit live/unresolved links protect the whole
@@ -273,7 +154,12 @@ class ArtifactStore:
     """
 
     def __init__(self, root: Path, *, namespace: str, principal: str,
-                 policy: ArtifactPolicy | None = None, readonly: bool = False):
+                 policy: ArtifactPolicy | None = None, readonly: bool = False,
+                 content_backend=None):
+        from .artifact_content import ArtifactContentBackend, LocalArtifactContent
+        self.content_backend = content_backend if content_backend is not None else LocalArtifactContent()
+        if not isinstance(self.content_backend, ArtifactContentBackend):
+            raise ArtifactError("invalid artefact content backend")
         self.root = Path(root).absolute()
         self.namespace = _identity(namespace)
         self.principal = _principal(principal)
@@ -364,6 +250,7 @@ class ArtifactStore:
                         stored_policy = _validate_index(index, self.namespace)
                         if self.policy is not None and self.policy != stored_policy:
                             raise ArtifactError("artefact policy is immutable")
+                        self.content_backend.check(directory, index, stored_policy, initialise=write and initialise)
                         yield directory, index
                     finally:
                         fcntl.flock(directory, fcntl.LOCK_UN)
@@ -405,6 +292,13 @@ class ArtifactStore:
         except OSError:
             raise ArtifactError("artefact source is unavailable or unsafe") from None
 
+    def put_stream(self, source: BinaryIO, *, media_type: str = "application/octet-stream",
+                   input_sha256s: tuple[str, ...] = (), readers: tuple[str, ...] = ()) -> ArtifactRef:
+        """Publish from a trusted seekable binary stream, with bounded two-pass hashing."""
+        if not callable(getattr(source, 'seekable', None)) or not source.seekable():
+            raise ArtifactError("artefact source must be seekable")
+        return self._put(source, media_type, input_sha256s, readers)
+
     def _put(self, source: BinaryIO, media_type: str, inputs: tuple[str, ...], readers: tuple[str, ...]) -> ArtifactRef:
         if type(inputs) is not tuple or type(readers) is not tuple or len(inputs) > 32 or len(readers) > 32:
             raise ArtifactError("invalid artefact provenance or grants")
@@ -424,83 +318,40 @@ class ArtifactStore:
             identity = _manifest_identity(provisional, grants)
             ref = ArtifactRef(self.namespace, identity, digest, size, media_type, self.principal, inputs)
             if identity in index["artifacts"]:
-                self._verify_file(directory, ref)
+                self._verify_content(directory, ref)
                 return ref
             self._publication_capacity()
-            pending = ".pending-" + uuid.uuid4().hex
-            try:
-                if len(index["artifacts"]) >= self.policy.max_artifacts:
-                    raise ArtifactError("artefact count quota exhausted")
-                blob = ref.sha256 + ".blob"
-                names = os.listdir(directory)
-                used = 0
-                for name in names:
-                    if name.endswith(".blob"):
-                        if not _DIGEST.fullmatch(name[:-5]):
-                            raise ArtifactError("invalid artefact storage entry")
-                        with os.fdopen(_open_file(directory, name), "rb") as stored:
-                            used += os.fstat(stored.fileno()).st_size
-                    elif name.startswith(".pending-") and name != pending:
-                        with os.fdopen(_open_file(directory, name), "rb") as orphan:
-                            used += os.fstat(orphan.fileno()).st_size
-                    elif name not in ("index.json", pending):
-                        raise ArtifactError("invalid artefact storage entry")
-                if used + (0 if blob in names else size) > self.policy.max_total_bytes:
-                    raise ArtifactError("artefact total-byte quota exhausted")
-                if blob in names:
-                    self._verify_file(directory, ref)
-                else:
-                    with os.fdopen(_open_file(directory, pending, os.O_WRONLY | os.O_CREAT | os.O_EXCL), "wb") as output:
-                        copied = _hash_source(source, self.policy.max_artifact_bytes, destination=output)
-                        if copied != (size, digest):
-                            raise ArtifactError("artefact source changed during publication")
-                        output.flush()
-                        os.fsync(output.fileno())
-                    os.replace(pending, blob, src_dir_fd=directory, dst_dir_fd=directory)
-                    os.fsync(directory)
-                index["artifacts"][identity] = {"artifact_id": identity, "reference": ref.to_dict(), "readers": grants}
-                _atomic_json(directory, "index.json", index)
-                return ref
-            finally:
-                try:
-                    os.unlink(pending, dir_fd=directory)
-                except FileNotFoundError:
-                    pass
+            if len(index["artifacts"]) >= self.policy.max_artifacts:
+                raise ArtifactError("artefact count quota exhausted")
+            self.content_backend.publish(directory, ref, source, self.policy)
+            index["artifacts"][identity] = {"artifact_id": identity, "reference": ref.to_dict(), "readers": grants}
+            _atomic_json(directory, "index.json", index)
+            return ref
 
-    @staticmethod
-    def _verify_file(directory: int, reference: ArtifactRef, *, collect: bool = False) -> bytes:
-        digest = hashlib.sha256()
-        result = []
-        with os.fdopen(_open_file(directory, reference.sha256 + ".blob"), "rb") as source:
-            if os.fstat(source.fileno()).st_size != reference.size:
-                raise ArtifactError("artefact content integrity mismatch")
-            size = 0
-            while chunk := source.read(min(_CHUNK, reference.size - size + 1)):
-                size += len(chunk)
-                if size > reference.size:
-                    raise ArtifactError("artefact content integrity mismatch")
-                digest.update(chunk)
-                if collect:
-                    result.append(chunk)
-            if size != reference.size or digest.hexdigest() != reference.sha256:
-                raise ArtifactError("artefact content integrity mismatch")
-        return b"".join(result)
+    def _verify_content(self, directory, reference, *, collect=False, destination=None):
+        return self.content_backend.verify(directory, reference, collect=collect, destination=destination)
 
     def read_bytes(self, reference: ArtifactRef | dict) -> bytes:
         with self._locked() as (directory, index):
             ref = self._authorised(reference, index)
-            return self._verify_file(directory, ref, collect=True)
+            return self._verify_content(directory, ref, collect=True)
 
     @contextmanager
     def open(self, reference: ArtifactRef | dict) -> Iterator[BinaryIO]:
         """Return a verified bounded snapshot, never an unverified filesystem handle."""
-        from io import BytesIO
-        with BytesIO(self.read_bytes(reference)) as stream:
+        from tempfile import TemporaryFile
+        # A private disk-backed snapshot bounds RAM independently of object size.
+        # Nothing is exposed to the caller until the exact copied bytes verify.
+        with TemporaryFile(mode="w+b") as stream:
+            with self._locked() as (directory, index):
+                ref = self._authorised(reference, index)
+                self._verify_content(directory, ref, destination=stream)
+            stream.seek(0)
             yield stream
 
     def verify(self, reference: ArtifactRef | dict) -> bool:
         with self._locked() as (directory, index):
-            self._verify_file(directory, self._authorised(reference, index))
+            self._verify_content(directory, self._authorised(reference, index))
             return True
 
     def inspect(self, reference: ArtifactRef | dict) -> dict:

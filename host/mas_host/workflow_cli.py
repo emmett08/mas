@@ -106,6 +106,8 @@ def _parser():
         if name in ("submit", "run", "continue"):
             command.add_argument("--request-key", required=name != "run")
             command.add_argument("--input", type=Path, required=name != "run")
+        if name in ("submit", "run"):
+            command.add_argument("--request-epoch", help="versioned idempotency epoch for new submissions")
         if name == "continue":
             command.add_argument("--path", required=True, help="durable leaf path from status")
         if name == "task":
@@ -130,7 +132,7 @@ def main(argv=None) -> int:
             if args.command == "run":
                 if args.plan and (args.request_key is None or args.input is None):
                     raise ServiceError("run_requires_request_key_and_input")
-                if args.instance_id and (args.request_key is not None or args.input is not None):
+                if args.instance_id and (args.request_key is not None or args.input is not None or args.request_epoch is not None):
                     raise ServiceError("resume_does_not_accept_new_input")
             if args.command == "task":
                 validate_task_selector(args.path, args.revision)
@@ -144,12 +146,12 @@ def main(argv=None) -> int:
             engine = WorkflowEngine(args.state_dir, **registry, mas_bin=args.mas_bin,
                                     gateway_bin=args.gateway_bin, **options)
             if args.command == "submit":
-                result = engine.submit(args.principal, args.request_key, args.plan, input_value)
+                result = engine.submit(args.principal, args.request_key, args.plan, input_value, **({"request_epoch": args.request_epoch} if args.request_epoch is not None else {}))
             elif args.command == "run":
                 identifier = args.instance_id
                 if args.plan:
                     identifier = engine.submit(args.principal, args.request_key, args.plan,
-                                               input_value)["instance_id"]
+                                               input_value, **({"request_epoch": args.request_epoch} if args.request_epoch is not None else {}))["instance_id"]
                 result = engine.run(args.principal, identifier)
             elif args.command == "continue":
                 result = engine.continue_task(args.principal, args.instance_id, args.path,

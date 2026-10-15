@@ -3,7 +3,7 @@
 //! Capabilities bind one run and actor. The host must keep the database,
 //! credential configuration and response routing private from other actors.
 //! This module does not provide a network transport or protect a compromised host.
-use crate::{parse_json, parse_message, store::Store, MAX_BYTES, MAX_DEPTH};
+use crate::{parse_json, parse_message, store::Store, repository::ProtocolRepository, MAX_BYTES, MAX_DEPTH};
 use serde_json::{json, Map, Value};
 use sha2::{Digest, Sha256};
 use std::{collections::{BTreeMap, BTreeSet}, io::{BufRead, Write}};
@@ -24,8 +24,8 @@ struct Credential {
 }
 
 /// The boundary owns its Store; untrusted callers must not receive Store access.
-pub struct Gateway {
-    store: Store,
+pub struct Gateway<R: ProtocolRepository = Store> {
+    store: R,
     scope: String,
     limit: i64,
     credentials: Vec<Credential>,
@@ -110,8 +110,8 @@ pub fn normalise_config(value: &Value, with_tokens: bool) -> Result<Value> {
     Ok(json!({"gateway_id":id,"max_attempts":value["max_attempts"],"credentials":normal}))
 }
 
-impl Gateway {
-    pub fn open(mut store: Store, configuration: &Value) -> Result<Self> {
+impl<P: ProtocolRepository> Gateway<P> {
+    pub fn open(mut store: P, configuration: &Value) -> Result<Self> {
         // Re-parse configuration so direct library callers obey the same depth,
         // byte, duplicate and integer grammar as the executable's input file.
         let mut budget = MAX_BYTES;

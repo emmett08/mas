@@ -11,11 +11,11 @@ import unittest
 from mas_host.admin import main
 from mas_host.operations import (DeploymentLedger, OperationsError, backup_state,
                                  composition_counts, reconcile_state, restore_state)
-from mas_host.workflow_store import WorkflowStore
+from mas_host.workflow_store import COMPOSITION, WorkflowStore
 import test_monitor
 
 
-STATES = ("queued", "running", "input_required", "auth_required", "unknown",
+STATES = ("queued", "running", "input_required", "auth_required", "unknown", "blocked",
           "completed", "failed", "cancelled", "expired")
 
 
@@ -172,7 +172,7 @@ class CompositionWatcherTests(unittest.TestCase):
         with self.assertRaises(OperationsError):
             reconciler_health(self.state)
         with closing(sqlite3.connect(store.path)) as db, db:
-            db.execute("PRAGMA user_version=1")
+            db.execute(f"PRAGMA user_version={COMPOSITION.version}")
         self.until_status("healthy")
         self.assertTrue(reconciler_health(self.state)["reconciler_ready"])
 

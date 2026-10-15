@@ -45,6 +45,12 @@ jobs:
           python -m pip install --no-deps --no-build-isolation ./host
           python -m pip check
           python scripts/install-cursor-runtime.py
+          if [ "${{ matrix.architecture }}" = amd64 ]; then
+            PYTHONPATH="$GITHUB_WORKSPACE/host" python scripts/check-reference-load.py \
+              --expected-commit "$(git rev-parse HEAD)" \
+              --report "$RUNNER_TEMP/reference-load.json" \
+              > "$RUNNER_TEMP/reference-load.log" 2>&1
+          fi
           python -m unittest discover -s host/tests -v 2>&1 | tee native-host-tests.log
           python -m unittest discover -s scripts/tests -v
           python - <<'PY'
@@ -304,3 +310,5 @@ jobs:
             bridge-production-acceptance.json
             bridge-production-status.json
             bridge-production.log
+            ${{ runner.temp }}/reference-load.json
+            ${{ runner.temp }}/reference-load.log

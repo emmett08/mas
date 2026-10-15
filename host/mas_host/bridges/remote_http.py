@@ -41,7 +41,7 @@ def _unique(pairs):
 class BoundedJSONHTTP:
     def __init__(self, endpoint: str, *, credential: str | None = None,
                  timeout_seconds: int = 30, max_bytes: int = 65_536,
-                 allow_http: bool = False, connection_factory=None):
+                 allow_http: bool = False, connection_factory=None, transport_policy=None):
         self.endpoint = endpoint_url(endpoint, allow_http=allow_http)
         self._parsed = urlsplit(endpoint)
         if connection_factory is None:
@@ -60,10 +60,18 @@ class BoundedJSONHTTP:
         self.timeout_seconds, self.max_bytes = timeout_seconds, max_bytes
         self._factory = connection_factory
         self._allow_http = allow_http
+        self.transport_policy = transport_policy
+        if transport_policy is not None:
+            from .http_policy import HTTPTransportPolicy
+            if not isinstance(transport_policy, HTTPTransportPolicy) or connection_factory is not None:
+                raise ServiceError('invalid_transport_policy')
 
     def descriptor(self):
-        return {'endpoint': self.endpoint, 'timeout_seconds': self.timeout_seconds,
-                'max_bytes': self.max_bytes, 'transport': 'json-http/1'}
+        result = {'endpoint': self.endpoint, 'timeout_seconds': self.timeout_seconds,
+                  'max_bytes': self.max_bytes, 'transport': 'json-http/1'}
+        if self.transport_policy is not None:
+            result['transport_policy'] = self.transport_policy.descriptor()
+        return result
 
     def request(self, method: str, payload: dict | None = None, *, headers: dict | None = None) -> dict:
         if method not in ('POST', 'GET'):
@@ -85,7 +93,7 @@ class BoundedJSONHTTP:
                 status, received_headers, data = http_exchange(
                     self.endpoint, method=method, body=body, headers=sent,
                     timeout_seconds=self.timeout_seconds, max_response_bytes=self.max_bytes,
-                    allow_loopback_http=self._allow_http)
+                    allow_loopback_http=self._allow_http, transport_policy=self.transport_policy)
                 if not 200 <= status < 300:
                     raise ServiceError('remote_http_failure')
                 media = {k.lower(): v for k, v in received_headers.items()}.get('content-type', '').split(';')[0].strip().lower()

@@ -76,23 +76,11 @@ def _file_lock(path: Path, exclusive: bool, nonblocking: bool = False):
 
 
 def _state_size(path: Path) -> int:
-    total = 0
-    for directory, directories, files in os.walk(path, followlinks=False):
-        for name in [*directories, *files]:
-            entry = Path(directory) / name
-            try:
-                details = entry.lstat()
-            except FileNotFoundError:
-                # SQLite rollback/WAL files can disappear between directory
-                # enumeration and lstat while another admitted host commits.
-                continue
-            if stat.S_ISLNK(details.st_mode):
-                raise OperationsError("state tree must not contain symlinks")
-            if stat.S_ISREG(details.st_mode):
-                total += details.st_size
-            elif not stat.S_ISDIR(details.st_mode):
-                raise OperationsError("state tree must contain regular files only")
-    return total
+    from .storage_accounting import state_size, StorageAccountingError
+    try:
+        return state_size(path)
+    except StorageAccountingError as error:
+        raise OperationsError(str(error)) from None
 
 
 @contextmanager
@@ -102,6 +90,7 @@ def _db(path: Path, readonly: bool = False):
     existed = path.exists()
     connection = sqlite3.connect(path.as_uri() + "?mode=ro", uri=True, timeout=10) if readonly else sqlite3.connect(path, timeout=10)
     connection.row_factory = sqlite3.Row
+    connection.execute('PRAGMA foreign_keys=ON')
     try:
         known = {"deployment.sqlite": LEDGER, "host.sqlite": JOURNAL,
                  "cursor-jobs.sqlite": JOBS}.get(path.name)
@@ -117,6 +106,24 @@ def _db(path: Path, readonly: bool = False):
         elif path.name == "composition.sqlite":
             from .workflow_store import COMPOSITION
             known = COMPOSITION
+        elif path.name == "request-epochs.sqlite":
+            from .request_namespaces import EPOCHS
+            known = EPOCHS
+        elif path.name == "definition-registry.sqlite":
+            from .definitions import DEFINITIONS
+            known = DEFINITIONS
+        elif path.name == "scheduler-capacity.sqlite":
+            from .scheduler_capacity import CAPACITY
+            known = CAPACITY
+        elif path.name == 'remote-workers.sqlite':
+            from .distributed import REMOTE
+            known = REMOTE
+        elif path.name == 'provider-circuits.sqlite':
+            from .circuit_breaker import CIRCUITS
+            known = CIRCUITS
+        elif path.name == 'peer-registry.sqlite':
+            from .peer_registry import PEERS
+            known = PEERS
         if known and existed:
             validate(connection, known)
     except SchemaError as error:
@@ -127,7 +134,7 @@ def _db(path: Path, readonly: bool = False):
         raise
     connection.execute("PRAGMA busy_timeout=10000")
     if not readonly:
-        connection.execute("PRAGMA synchronous=FULL")
+        connection.execute("PRAGMA synchronous=EXTRA")
         os.chmod(path, 0o600)
     try:
         with connection:
@@ -139,12 +146,12 @@ def _db(path: Path, readonly: bool = False):
 class DeploymentLedger:
     """Atomic lifetime quotas shared by every host using one state directory.
 
-    The initial policy is frozen. Existing policy is loaded when no policy is
+    Policy changes require an explicit, audited budget amendment. Existing policy is loaded when no policy is
     supplied. Repeated admissions with the same identity are idempotent, and
     purging run data never returns an admission allocation.
     """
     def __init__(self, state_dir: Path, policy: DeploymentPolicy | None = None,
-                 *, readonly: bool = False):
+                 *, readonly: bool = False, principal_quotas: dict | None = None):
         self.state_dir = _private_dir(Path(state_dir), create=not readonly)
         self.path = self.state_dir / "deployment.sqlite"
         self._readonly = readonly
@@ -162,6 +169,15 @@ class DeploymentLedger:
                     raise OperationsError("deployment policy is immutable; use its existing policy")
             except (ValueError, TypeError):
                 raise OperationsError("invalid saved deployment policy") from None
+            if db.execute("SELECT 1 FROM sqlite_master WHERE name='principal_quotas'").fetchone():
+                from .principal_quotas import quota_configuration
+                try:
+                    stored = {row[0]: json.loads(row[1]) for row in db.execute(
+                        'SELECT principal,policy FROM principal_quotas')}
+                    if quota_configuration(stored) != stored:
+                        raise OperationsError('incomplete saved principal quotas')
+                except (ValueError, TypeError):
+                    raise OperationsError('invalid saved principal quotas') from None
 
         def initialise(db):
             chosen = policy or DeploymentPolicy()
@@ -184,8 +200,6 @@ class DeploymentLedger:
                 try:
                     if current_only and validate(connection, LEDGER):
                         return False
-                    self.policy = DeploymentPolicy(**json.loads(connection.execute(
-                        "SELECT value FROM metadata WHERE key='policy'").fetchone()[0]))
                     return True
                 finally:
                     connection.close()
@@ -198,22 +212,149 @@ class DeploymentLedger:
             # Opening an unchanged ledger must coexist with an executing worker,
             # which retains a shared deployment lock for its whole lifetime.
             # Read/validate under that same lock; maintenance still needs EX.
+            unchanged = False
             with _file_lock(self.state_dir / ".deployment.lock", False):
                 fresh = not self.path.exists()
                 if self.path.is_symlink() or not fresh and not self.path.is_file():
                     raise OperationsError("database must be a regular file")
                 if not fresh:
-                    with closing(sqlite3.connect(self.path.as_uri() + "?mode=ro", uri=True)) as check:
+                    # A writable owner must allow SQLite's native crash rollback
+                    # before the read-only unchanged-layout fast path.
+                    with closing(sqlite3.connect(self.path.as_uri() + "?mode=rw", uri=True)) as check:
+                        check.execute('PRAGMA query_only=ON')
                         fresh = (check.execute("PRAGMA application_id").fetchone()[0] == 0
                                  and check.execute("PRAGMA user_version").fetchone()[0] == 0
                                  and check.execute("SELECT count(*) FROM sqlite_master").fetchone()[0] == 0)
                     if not fresh and open_ledger(read_only=True, current_only=True):
-                        return
+                        unchanged = True
             # Initialisation and recognised migrations require quiescence.
             # Reopen and validate after acquiring EX: another constructor or
             # maintenance operation may have changed state since the SH read.
-            with _file_lock(self.state_dir / ".deployment.lock", True):
-                open_ledger(read_only=False)
+            if not unchanged:
+                with _file_lock(self.state_dir / ".deployment.lock", True):
+                    open_ledger(read_only=False)
+        if principal_quotas is not None:
+            self._check_principal_configuration(principal_quotas)
+
+    def _check_principal_configuration(self, supplied):
+        from .principal_quotas import quota_configuration
+        requested = quota_configuration(supplied)
+        with _db(self.path, readonly=True) as db:
+            exists = db.execute("SELECT 1 FROM sqlite_master WHERE name='principal_quotas'").fetchone()
+            installed = {row['principal']: json.loads(row['policy']) for row in db.execute(
+                'SELECT principal,policy FROM principal_quotas')} if exists else {}
+        if installed == requested:
+            return
+        if installed or self._readonly or not exists:
+            raise OperationsError('principal quota policy changed or unavailable')
+        # Initial policy installation is maintenance. Existing executing workers
+        # and accepted submissions must drain before this authority changes.
+        with _file_lock(self.state_dir / '.deployment.lock', True, nonblocking=True), _db(self.path) as db:
+            db.execute('BEGIN IMMEDIATE')
+            if not self._admission_enabled(db):
+                raise OperationsError('restored deployment is audit-only; principal quota changes disabled')
+            installed = {row['principal']: json.loads(row['policy']) for row in db.execute(
+                'SELECT principal,policy FROM principal_quotas')}
+            if installed:
+                if installed != requested:
+                    raise OperationsError('principal quota policy changed')
+                return
+            db.executemany('INSERT INTO principal_quotas VALUES(?,?)',
+                           ((owner, json.dumps(policy, sort_keys=True)) for owner, policy in requested.items()))
+
+    def principal_policy(self, principal):
+        from .principal_quotas import principal_identity
+        principal_identity(principal)
+        with _db(self.path, readonly=True) as db:
+            if not db.execute("SELECT 1 FROM sqlite_master WHERE name='principal_quotas'").fetchone():
+                return None
+            row = db.execute('SELECT policy FROM principal_quotas WHERE principal=?', (principal,)).fetchone()
+            return json.loads(row['policy']) if row else None
+
+    @staticmethod
+    def _principal_usage(db, principal):
+        row = db.execute('SELECT count(*),coalesce(sum(c.reserved_microusd),0) FROM calls c '
+            'LEFT JOIN run_principals p ON c.run_id=p.run_id WHERE p.principal=? OR p.principal IS NULL',
+            (principal,)).fetchone()
+        unknown = db.execute('SELECT count(*),coalesce(sum(c.reserved_microusd),0) FROM calls c '
+            'LEFT JOIN run_principals p ON c.run_id=p.run_id WHERE p.principal IS NULL').fetchone()
+        return {'calls': row[0], 'reserved_microusd': row[1],
+                'unattributed_calls': unknown[0], 'unattributed_reserved_microusd': unknown[1]}
+
+    def principal_usage(self, principal):
+        """Trusted operator inspection; uncertainty is included conservatively."""
+        from .principal_quotas import principal_identity
+        principal_identity(principal)
+        with _db(self.path, readonly=True) as db:
+            if not db.execute("SELECT 1 FROM sqlite_master WHERE name='run_principals'").fetchone():
+                totals = self._limits(db)
+                return {'calls': totals['calls'], 'reserved_microusd': totals['reserved_microusd'],
+                        'unattributed_calls': totals['calls'], 'unattributed_reserved_microusd': totals['reserved_microusd']}
+            return self._principal_usage(db, principal)
+
+    @property
+    def policy(self) -> DeploymentPolicy:
+        """Load amendments for long-lived hosts; never cache admission limits."""
+        with _db(self.path, readonly=True) as db:
+            return self._policy(db)
+
+    @staticmethod
+    def _policy(db) -> DeploymentPolicy:
+        return DeploymentPolicy(**json.loads(db.execute(
+            "SELECT value FROM metadata WHERE key='policy'").fetchone()[0]))
+
+    def budget_history(self) -> list[dict]:
+        with _db(self.path, readonly=True) as db:
+            # Read-only inspection of the previous format must not migrate it.
+            if not db.execute("SELECT 1 FROM sqlite_master WHERE name='budget_amendments'").fetchone():
+                return []
+            return [{**dict(row), 'policy': json.loads(row['policy'])} for row in db.execute(
+                'SELECT revision,request_key,principal,reason,policy,created FROM budget_amendments ORDER BY revision')]
+
+    def amend_budget(self, *, request_key: str, principal: str, reason: str,
+                     expected_revision: int, limits: dict) -> dict:
+        """Increase lifetime allowances without rewriting consumed admissions.
+
+        This is a trusted local operator action, performed on a quiescent
+        deployment. Its key binds both the change and the operator attribution.
+        A replay returns the original receipt even after later amendments.
+        """
+        if self._readonly:
+            raise OperationsError('read-only deployment cannot amend budgets')
+        for value, maximum in ((request_key, 256), (principal, 256), (reason, 2048)):
+            if type(value) is not str or not value.strip() or len(value) > maximum or any(ord(c) < 32 for c in value):
+                raise OperationsError('budget amendment requires bounded operator attribution')
+        allowed = {'max_runs', 'max_calls', 'max_reserved_microusd'}
+        if (type(expected_revision) is not int or expected_revision < 0 or type(limits) is not dict
+                or not limits or set(limits) - allowed
+                or any(type(v) is not int or not 0 < v <= 2**63 - 1 for v in limits.values())):
+            raise OperationsError('invalid budget amendment')
+        source = json.dumps({'principal': principal, 'reason': reason, 'limits': limits,
+                             'expected_revision': expected_revision}, sort_keys=True, separators=(',', ':'))
+        digest = hashlib.sha256(source.encode()).hexdigest()
+        with _file_lock(self.state_dir / '.deployment.lock', True, nonblocking=True), _db(self.path) as db:
+            db.execute('BEGIN IMMEDIATE')
+            if not self._admission_enabled(db):
+                raise OperationsError('restored deployment is audit-only; budget amendment disabled')
+            existing = db.execute('SELECT * FROM budget_amendments WHERE request_key=?', (request_key,)).fetchone()
+            if existing:
+                if existing['digest'] != digest:
+                    raise OperationsError('budget amendment idempotency conflict')
+                return {key: json.loads(existing[key]) if key == 'policy' else existing[key]
+                        for key in ('revision', 'request_key', 'principal', 'reason', 'policy', 'created')}
+            revision = db.execute('SELECT coalesce(max(revision),0) FROM budget_amendments').fetchone()[0]
+            if revision != expected_revision:
+                raise OperationsError('budget amendment revision conflict')
+            old = asdict(self._policy(db))
+            if any(value < old[key] for key, value in limits.items()) or not any(value > old[key] for key, value in limits.items()):
+                raise OperationsError('budget amendment must increase at least one lifetime limit without decreasing another')
+            policy = asdict(DeploymentPolicy(**{**old, **limits}))
+            encoded, now = json.dumps(policy, sort_keys=True), int(time.time())
+            db.execute("UPDATE metadata SET value=? WHERE key='policy'", (encoded,))
+            db.execute('INSERT INTO budget_amendments VALUES(?,?,?,?,?,?,?)',
+                       (revision + 1, request_key, digest, principal, reason, encoded, now))
+            return {'revision': revision + 1, 'request_key': request_key, 'principal': principal,
+                    'reason': reason, 'policy': policy, 'created': now}
 
     @property
     def admission_enabled(self) -> bool:
@@ -245,6 +386,15 @@ class DeploymentLedger:
             "reserved_microusd": db.execute("SELECT coalesce(sum(reserved_microusd),0) FROM calls").fetchone()[0],
         }
 
+    def _current_state_size(self):
+        from .storage_accounting import StateSizeIndex, StorageAccountingError
+        if not hasattr(self, '_storage_accounting'):
+            self._storage_accounting = StateSizeIndex(self.state_dir)
+        try:
+            return self._storage_accounting.measure()
+        except StorageAccountingError as error:
+            raise OperationsError(str(error)) from None
+
     def check_storage_admission(self):
         """Reject new work when a storage admission threshold has been reached.
 
@@ -253,16 +403,19 @@ class DeploymentLedger:
         Callers hold their deployment/repository mutation locks around checks
         and new input records. Identical retained requests need no new admission.
         """
-        size = _state_size(self.state_dir)
+        size = self._current_state_size()
         free = shutil.disk_usage(self.state_dir).free
         if free < self.policy.min_free_bytes:
             raise OperationsError("deployment admission closed: free disk threshold reached")
         if size >= self.policy.max_state_bytes:
             raise OperationsError("deployment admission closed: state size limit reached")
 
-    def admit_run(self, run_id: str, run_dir: Path) -> bool:
+    def admit_run(self, run_id: str, run_dir: Path, *, principal: str | None = None) -> bool:
         if self._readonly:
             raise OperationsError("read-only deployment cannot admit work")
+        if principal is not None:
+            from .principal_quotas import principal_identity
+            principal_identity(principal)
         run_dir = Path(run_dir).absolute()
         if not isinstance(run_id, str) or not run_id or len(run_id) > 128:
             raise OperationsError("invalid run identity")
@@ -274,13 +427,24 @@ class DeploymentLedger:
             if existing:
                 if existing[0] != run_dir.name or existing[1] is not None:
                     raise OperationsError("run admission identity is unavailable")
+                binding = db.execute('SELECT principal FROM run_principals WHERE run_id=?', (run_id,)).fetchone()
+                if binding is not None and principal is not None and binding[0] != principal:
+                    raise OperationsError('run allocation principal conflict')
+                if binding is None and principal is not None:
+                    if not self._admission_enabled(db):
+                        raise OperationsError('audit-only deployment cannot attribute run ownership')
+                    db.execute('INSERT INTO run_principals VALUES(?,?)', (run_id, principal))
                 return False
             if not self._admission_enabled(db):
                 raise OperationsError("restored deployment is audit-only; new work admissions are disabled")
             self.check_storage_admission()
             if self._limits(db)["runs"] >= self.policy.max_runs:
                 raise OperationsError("deployment admission closed: lifetime run limit reached")
+            if principal is None and db.execute('SELECT 1 FROM principal_quotas LIMIT 1').fetchone():
+                raise OperationsError('principal quota requires attributed run ownership')
             db.execute("INSERT INTO runs VALUES(?,?,?,NULL)", (run_id, run_dir.name, int(time.time())))
+            if principal is not None:
+                db.execute('INSERT INTO run_principals VALUES(?,?)', (run_id, principal))
             return True
 
     def admit_call(self, run_id: str, call_id: str, reservation_microusd: int | None = None) -> bool:
@@ -303,13 +467,28 @@ class DeploymentLedger:
                 if existing[0] != allocation:
                     raise OperationsError("call allocation changed for an admitted identity")
                 return False
+            binding = db.execute('SELECT principal FROM run_principals WHERE run_id=?', (run_id,)).fetchone()
+            if binding is None and db.execute('SELECT 1 FROM principal_quotas LIMIT 1').fetchone():
+                raise OperationsError('principal quota requires attributed run ownership')
+            if binding is not None:
+                row = db.execute('SELECT policy FROM principal_quotas WHERE principal=?', (binding[0],)).fetchone()
+                if row is not None:
+                    policy = json.loads(row[0])
+                    usage = self._principal_usage(db, binding[0])
+                    if usage['calls'] >= policy['max_calls']:
+                        raise OperationsError('principal lifetime call limit reached')
+                    if allocation > policy['max_reserved_microusd'] - usage['reserved_microusd']:
+                        raise OperationsError('principal expenditure allocation exhausted')
             self.check_storage_admission()
             usage = self._limits(db)
             if usage["calls"] >= self.policy.max_calls:
                 raise OperationsError("deployment admission closed: lifetime call limit reached")
             if allocation > self.policy.max_reserved_microusd - usage["reserved_microusd"]:
                 raise OperationsError("deployment admission closed: expenditure allocation exhausted")
-            db.execute("INSERT INTO calls VALUES(?,?,?,?)", (run_id, call_id, allocation, int(time.time())))
+            from .accounting import reserve_periods
+            timestamp = int(time.time())
+            reserve_periods(db, run_id, call_id, binding[0] if binding is not None else None, allocation, timestamp)
+            db.execute("INSERT INTO calls VALUES(?,?,?,?)", (run_id, call_id, allocation, timestamp))
             return True
 
     def has_run(self, run_id: str) -> bool:
@@ -324,7 +503,7 @@ class DeploymentLedger:
             identity = db.execute("SELECT value FROM metadata WHERE key='deployment_id'").fetchone()[0]
             enabled = self._admission_enabled(db)
             retained = db.execute("SELECT count(*) FROM runs WHERE purged_at IS NULL").fetchone()[0]
-        size, free = _state_size(self.state_dir), shutil.disk_usage(self.state_dir).free
+        size, free = self._current_state_size(), shutil.disk_usage(self.state_dir).free
         return {"deployment_id": identity, "policy": asdict(self.policy), "usage": usage,
                 "admission_state": "active" if enabled else "restored_audit_only",
                 "retained_runs": retained, "state_bytes": size, "free_bytes": free,
@@ -342,6 +521,89 @@ def retained_runs(state_dir: Path) -> list[dict]:
     state_dir = _private_dir(Path(state_dir))
     with _db(state_dir / "deployment.sqlite", readonly=True) as db:
         return [dict(row) for row in db.execute("SELECT * FROM runs WHERE purged_at IS NULL ORDER BY admitted_at,run_id")]
+
+
+def _retention_pending_delivery(state_dir: Path, task_id: str) -> bool:
+    """Caller holds the deployment maintenance lock, excluding delivery writes."""
+    path = state_dir / 'event-delivery.sqlite'
+    if not path.exists() and not path.is_symlink():
+        return False
+    from contextlib import closing
+    from .event_delivery import EVENT_DELIVERY
+    from .schema import connect
+    with closing(connect(path, EVENT_DELIVERY, readonly=True)) as db:
+        return db.execute('SELECT 1 FROM pending p JOIN subscriptions s ON s.id=p.subscription WHERE s.task_id=? LIMIT 1', (task_id,)).fetchone() is not None
+
+
+def _retention_run_settled(state_dir: Path, name: str) -> bool:
+    if type(name) is not str or Path(name).name != name or name in ('.', '..'):
+        raise OperationsError('unsafe history run reference')
+    directory = state_dir / name
+    if not directory.exists():
+        if directory.is_symlink():
+            raise OperationsError('unsafe history run reference')
+        with _db(state_dir / 'deployment.sqlite', readonly=True) as db:
+            admitted = db.execute('SELECT purged_at FROM runs WHERE directory=?', (name,)).fetchone()
+        return admitted is None or admitted['purged_at'] is not None
+    _private_dir(directory)
+    return not (_pending_cloud_job(directory) or _pending_bridge_task(directory)
+                or _pending_remote_worker(directory)
+                or _pending_artifacts(directory)) and _terminal_run(directory)
+
+
+def archive_workflows(state_dir: Path, older_than_seconds: int, apply: bool = False, *, task_id=None) -> dict:
+    """Compact settled composition payloads, retaining request tombstones.
+
+    Archive first, then prune unreferenced terminal run directories with the
+    existing command. Neither action changes a lifetime allocation. Preview is
+    read-only, including for a previous supported composition schema.
+    """
+    if type(older_than_seconds) is not int or older_than_seconds < 0:
+        raise OperationsError('retention age must be a nonnegative integer')
+    state_dir = _private_dir(Path(state_dir))
+    ledger = DeploymentLedger(state_dir, readonly=True)
+    if apply and not ledger.admission_enabled:
+        raise OperationsError('restored deployment is audit-only; archival disabled')
+    path = state_dir / 'composition.sqlite'
+    if not path.exists():
+        return {'ok': True, 'dry_run': not apply, 'instances': []}
+    from .workflow_store import WorkflowStore
+    from .workflow_evaluator import FINISHED_STATES
+    results = []
+    with _file_lock(state_dir / '.deployment.lock', True, nonblocking=True):
+        store = WorkflowStore(state_dir, readonly=not apply)
+        with store.transaction(readonly=not apply) as db:
+            for row in db.execute('SELECT id FROM instances ORDER BY created,id').fetchall():
+                if task_id is not None and row['id'] != task_id:
+                    continue
+                item = store.instance(db, row['id'], include_input=True)
+                result = {'instance_id': item['id'], 'eligible': False, 'archived': False}
+                latest = db.execute('SELECT coalesce(max(created),?) FROM events WHERE instance=?',
+                                    (item['created'], item['id'])).fetchone()[0]
+                if item['state'] not in FINISHED_STATES:
+                    result['reason'] = 'workflow is not terminal'
+                elif latest > time.time() - older_than_seconds:
+                    result['reason'] = 'retention age not reached'
+                elif _retention_pending_delivery(state_dir, item['id']):
+                    result['reason'] = 'unacknowledged event delivery retained'
+                else:
+                    references = db.execute('SELECT run_directory,state,revision=(SELECT max(b.revision) FROM attempts b WHERE b.instance=a.instance AND b.path=a.path) AS latest FROM attempts a WHERE instance=?',
+                                            (item['id'],)).fetchall()
+                    settled = True
+                    for reference in references:
+                        if (not (reference['state'] in FINISHED_STATES or not reference['latest']
+                                 and reference['state'] in {'input_required', 'auth_required'})
+                                or not _retention_run_settled(state_dir, reference['run_directory'])):
+                            settled = False
+                    if not settled:
+                        result['reason'] = 'unsettled run, remote effect or artefact reference retained'
+                    else:
+                        result['eligible'] = True
+                        if apply:
+                            store.archive(db, item)
+                            result['archived'] = True
+                results.append(result)
+    return {'ok': True, 'dry_run': not apply, 'instances': results}
 
 
 def cursor_job_counts(state_dir: Path) -> dict[str, int]:
@@ -367,7 +629,7 @@ def _pending_cloud_job(directory: Path) -> bool:
         return any(_references_run(reference[0], directory) for reference in references)
 
 
-_TASK_STATES = ("queued", "running", "input_required", "auth_required", "unknown",
+_TASK_STATES = ("queued", "running", "input_required", "auth_required", "unknown", "blocked",
                 "completed", "failed", "cancelled")
 _TASK_TERMINAL = ("completed", "failed", "cancelled")
 
@@ -694,6 +956,8 @@ def prune_runs(state_dir: Path, older_than_seconds: int, apply: bool = False) ->
     if type(older_than_seconds) is not int or older_than_seconds < 0:
         raise OperationsError("retention age must be a nonnegative integer")
     state_dir = _private_dir(Path(state_dir))
+    if apply and not DeploymentLedger(state_dir, readonly=True).admission_enabled:
+        raise OperationsError('restored deployment is audit-only; pruning disabled')
     results = []
     with _file_lock(state_dir / ".deployment.lock", True, nonblocking=True):
         for run in retained_runs(state_dir):
@@ -708,6 +972,8 @@ def prune_runs(state_dir: Path, older_than_seconds: int, apply: bool = False) ->
                         result["reason"] = "active or unresolved external cloud job retained"
                     elif _pending_bridge_task(directory):
                         result["reason"] = "active or unresolved bridge task or operation retained"
+                    elif _pending_remote_worker(directory):
+                        result['reason'] = 'remote worker invocation or late evidence retained'
                     elif _composition_holds_run(directory):
                         result["reason"] = "workflow composition history retained"
                     elif _pending_artifacts(directory):
@@ -739,6 +1005,44 @@ def _composition_holds_run(directory: Path) -> bool:
         raise OperationsError("workflow composition state cannot be verified") from None
 
 
+def _pending_remote_worker(directory: Path) -> bool:
+    path = directory.parent / 'remote-workers.sqlite'
+    if not path.exists() and not path.is_symlink():
+        return False
+    with _db(path, readonly=True) as db, _db(directory.parent / 'deployment.sqlite', readonly=True) as ledger:
+        run = ledger.execute('SELECT run_id FROM runs WHERE directory=?', (directory.name,)).fetchone()
+        if run is None:
+            return True
+        return db.execute("SELECT 1 FROM jobs WHERE run_id=? AND (state IN ('pending','claimed','dispatched','unknown') "
+                          "OR EXISTS(SELECT 1 FROM receipts WHERE receipts.call_id=jobs.call_id AND authoritative=0)) LIMIT 1",
+                          (run['run_id'],)).fetchone() is not None
+
+
+def compact_history(state_dir: Path) -> dict:
+    """Reclaim deleted SQLite payload pages after supported archival.
+
+    VACUUM changes no logical records. This requires quiescence and free space
+    for SQLite's replacement file; it never deletes identity/accounting rows.
+    """
+    state_dir = _private_dir(Path(state_dir))
+    ledger = DeploymentLedger(state_dir, readonly=True)
+    results = []
+    with _file_lock(state_dir / '.deployment.lock', True, nonblocking=True):
+        if not ledger.admission_enabled:
+            raise OperationsError('restored deployment is audit-only; compaction disabled')
+        for name in ('task-service.sqlite', 'composition.sqlite'):
+            path = state_dir / name
+            if not path.exists():
+                continue
+            before = path.stat().st_size
+            with _db(path) as db:
+                if db.execute('PRAGMA quick_check(1)').fetchone()[0] != 'ok':
+                    raise OperationsError('history database cannot be verified')
+                db.execute('VACUUM')
+            results.append({'repository': name, 'before_bytes': before, 'after_bytes': path.stat().st_size})
+    return {'ok': True, 'repositories': results}
+
+
 def _pending_artifacts(directory: Path) -> bool:
     # The optional local artefact repository sits below each run, so quiescent
     # deployment backups include it. Its explicit manifests can retain results
@@ -761,7 +1065,7 @@ def _terminal_run(directory: Path) -> bool:
         if not {"call_id", "state"}.issubset(columns):
             return False
         invocations = {row["call_id"]: row["state"] for row in journal.execute("SELECT call_id,state FROM invocations")}
-        if any(state not in ("completed", "resolved", "retry_allowed", "not_executed") for state in invocations.values()):
+        if any(state not in ("completed", "resolved", "retry_allowed", "not_executed", "failed_known") for state in invocations.values()):
             return False
         for call in calls:
             if call[0] not in invocations:

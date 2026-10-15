@@ -46,6 +46,21 @@ class WorkflowPlanTests(unittest.TestCase):
         with self.assertRaises(FrozenInstanceError):
             plan._source = "{}"
 
+    def test_optional_timing_policy_is_normalised_and_bound_without_changing_legacy_sources(self):
+        source = spec()
+        legacy = WorkflowPlan(source)
+        self.assertNotIn("timing_policy", legacy.spec)
+        source["timing_policy"] = {"business_seconds": 7200, "active_seconds": 600,
+                                   "queue_seconds": 60, "pause_seconds": 3600}
+        timed = WorkflowPlan(source)
+        self.assertEqual(timed.spec["timing_policy"]["format"], "mas-timing-policy/1")
+        self.assertNotEqual(timed.identity, legacy.identity)
+        self.assertEqual(WorkflowPlan(timed.spec).identity, timed.identity)
+        for invalid in (None, {}, {**source["timing_policy"], "active_seconds": True}):
+            with self.subTest(invalid=invalid):
+                self.assertCode("invalid_workflow_timing_policy", lambda: WorkflowPlan(
+                    {**source, "timing_policy": invalid}))
+
     def test_all_control_forms_have_conservative_expansion(self):
         task = {"kind": "task", "workflow": "compute"}
         choice = {"kind": "choose", "condition": {"path": ["needed"], "equals": True},

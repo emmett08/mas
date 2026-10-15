@@ -7,7 +7,7 @@ journal resolution before explicit recovery, never a fresh submission.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import fcntl
 import hashlib
 import json
@@ -19,14 +19,17 @@ import uuid
 
 from .codec import JsonSizeError, integer_json
 from .contracts import Adapter, AdapterInterrupted, AdapterTimeout, Outcome, RecoveryRequired, RunnerError
+from .execution_policy import RetryPolicy, TimingPolicy, retry_policy, timing_policy
+from .circuit_breaker import circuit_policies
 from .service_contracts import ServiceError
 from .service_mutation import service_mutation
+from .request_namespaces import RequestScope, epoch_guard
 from .task_store import TaskStore, canonical, decoded, event, now
 
 
 TERMINAL = frozenset({"completed", "failed", "cancelled"})
 INTERRUPTED = frozenset({"input_required", "auth_required"})
-STATES = TERMINAL | INTERRUPTED | {"queued", "running", "unknown"}
+STATES = TERMINAL | INTERRUPTED | {"queued", "running", "unknown", "blocked"}
 PAGE_BYTES = 512 * 1024
 
 
@@ -93,9 +96,10 @@ class ExecutionBinding:
 class Workflow:
     """Explicit trusted workflow registration, frozen for recovery.
 
-    ``version`` covers adapter implementation, provider identity, classifiers
-    and continuation logic. Change the registered name/version when changing
-    those behaviours. ``continue_input`` is pure: it combines the previous
+    ``version`` identifies application intent; measured source-package bytes
+    bind adapter implementation, classifiers and continuation logic. Changing
+    package bytes changes identity even when the version label is unchanged.
+    ``continue_input`` is pure: it combines the previous
     output with supplied input for a fresh, separately admitted revision.
     ``contract_descriptor`` optionally binds operation, provider and acceptance
     descriptors into recovery identity. It is copied on construction; any
@@ -112,6 +116,15 @@ class Workflow:
     continue_input: Callable[[dict, dict], dict] | None = None
     adapter_factory: Callable[[ExecutionBinding], Mapping[str, Adapter]] | None = None
     contract_descriptor: dict | None = None
+    implementation_digest: str | None = None
+    retry_policy: RetryPolicy | dict | None = None
+    timing_policy: TimingPolicy | dict | None = None
+    resource_keys: tuple[str, ...] = ()
+    circuit_breakers: dict | None = None
+    implementation_sources: tuple[Callable, ...] = ()
+    _implementation: object = field(init=False, repr=False, compare=False)
+    _worker_bindings: str = field(init=False, repr=False, compare=False)
+    _workspace_bindings: str = field(init=False, repr=False, compare=False)
 
     def __post_init__(self):
         _text(self.version, "workflow_version")
@@ -128,17 +141,110 @@ class Workflow:
         object.__setattr__(self, "adapters", MappingProxyType(dict(self.adapters)))
         if self.contract_descriptor is not None:
             object.__setattr__(self, "contract_descriptor", _object(self.contract_descriptor))
+        if self.implementation_digest is not None:
+            import re
+            if type(self.implementation_digest) is not str or not re.fullmatch(r"[0-9a-f]{64}", self.implementation_digest):
+                raise ServiceError("invalid_implementation_digest")
+        try:
+            if self.retry_policy is not None:
+                object.__setattr__(self, "retry_policy", retry_policy(self.retry_policy))
+            if self.timing_policy is not None:
+                object.__setattr__(self, "timing_policy", timing_policy(self.timing_policy))
+            if self.circuit_breakers is not None:
+                policies = circuit_policies(self.circuit_breakers)
+                if not set(policies) <= set(self.adapters):
+                    raise RunnerError("provider circuit references an unknown actor")
+                object.__setattr__(self, "circuit_breakers", MappingProxyType(policies))
+        except RunnerError:
+            raise ServiceError("invalid_execution_policy") from None
+        if (not isinstance(self.resource_keys, (list, tuple)) or len(self.resource_keys) > 32
+                or any(type(key) is not str or not key or len(key) > 128
+                       or any(character.isspace() or ord(character) < 32 for character in key)
+                       for key in self.resource_keys)
+                or len(set(self.resource_keys)) != len(self.resource_keys)):
+            raise ServiceError("invalid_resource_keys")
+        object.__setattr__(self, "resource_keys", tuple(sorted(self.resource_keys)))
+        if (not isinstance(self.implementation_sources, tuple)
+                or any(not callable(item) for item in self.implementation_sources)):
+            raise ServiceError("invalid_implementation_sources")
+        from .implementation import VerifiedImplementation, implementation_values
+        implementation = VerifiedImplementation.capture(implementation_values(self))
+        if self.implementation_digest is not None and self.implementation_digest != implementation.digest:
+            raise ServiceError("implementation_digest_mismatch")
+        object.__setattr__(self, "_implementation", implementation)
+        from .executable_worker import ExecutableAdapter
+        workers = {actor: adapter.spec.descriptor for actor, adapter in self.adapters.items()
+                   if isinstance(adapter, ExecutableAdapter)}
+        object.__setattr__(self, '_worker_bindings', canonical(workers))
+        from .workspaces import WorkspaceAdapter
+        workspaces = {actor: adapter.registration_descriptor for actor, adapter in self.adapters.items()
+                      if isinstance(adapter, WorkspaceAdapter)}
+        object.__setattr__(self, '_workspace_bindings', canonical(workspaces))
 
     @property
-    def identity(self) -> str:
+    def verified_implementation(self):
+        return self._implementation
+
+    def verify_implementation(self):
+        from .implementation import implementation_values
+        self._implementation.verify(implementation_values(self))
+        self._verify_workers(self.adapters)
+
+    def _verify_workers(self, adapters):
+        from .executable_worker import ExecutableAdapter, WorkerSpec
+        from .workspaces import WorkspaceAdapter
+        workers = {actor: adapter.spec.descriptor for actor, adapter in adapters.items()
+                   if isinstance(adapter, ExecutableAdapter)}
+        workspaces = {actor: adapter.registration_descriptor for actor, adapter in adapters.items()
+                      if isinstance(adapter, WorkspaceAdapter)}
+        if canonical(workers) != self._worker_bindings or canonical(workspaces) != self._workspace_bindings:
+            raise ServiceError('implementation_worker_binding_mismatch')
+        try:
+            checked = set()
+            for adapter in adapters.values():
+                worker = (adapter.spec if isinstance(adapter, ExecutableAdapter) else
+                          adapter.tool.worker if isinstance(adapter, WorkspaceAdapter) else None)
+                if isinstance(worker, WorkerSpec) and id(worker) not in checked:
+                    worker.verify()
+                    checked.add(id(worker))
+        except RunnerError:
+            raise ServiceError('implementation_worker_unavailable') from None
+
+    def verify_adapters(self, adapters):
+        """A trusted factory may construct adapters, but cannot replace pinned workers."""
+        if (set(adapters) != set(self.adapters)
+                or any(not callable(getattr(adapter, 'handle', None)) for adapter in adapters.values())):
+            raise ServiceError('invalid_adapter_factory')
+        self._implementation.verify_bindings(tuple(adapters.values()))
+        self._verify_workers(adapters)
+
+    @property
+    def descriptor(self) -> dict:
         descriptor = {"version": self.version, "topology": self.topology,
             "sender": self.sender, "recipient": self.recipient, "operation": self.operation,
             "max_depth": self.max_depth, "continuation": self.continue_input is not None,
             "classifier": self.classify is not None, "adapter_factory": self.adapter_factory is not None}
-        # Omission preserves identities of all pre-composition registrations.
+        # Keep the established optional contract descriptor shape.
         if self.contract_descriptor is not None:
             descriptor["contract_descriptor"] = _object(self.contract_descriptor)
-        return hashlib.sha256(canonical(descriptor).encode()).hexdigest()
+        descriptor["implementation_digest"] = self._implementation.digest
+        if self._worker_bindings != '{}':
+            descriptor['worker_bindings'] = json.loads(self._worker_bindings)
+        if self._workspace_bindings != '{}':
+            descriptor['workspace_bindings'] = json.loads(self._workspace_bindings)
+        if self.retry_policy is not None:
+            descriptor["retry_policy"] = self.retry_policy.descriptor
+        if self.timing_policy is not None:
+            descriptor["timing_policy"] = self.timing_policy.descriptor
+        if self.resource_keys:
+            descriptor["resource_keys"] = list(self.resource_keys)
+        if self.circuit_breakers is not None:
+            descriptor["circuit_breakers"] = {actor: policy.descriptor for actor, policy in self.circuit_breakers.items()}
+        return descriptor
+
+    @property
+    def identity(self) -> str:
+        return hashlib.sha256(canonical(self.descriptor).encode()).hexdigest()
 
 
 @dataclass(frozen=True)
@@ -243,15 +349,19 @@ class RunnerExecutor:
             raise ServiceError("run_assignment_conflict")
         return path
 
+    def _stopped_result(self, execution):
+        from .bootstrap import requires_reconciliation
+        if requires_reconciliation(self.state_dir / execution['run_directory'], execution['run_id'],
+                                   operations=self.operations):
+            return ExecutionResult('unknown', error={'code': 'reconciliation_required'})
+        return ExecutionResult("cancelled")
+
     def execute(self, workflow, execution, *, cancelled, ownership_descriptor):
         from .runner import Runner
-        from .supervision import InlineExecutor, LinuxProcessExecutor
+        from .executable_worker import ProfileExecutor
         if cancelled():
-            from .bootstrap import requires_reconciliation
-            if requires_reconciliation(self.state_dir / execution['run_directory'], execution['run_id'],
-                                       operations=self.operations):
-                return ExecutionResult('unknown', error={'code': 'reconciliation_required'})
-            return ExecutionResult("cancelled")
+            return self._stopped_result(execution)
+        workflow.verify_implementation()
         path = self._bootstrap(workflow, execution)
         adapters = workflow.adapters
         if workflow.adapter_factory is not None:
@@ -261,15 +371,28 @@ class RunnerExecutor:
                 adapters = dict(workflow.adapter_factory(binding))
             except Exception:
                 raise ServiceError("invalid_adapter_factory") from None
-            if (set(adapters) != set(workflow.adapters)
-                    or any(not callable(getattr(adapter, "handle", None)) for adapter in adapters.values())):
-                raise ServiceError("invalid_adapter_factory")
-        executor = LinuxProcessExecutor() if self.options["supervised"] else InlineExecutor()
-        with Runner.resume(path, adapters, workflow_version=workflow.version,
-                           max_depth=workflow.max_depth, operations=self.operations,
+            workflow.verify_adapters(adapters)
+        executor = ProfileExecutor(supervised=self.options['supervised'], gateway_bin=self.options['gateway_bin'])
+        from .operations import DeploymentLedger
+        from .principal_quotas import PrincipalAllocation
+        allocation = PrincipalAllocation(self.operations or DeploymentLedger(self.state_dir), execution['principal'])
+        try:
+            runner = Runner.resume(path, adapters, workflow_version=workflow.version,
+                           max_depth=workflow.max_depth, operations=allocation,
                            executor=_CancellableExecutor(executor, cancelled, ownership_descriptor),
                            execution_deadline=execution.get("execution_deadline"),
-                           **self.options) as runner:
+                           retry_policy=workflow.retry_policy,
+                           circuit_breakers=dict(workflow.circuit_breakers) if workflow.circuit_breakers is not None else None,
+                           event_sink=execution.get("event_sink"),
+                           **self.options)
+        except Exception:
+            # An ancestor may close admission during bootstrap. Construction
+            # has not dispatched a worker and has already released its run
+            # session; retained journal evidence still decides uncertainty.
+            if cancelled():
+                return self._stopped_result(execution)
+            raise
+        with runner:
             try:
                 outcome = runner.request(workflow.sender, workflow.recipient,
                                          workflow.operation, execution["input"])
@@ -312,7 +435,8 @@ class DurableTaskService:
                  executor: WorkflowExecutor | None = None, max_pending: int = 1000,
                  max_tasks: int = 10000, max_revisions: int = 32,
                  mas_bin: str = "mas", gateway_bin: str = "mas-gateway",
-                 supervised: bool = True):
+                 supervised: bool = True, workflow_versions: Mapping[str, tuple[Workflow, ...]] | None = None,
+                 scheduler_policy=None):
         from .operations import DeploymentLedger, _file_lock
         self.state_dir = Path(state_dir).absolute()
         self.operations = operations or DeploymentLedger(self.state_dir)
@@ -327,34 +451,117 @@ class DurableTaskService:
             _text(name, "workflow")
             if not isinstance(workflow, Workflow):
                 raise ServiceError("invalid_workflow")
-        if any(not names <= self.workflows.keys() for names in self.grants.values()):
-            raise ServiceError("invalid_grant")
         self.identities = {name: workflow.identity for name, workflow in self.workflows.items()}
+        self.workflow_versions = {}
+        for name, versions in (workflow_versions or {}).items():
+            _text(name, "workflow")
+            for workflow in versions:
+                if not isinstance(workflow, Workflow):
+                    raise ServiceError("invalid_workflow")
+                self.workflow_versions[name, workflow.identity] = workflow
+        self.workflow_versions.update({(name, workflow.identity): workflow for name, workflow in self.workflows.items()})
         active = not self.operations.readonly and self.operations.admission_enabled
         with _file_lock(self.state_dir / ".deployment.lock", False):
             self.store = TaskStore(self.state_dir, deployment_id=self.operations.deployment_id,
                                    readonly=not active)
+            from .definitions import DefinitionRegistry
+            self.definitions = DefinitionRegistry(self.state_dir, readonly=not active)
+            with self.store.transaction(readonly=True) as db:
+                retained = {(row[0], row[1]) for row in db.execute("SELECT name,identity FROM workflows")}
+                retained.update((row[0], row[1]) for row in db.execute("SELECT DISTINCT workflow,workflow_identity FROM tasks"))
+            known_names = set(self.workflows) | {name for name, _identity in retained} | {name for name, _identity in self.workflow_versions}
+            if any(not names <= known_names for names in self.grants.values()):
+                raise ServiceError("invalid_grant")
+            if active:
+                for name, identity in retained:
+                    self.definitions.remember("workflow", name, identity)
+                for (name, identity), workflow in self.workflow_versions.items():
+                    self.definitions.remember("workflow", name, identity, descriptor=workflow.descriptor,
+                        implementation_digest=workflow.verified_implementation.digest,
+                        implementation_manifest=workflow.verified_implementation.manifest,
+                        current=self.identities.get(name) == identity)
             with self.store.transaction(readonly=not active) as db:
                 for name, identity in self.identities.items():
                     row = db.execute("SELECT identity FROM workflows WHERE name=?", (name,)).fetchone()
-                    if row and row[0] != identity:
-                        raise ServiceError("workflow_changed")
-                    if not row:
-                        if not active:
-                            raise ServiceError("audit_only")
-                        db.execute("INSERT INTO workflows VALUES(?,?)", (name, identity))
+                    if active:
+                        db.execute("INSERT INTO workflows VALUES(?,?) ON CONFLICT(name) DO UPDATE SET identity=excluded.identity", (name, identity))
+                    elif not row:
+                        # Audit views require no executable registration. An
+                        # unrecorded supplied registration grants no new work.
+                        continue
         self.executor = executor or RunnerExecutor(self.state_dir, operations=self.operations,
             mas_bin=mas_bin, gateway_bin=gateway_bin, supervised=supervised)
+        from .scheduler_capacity import SchedulerCapacity
+        self.capacity = SchedulerCapacity(self.state_dir, scheduler_policy, readonly=not active)
 
     def _mutation(self):
         return service_mutation(self.operations, self.store)
+
+    def definition_status(self, name, identity):
+        """Inspect retained source and registered executables without loading code."""
+        record = self.definitions.inspect("workflow", name, identity)
+        if record is None:
+            raise ServiceError("definition_not_found")
+        registered = (name, identity) in self.workflow_versions
+        return {"kind": "workflow", "name": name, "identity": identity,
+                "current": self.definitions.current("workflow", name) == identity,
+                "retired": bool(record["retired"]), "source_present": record["descriptor"] is not None,
+                "registered": registered, "implementation_provenance": record["implementation_provenance"],
+                "available": registered and not record["retired"] and record["implementation_provenance"] == "verified_source_package",
+                "implementation_reverified_at_dispatch": True}
+
+    def retire_definition(self, workflow, identity):
+        """Trusted management operation; refuses current or referenced definitions."""
+        from .operations import _file_lock
+        with _file_lock(self.state_dir / '.deployment.lock', True, nonblocking=True):
+            if self.operations.readonly or not self.operations.admission_enabled:
+                raise ServiceError('audit_only')
+            with self.store.transaction(readonly=True) as db:
+                if db.execute("SELECT 1 FROM tasks t WHERE workflow=? AND workflow_identity=? "
+                              "AND (state NOT IN ('completed','failed','cancelled') OR EXISTS "
+                              "(SELECT 1 FROM executions e WHERE e.task_id=t.id AND e.state IN ('running','unknown'))) LIMIT 1",
+                              (workflow, identity)).fetchone():
+                    raise ServiceError('definition_in_use')
+            if (self.state_dir / 'composition.sqlite').exists():
+                from .workflow_store import WorkflowStore
+                with WorkflowStore(self.state_dir, readonly=True).transaction(readonly=True) as db:
+                    references = db.execute("SELECT plan,identity FROM instances i WHERE state NOT IN "
+                        "('completed','failed','cancelled','expired') OR EXISTS(SELECT 1 FROM attempts a "
+                        "WHERE a.instance=i.id AND a.state IN ('running','unknown'))").fetchall()
+                for reference in references:
+                    record = self.definitions.inspect('plan', reference['plan'], reference['identity'])
+                    if (record is None or record['descriptor'] is None
+                            or record['descriptor']['workflows'].get(workflow) == identity):
+                        raise ServiceError('definition_in_use')
+            self.definitions.retire('workflow', workflow, identity)
+            return self.definitions.inspect('workflow', workflow, identity)
 
     def _authorise(self, principal, workflow=None):
         _text(principal, "principal")
         if principal not in self.grants or workflow is not None and workflow not in self.grants[principal]:
             raise ServiceError("forbidden")
-        if workflow is not None and self.workflows[workflow].identity != self.identities[workflow]:
+
+    def _resolve(self, name, identity, *, verify=False):
+        workflow = self.workflow_versions.get((name, identity))
+        if workflow is None:
+            return None
+        if workflow.identity != identity:
             raise ServiceError("workflow_changed")
+        definition = self.definitions.inspect("workflow", name, identity)
+        if not definition or definition["retired"] or definition["implementation_provenance"] != "verified_source_package":
+            return None
+        if verify:
+            try:
+                workflow.verify_implementation()
+            except ServiceError:
+                return None
+        return workflow
+
+    def _required_workflow(self, name, identity):
+        workflow = self._resolve(name, identity, verify=True)
+        if workflow is None:
+            raise ServiceError("definition_unavailable")
+        return workflow
 
     def _owned(self, db, principal, task_id):
         self._authorise(principal)
@@ -367,15 +574,26 @@ class DurableTaskService:
         return task
 
     def _receipt(self, task):
-        return {"task_id": task["id"], **{key: task[key] for key in (
+        from .service_timing import receipt
+        try:
+            workflow = self._resolve(task["workflow"], task["workflow_identity"])
+        except ServiceError:
+            workflow = None
+        # Historical inspection remains available even when an executable was
+        # removed. Only executable capabilities depend on the pinned version.
+        return {"task_id": task["id"], 'workflow_identity': task['workflow_identity'], **{key: task[key] for key in (
             "state", "workflow", "request_key", "created_at", "updated_at",
             "cancel_requested", "result", "error", "revision", "metadata")},
+            "request_namespace": task.get("request_namespace", "legacy"),
+            "request_epoch": task.get("request_epoch", ""),
             "capabilities": {"cancel": True,
-                "update": self.workflows[task["workflow"]].continue_input is not None,
-                "events": True}}
+                "update": workflow is not None and workflow.continue_input is not None,
+                "events": True},
+            **({"archived": True, "result_available": False, "archived_at": task['archived_at'],
+                "result_digest": task['result_digest']} if task.get('archived_at') is not None else {}), **receipt(task)}
 
     def _capacity(self, db, *, new=False):
-        if new and db.execute("SELECT count(*) FROM tasks").fetchone()[0] >= self.max_tasks:
+        if new and self.store.retained_count(db) >= self.max_tasks:
             raise ServiceError("task_limit")
         if db.execute("SELECT count(*) FROM tasks WHERE state NOT IN ('completed','failed','cancelled')").fetchone()[0] >= self.max_pending:
             raise ServiceError("queue_full")
@@ -385,8 +603,9 @@ class DurableTaskService:
         return hashlib.sha256(canonical({"kind": kind, "task_id": task_id,
             "workflow": workflow, "input": input, "metadata": metadata or {}}).encode()).hexdigest()
 
-    def _duplicate(self, db, principal, key, digest):
-        row = db.execute("SELECT digest,task_id FROM requests WHERE principal=? AND request_key=?", (principal, key)).fetchone()
+    def _duplicate(self, db, principal, key, digest, scope=RequestScope()):
+        row = db.execute("SELECT digest,task_id FROM requests WHERE principal=? AND request_key=? "
+                         "AND request_namespace=? AND request_epoch=?", (principal, key, *scope.values)).fetchone()
         if row:
             if row["digest"] != digest:
                 raise ServiceError("request_conflict")
@@ -411,24 +630,43 @@ class DurableTaskService:
         db.execute("INSERT INTO executions(task_id,revision,run_id,run_directory,input,state) VALUES(?,?,?,?,?,'queued')",
                    (task_id, revision, run_id, run_id, canonical(input)))
 
-    def submit(self, principal, request_key, workflow, input, *, metadata=None):
+    def submit(self, principal, request_key, workflow, input, *, metadata=None, expected_identity=None, expected_deployment_id=None,
+               request_epoch=None, _request_namespace=None):
         _text(workflow, "workflow")
         self._authorise(principal, workflow)
         _text(request_key, "request_key")
         value = _object(input)
         metadata = _object(metadata) if metadata is not None else {}
         digest = self._digest("submit", None, workflow, value, metadata)
-        with self._mutation() as db:
-            duplicate = self._duplicate(db, principal, request_key, digest)
+        scope = RequestScope.supplied(_request_namespace, request_epoch)
+        from .principal_quotas import submission_mutation, check_submission_quota
+        with epoch_guard(self.operations, principal, scope), submission_mutation(self.operations, self.store, principal) as db:
+            scope.check_owner(db, principal)
+            if expected_deployment_id is not None and expected_deployment_id != self.operations.deployment_id:
+                raise ServiceError('deployment_identity_mismatch')
+            duplicate = self._duplicate(db, principal, request_key, digest, scope)
             if duplicate:
+                if expected_identity is not None and duplicate['workflow_identity'] != expected_identity:
+                    raise ServiceError('workflow_identity_mismatch')
                 return duplicate
+            if workflow not in self.identities:
+                raise ServiceError("definition_unavailable")
+            selected = self._required_workflow(workflow, self.identities[workflow])
+            if expected_identity is not None and selected.identity != expected_identity:
+                raise ServiceError('workflow_identity_mismatch')
+            alias = db.execute("SELECT identity FROM workflows WHERE name=?", (workflow,)).fetchone()
+            if alias is None or alias[0] != selected.identity:
+                raise ServiceError("workflow_changed")
             self.operations.check_storage_admission()
+            check_submission_quota(self.operations, principal)
             self._capacity(db, new=True)
             task_id, timestamp = "task-" + uuid.uuid4().hex, now()
-            self._validate_execution_input(self.workflows[workflow], task_id, 0, value)
-            db.execute("INSERT INTO tasks(id,principal,request_key,workflow,workflow_identity,state,input,metadata,created_at,updated_at) VALUES(?,?,?,?,?,'queued',?,?,?,?)",
-                (task_id, principal, request_key, workflow, self.identities[workflow], canonical(value), canonical(metadata), timestamp, timestamp))
-            db.execute("INSERT INTO requests VALUES(?,?,?,?,?)", (principal, request_key, digest, task_id, "submit"))
+            self._validate_execution_input(selected, task_id, 0, value)
+            clock = selected.timing_policy.start(timestamp) if selected.timing_policy else None
+            db.execute("INSERT INTO tasks(id,principal,request_key,workflow,workflow_identity,state,input,metadata,created_at,updated_at,clock,request_namespace,request_epoch) VALUES(?,?,?,?,?,'queued',?,?,?,?,?,?,?)",
+                (task_id, principal, request_key, workflow, self.identities[workflow], canonical(value), canonical(metadata), timestamp, timestamp,
+                 canonical(clock) if clock else None, *scope.values))
+            db.execute("INSERT INTO requests VALUES(?,?,?,?,?,?,?)", (principal, request_key, digest, task_id, "submit", *scope.values))
             self._execution(db, task_id, 0, value)
             event(db, task_id, "submitted", {"state": "queued", "revision": 0})
             return self._receipt(self._owned(db, principal, task_id))
@@ -437,9 +675,21 @@ class DurableTaskService:
         with self.store.transaction(readonly=True) as db:
             return self._receipt(self._owned(db, principal, task_id))
 
+    def discover(self, principal):
+        self._authorise(principal)
+        registrations = []
+        for name in sorted(self.grants[principal]):
+            workflow = self.workflows.get(name)
+            registrations.append({'name': name, 'kind': 'workflow', 'available': workflow is not None,
+                'identity': workflow.identity if workflow else None,
+                'contract': workflow.contract_descriptor if workflow else None})
+        return {'format': 'mas-task-service/1', 'principal': principal, 'deployment_id': self.operations.deployment_id,
+                'capabilities': ['submit', 'inspect', 'result', 'cancel', 'update', 'events_page', 'recover', 'pinned_identity', 'request_epochs'],
+                'registrations': registrations}
+
     def result(self, principal, task_id):
         receipt = self.inspect(principal, task_id)
-        if receipt["state"] != "completed":
+        if receipt["state"] != "completed" or receipt.get('archived'):
             raise ServiceError("result_unavailable")
         return receipt["result"]
 
@@ -452,7 +702,7 @@ class DurableTaskService:
         """
         with self._mutation() as db:
             task = self._owned(db, principal, task_id)
-            can_close = task["state"] in {"queued", *INTERRUPTED}
+            can_close = task["state"] in {"queued", "blocked", *INTERRUPTED}
             if task["state"] in TERMINAL or (task["cancel_requested"] and not can_close):
                 return self._receipt(task)
             # Repeated cancellation also repairs a paused record written by an
@@ -460,22 +710,33 @@ class DurableTaskService:
             state = "cancelled" if can_close else task["state"]
             db.execute("UPDATE tasks SET cancel_requested=1,state=?,updated_at=? WHERE id=?", (state, now(), task_id))
             if state == "cancelled":
+                from .service_timing import transition
+                transition(db, 'tasks', task, 'terminal')
                 db.execute("UPDATE executions SET state='cancelled' WHERE task_id=? AND revision=?", (task_id, task["revision"]))
             event(db, task_id, "cancel_requested", {"state": state, "confirmed": state == "cancelled",
                                                     "scope": "local_workflow"})
             return self._receipt(self._owned(db, principal, task_id))
 
-    def update(self, principal, task_id, request_key, input, *, metadata=None):
+    def update(self, principal, task_id, request_key, input, *, metadata=None, expected_identity=None, expected_deployment_id=None):
         _text(request_key, "request_key")
         value = _object(input)
         metadata = _object(metadata) if metadata is not None else {}
-        with self._mutation() as db:
+        with self.store.transaction(readonly=True) as db:
+            scope = RequestScope.retained(self._owned(db, principal, task_id))
+        with epoch_guard(self.operations, principal, scope), self._mutation() as db:
             task = self._owned(db, principal, task_id)
+            scope.check_owner(db, principal)
+            if expected_deployment_id is not None and expected_deployment_id != self.operations.deployment_id:
+                raise ServiceError('deployment_identity_mismatch')
+            if expected_identity is not None and expected_identity != task['workflow_identity']:
+                raise ServiceError('workflow_identity_mismatch')
             digest = self._digest("update", task_id, task["workflow"], value, metadata)
-            duplicate = self._duplicate(db, principal, request_key, digest)
+            duplicate = self._duplicate(db, principal, request_key, digest, scope)
             if duplicate:
                 return duplicate
-            workflow = self.workflows[task["workflow"]]
+            from .service_timing import require_open, transition
+            require_open(task)
+            workflow = self._required_workflow(task["workflow"], task["workflow_identity"])
             if workflow.continue_input is None:
                 raise ServiceError("unsupported_capability")
             if task["state"] not in INTERRUPTED or task["cancel_requested"]:
@@ -490,8 +751,9 @@ class DurableTaskService:
                 raise ServiceError("invalid_continuation") from None
             revision = task["revision"] + 1
             self._validate_execution_input(workflow, task_id, revision, combined)
-            db.execute("INSERT INTO requests VALUES(?,?,?,?,?)", (principal, request_key, digest, task_id, "update"))
+            db.execute("INSERT INTO requests VALUES(?,?,?,?,?,?,?)", (principal, request_key, digest, task_id, "update", *scope.values))
             self._execution(db, task_id, revision, combined)
+            transition(db, 'tasks', task, 'queued')
             db.execute("UPDATE tasks SET state='queued',revision=?,error=NULL,updated_at=? WHERE id=?", (revision, now(), task_id))
             event(db, task_id, "continued", {"state": "queued", "revision": revision})
             return self._receipt(self._owned(db, principal, task_id))
@@ -501,10 +763,29 @@ class DurableTaskService:
         if type(after) is not int or not 0 <= after <= 2**63 - 1:
             raise ServiceError("invalid_cursor")
         with self.store.transaction(readonly=True) as db:
-            self._owned(db, principal, task_id)
+            task = self._owned(db, principal, task_id)
+            self.store.check_event_cursor(task, after)
             values = (decoded(row) for row in db.execute(
                 "SELECT * FROM events WHERE task_id=? AND id>? ORDER BY id LIMIT 1000", (task_id, after)))
             return _bounded_items(values)[0]
+
+    def events_page(self, principal, task_id, after=0, limit=100):
+        """Return a byte-bounded page with an explicit resume position.
+
+        Events are append-only. The cursor is a position, not a snapshot;
+        callers can poll again after an empty page to observe later events.
+        """
+        from .observability import event_page_arguments
+        event_page_arguments(after, limit)
+        with self.store.transaction(readonly=True) as db:
+            task = self._owned(db, principal, task_id)
+            self.store.check_event_cursor(task, after)
+            values = (decoded(row) for row in db.execute(
+                "SELECT * FROM events WHERE task_id=? AND id>? ORDER BY id LIMIT ?",
+                (task_id, after, limit + 1)))
+            selected, more = _bounded_items(values, limit=limit, overhead=128)
+            return {"events": selected, "next_after": selected[-1]["id"] if selected else after,
+                    "has_more": more}
 
     def list_tasks(self, principal, limit=100, offset=0):
         """Return a byte-bounded prefix; advance offset by the returned count."""
@@ -592,32 +873,128 @@ class DurableTaskService:
                 raise ServiceError("reconciliation_required") from None
             if report["recovery_required"]:
                 raise ServiceError("reconciliation_required")
+            from .service_timing import status, transition
+            timing = status(task)
+            if timing and timing['expired']:
+                transition(db, 'tasks', task, 'terminal')
+                reason = {'code': timing['expired'][0], 'expired': timing['expired'], 'effect_reconciliation': 'resolved'}
+                db.execute("UPDATE tasks SET state='failed',error=?,updated_at=? WHERE id=?", (canonical(reason), now(), task_id))
+                db.execute("UPDATE executions SET state='failed' WHERE task_id=? AND revision=?", (task_id, task['revision']))
+                event(db, task_id, 'recovery_closed', reason)
+                return self._receipt(self._owned(db, principal, task_id))
+            transition(db, 'tasks', task, 'queued')
             db.execute("UPDATE tasks SET state='queued',error=NULL,updated_at=? WHERE id=?", (now(), task_id))
             db.execute("UPDATE executions SET state='queued' WHERE task_id=? AND revision=?", (task_id, task["revision"]))
             event(db, task_id, "recovery_queued", {"state": "queued", "revision": task["revision"]})
             return self._receipt(self._owned(db, principal, task_id))
 
-    def run_once(self):
+    def pending(self):
+        """Authoritative durable scheduling intent, without request payloads."""
+        with self.store.transaction(readonly=True) as db:
+            from .service_timing import status
+            rows = [dict(row) for row in db.execute("SELECT t.id AS task_id,t.principal,t.created_at "
+                "FROM tasks t JOIN executions e ON e.task_id=t.id AND e.revision=t.revision "
+                "WHERE e.state IN ('queued','running','blocked') ORDER BY e.sequence")]
+            for row in db.execute("SELECT id,principal,created_at,clock FROM tasks WHERE state IN ('input_required','auth_required') AND clock IS NOT NULL"):
+                item = decoded(row)
+                if status(item)['expired']:
+                    rows.append({'task_id': item['id'], 'principal': item['principal'], 'created_at': item['created_at']})
+        return self.capacity.fair_order(rows)
+
+    def recovery_runs(self, principal, task_id):
+        with self.store.transaction(readonly=True) as db:
+            self._owned(db, principal, task_id)
+            return [{'path': None, **dict(row)} for row in db.execute(
+                'SELECT revision,run_directory,state FROM executions WHERE task_id=? ORDER BY revision',
+                (task_id,))]
+
+    @staticmethod
+    def _protocol_event(db, task_id, execution, item):
+        # Publish bounded envelope metadata, never request/result bodies.
+        keys = ('sender', 'recipient', 'kind', 'message_id', 'task_id')
+        data = {key: item[key] for key in keys if key in item}
+        if not isinstance(data.get('message_id'), str) or any(type(value) is not str or len(value) > 256 for value in data.values()):
+            raise ServiceError('invalid_protocol_event')
+        data.update(run_id=execution['run_id'], revision=execution['revision'])
+        if db.execute("SELECT 1 FROM events WHERE task_id=? AND event='protocol' "
+                      "AND json_extract(data,'$.run_id')=? AND json_extract(data,'$.message_id')=? LIMIT 1",
+                      (task_id, data['run_id'], data['message_id'])).fetchone():
+            return
+        event(db, task_id, 'protocol', data)
+        db.execute('UPDATE tasks SET updated_at=? WHERE id=?', (now(), task_id))
+
+    def run_once(self, task_id=None):
         from .operations import _file_lock
-        lock = self.state_dir / ".task-service-worker.lock"
-        descriptor = os.open(lock, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+        descriptor, slot = None, None
         try:
-            try:
-                fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            except BlockingIOError:
-                raise ServiceError("worker_busy") from None
             with _file_lock(self.state_dir / ".deployment.lock", False):
                 if self.operations.readonly or not self.operations.admission_enabled:
                     raise ServiceError("audit_only")
                 with self.store.transaction() as db:
-                    row = db.execute("SELECT e.* FROM executions e JOIN tasks t ON t.id=e.task_id AND t.revision=e.revision WHERE e.state IN ('queued','running') ORDER BY e.sequence LIMIT 1").fetchone()
-                    if row is None:
-                        return None
-                    execution = decoded(row)
-                    task = decoded(db.execute("SELECT * FROM tasks WHERE id=?", (execution["task_id"],)).fetchone())
-                    workflow = self.workflows.get(task["workflow"])
-                    if workflow is None or workflow.identity != task["workflow_identity"]:
-                        raise ServiceError("workflow_changed")
+                    query = "SELECT e.*,t.principal FROM executions e JOIN tasks t ON t.id=e.task_id AND t.revision=e.revision WHERE (e.state IN ('queued','running','blocked') OR (e.state IN ('input_required','auth_required') AND t.clock IS NOT NULL))"
+                    values = ()
+                    if task_id is not None:
+                        _text(task_id, 'task_id')
+                        query += ' AND t.id=?'
+                        values = (task_id,)
+                    rows = self.capacity.fair_order(db.execute(query + ' ORDER BY e.sequence', values).fetchall())
+                    last_blocked = None
+                    busy = False
+                    for row in rows:
+                        execution = decoded(row)
+                        task = decoded(db.execute("SELECT * FROM tasks WHERE id=?", (execution["task_id"],)).fetchone())
+                        from .service_timing import status, transition, execution_deadline
+                        timing = status(task)
+                        if task['state'] in INTERRUPTED and not (timing and timing['expired']):
+                            continue
+                        lock = self.state_dir / ('.task-owner-' + hashlib.sha256(task['id'].encode()).hexdigest() + '.lock')
+                        descriptor = os.open(lock, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+                        try:
+                            fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                        except BlockingIOError:
+                            os.close(descriptor)
+                            descriptor = None
+                            busy = True
+                            continue
+                        if timing and timing['expired']:
+                            from .bootstrap import requires_reconciliation
+                            uncertain = requires_reconciliation(self.state_dir / execution['run_directory'], execution['run_id'],
+                                                                operations=self.operations)
+                            state = 'unknown' if uncertain else 'failed'
+                            reason = {'code': 'reconciliation_required' if uncertain else timing['expired'][0],
+                                      'expired': timing['expired']}
+                            transition(db, 'tasks', task, 'paused' if uncertain else 'terminal')
+                            db.execute('UPDATE tasks SET state=?,error=?,updated_at=? WHERE id=?',
+                                       (state, canonical(reason), now(), task['id']))
+                            db.execute('UPDATE executions SET state=? WHERE sequence=?', (state, execution['sequence']))
+                            event(db, task['id'], 'deadline_expired', reason)
+                            return self._receipt(self._owned(db, task['principal'], task['id']))
+                        try:
+                            workflow = self._resolve(task["workflow"], task["workflow_identity"], verify=True)
+                        except ServiceError as error:
+                            if error.code != "workflow_changed":
+                                raise
+                            workflow = None
+                        if workflow is not None:
+                            slot = self.capacity.acquire(execution['run_id'], task['principal'], task['workflow'],
+                                                         resources=getattr(workflow, 'resource_keys', ()))
+                            if slot is None:
+                                os.close(descriptor)
+                                descriptor = None
+                                continue
+                            if execution["state"] == "blocked":
+                                self.store.restore_definition(db, task["id"], execution["sequence"])
+                            break
+                        if execution["state"] != "blocked":
+                            started = execution["state"] == "running" or (self.state_dir / execution["run_directory"]).exists()
+                            self.store.block_definition(db, task, execution, started=started)
+                            last_blocked = self._receipt(decoded(db.execute("SELECT * FROM tasks WHERE id=?", (task["id"],)).fetchone()))
+                        os.close(descriptor)
+                        descriptor = None
+                    else:
+                        if busy and last_blocked is None:
+                            raise ServiceError('worker_busy')
+                        return last_blocked
                     if task["workflow"] not in self.grants.get(task["principal"], ()):
                         # Revocation prevents further dispatch; it says nothing
                         # about effects that escaped before an interrupted
@@ -632,6 +1009,8 @@ class DurableTaskService:
                         event(db, task["id"], "state_changed", {"state": state, "reason": code})
                         return self._receipt(decoded(db.execute("SELECT * FROM tasks WHERE id=?", (task["id"],)).fetchone()))
                     db.execute("UPDATE tasks SET state='running',updated_at=? WHERE id=?", (now(), task["id"]))
+                    transition(db, 'tasks', task, 'running', branches=1)
+                    deadline = execution_deadline(task)
                     db.execute("UPDATE executions SET state='running' WHERE sequence=?", (execution["sequence"],))
                     if task["state"] != "running":
                         event(db, task["id"], "running", {"state": "running", "revision": task["revision"], "run_id": execution["run_id"]})
@@ -639,11 +1018,22 @@ class DurableTaskService:
                 def cancelled():
                     with self.store.transaction(readonly=True) as db:
                         return bool(db.execute("SELECT cancel_requested FROM tasks WHERE id=?", (task["id"],)).fetchone()[0])
+                def progress(item):
+                    with self.store.transaction() as db:
+                        self._protocol_event(db, task['id'], execution, item)
                 # BaseException and infrastructure failures leave running intent
                 # for replay. They never create a new execution or run identity.
-                outcome = self.executor.execute(workflow, execution | {
-                    "principal": task["principal"], "workflow": task["workflow"]},
-                    cancelled=cancelled, ownership_descriptor=descriptor)
+                from .telemetry import record, span
+                correlations = {'task_id': task['id'], 'run_id': execution['run_id'],
+                                'assignment_id': task['id'] + ':' + str(execution['revision'])}
+                if task['state'] in {'queued', 'blocked'}:
+                    record(self.state_dir, 'queue', max(0, now() - task['updated_at']) * 1000,
+                           **correlations)
+                with span(self.state_dir, 'dispatch', **correlations):
+                    outcome = self.executor.execute(workflow, execution | {
+                        "principal": task["principal"], "workflow": task["workflow"], 'execution_deadline': deadline,
+                        'event_sink': progress},
+                        cancelled=cancelled, ownership_descriptor=(descriptor, slot.descriptor))
                 if not isinstance(outcome, ExecutionResult) or outcome.state not in STATES - {"queued", "running"}:
                     raise ServiceError("invalid_executor_result")
                 output = _object(outcome.result) if outcome.result is not None else None
@@ -654,8 +1044,13 @@ class DurableTaskService:
                     # continuation, but an uncertain effect remains unknown.
                     requested = db.execute("SELECT cancel_requested FROM tasks WHERE id=?", (task["id"],)).fetchone()[0]
                     state = "cancelled" if requested and outcome.state in INTERRUPTED else outcome.state
+                    current = self._owned(db, task['principal'], task['id'])
+                    timing = status(current)
+                    if timing and timing['expired'] and state != 'unknown':
+                        state, error = 'failed', {'code': timing['expired'][0], 'expired': timing['expired']}
+                    transition(db, 'tasks', current, 'paused' if state in INTERRUPTED | {'unknown', 'blocked'} else 'terminal')
                     for item in outcome.events:
-                        event(db, task["id"], "protocol", _object(item))
+                        self._protocol_event(db, task['id'], execution, item)
                     db.execute("UPDATE tasks SET state=?,result=?,error=?,updated_at=? WHERE id=?", (
                         state, canonical(output) if output is not None else None,
                         canonical(error) if error is not None else None, now(), task["id"]))
@@ -665,4 +1060,7 @@ class DurableTaskService:
         finally:
             # close (rather than LOCK_UN) preserves the inherited lock until a
             # surviving guardian releases its copy after stopping descendants.
-            os.close(descriptor)
+            if slot is not None:
+                slot.close()
+            if descriptor is not None:
+                os.close(descriptor)

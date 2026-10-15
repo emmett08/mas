@@ -8,6 +8,8 @@ from typing import Any, Mapping
 from .contracts import Invocation
 from .openai_client import response_client
 from .provider_contract import ProviderError
+from .provider_outcomes import (ProviderOutcomeFailure, completed_unusable,
+                                completed_cleanup_failure, unknown_diagnostic)
 from .structured_provider import IDENTIFIER, MAX_OUTPUT_BYTES, StructuredRequest, validate_trace_id
 
 
@@ -41,9 +43,12 @@ class OpenAIStructuredProvider:
     def infer(self, request: StructuredRequest, *, request_id: str | None = None) -> Invocation:
         validate_trace_id(request_id)
         supplied = request.descriptor
+        stage = "readiness"
+        invocation = None
         try:
             with response_client(client=self._client, api_key=self._api_key,
                                  environ=self._environ) as client:
+                stage = "send"
                 response = client.responses.create(
                     model=self.model,
                     input=[{"role": "developer", "content": supplied["instructions"]},
@@ -52,17 +57,35 @@ class OpenAIStructuredProvider:
                                      "strict": True, "schema": supplied["output_schema"]}},
                     tools=[], store=False, max_output_tokens=self.max_output_tokens,
                     extra_headers={"X-Client-Request-Id": request_id} if request_id else {})
-        except Exception:
-            raise ProviderError("OpenAI invocation failed; its external outcome may be unknown") from None
+                # Classify and retain completion before owned-client teardown;
+                # a cleanup error cannot erase a known invalid/refused response.
+                stage = "result"
+                invocation = self._completed_response(response, request, request_id)
+                stage = "cleanup"
+                return invocation
+        except ProviderOutcomeFailure:
+            raise
+        except BaseException as error:
+            if stage == "cleanup" and invocation is not None:
+                raise completed_cleanup_failure("openai", invocation.evidence, invocation.output) from None
+            if not isinstance(error, Exception):
+                raise
+            diagnostic = unknown_diagnostic("openai", stage, error, cleanup_failed=stage == "cleanup")
+            if stage == "result":
+                diagnostic["category"] = "response_incomplete"
+            raise ProviderError("OpenAI invocation failed; its external outcome may be unknown",
+                                diagnostic=diagnostic) from None
+
+    def readiness(self) -> dict:
+        """Check local SDK/credential construction without submitting inference."""
+        with response_client(client=self._client, api_key=self._api_key,
+                             environ=self._environ):
+            pass
+        return {"provider": "openai", "ready": True, "inference_submitted": False}
+
+    def _completed_response(self, response, request, request_id):
         if getattr(response, "status", None) != "completed":
             raise ProviderError("OpenAI response did not complete")
-        for item in getattr(response, "output", []) or []:
-            if getattr(item, "type", None) in {"function_call", "custom_tool_call"}:
-                raise ProviderError("OpenAI returned a tool call in text-only mode")
-            for content in getattr(item, "content", []) or []:
-                if getattr(content, "type", None) == "refusal":
-                    raise ProviderError("OpenAI refused the structured request")
-        output = request.parse_output(getattr(response, "output_text", None))
         evidence = {"provider": "openai", "model": self.model, "role": self.role,
                     "request_sha256": request.identity,
                     "reserved_microusd": self.reservation_microusd,
@@ -79,4 +102,14 @@ class OpenAIStructuredProvider:
                   if type(getattr(usage, field, None)) is int and 0 <= getattr(usage, field) <= 10**9}
         if tokens:
             evidence["usage"] = tokens
+        for item in getattr(response, "output", []) or []:
+            if getattr(item, "type", None) in {"function_call", "custom_tool_call"}:
+                raise completed_unusable("openai", "forbidden_tool_call", evidence)
+            for content in getattr(item, "content", []) or []:
+                if getattr(content, "type", None) == "refusal":
+                    raise completed_unusable("openai", "refused_output", evidence)
+        try:
+            output = request.parse_output(getattr(response, "output_text", None))
+        except ProviderError:
+            raise completed_unusable("openai", "invalid_output", evidence) from None
         return Invocation(output, evidence)

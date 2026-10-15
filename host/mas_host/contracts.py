@@ -26,8 +26,22 @@ class AdapterInterrupted(AdapterError):
     """Host shutdown interrupted local execution."""
 
 
+class KnownInvocationFailure(AdapterError):
+    """A recorded unusable outcome; only an explicit host policy may retry it."""
+
+    def __init__(self, outcome: dict, call_id: str | None = None, *, completed_output: dict | None = None):
+        from .provider_outcomes import validate_provider_outcome, validate_completed_output
+        self.outcome = validate_provider_outcome(outcome)
+        self.completed_output = validate_completed_output(self.outcome, completed_output)
+        self.call_id = call_id
+        super().__init__("provider execution: " + self.outcome["category"])
+
+
 def validate_invocation_diagnostic(value: object) -> dict:
-    """Copy the exact finite public schema; never accept exception text or IDs."""
+    """Copy the finite public schema, excluding raw exception text and secrets."""
+    if type(value) is dict and value.get("format") == "mas-provider-diagnostic/1":
+        from .provider_outcomes import validate_provider_diagnostic
+        return validate_provider_diagnostic(value)
     if (type(value) is not dict or set(value) != {"provider", "stage", "cleanup_failed"}
             or type(value["provider"]) is not str or value["provider"] != "cursor-local"
             or type(value["stage"]) is not str
@@ -118,11 +132,17 @@ class HostContext(AdapterContext, Protocol):
         ...
 
     def prepare_invocation(self, *, input: dict | None = None,
-                           reservation_microusd: int | None = None) -> InvocationTicket: ...
+                           reservation_microusd: int | None = None,
+                           retry_of: str | None = None) -> InvocationTicket: ...
 
     def complete_invocation(self, ticket: InvocationTicket, invocation: Invocation) -> dict: ...
 
     def fail_invocation(self, ticket: InvocationTicket, *, diagnostic: dict | None = None) -> None: ...
+
+    def reject_invocation(self, ticket: InvocationTicket, outcome: dict, *,
+                          completed_output: dict | None = None) -> None: ...
+
+    def retry_invocation(self, call_id: str) -> dict | None: ...
 
 
 class AdapterExecutor(Protocol):

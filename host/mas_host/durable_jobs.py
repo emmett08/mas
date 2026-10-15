@@ -43,11 +43,12 @@ def _operator_evidence(evidence: dict):
 
 
 class JobStore:
-    """Version-checked SQLite plus interprocess locks, held across HTTP dispatch.
+    """Short database sections and independent per-job network ownership.
 
     The deployment shared lock coordinates backup/restore and retention. The job
-    lock serialises create, poll, attach and cancellation, preventing stale polls
-    from overwriting terminal state. No network work occurs in a transaction.
+    lock serialises create, poll, attach and cancellation for one job, preventing
+    stale polls from overwriting terminal state. The global database lock and
+    SQLite connection never span a network wait.
     """
     def __init__(self, state_dir: Path):
         self.state_dir = Path(state_dir).absolute()
@@ -57,7 +58,7 @@ class JobStore:
     def open(self, *, readonly: bool = False):
         _private_dir(self.state_dir, create=not readonly)
         with _file_lock(self.state_dir / ".deployment.lock", False, nonblocking=True), \
-                _file_lock(self.state_dir / ".cursor-jobs.lock", True, nonblocking=True):
+                _file_lock(self.state_dir / ".cursor-jobs.lock", not readonly, nonblocking=True):
             if not readonly:
                 self.require_mutable()
             try:
@@ -69,6 +70,20 @@ class JobStore:
                 yield db
             finally:
                 db.close()
+
+    @contextmanager
+    def operation(self, job_id: str):
+        """Keep maintenance exclusion and one job owner through remote dispatch.
+
+        Lock files are permanent: unlinking a live inode could create a second
+        owner. Reads and intent preparation do not take this operation lock.
+        """
+        digest = hashlib.sha256(job_identifier(job_id).encode()).hexdigest()
+        _private_dir(self.state_dir, create=True)
+        with _file_lock(self.state_dir / ".deployment.lock", False, nonblocking=True), \
+                _file_lock(self.state_dir / (".cursor-job-" + digest + ".lock"), True, nonblocking=True):
+            self.require_mutable()
+            yield
 
     def require_mutable(self):
         """Backups are audit-only: a copied job must never affect its original."""
@@ -195,6 +210,9 @@ class JobStore:
         with self.open(readonly=True) as db:
             return CloudJobSpec(**json.loads(self.row(db, job_id)["spec"]))
 
+    def service(self, client=None):
+        return DurableJobService(self, client)
+
 
 def receipt(row: dict) -> dict:
     if row["run_id"] is None:
@@ -224,32 +242,42 @@ class DurableJobService:
                        (snapshot["run_id"], state, canonical(snapshot), int(time.time()), row["job_id"]))
             JobStore.audit(db, row["job_id"], event, evidence)
 
+    def _correlated(self, db, expected):
+        current = self.store.row(db, expected["job_id"])
+        if current != expected:
+            raise CloudError("cloud job changed during remote operation")
+        return current
+
     def submit(self, job_id: str, spec: CloudJobSpec, *, call_id: str, host_run_dir: Path) -> Invocation:
         if type(call_id) is not str or not re.fullmatch(r"call-[A-Za-z0-9_-]{1,128}", call_id):
             raise CloudError("cloud submission requires an admitted MAS invocation")
         host_run_dir = self.store.host_directory(host_run_dir)
-        with self.store.open() as db:
-            self.store.verify_admission(host_run_dir, call_id, spec.reservation_microusd)
-            row = self.store.row(db, job_id)
-            if row["binding"] != binding(spec):
-                raise CloudError("cloud job configuration differs from durable intent")
-            if row["state"] != "prepared":
-                # A new host invocation cannot claim an old charged submission.
-                if row["call_id"] != call_id or row["host_run_dir"] != str(Path(host_run_dir).absolute()):
-                    raise CloudError("cloud job already belongs to another invocation; reconcile the original")
-                return self._invocation(row, spec)
-            with db:
-                db.execute("UPDATE jobs SET state='launch_unknown',host_run_dir=?,call_id=?,updated=? WHERE job_id=?",
-                           (str(Path(host_run_dir).absolute()), call_id, int(time.time()), job_id))
-                self.store.audit(db, job_id, "dispatch_intent", {"call_id": call_id})
+        with self.store.operation(job_id):
+            with self.store.open() as db:
+                self.store.verify_admission(host_run_dir, call_id, spec.reservation_microusd)
+                row = self.store.row(db, job_id)
+                if row["binding"] != binding(spec):
+                    raise CloudError("cloud job configuration differs from durable intent")
+                if row["state"] != "prepared":
+                    # A new host invocation cannot claim an old charged submission.
+                    if row["call_id"] != call_id or row["host_run_dir"] != str(Path(host_run_dir).absolute()):
+                        raise CloudError("cloud job already belongs to another invocation; reconcile the original")
+                    return self._invocation(row, spec)
+                with db:
+                    db.execute("UPDATE jobs SET state='launch_unknown',host_run_dir=?,call_id=?,updated=? WHERE job_id=?",
+                               (str(Path(host_run_dir).absolute()), call_id, int(time.time()), job_id))
+                    self.store.audit(db, job_id, "dispatch_intent", {"call_id": call_id})
+                row = self.store.row(db, job_id)
             # launch_unknown is committed BEFORE POST, including hard process death.
             response = self._remote().create(spec.payload(row["agent_id"]))
             if (type(response) is not dict or type(response.get("agent")) is not dict
                     or response["agent"].get("id") != row["agent_id"]):
                 raise CloudError("Cursor launch response does not match durable agent identity")
             snapshot = run_snapshot(response.get("run"), row["agent_id"])
-            self._snapshot(db, row, snapshot, "submitted", {"run_id": snapshot["run_id"]})
-            return self._invocation(self.store.row(db, job_id), spec)
+            with self.store.open() as db:
+                current = self._correlated(db, row)
+                self._snapshot(db, current, snapshot, "submitted", {"run_id": snapshot["run_id"]})
+                return self._invocation(self.store.row(db, job_id), spec)
 
     @staticmethod
     def _invocation(row, spec):
@@ -260,24 +288,28 @@ class DurableJobService:
                           "spending_basis": "configured_reservation_not_provider_invoice"})
 
     def poll(self, job_id: str) -> dict:
-        with self.store.open() as db:
-            row = self.store.row(db, job_id)
-            if row["state"] == "terminal":
-                return self.store.public(row)
-            receipt(row)
+        with self.store.operation(job_id):
+            with self.store.open() as db:
+                row = self.store.row(db, job_id)
+                if row["state"] == "terminal":
+                    return self.store.public(row)
+                receipt(row)
             snapshot = run_snapshot(self._remote().run(row["agent_id"], row["run_id"]), row["agent_id"], row["run_id"])
-            self._snapshot(db, row, snapshot, "observed", {"remote_status": snapshot["remote_status"]})
-            return self.store.public(self.store.row(db, job_id))
+            with self.store.open() as db:
+                current = self._correlated(db, row)
+                self._snapshot(db, current, snapshot, "observed", {"remote_status": snapshot["remote_status"]})
+                return self.store.public(self.store.row(db, job_id))
 
     def attach(self, job_id: str, run_id: str, *, evidence: dict) -> dict:
         """Audited reconciliation of an uncertain launch; never infer latestRunId."""
         identifier(run_id, "run-")
         _operator_evidence(evidence)
-        with self.store.open() as db:
-            row = self.store.row(db, job_id)
-            if row["state"] != "launch_unknown" or row["run_id"] is not None:
-                raise CloudError("only an uncertain launch without a run can be attached")
-            spec = CloudJobSpec(**json.loads(row["spec"]))
+        with self.store.operation(job_id):
+            with self.store.open() as db:
+                row = self.store.row(db, job_id)
+                if row["state"] != "launch_unknown" or row["run_id"] is not None:
+                    raise CloudError("only an uncertain launch without a run can be attached")
+                spec = CloudJobSpec(**json.loads(row["spec"]))
             agent = self._remote().agent(row["agent_id"])
             if (type(agent) is not dict or agent.get("id") != row["agent_id"]
                     or type(agent.get("repos")) is not list or len(agent["repos"]) != 1
@@ -288,27 +320,33 @@ class DurableJobService:
                     or agent.get("workOnCurrentBranch") is not False):
                 raise CloudError("remote agent configuration does not match durable intent")
             snapshot = run_snapshot(self._remote().run(row["agent_id"], run_id), row["agent_id"], run_id)
-            self._snapshot(db, row, snapshot, "operator_attached", evidence)
-            return self.store.public(self.store.row(db, job_id))
+            with self.store.open() as db:
+                current = self._correlated(db, row)
+                self._snapshot(db, current, snapshot, "operator_attached", evidence)
+                return self.store.public(self.store.row(db, job_id))
 
     def cancel(self, job_id: str, *, retry: bool = False) -> dict:
-        with self.store.open() as db:
-            row = self.store.row(db, job_id)
-            if row["state"] == "terminal":
-                return self.store.public(row)
-            receipt(row)
-            if row["cancel_requested"] and not retry:
-                raise CloudError("cancellation already requested; reconcile or explicitly retry cancellation")
-            with db:
-                db.execute("UPDATE jobs SET cancel_requested=1,updated=? WHERE job_id=?", (int(time.time()), job_id))
-                self.store.audit(db, job_id, "cancel_requested", {"run_id": row["run_id"], "retry": retry})
+        with self.store.operation(job_id):
+            with self.store.open() as db:
+                row = self.store.row(db, job_id)
+                if row["state"] == "terminal":
+                    return self.store.public(row)
+                receipt(row)
+                if row["cancel_requested"] and not retry:
+                    raise CloudError("cancellation already requested; reconcile or explicitly retry cancellation")
+                with db:
+                    db.execute("UPDATE jobs SET cancel_requested=1,updated=? WHERE job_id=?", (int(time.time()), job_id))
+                    self.store.audit(db, job_id, "cancel_requested", {"run_id": row["run_id"], "retry": retry})
+                row = self.store.row(db, job_id)
             response = self._remote().cancel(row["agent_id"], row["run_id"])
             if type(response) is not dict or response.get("id") != row["run_id"]:
                 raise CloudError("Cursor cancellation response does not match durable run identity")
             # Acknowledged request alone does not change remote state to CANCELLED.
-            with db:
-                self.store.audit(db, job_id, "cancel_acknowledged", {"run_id": row["run_id"]})
-            return self.store.public(self.store.row(db, job_id))
+            with self.store.open() as db:
+                self._correlated(db, row)
+                with db:
+                    self.store.audit(db, job_id, "cancel_acknowledged", {"run_id": row["run_id"]})
+                return self.store.public(self.store.row(db, job_id))
 
     def resolve_submission(self, job_id: str, *, evidence: dict) -> dict:
         """Resolve only the MAS submission receipt, never claim remote completion."""

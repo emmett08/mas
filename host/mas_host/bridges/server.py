@@ -13,17 +13,21 @@ from socketserver import ThreadingMixIn
 import sys
 import threading
 import time
+import uuid
 from urllib.parse import urlsplit
 
 from ..codec import integer_json
 from ..contracts import RunnerError
 from ..service_contracts import ServiceError
+from ..observability import RequestLog
 from .authentication import AuthenticationError, SCOPES, _principal
 from .service_client import MAX_WIRE_BYTES, decode_integer_json, validate_endpoint
 
 _SERVICE_SCOPES = {"submit": "mas:submit", "inspect": "mas:read", "result": "mas:read",
                    "cancel": "mas:cancel", "update": "mas:update", "events": "mas:read",
-                   "list": "mas:read", "page": "mas:read"}
+                   "list": "mas:read", "page": "mas:read", "events_page": "mas:read",
+                   "task": "mas:read", "discover": "mas:read", "recover": "mas:update",
+                   "events_wait": "mas:read", "graph": "mas:read"}
 
 
 class _DeadlineReader:
@@ -86,17 +90,26 @@ class BridgeHTTPServer(ThreadingMixIn, HTTPServer):
                  request_timeout=30, max_body_bytes=MAX_WIRE_BYTES, max_response_bytes=MAX_WIRE_BYTES,
                  max_header_bytes=16384,
                  max_connections=8, allow_loopback_http=False, public_agent_card=True,
-                 ssl_context=None):
+                 ssl_context=None, request_log=None, artifact_transfer=None, worker_controller=None,
+                 max_subscriptions=None, operator_service=None):
         parsed = validate_endpoint(public_url, allow_loopback_http=allow_loopback_http)
+        if max_subscriptions is None and type(max_connections) is int:
+            max_subscriptions = min(2, max(0, max_connections - 1))
         if parsed.path not in ("", "/", "/mcp"):
             raise ServiceError("invalid_public_url")
         if (type(request_timeout) not in (int, float) or not 0 < request_timeout <= 300
                 or type(max_body_bytes) is not int or not 1024 <= max_body_bytes <= 1048576
                 or type(max_response_bytes) is not int or not 1024 <= max_response_bytes <= MAX_WIRE_BYTES
                 or type(max_header_bytes) is not int or not 1024 <= max_header_bytes <= 65536
-                or type(max_connections) is not int or not 1 <= max_connections <= 64):
+                or type(max_connections) is not int or not 1 <= max_connections <= 64
+                or type(max_subscriptions) is not int or not 0 <= max_subscriptions < max_connections):
             raise ServiceError("invalid_server_configuration")
         self.service, self.verifier = service, verifier
+        self.telemetry_root = getattr(getattr(service, 'authority', None), 'observation_dir',
+                                      getattr(service, 'state_dir', None))
+        self.artifact_transfer = artifact_transfer
+        self.worker_controller = worker_controller
+        self.operator_service = operator_service
         self.public_url = public_url.rstrip("/").removesuffix("/mcp")
         self.mcp_bridge, self.a2a_bridge = mcp_bridge, a2a_bridge
         self.allowed_hosts = frozenset(allowed_hosts or [parsed.netloc.lower()])
@@ -112,7 +125,11 @@ class BridgeHTTPServer(ThreadingMixIn, HTTPServer):
         self.max_body_bytes, self.max_header_bytes = max_body_bytes, max_header_bytes
         self.max_response_bytes = max_response_bytes
         self.public_agent_card = bool(public_agent_card)
+        self.request_log = request_log if request_log is not None else RequestLog()
+        if not callable(self.request_log):
+            raise ServiceError("invalid_server_configuration")
         self._slots = threading.BoundedSemaphore(max_connections)
+        self._subscription_slots = threading.BoundedSemaphore(max_subscriptions)
         super().__init__(server_address, _Handler)
         if ssl_context is not None:
             # Handshake is deferred to the bounded handler, so it cannot block
@@ -161,25 +178,57 @@ class _Handler(BaseHTTPRequestHandler):
         pass
 
     def handle_one_request(self):
+        self.request_id = uuid.uuid4().hex
+        self._started_at = time.monotonic()
+        self._operation, self._response_status, self._error_code = "unparsed", 0, None
+        self._correlations = {}
         try:
             super().handle_one_request()
         except ServiceError as exc:
             self._error(431 if exc.code == "headers_too_large" else 400, exc.code)
         except (OSError, TimeoutError):
             self.close_connection = True
+            self._error_code = "transport_closed"
+        finally:
+            from ..telemetry import record
+            record(self.server.telemetry_root, 'http',
+                   max(0, int((time.monotonic() - self._started_at) * 1_000_000)),
+                   outcome='returned' if 200 <= self._response_status < 400 else 'raised',
+                   request_id=self.request_id, **self._correlations)
+            # Only fixed route names and codes enter this record. Never include
+            # a request target, body, token, principal name or exception text.
+            try:
+                self.server.request_log({"request_id": self.request_id, "operation": self._operation,
+                    "status": self._response_status, "error_code": self._error_code,
+                    "duration_ms": max(0, int((time.monotonic() - self._started_at) * 1000))})
+            except Exception:
+                # Observability cannot turn a committed admission into an
+                # apparent failure or trigger an application retry.
+                pass
 
     def _send(self, status, body, *, headers=None):
         self.close_connection = True
+        if (200 <= status < 300 and self._operation in {
+                'service.submit', 'service.inspect', 'service.update', 'service.cancel',
+                'service.recover', 'service.task'}
+                and type(body) is dict and type(body.get('result')) is dict):
+            # Only known lifecycle receipt IDs; result payloads may contain
+            # application fields named run_id and must never enter observations.
+            self._correlations = {key: body['result'][key]
+                for key in ('task_id', 'run_id', 'assignment_id', 'invocation_id') if key in body['result']}
         try:
             raw = integer_json(body, self.server.max_response_bytes).encode("utf-8") if body is not None else b""
         except RunnerError:
             status, raw = 500, b'{"error":{"code":"response_too_large"}}'
+            self._error_code = "response_too_large"
+        self._response_status = status
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(raw)))
         self.send_header("Connection", "close")
         self.send_header("Cache-Control", "no-store")
         self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("X-Request-ID", self.request_id)
         for key, value in (headers or {}).items():
             self.send_header(key, value)
         self.end_headers()
@@ -187,6 +236,9 @@ class _Handler(BaseHTTPRequestHandler):
             self.wfile.write(raw)
 
     def _error(self, status, code, *, headers=None):
+        self._error_code = (code if type(code) is str and len(code) <= 128
+                            and all(c.isascii() and (c.islower() or c.isdigit() or c == "_") for c in code)
+                            else "internal_error")
         # Initialise minimal state if failure occurred before header parsing.
         if not hasattr(self, "request_version"):
             self.request_version = "HTTP/1.1"
@@ -212,6 +264,17 @@ class _Handler(BaseHTTPRequestHandler):
             raise ServiceError("origin_denied")
         if urlsplit(self.path).scheme or "?" in self.path or "#" in self.path:
             raise ServiceError("invalid_request_target")
+        operation = self.path.removeprefix("/service/")
+        if self.path.startswith("/service/") and operation in _SERVICE_SCOPES:
+            self._operation = "service." + operation
+        elif self.path.startswith("/workers/") and self.path.removeprefix("/workers/") in {
+                "register", "claim", "dispatch", "heartbeat", "receipt", "drain"}:
+            self._operation = "workers." + self.path.removeprefix("/workers/")
+        else:
+            self._operation = {"/mcp": "mcp", "/a2a": "a2a",
+                "/.well-known/agent-card.json": "agent_card",
+                "/.well-known/oauth-protected-resource": "oauth_metadata",
+                "/.well-known/oauth-protected-resource/mcp": "oauth_metadata"}.get(self.path, "unknown")
 
     def _auth(self, scopes):
         authorization = self.headers.get("Authorization", "")
@@ -231,6 +294,22 @@ class _Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         try:
             self._validate_headers()
+            if self.path == '/console':
+                from .console import console_response
+                raw, headers = console_response()
+                if len(raw) > self.server.max_response_bytes:
+                    raise ServiceError('response_too_large')
+                self._operation, self._response_status = 'console', 200
+                self.close_connection = True
+                self.send_response(200)
+                for name, value in {'Content-Type': 'text/html; charset=utf-8',
+                        'Content-Length': str(len(raw)), 'Connection': 'close',
+                        'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff',
+                        'X-Request-ID': self.request_id, **headers}.items():
+                    self.send_header(name, value)
+                self.end_headers()
+                self.wfile.write(raw)
+                return
             if self.path in ("/.well-known/oauth-protected-resource", "/.well-known/oauth-protected-resource/mcp"):
                 metadata = getattr(self.server.verifier, "metadata", None)
                 if not callable(metadata):
@@ -277,12 +356,51 @@ class _Handler(BaseHTTPRequestHandler):
                 raise ServiceError("invalid_json")
             if time.monotonic() >= self.deadline:
                 raise ServiceError("request_timeout")
+            if self.path.startswith("/workers/"):
+                principal.require({"mas:worker"})
+                if self.server.worker_controller is None:
+                    raise ServiceError("unsupported_capability")
+                value = self.server.worker_controller.handle(principal.name,
+                    self.path.removeprefix("/workers/"), payload)
+                return self._send(200, {"result": value})
+            if self.path.startswith("/service/operator/"):
+                principal.require({"mas:admin"})
+                if self.server.operator_service is None:
+                    raise ServiceError("unsupported_capability")
+                operation = self.path.removeprefix("/service/operator/")
+                from ..operator_service import OPERATIONS
+                if operation not in OPERATIONS:
+                    raise ServiceError("not_found")
+                self._operation = "operator." + operation
+                value = self.server.operator_service.dispatch(principal.name, operation, payload)
+                return self._send(200, {"result": value})
+            if self.path.startswith("/service/artifact/"):
+                from .artifact_transfer import OPERATIONS, WRITE_OPERATIONS
+                operation = self.path.removeprefix("/service/artifact/")
+                if operation not in OPERATIONS or self.server.artifact_transfer is None:
+                    raise ServiceError("not_found")
+                self._operation = "artifact." + operation
+                principal.require({"mas:submit" if operation in WRITE_OPERATIONS else "mas:read"})
+                value = self.server.artifact_transfer.dispatch(principal.name, operation, payload)
+                return self._send(200, {"result": value})
             if self.path.startswith("/service/"):
                 operation = self.path.removeprefix("/service/")
                 scope = _SERVICE_SCOPES.get(operation)
                 if scope is None:
                     raise ServiceError("not_found")
                 principal.require({scope})
+                if operation == 'events_wait':
+                    if not self.server._subscription_slots.acquire(blocking=False):
+                        raise ServiceError('subscription_capacity')
+                    try:
+                        # Leave ordinary ingress slots and time for serialising
+                        # the response. Every page read rechecks owner grants.
+                        maximum = max(0, min(25000, int((self.deadline - time.monotonic() - 0.1) * 1000)))
+                        value = _service_call(self.server.service, principal.name, operation, payload,
+                                              subscription_limit_ms=maximum)
+                    finally:
+                        self.server._subscription_slots.release()
+                    return self._send(200, {'result': value})
                 value = _service_call(self.server.service, principal.name, operation, payload)
                 return self._send(200, {"result": value})
             if self.path == "/mcp" and self.server.mcp_bridge is not None:
@@ -321,13 +439,15 @@ class _Handler(BaseHTTPRequestHandler):
 
 
 def _service_status(code):
+    if code == "unsupported_capability":
+        return 501
     if code in {"not_found", "task_not_found", "workflow_not_found"}:
         return 404
-    if code in {"forbidden", "principal_mismatch"}:
+    if code in {"forbidden", "principal_mismatch", "worker_forbidden", "worker_capability_denied"}:
         return 403
-    if code in {"idempotency_conflict", "request_key_conflict", "request_conflict", "task_not_ready", "invalid_state", "result_not_ready", "result_unavailable", "invalid_task_state"}:
+    if code in {"request_epoch_retired", "request_epoch_in_use", "idempotency_conflict", "request_key_conflict", "request_conflict", "task_not_ready", "invalid_state", "result_not_ready", "result_unavailable", "invalid_task_state", "stale_worker_epoch", "stale_worker_assignment", "receipt_conflict", "worker_registration_conflict", "worker_policy_changed", "invocation_binding_conflict"}:
         return 409
-    if code in {"queue_full", "service_unavailable", "authentication_unavailable"}:
+    if code in {"queue_full", "service_unavailable", "authentication_unavailable", "worker_queue_full", "controller_admission_closed", "subscription_capacity"}:
         return 503
     if code == "request_too_large":
         return 413
@@ -338,17 +458,29 @@ def _service_status(code):
     return 400
 
 
-def _service_call(service, principal, operation, payload):
+def _service_call(service, principal, operation, payload, *, subscription_limit_ms=25000):
     required = {"submit": {"request_key", "workflow", "input"}, "inspect": {"task_id"},
                 "result": {"task_id"}, "cancel": {"task_id"},
-                "update": {"task_id", "request_key", "input"}, "events": {"task_id"},
-                "list": set(), "page": set()}[operation]
-    optional = {"submit": {"metadata"}, "update": {"metadata"}, "events": {"after"},
-                "list": {"limit", "offset"},
+                "update": {"task_id", "request_key", "input"}, "events": {"task_id"}, "events_page": {"task_id"},
+                "list": set(), "page": set(), "task": {"task_id", "path"}, "graph": {"task_id"},
+                "discover": set(), "recover": {"task_id"}, "events_wait": {"task_id"}}[operation]
+    optional = {"submit": {"metadata", "expected_identity", "expected_deployment_id", "request_epoch"},
+                "update": {"metadata", "expected_identity", "expected_deployment_id"},
+                "events": {"after"}, "events_page": {"after", "limit"},
+                "events_wait": {"after", "limit", "wait_ms"},
+                "list": {"limit", "offset"}, "task": {"revision"}, "graph": {"section", "offset", "limit"},
                 "page": {"page_size", "after", "state", "metadata", "updated_after"}}.get(operation, set())
     if not required.issubset(payload) or set(payload) - required - optional:
         raise ServiceError("invalid_parameters")
-    method = getattr(service, {"list": "list_tasks", "page": "list_task_page"}.get(operation, operation))
+    if operation == 'events_wait':
+        from ..event_delivery import wait_events
+        wait_ms = payload.get('wait_ms', 20000)
+        if type(wait_ms) is not int or not 0 <= wait_ms <= 25000:
+            raise ServiceError('invalid_subscription_timeout')
+        return wait_events(service, principal, **{**payload, 'wait_ms': min(wait_ms, subscription_limit_ms)})
+    method = getattr(service, {"list": "list_tasks", "page": "list_task_page", "task": "inspect_task", "graph": "inspect_graph"}.get(operation, operation), None)
+    if not callable(method):
+        raise ServiceError("unsupported_capability")
     return method(principal, **payload)
 
 
@@ -361,12 +493,18 @@ def _mcp_scope(payload):
     if method == "tools/call":
         params = payload.get("params")
         name = params.get("name") if type(params) is dict else None
-        return {"mas.submit": "mas:submit", "mas.cancel": "mas:cancel", "mas.update": "mas:update"}.get(name, "mas:read")
+        if type(name) is str and name.startswith("mas.artifact."):
+            from .artifact_transfer import WRITE_OPERATIONS
+            return "mas:submit" if name.removeprefix("mas.artifact.") in WRITE_OPERATIONS else "mas:read"
+        return {"mas.submit": "mas:submit", "mas.cancel": "mas:cancel", "mas.update": "mas:update",
+                "mas.recover": "mas:update"}.get(name, "mas:read")
     return "mas:read"
 
 
 def _a2a_scope(payload):
     method = payload.get("method")
+    if method == 'mas/RecoverTask':
+        return 'mas:update'
     if method in {"CancelTask", "tasks/cancel"}:
         return "mas:cancel"
     if method == "SendMessage":

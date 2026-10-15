@@ -12,6 +12,7 @@ import gc
 import os
 from pathlib import Path
 import re
+import select
 import signal
 import sys
 import threading
@@ -42,6 +43,7 @@ class SchedulerOwnership:
         self.lifetime_read: int | None = None
         self._lifetime_write: int | None = None
         self._children: dict[Hashable, int] = {}
+        self._pidfds: dict[Hashable, int] = {}
         self._owner_pid = os.getpid()
         self._entered = False
 
@@ -107,6 +109,8 @@ class SchedulerOwnership:
                 code = 0
                 try:
                     os.close(self._lifetime_write)
+                    for descriptor in self._pidfds.values():
+                        os.close(descriptor)
                     signal.signal(signal.SIGINT, signal.SIG_DFL)
                     signal.signal(signal.SIGTERM, signal.SIG_DFL)
                     signal.pthread_sigmask(signal.SIG_SETMASK, previous)
@@ -118,6 +122,13 @@ class SchedulerOwnership:
                     # unlock shared descriptions or affect sibling resources.
                     os._exit(code)
             self._children[key] = pid
+            if hasattr(os, 'pidfd_open'):
+                try:
+                    self._pidfds[key] = os.pidfd_open(pid)
+                except OSError:
+                    # Older kernels or an already-exited child retain the
+                    # existing bounded timer/reap path.
+                    pass
         finally:
             signal.pthread_sigmask(signal.SIG_SETMASK, previous)
 
@@ -131,8 +142,24 @@ class SchedulerOwnership:
                 continue
             if done:
                 del self._children[key]
+                descriptor = self._pidfds.pop(key, None)
+                if descriptor is not None:
+                    os.close(descriptor)
                 exited[key] = status
         return exited
+
+    def wait(self, timeout: float) -> None:
+        """Wake on a local worker exit or the bounded cancellation/expiry timer."""
+        self._require_owner()
+        if not 0 <= timeout <= 1:
+            raise ServiceError('invalid_scheduler_wait')
+        if not self._pidfds:
+            time.sleep(timeout)
+            return
+        poller = select.poll()
+        for descriptor in self._pidfds.values():
+            poller.register(descriptor, select.POLLIN | select.POLLHUP | select.POLLERR)
+        poller.poll(int(timeout * 1000))
 
     def close(self) -> None:
         self._require_owner()
@@ -165,6 +192,9 @@ class SchedulerOwnership:
                     except ChildProcessError:
                         break
             self._children.clear()
+            for descriptor in self._pidfds.values():
+                os.close(descriptor)
+            self._pidfds.clear()
         finally:
             # Guardians retain the same locks until their own cleanup ends.
             for name in ("lifetime_read", "workflow_fd", "deployment_fd"):

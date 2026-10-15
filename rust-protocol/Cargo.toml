@@ -12,7 +12,22 @@ rusqlite = { version = "=0.40.2", features = ["bundled"] }
 serde_json = { version = "=1.0.152", features = ["arbitrary_precision"] }
 sha2 = "=0.11.0"
 subtle = "=2.6.1"
+postgres = { version = "=0.19.12", optional = true }
+postgres-native-tls = { version = "=0.5.3", optional = true }
+native-tls = { version = "=0.2.18", optional = true }
+hmac = { version = "=0.13.0", optional = true }
+
+[features]
+postgres-repository = ["dep:postgres", "dep:postgres-native-tls", "dep:native-tls", "dep:hmac"]
+
+[target.'cfg(target_os = "linux")'.dependencies]
+libc = "=0.2.190"
 
 [[bin]]
 name = "mas-protocol-codec"
 path = "src/main.rs"
+
+[[bin]]
+name = "mas-shared"
+path = "src/bin/mas-shared.rs"
+required-features = ["postgres-repository"]

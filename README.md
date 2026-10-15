@@ -3,6 +3,13 @@
 The [bridge guide](docs/bridges.md) covers authenticated MCP and A2A endpoints,
 durable remote tasks, Temporal/LangGraph connectors and mixed-provider deployments.
 
+The [host service guide](docs/host-service-evolution.md) covers immutable workflow
+versions, unified leaf/plan access, concurrent dispatch, human pauses and durable
+recovery. [Operations diagnostics and the console](docs/host-observability.md)
+provide progress polling, configuration checks and bounded metrics. The
+[implementation record](docs/host-evolution-plan.md) distinguishes delivered
+source profiles from outstanding roadmap work and deployment acceptance.
+
 The [composable workflow guide](docs/composable-workflows.md) covers named
 star/mesh/tree groups, reusable bounded plans, concurrent branches, arbitrary
 model roles, versioned operation contracts and result acceptance. Two offline
@@ -96,6 +103,15 @@ protocol guarantee. See [operations](docs/operations.md),
 [deployment acceptance](docs/deployment-acceptance.md) and
 [release controls](docs/releases.md). Live-provider acceptance needs your own
 credentials and is not implied by the offline tests.
+
+An opt-in [remote worker profile](docs/distributed-workers.md) distributes
+registered leaf execution while retaining one authoritative controller. It has
+local multi-process failure tests; two-machine qualification remains a release
+gate. [Trusted workspaces](docs/trusted-workspaces.md) are available for approved
+tools, and [persistent Rust IPC](docs/gateway.md#persistent-host-transport) reduces
+gateway process launches. These profiles do not add untrusted-code containment or
+controller high availability; the [shared authority design](docs/shared-authority-design.md)
+records that remaining work.
 
 For a continuously served bridge, apply `compose.bridges.production.yaml` after
 `compose.bridges.yaml`; it supervises ingress, worker and a reconciler on the

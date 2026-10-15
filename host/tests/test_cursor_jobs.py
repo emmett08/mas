@@ -262,6 +262,132 @@ class DurableCloudTests(unittest.TestCase):
                 self.submit()
         self.assertFalse(self.client.calls)
 
+    def _assert_stalled_job_is_independent(self, action):
+        if action in {"poll", "cancel"}:
+            self.submit()
+        elif action == "attach":
+            self.client.error = CloudError("lost create reply")
+            with self.assertRaises(CloudError):
+                self.submit()
+            self.client.error = None
+        method = {"create": "create", "poll": "run", "cancel": "cancel", "attach": "agent"}[action]
+        started, release = threading.Event(), threading.Event()
+        original = getattr(self.client, method)
+        failures = []
+        def stalled(*args):
+            started.set()
+            if not release.wait(5):
+                raise AssertionError("test did not release stalled provider")
+            return original(*args)
+        setattr(self.client, method, stalled)
+        operation = {"create": self.submit, "poll": lambda: self.service.poll("job-1"),
+            "cancel": lambda: self.service.cancel("job-1"),
+            "attach": lambda: self.service.attach("job-1", self.client.run_id, evidence={"ticket": "exact-run"})}[action]
+        def execute():
+            try:
+                operation()
+            except BaseException as error:
+                failures.append(error)
+        thread = threading.Thread(target=execute)
+        thread.start()
+        try:
+            self.assertTrue(started.wait(2))
+            # The in-flight job's durable snapshot and intent stay readable.
+            snapshot = self.store.inspect("job-1")
+            expected = "launch_unknown" if action in {"create", "attach"} else "active"
+            self.assertEqual(snapshot["state"], expected)
+            self.assertEqual(self.store.prepare("job-1", SPEC)["agent_id"], snapshot["agent_id"])
+            if action == "cancel":
+                self.assertTrue(snapshot["cancel_requested"])
+            calls = list(self.client.calls)
+            for competing in (self.submit, lambda: self.service.poll("job-1"),
+                              lambda: self.service.cancel("job-1")):
+                with self.assertRaises(OperationsError):
+                    competing()
+            self.assertEqual(self.client.calls, calls)
+            with self.assertRaises(OperationsError), _file_lock(
+                    self.root / ".deployment.lock", True, nonblocking=True):
+                self.fail("maintenance must not acquire an in-flight deployment")
+            # A separate admitted job can prepare, submit and cancel during the
+            # wait; only the first job's operation owner remains locked.
+            other_dir = self.root / "run-2"
+            other_dir.mkdir(mode=0o700)
+            ledger = DeploymentLedger(self.root)
+            ledger.admit_run("run-2", other_dir)
+            ledger.admit_call("run-2", "call-other", SPEC.reservation_microusd)
+            journal = Journal(other_dir, {"run_id": "run-2", "workflow_version": "fixture", "topology": {}, "max_depth": 8})
+            with journal.db:
+                journal.db.execute("INSERT INTO invocations VALUES('call-other','step-0','cloud','executing',NULL,NULL,?)",
+                                   (SPEC.reservation_microusd,))
+            journal.close()
+            self.store.prepare("job-2", SPEC)
+            other_client = FakeCloud()
+            other_client.run_id = "run-example-2"
+            other = DurableJobService(self.store, other_client)
+            submitted = other.submit("job-2", SPEC, call_id="call-other", host_run_dir=other_dir)
+            self.assertEqual(submitted.output["cursor_run_id"], "run-example-2")
+            self.assertTrue(other.cancel("job-2")["cancel_requested"])
+            self.assertEqual(self.store.status("job-1")["state"], expected)
+        finally:
+            release.set()
+            thread.join(2)
+        self.assertFalse(thread.is_alive())
+        self.assertEqual(failures, [])
+        self.assertEqual(self.store.status("job-1")["run_id"], self.client.run_id)
+        # A terminal observation after the earlier operation is immutable.
+        self.client.status = "CANCELLED"
+        terminal = self.service.poll("job-1")
+        self.client.status = "RUNNING"
+        count = len(self.client.calls)
+        self.assertEqual(self.service.poll("job-1"), terminal)
+        self.assertEqual(self.service.cancel("job-1"), terminal)
+        self.assertEqual(len(self.client.calls), count)
+
+    def test_stalled_create_does_not_lock_unrelated_jobs(self):
+        self._assert_stalled_job_is_independent("create")
+
+    def test_stalled_poll_does_not_lock_unrelated_jobs(self):
+        self._assert_stalled_job_is_independent("poll")
+
+    def test_stalled_cancel_does_not_lock_unrelated_jobs(self):
+        self._assert_stalled_job_is_independent("cancel")
+
+    def test_stalled_attachment_does_not_lock_unrelated_jobs(self):
+        self._assert_stalled_job_is_independent("attach")
+
+    def test_changed_identity_cannot_receive_an_inflight_result(self):
+        self.submit()
+        original = self.client.run
+        def changed(agent_id, run_id):
+            # Model an invalid concurrent administrative edit. Normal job APIs
+            # cannot acquire this job's ownership while the poll is in flight.
+            with sqlite3.connect(self.store.path) as db:
+                db.execute("UPDATE jobs SET call_id='call-changed' WHERE job_id='job-1'")
+            return original(agent_id, run_id)
+        self.client.run = changed
+        self.client.status = "CANCELLED"
+        with self.assertRaisesRegex(CloudError, "changed during remote operation"):
+            self.service.poll("job-1")
+        self.assertEqual(self.store.status("job-1")["state"], "active")
+
+    def test_late_poll_cannot_overwrite_a_retained_terminal_snapshot(self):
+        self.submit()
+        original = self.client.run
+        def changed(agent_id, run_id):
+            response = original(agent_id, run_id)
+            terminal = run_snapshot(response | {"status": "FINISHED"}, agent_id, run_id)
+            with sqlite3.connect(self.store.path) as db:
+                db.execute("UPDATE jobs SET state='terminal',snapshot=? WHERE job_id='job-1'",
+                           (json.dumps(terminal),))
+            return response
+        self.client.run = changed
+        self.client.status = "RUNNING"
+        with self.assertRaisesRegex(CloudError, "changed during remote operation"):
+            self.service.poll("job-1")
+        retained = self.store.status("job-1")
+        self.assertTrue(retained["remote_complete"])
+        self.assertEqual(retained["remote_status"], "FINISHED")
+
     def test_status_cli_needs_no_credentials_and_hides_prompt(self):
         with patch.dict(os.environ, {}, clear=True), redirect_stdout(io.StringIO()) as output:
             self.assertEqual(main(["--state-dir", str(self.root), "status", "job-1"]), 0)

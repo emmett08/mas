@@ -26,6 +26,7 @@ from .cursor_bridge_patch import patch_identity, validate_bridge_patch
 from .cursor_transport import (SDK_DEFAULT, bridge_transport, transport_identity,
                                validate_transport_policy)
 from .provider_contract import ProviderError
+from .provider_outcomes import ProviderOutcomeFailure, completed_unusable, completed_cleanup_failure, not_sent
 
 CURSOR_SDK_VERSION = "1.0.37"
 MAX_STREAM_TEXT_BYTES = 65_536
@@ -299,7 +300,7 @@ class CursorTextSession:
                 "model_retry_policy": "sdk_managed", "reservation_microusd": self.reservation_microusd}
 
     def execute_prompt(self, prompt: str, *, output_parser: Callable[[Any], dict],
-                       request_id: str | None = None) -> Invocation:
+                       request_id: str | None = None, classify_outcomes: bool = False) -> Invocation:
         """Execute trusted prompt construction with an application-owned parser.
 
         This is a low-level effect: applications call it through an admitted
@@ -311,11 +312,13 @@ class CursorTextSession:
                     or not re.fullmatch(r"[A-Za-z0-9_.:/-]{1,128}", request_id))):
             raise ProviderError("invalid Cursor text request")
         workspace = None
+        invocation = None
         primary = None
         cleanup_failed = False
         try:
             workspace = tempfile.TemporaryDirectory(prefix="mas-cursor-local-")
-            invocation = self._run(workspace.name, prompt, request_id, output_parser)
+            invocation = (self._run(workspace.name, prompt, request_id, output_parser, classify_outcomes=True)
+                          if classify_outcomes else self._run(workspace.name, prompt, request_id, output_parser))
         except BaseException as error:
             primary = error
         finally:
@@ -327,8 +330,12 @@ class CursorTextSession:
                     if primary is None:
                         primary = error
         if primary is not None:
+            if cleanup_failed and invocation is not None:
+                raise completed_cleanup_failure("cursor-local", invocation.evidence, invocation.output) from None
             if not isinstance(primary, Exception):
                 raise primary
+            if isinstance(primary, ProviderOutcomeFailure):
+                raise primary.with_cleanup_failure() if cleanup_failed else primary
             from .contracts import invocation_failure_diagnostic
             diagnostic = invocation_failure_diagnostic(primary) or {
                 "provider": "cursor-local", "stage": "cleanup" if cleanup_failed else "launch",
@@ -338,9 +345,25 @@ class CursorTextSession:
                                 diagnostic=diagnostic) from None
         return invocation
 
+    def readiness(self) -> dict:
+        """Validate optional local dependencies and credentials without a run."""
+        if self._client is None:
+            if self._api_key is None:
+                from .provider_credentials import CredentialError, read_api_key
+                try:
+                    read_api_key("cursor", environ=self._environ)
+                except CredentialError:
+                    raise not_sent("cursor-local", "credentials_unavailable") from None
+            try:
+                check_runtime()
+            except Exception:
+                raise not_sent("cursor-local", "runtime_unavailable") from None
+        return {"provider": "cursor-local", "ready": True, "inference_submitted": False}
+
     def _run(self, workspace: str, prompt: str, request_id: str | None,
-             output_parser: Callable[[Any], dict]) -> Invocation:
+             output_parser: Callable[[Any], dict], *, classify_outcomes: bool = False) -> Invocation:
         client = None
+        invocation = None
         agent = run = None
         stage = "launch"
         primary = None
@@ -388,7 +411,6 @@ class CursorTextSession:
             if getattr(result, "status", None) != "finished":
                 raise ProviderError("Cursor response did not complete")
             text = getattr(result, "result", None)
-            output = output_parser(text)
             evidence: dict[str, Any] = {
                 "provider": "cursor-local", "model": self.model, "role": self.role,
                 "sdk_version": CURSOR_SDK_VERSION, "node_version": _runtime_manifest()["version"],
@@ -413,9 +435,21 @@ class CursorTextSession:
                     tokens[field] = value
             if tokens:
                 evidence["usage"] = tokens
+            try:
+                output = output_parser(text)
+            except Exception:
+                if classify_outcomes:
+                    raise completed_unusable("cursor-local", "invalid_output", evidence) from None
+                raise
             invocation = Invocation(output=output, evidence=evidence)
         except BaseException as error:
-            primary = error
+            if classify_outcomes and stage == "launch" and isinstance(error, Exception):
+                from .provider_credentials import CredentialError
+                primary = not_sent("cursor-local", "credentials_unavailable" if isinstance(error, CredentialError)
+                                   else "runtime_unavailable" if isinstance(error, ProviderError)
+                                   else "client_initialisation_failed")
+            else:
+                primary = error
         finally:
             # Always attempt all cleanup steps. The first failure keeps its
             # stage; later cleanup failures supply only a bounded boolean.
@@ -433,8 +467,12 @@ class CursorTextSession:
                     if primary is None:
                         primary, stage = error, "cleanup"
         if primary is not None:
+            if cleanup_failed and invocation is not None:
+                raise completed_cleanup_failure("cursor-local", invocation.evidence, invocation.output) from None
             if not isinstance(primary, Exception):
                 raise primary
+            if isinstance(primary, ProviderOutcomeFailure):
+                raise primary.with_cleanup_failure() if cleanup_failed else primary
             from .contracts import invocation_failure_diagnostic
             earlier = invocation_failure_diagnostic(primary)
             if earlier is not None:

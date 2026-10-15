@@ -14,11 +14,12 @@ from datetime import datetime, timezone
 
 from ..codec import integer_json
 from ..contracts import RunnerError
-from ..service_contracts import TaskService
+from ..service_contracts import ServiceError, TaskService
 
 VERSION = "2026-07-28"
 PREFIX = "io.modelcontextprotocol/"
 TASKS = PREFIX + "tasks"
+SERVICE_PROFILE = "org.mas/task-service/1"
 MAX_MESSAGE = 65_536
 
 
@@ -160,6 +161,24 @@ def tool_result(value: dict, *, failed=False) -> dict:
             "structuredContent": value, "isError": bool(failed)}
 
 
+def _event_page_for_wire(page, after):
+    """Reserve envelope space while keeping the cursor at the last sent event."""
+    selected, size = [], 256
+    for item in page["events"]:
+        try:
+            item_size = len(integer_json(item).encode("utf-8")) + 1
+        except RunnerError:
+            item_size = MAX_MESSAGE
+        if size + item_size > MAX_MESSAGE - 4096:
+            if not selected:
+                raise ServiceError("page_item_too_large")
+            break
+        selected.append(item)
+        size += item_size
+    return {"events": selected, "next_after": selected[-1]["id"] if selected else after,
+            "has_more": page["has_more"] or len(selected) < len(page["events"])}
+
+
 _NO_INSTANCE = object()
 
 
@@ -224,13 +243,16 @@ def task_result(receipt: dict, *, creation=False) -> dict:
     state = receipt["state"]
     # Application failure is a completed tool call with isError, never a
     # protocol-level failed task. Unknown effects stay non-terminal.
-    status = {"queued": "working", "running": "working", "unknown": "working",
+    status = {"queued": "working", "running": "working", "unknown": "working", "blocked": "working",
               "auth_required": "working", "input_required": "input_required",
               "completed": "completed", "failed": "completed", "cancelled": "cancelled"}[state]
     result = {"resultType": "task" if creation else "complete", "taskId": receipt["task_id"],
               "status": status, "createdAt": _time(receipt["created_at"]),
               "lastUpdatedAt": _time(receipt["updated_at"]), "ttlMs": None, "pollIntervalMs": 1000,
               "_meta": {"org.mas/state": state, "org.mas/cancelRequested": bool(receipt["cancel_requested"])}}
+    if "workflow_identity" in receipt:
+        result["_meta"].update({"org.mas/workflow": receipt["workflow"],
+                               "org.mas/workflowIdentity": receipt["workflow_identity"]})
     if status == "completed":
         result["result"] = tool_result({"task_id": receipt["task_id"], "state": state,
                                        "result": receipt.get("result"), "error": receipt.get("error")},
@@ -244,6 +266,8 @@ def task_result(receipt: dict, *, creation=False) -> dict:
             # elicitation. Its continuation contract remains mas.update.
             result["status"] = "working"
             result["statusMessage"] = "Additional input is required through mas.update"
+    elif state == "blocked":
+        result["statusMessage"] = "The pinned workflow implementation is unavailable; deployment action is required"
     elif state in ("unknown", "auth_required"):
         result["statusMessage"] = ("External outcome is unknown; reconciliation is required" if state == "unknown"
                                    else "Additional authorisation is required")
@@ -279,30 +303,57 @@ _INPUT = {"type": "object", "description": "Bounded integer-only MAS JSON; decim
 TOOLS = [
     {"name": "mas.submit", "description": "Durably submit a workflow using a stable idempotency key.",
      "inputSchema": _schema(["request_key", "workflow", "input"],
-                            {"request_key": _STRING, "workflow": _STRING, "input": _INPUT})},
+                            {"request_key": _STRING, "workflow": _STRING, "input": _INPUT, "request_epoch": _STRING,
+                             "expected_identity": _STRING, "expected_deployment_id": _STRING})},
     *({"name": "mas." + name, "description": description,
        "inputSchema": _schema(["task_id"], {"task_id": _STRING})}
       for name, description in (("status", "Inspect an owned task."), ("result", "Retrieve an owned task result."),
                                 ("cancel", "Record cancellation intent; acknowledgement does not prove work stopped."))),
     {"name": "mas.update", "description": "Continue an interrupted task with a stable update key.",
      "inputSchema": _schema(["task_id", "request_key", "input"],
-                            {"task_id": _STRING, "request_key": _STRING, "input": _INPUT})},
+                            {"task_id": _STRING, "request_key": _STRING, "input": _INPUT,
+                             "expected_identity": _STRING, "expected_deployment_id": _STRING})},
     {"name": "mas.events", "description": "Read durable task events after a sequence number.",
      "inputSchema": _schema(["task_id"], {"task_id": _STRING, "after": {"type": "integer", "minimum": 0}})},
+    {"name": "mas.events_page", "description": "Read a bounded event page with an explicit resume cursor.",
+     "inputSchema": _schema(["task_id"], {"task_id": _STRING,
+         "after": {"type": "integer", "minimum": 0},
+         "limit": {"type": "integer", "minimum": 1, "maximum": 1000}})},
+    {"name": "mas.task", "description": "Inspect a task within a composed workflow by its logical path.",
+     "inputSchema": _schema(["task_id", "path"], {"task_id": _STRING, "path": _STRING,
+         "revision": {"type": "integer", "minimum": 0}})},
+    {"name": "mas.graph", "description": "Read a bounded page of graph nodes, attempts or scopes.",
+     "inputSchema": _schema(["task_id"], {"task_id": _STRING,
+         "section": {"type": "string", "enum": ["nodes", "attempts", "scopes"]},
+         "offset": {"type": "integer", "minimum": 0},
+         "limit": {"type": "integer", "minimum": 1, "maximum": 100}})},
+    {"name": "mas.discover", "description": "Discover workflows and capabilities available to the authenticated principal.",
+     "inputSchema": _schema([], {})},
+    {"name": "mas.recover", "description": "Resume the same task after an operator has reconciled its uncertain effects.",
+     "inputSchema": _schema(["task_id"], {"task_id": _STRING})},
     {"name": "mas.list", "description": "List tasks owned by the authenticated caller.",
      "inputSchema": _schema([], {"limit": {"type": "integer", "minimum": 1, "maximum": 100},
                                  "offset": {"type": "integer", "minimum": 0}})},
+    {"name": "mas.page", "description": "Search owned tasks with metadata and state filters and a stable resume cursor.",
+     "inputSchema": _schema([], {"page_size": {"type": "integer", "minimum": 1, "maximum": 1000},
+         "after": {"type": ["array", "null"]}, "state": {"type": ["string", "null"]},
+         "metadata": {"type": ["object", "null"]}, "updated_after": {"type": ["integer", "null"], "minimum": 0}})},
 ]
 TOOLS.sort(key=lambda tool: tool["name"])
 
 
 class MCPBridge:
-    def __init__(self, service: TaskService):
+    def __init__(self, service: TaskService, *, artifact_transfer=None):
         self.service = service
+        self.artifact_transfer = artifact_transfer
+        self.tools = list(TOOLS)
+        if artifact_transfer is not None:
+            from .artifact_client import artifact_tools
+            self.tools = sorted(self.tools + artifact_tools(), key=lambda item: item["name"])
 
     def discover(self) -> dict:
         return {"resultType": "complete", "supportedVersions": [VERSION], "cacheScope": "private", "ttlMs": 0,
-                "capabilities": {"tools": {"listChanged": False}, "extensions": {TASKS: {}}},
+                "capabilities": {"tools": {"listChanged": False}, "extensions": {TASKS: {}, SERVICE_PROFILE: {}}},
                 "instructions": "Integer JSON only. Preserve request_key across retries. Poll tasks; cancellation records intent."}
 
     def handle(self, principal: str, message: dict, metadata: dict | None = None) -> dict | None:
@@ -342,7 +393,7 @@ class MCPBridge:
         if method == "tools/list":
             if params.get("cursor") is not None:
                 raise MCPError(-32602, "Unknown tool cursor")
-            return {"resultType": "complete", "tools": bounded(TOOLS), "cacheScope": "private", "ttlMs": 0}
+            return {"resultType": "complete", "tools": bounded(self.tools), "cacheScope": "private", "ttlMs": 0}
         if method in ("tasks/get", "tasks/update", "tasks/cancel"):
             self._tasks(capabilities)
             task_id = _text(params.get("taskId"))
@@ -377,7 +428,7 @@ class MCPBridge:
         if method != "tools/call":
             raise MCPError(-32601, "Method not found")
         name, arguments = params.get("name"), params.get("arguments", {})
-        definition = next((tool for tool in TOOLS if tool["name"] == name), None)
+        definition = next((tool for tool in self.tools if tool["name"] == name), None)
         if definition is None or type(arguments) is not dict:
             raise MCPError(-32602, "Unknown tool or invalid arguments")
         schema = definition["inputSchema"]
@@ -388,10 +439,17 @@ class MCPBridge:
                 _text(arguments[key])
         if "input" in arguments and type(arguments["input"]) is not dict:
             raise MCPError(-32602, "Input must be an object")
+        if name.startswith("mas.artifact."):
+            if self.artifact_transfer is None:
+                raise ServiceError("unsupported_capability")
+            return tool_result(self.artifact_transfer.dispatch(principal,
+                name.removeprefix("mas.artifact."), arguments))
         if name == "mas.submit":
             self._tasks(capabilities)  # Reject before creating any durable work.
             return require_input_capabilities(task_result(self.service.submit(principal, arguments["request_key"],
-                                                   arguments["workflow"], arguments["input"]), creation=True), capabilities)
+                                                   arguments["workflow"], arguments["input"],
+                                                   **{key: arguments[key] for key in ("request_epoch", "expected_identity", "expected_deployment_id")
+                                                      if key in arguments}), creation=True), capabilities)
         if name == "mas.status":
             value = self.service.inspect(principal, arguments["task_id"])
         elif name == "mas.result":
@@ -399,9 +457,38 @@ class MCPBridge:
         elif name == "mas.cancel":
             value = self.service.cancel(principal, arguments["task_id"])
         elif name == "mas.update":
-            value = self.service.update(principal, arguments["task_id"], arguments["request_key"], arguments["input"])
+            value = self.service.update(principal, arguments["task_id"], arguments["request_key"], arguments["input"],
+                **{key: arguments[key] for key in ("expected_identity", "expected_deployment_id") if key in arguments})
         elif name == "mas.events":
             value = {"events": self.service.events(principal, arguments["task_id"], _integer(arguments.get("after", 0)))}
+        elif name == "mas.events_page":
+            method = getattr(self.service, "events_page", None)
+            if not callable(method):
+                raise ServiceError("unsupported_capability")
+            after = _integer(arguments.get("after", 0))
+            value = _event_page_for_wire(method(principal, arguments["task_id"], after=after,
+                limit=_integer(arguments.get("limit", 100), 1000)), after)
+        elif name == 'mas.page':
+            value = self.service.list_task_page(principal, **arguments)
+        elif name == 'mas.graph':
+            callback = getattr(self.service, 'inspect_graph', None)
+            if not callable(callback):
+                raise ServiceError('unsupported_capability')
+            value = callback(principal, **arguments)
+        elif name in {"mas.task", "mas.discover", "mas.recover"}:
+            method = getattr(self.service, {"mas.task": "inspect_task", "mas.discover": "discover",
+                                           "mas.recover": "recover"}[name], None)
+            if not callable(method):
+                raise ServiceError("unsupported_capability")
+            if name == "mas.task":
+                revision = arguments.get("revision")
+                if revision is not None:
+                    revision = _integer(revision)
+                value = method(principal, arguments["task_id"], _text(arguments["path"]), revision=revision)
+            elif name == "mas.recover":
+                value = method(principal, arguments["task_id"])
+            else:
+                value = method(principal)
         else:
             limit = _integer(arguments.get("limit", 100), 100)
             if not limit:

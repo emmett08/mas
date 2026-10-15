@@ -45,7 +45,7 @@ class BridgeOperationsTests(unittest.TestCase):
         with store.transaction() as db:
             db.execute("INSERT INTO workflows VALUES('test','test/1')")
             db.execute("INSERT INTO tasks(id,principal,request_key,workflow,workflow_identity,state,input,metadata,created_at,updated_at) VALUES('task','principal','request','test','test/1','unknown','{}','{}',0,0)")
-            db.execute("INSERT INTO requests VALUES('principal','request','digest','task','submit')")
+            db.execute("INSERT INTO requests(principal,request_key,digest,task_id,kind) VALUES('principal','request','digest','task','submit')")
             db.execute("INSERT INTO events(task_id,event,data,created_at) VALUES('task','submitted','{}',0)")
             for revision, directory in enumerate(directories):
                 db.execute("INSERT INTO executions(task_id,revision,run_id,run_directory,input,state) VALUES('task',?,?,?,'{}','completed')",
@@ -124,7 +124,9 @@ class BridgeOperationsTests(unittest.TestCase):
         self.assertTrue({"task-service.sqlite", "remote-tasks.sqlite"}.issubset(manifest["files"]))
         report = restore_state(bundle, restored)
         self.assertEqual(report["health"]["admission_state"], "restored_audit_only")
-        self.assertFalse(prune_runs(restored, 0, apply=True)["runs"][0]["eligible"])
+        self.assertFalse(prune_runs(restored, 0)["runs"][0]["eligible"])
+        with self.assertRaisesRegex(OperationsError, 'audit-only'):
+            prune_runs(restored, 0, apply=True)
         copy = RemoteTaskStore(restored)
         self.assertEqual(copy.status(self.remote_key)["host_run_dir"], directory.name)
         with self.assertRaises(ServiceError):
@@ -181,7 +183,7 @@ class BridgeOperationsTests(unittest.TestCase):
         bundle, restored = self.root / "backup", self.root / "restored"
         backup_state(self.state, bundle)
         restore_state(bundle, restored)
-        result = prune_runs(restored, 0, apply=True)["runs"][0]
+        result = prune_runs(restored, 0)["runs"][0]
         self.assertFalse(result["eligible"])
         self.assertIn("cloud job", result["reason"])
         self.assertTrue((restored / directory.name).exists())

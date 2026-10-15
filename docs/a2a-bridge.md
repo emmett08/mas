@@ -271,3 +271,16 @@ schema checks, not certification against every third-party A2A agent.
 References: [A2A v1.0.1 specification](https://a2a-protocol.org/v1.0.1/specification/),
 [normative proto](https://github.com/a2aproject/A2A/blob/v1.0.1/specification/a2a.proto),
 [official generated schema](https://a2a-protocol.org/v1.0.1/spec/a2a.json).
+
+### MAS lifecycle inspection extension
+
+Authenticated `GetExtendedAgentCard` advertises
+`urn:mas:lifecycle-inspection:1`. Its explicitly namespaced JSON-RPC methods are
+`mas/InspectTask` (`task_id`, `path`, optional `revision`), `mas/InspectGraph`
+(`task_id`, optional `section`, `offset`, `limit`), `mas/EventsPage` (`task_id`,
+optional `after`, `limit`), `mas/ListTaskPage` (the unified page/filter fields),
+and `mas/RecoverTask` (`task_id`). These are MAS extensions, not standard A2A
+methods. Reads require `mas:read`; recovery requires `mas:update` and retains the
+service's evidence and ownership checks. Ordinary A2A send/get/list/cancel
+messages keep their existing contract. Graph pages contain structure only;
+authorised leaf inspection retrieves application output separately.

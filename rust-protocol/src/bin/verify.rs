@@ -205,6 +205,13 @@ fn expected_assertion(defect: Option<&str>) -> Option<&'static str> {
         "BUG_WORKFLOW_NEW_ID" => "WORKFLOW_STABLE_ASSIGNMENT",
         "BUG_WORKFLOW_TERMINAL_OVERWRITE" => "WORKFLOW_TERMINAL_IMMUTABLE",
         "BUG_WORKFLOW_EARLY_JOIN" => "WORKFLOW_JOIN_ALL_COMPLETED",
+        "BUG_EVOLUTION_ALIAS" => "EVOLUTION_VERSION_PINNED",
+        "BUG_EVOLUTION_FORGET_KEY" => "EVOLUTION_KEY_RETAINED",
+        "BUG_EVOLUTION_REFUND" => "EVOLUTION_CHARGES_RETAINED",
+        "BUG_EVOLUTION_DROP_LATE" => "EVOLUTION_LATE_EVIDENCE_RETAINED",
+        "BUG_EVOLUTION_STALE_COMMIT" => "EVOLUTION_STALE_WRITE_REJECTED",
+        "BUG_EVOLUTION_SLOT_DUPLICATE" => "EVOLUTION_SLOT_OWNERSHIP",
+        "BUG_EVOLUTION_ARCHIVE_UNKNOWN" => "EVOLUTION_UNKNOWN_RETAINED",
         "WITNESS_WORKFLOW_SUCCESS" => "REACH_WORKFLOW_SUCCESS",
         "WITNESS_SERVICE_TWO_OWNERS" => "REACH_SERVICE_TWO_OWNERS",
         "WITNESS_SERVICE_CANCEL_PAUSE" => "REACH_SERVICE_CANCEL_PAUSE",
@@ -325,7 +332,7 @@ fn run_case(source: &Path, dest: &Path, opt: &Options, case: CaseOptions) -> Res
     let mut simulations_ok = true;
     if task && source.file_name().is_some_and(|name| name == "host-recovery.pml" || name == "cursor-jobs.pml"
         || name == "bridge-service.pml" || name == "bridge-events.pml" || name == "task-service.pml"
-        || name == "workflow-composition.pml") && defect.is_none() {
+        || name == "workflow-composition.pml" || name == "host-evolution.pml") && defect.is_none() {
         for seed in [17, 29, 53] {
             let command = strings(&["spin", &format!("-n{seed}"), "-u10000", "-p", "-g", "-l", model_name]);
             let mut record = run(&command, dest, &format!("simulation-{seed}"), opt)?;
@@ -576,6 +583,21 @@ fn main() -> Result<()> {
             CaseOptions{standalone:true,defect:Some(defect),reachability_witness:true,..Default::default()})?;
         println!("{name} {}",case["status"]);cases.push(case);
     }
+    for (name,defect,no_reduce) in [
+        ("host-evolution",None,false),
+        ("host-evolution-no-reduction",None,true),
+        ("negative-evolution-alias",Some("BUG_EVOLUTION_ALIAS"),false),
+        ("negative-evolution-forget-key",Some("BUG_EVOLUTION_FORGET_KEY"),false),
+        ("negative-evolution-refund",Some("BUG_EVOLUTION_REFUND"),false),
+        ("negative-evolution-drop-late",Some("BUG_EVOLUTION_DROP_LATE"),false),
+        ("negative-evolution-stale-commit",Some("BUG_EVOLUTION_STALE_COMMIT"),false),
+        ("negative-evolution-slot-duplicate",Some("BUG_EVOLUTION_SLOT_DUPLICATE"),false),
+        ("negative-evolution-archive-unknown",Some("BUG_EVOLUTION_ARCHIVE_UNKNOWN"),false),
+    ] {
+        let case=run_case(&opt.root.join("formal/host-evolution.pml"),&opt.out.join(name),&opt,
+            CaseOptions{standalone:true,defect,no_reduce,..Default::default()})?;
+        println!("{name} {}",case["status"]);cases.push(case);
+    }
     let corpus_path = opt.root.join("host/tests/fixtures/task-service-traces.json");
     let corpus: Value = serde_json::from_str(&fs::read_to_string(&corpus_path)?)?;
     if corpus["version"] != 1 {return Err("unsupported trace corpus version".into());}
@@ -632,6 +654,7 @@ fn main() -> Result<()> {
         "bridge_events_model_sha256":sha(&opt.root.join("formal/bridge-events.pml"))?,
         "task_service_model_sha256":sha(&opt.root.join("formal/task-service.pml"))?,
         "workflow_composition_model_sha256":sha(&opt.root.join("formal/workflow-composition.pml"))?,
+        "host_evolution_model_sha256":sha(&opt.root.join("formal/host-evolution.pml"))?,
         "task_service_trace_corpus_sha256":sha(&corpus_path)?});
     fs::write(opt.out.join("summary.json"),format!("{}\n",serde_json::to_string_pretty(&summary)?))?;
     if !ok{return Err(io::Error::other("model verification failed or incomplete; inspect summary.json").into());}
@@ -802,6 +825,30 @@ mod tests {
             let record=run_case(&root.join("formal/workflow-composition.pml"),&out.join(name),&opt,
                 CaseOptions{standalone:true,defect,no_reduce,progress_property:Some("workflow_settles"),
                     reachability_witness:defect==Some("WITNESS_WORKFLOW_SUCCESS"),..Default::default()}).unwrap();
+            assert_eq!(record["status"],"PASS","{name}: {record}; evidence {}",out.display());
+        }
+        fs::remove_dir_all(out).unwrap();
+    }
+
+    #[test]
+    #[ignore = "requires installed SPIN and C compiler; the full verify command also runs these cases"]
+    fn host_evolution_models_and_mutations() {
+        let root=PathBuf::from(env!("CARGO_MANIFEST_DIR")).parent().unwrap().to_path_buf();
+        let out=scratch();
+        let opt=Options{root:root.clone(),examples:root.join("examples"),out:out.clone(),
+            seconds:30,memory:512,depth:100000,only:None,generate_only:false};
+        for (name,defect,no_reduce) in [
+            ("positive",None,false), ("no-reduction",None,true),
+            ("alias",Some("BUG_EVOLUTION_ALIAS"),false),
+            ("forget-key",Some("BUG_EVOLUTION_FORGET_KEY"),false),
+            ("refund",Some("BUG_EVOLUTION_REFUND"),false),
+            ("drop-late",Some("BUG_EVOLUTION_DROP_LATE"),false),
+            ("stale-commit",Some("BUG_EVOLUTION_STALE_COMMIT"),false),
+            ("slot-duplicate",Some("BUG_EVOLUTION_SLOT_DUPLICATE"),false),
+            ("archive-unknown",Some("BUG_EVOLUTION_ARCHIVE_UNKNOWN"),false),
+        ] {
+            let record=run_case(&root.join("formal/host-evolution.pml"),&out.join(name),&opt,
+                CaseOptions{standalone:true,defect,no_reduce,..Default::default()}).unwrap();
             assert_eq!(record["status"],"PASS","{name}: {record}; evidence {}",out.display());
         }
         fs::remove_dir_all(out).unwrap();

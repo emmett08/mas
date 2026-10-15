@@ -5,6 +5,12 @@ automated checks below exercise the Rust binaries, durable SQLite state and
 supervised Python adapters. Mock runs make no provider requests. SPIN's bounded
 protocol results remain separate from these implementation checks.
 
+The [fixed reference-load qualification](reference-load.md) adds a minimum
+60-second paced workload, at least 100 completions, p99 measurements, process
+and RSS observations, retained state growth and deterministic capacity/fairness
+checks. It uses private temporary state and no paid provider. Its ceilings are
+fixture regression limits, not production SLOs.
+
 ## Fault and recovery checks
 
 Build the release binaries and install the host, then run the deployment tests:

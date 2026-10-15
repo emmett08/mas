@@ -1,5 +1,208 @@
 # Verification results
 
+## Consolidated implementation — 15 October 2026
+
+The single review is [PR #45](https://github.com/emmett08/mas/pull/45), against
+`main`; PRs #16–44 are superseded. Implementation and fault qualification continue.
+The earlier records below remain historical evidence for their recorded source.
+
+The subsequent combined revision `d8c04fab1adc2218beabfaaf2637b0728cbde311`
+passed **all 104 shared Python tests without skips**, 65 native contract tests,
+13 actual PostgreSQL cases and all six real PostgreSQL/RustFS boundaries. The
+Python backend suite took 922.426 seconds. This includes both repaired fixtures,
+the new peer-policy roundtrip, backup/restore, archival, native transfer IDs and
+offsets across empty replacement caches, epoch fencing, revocation and tampering.
+The same revision passed all five independent-VM fault cases, portable clients
+on three operating systems, real containment, 110 SPIN cases and security gates.
+Its tested merge `bcd0a51085f51fd42066b31a5d6f803d94840ded` has the exact
+submitted tree `5b0c8cead1826e15e0f46b97fd162da11431d5cb`.
+
+Its complete amd64 image workflow passed: 1,125 native tests (116 skips),
+1,108 installed musl tests (126 skips), 1,120 Cursor-image tests (119 skips),
+44 script tests, 26 real Temporal tests, 36 MCP tests and 35 A2A tests.
+Reconciliation, private secret mounts and supervised bridge restart recovery
+also passed. Skips identify profile-specific backend or dependency gates;
+the actual PostgreSQL suite above ran without skips.
+
+The arm64 native and musl suites passed. Its Cursor suite exposed a race only in
+the new bootstrap-expiry test: the one-second fixture deadline could expire
+before bootstrap, so the test's final manifest assertion failed despite correct
+expiry and zero effects. Test-only repair `016b489` uses a shared controlled clock
+that advances after the real bootstrap retains its run identity. All six scope
+tests and independent review passed. A negative control still fails against the
+original buggy executor, confirming that the test detects the production defect.
+Production code is unchanged by this repair; final-head image qualification is
+still required. The [receipt](verification/host-evolution-source.json) records
+these revision-specific results; the current PR checks report the final run.
+
+Revision `71e4d87dd661152d0202cbd76f23d8d524e64724` passed all five
+independent-kernel VM fault cases, the native Linux/macOS/Windows clients,
+real Linux containment, formal checks and dependency/image security gates.
+The tested merge `fc9f0a2d5912f0fbf294f60079e2eacf96aa55cd` has the same
+source tree, `6936ca2d2854426d834bdfcdbafdb5a7e7db33fc`. The VM run includes
+the repaired SQLite durability and workspace dispatch. The lost-acknowledgement
+case preserves the original receipt across controller restart and worker hard
+reset, with guest disk flushes enabled. The three uncertain-effect cases retain
+their original unknown state and allocations; their explicit second probes are
+refused before dispatch. This qualifies the recorded QEMU profile.
+
+Its PostgreSQL run passed all **13 native backend tests** and **100 of 102
+Python shared tests** in 528.996 seconds. Two test fixtures failed: composition
+children used a process-local object-store dictionary, and a one-second expiry
+could elapse before inspection. Commits `18c4eb6` and `cd45eda` repair those
+fixtures without changing production code. The first uses process-visible,
+immutable object bytes and verifies retained workspace manifests and native
+invocation records. The second expires only its isolated row using the actual
+database clock and checks denied access, removed chunks and released quota.
+The combined PostgreSQL/RustFS stage was skipped after these errors; the next
+combined-head run must qualify both repairs and that real backend stage.
+The [source receipt](verification/host-evolution-source.json) retains the failed
+run as well as the passing evidence. Final-head results are linked from PR #45.
+
+The same revision completed the full **arm64** workflow: native host, installed
+musl and Cursor images, real Temporal, independent reconciler, private credential
+injection and bridge restart. On **amd64**, the native suite and Temporal passed;
+the installed musl suite reported one timeout error and one nested-deadline
+failure among 1,223 tests (125 skips). Its later image/deployment stages were
+skipped. These failures are retained in the receipt and require a repaired-head
+rerun. The native suite ran 1,230 tests on each architecture, with 1,115 passed
+and 115 fixture/optional-dependency skips; separate gates exercise those profiles.
+
+The subsequent repair `980eb3e` classifies a stopped runner construction from
+retained bootstrap/invocation evidence: unadmitted work can stop, while an
+original unknown invocation remains unknown. Its 82-test source supplement
+passed, including deterministic expiry during bootstrap and both previous musl
+failures. The worker deadline fixture now arms after durable invocation admission;
+a separate regression verifies that timeout before dispatch creates no call.
+Repair `a3ef8f3` binds managed-peer public transport policy and timeout to an
+immutable registration in both repositories. Legacy direct/default registrations
+retain their exact identities, credential rotation remains separate, and changed
+client configuration is rejected before credentials or effects. Its 22-test
+source supplement and native validator test passed; the real PostgreSQL
+roundtrip is included in the final combined-head gate. These focused checks
+supplement the earlier full runs and do not replace the final installed-image run.
+
+The hosted fixed load gate passed on that amd64 source before the later musl
+failures: **101 completed tasks**, 51 for Alice and 50 for Bob, over **60.67
+seconds** of active load. Submission p99 was 44.55 ms, inspection p99 8.46 ms,
+and completion-observation p99 770.57 ms. It retained exactly 101 admissions and
+calls, no paid reservations, and no observed orphan processes. The receipt binds
+the clean tested source, binaries, bounds and CI artifact/report digests.
+
+The fixed checkout `c623904660e17c5ce4c552246d67e4fa90bc8290` ran **1,221
+host tests** in 273.931 seconds: **1,119 passed and 102 skipped**. The skips are
+99 actual-PostgreSQL tests and three explicitly enabled real Temporal tests,
+which have separate hosted gates. This run used Python 3.12.14, installed pinned
+SDKs and freshly built Rust 1.99.0 binaries from the same native tree. Native
+checks passed 64 tests, with 13 PostgreSQL and two formal-verifier cases reserved
+for their actual fixtures; 44 script tests passed. The [source receipt](verification/host-evolution-source.json)
+records source, binary and log digests and earlier integrated runs.
+The subsequent local Cursor recovery and locking repairs at `eb4fdb8` passed
+a 44-test supplement in 3.856 seconds, with independent concurrency review.
+The complete published-head CI run covers the combined implementation.
+
+The fixed [two-principal load profile](reference-load.md) passed at
+`c623904660e17c5ce4c552246d67e4fa90bc8290`: 112 tasks completed, 56 per
+principal, over 60.10 seconds of active load. Every callback had one paired
+completion and every observed descendant was reaped. Submission p99 was 26.23 ms,
+inspection p99 6.05 ms and completion-observation p99 450.38 ms. Peak observed
+resource use was five descendant processes and 94.68 MiB summed RSS; retained
+allocated state grew by 12.34 MiB. Deterministic capacity checks exercised all
+four slots and principal/global denials. The paced workload's observed callback
+concurrency was one, so this result does not establish saturated throughput.
+The [aggregate receipt](verification/host-reference-load.json) binds source,
+binaries, limits, raw-report digest and samples. The host regression suite ran
+concurrently. These are fixture measurements, not production SLOs; CI repeats
+the same bounded profile on the published source.
+
+At remote revision `6c120aa487546e8d5bd4d63981978c4d168bbe44`, **59 actual
+PostgreSQL Python tests passed**, together with 12 native PostgreSQL conformance
+tests and the native accounting migration test. Five combined PostgreSQL and
+RustFS boundaries passed: verified publication, lost PUT response, epoch
+handover, grant revocation and corrupt bytes. This supersedes the earlier
+50-of-51 PostgreSQL result at `7064567749466168721db184678f1baabcea4aa3` for
+those tests; it does not qualify the later shared jobs, retention and transfers.
+
+At `b7b84f2436a531fcd80ae6d81422c1b935c43867`, the complete installed-image
+workflows passed on **amd64 and arm64**, including standard and Cursor runtimes,
+real Temporal, bridge restart, reconciliation and private credential injection
+without paid calls. Native Linux/macOS/Windows clients, real Linux containment,
+formal checks and dependency/image scans passed. Its PostgreSQL phase ran 89
+Python tests: 88 passed; one transfer-denial test errored because the native fixed
+error code was absent from the public allowlist. The denial held. That repair and
+the subsequent schema/workspace changes need the combined-head rerun; the S3
+phase was skipped after this error.
+
+The same revision passed all five independent-kernel VM cases: two workers,
+lost acknowledgement plus controller restart and worker hard reset, network
+partition, spool loss and artefact loss. The [machine-readable receipt](verification/host-evolution-source.json)
+records the actual tested merge revision and retained CI artifact digest. These
+are two QEMU guests, not physical-host or production-network acceptance. This
+passing run predates the durability repair below and cannot qualify later source.
+
+Independent VM hard resets exposed two real SQLite durability defects: a
+read-only preflight could not recover a hot journal, and `synchronous=FULL`
+with rollback journals could lose the worker's last committed receipt. Writable
+preflight now permits SQLite recovery while prohibiting application writes;
+all Python and Rust write owners use `synchronous=EXTRA`. A separate ledger
+preflight regression verifies preserved identity, policy and allocations. The
+fresh VM rerun at `71e4d87` passed with the original receipt-ID assertion and
+verified that QEMU honours flushes. The canonical
+[implementation record](host-evolution-plan.md) retains the acceptance conditions.
+
+## Host service evolution — 14 October 2026
+
+The integrated source suite passed **946 host tests with no skips**, using the
+real Rust executables, pinned Python 3.14 SDK dependencies and the real Temporal
+test server. It covers authenticated composed lifecycle through CLI/HTTP/MCP/A2A,
+immutable versions, concurrent ownership, retention/deduplication, provider
+certainty, supervised execution, remote worker fencing/spooling, recovery and
+the console's request/session handling.
+
+Three bridge regression tests were added afterwards and passed in a **24-test
+bridge/orchestrator supplement**. No runtime code changed after the integrated
+run. The final source therefore contains 949 host tests; the evidence above is a
+946-test integrated run plus that supplement, not a claimed 949-test full run.
+
+Hosted CI then exposed two tests that imported optional SDKs in the base
+dependency phase. Those tests now skip only when their SDK is absent; the
+installed-SDK workflow already discovers both files. The affected 22-test suite
+passed with exactly two skips in an actual environment without those SDKs and
+with no skips in the provisioned Python 3.14 environment. These test guards did
+not change runtime code.
+
+The installed one-CPU container also exposed a timing mismatch in the real-worker
+success test: its one-second dispatch lease was shorter than the registered
+executor's five-second budget. That test now allows ten seconds for execution and
+receipt delivery. Five repetitions passed with inherited single-CPU affinity;
+five unchanged deterministic expiry, fencing, capacity and lost-reply tests also
+passed. Production lease and uncertainty rules are unchanged. Exact installed
+image acceptance is recorded by the corresponding hosted CI revision.
+
+Rust passed **61 tests**; its two model-specific tests are excluded from ordinary
+`cargo test` and covered by the separate verifier. Script tests passed **43** and
+executable fixtures passed **14**. SPIN passed **110 cases**, including the new
+host evolution model with and without reduction and seven named mutation
+counterexamples. The model's bounds and correspondence limits are in
+[host-evolution-notes.md](../formal/host-evolution-notes.md).
+
+An isolated baseline host with only the persistent transport overlaid passed
+**35 transport and existing Runner conformance tests**. Its broader baseline run
+ended in a Cursor proxy fixture without a test-runner summary and is explicitly
+excluded from passing evidence. The complete integrated suite above did pass.
+
+The bounded [source receipt](verification/host-evolution-source.json) records
+counts, toolchain, evidence hashes and a content binding. The
+[IPC benchmark](verification/host-ipc-benchmark.json) measures 100 completed-run
+status calls per strategy; it does not establish provider throughput or
+production capacity. Raw transient logs are not required runtime dependencies.
+
+These are source checks on Linux x86_64. Exact-commit hosted CI records installed
+amd64/arm64 checks separately. No live paid provider, production OAuth/proxy,
+two-machine qualification, shared authority, untrusted-code sandbox or accepted
+published release is claimed. The [current implementation record](host-evolution-plan.md)
+preserves every remaining work package and release gate.
+
 ## Production-readiness repairs — 14 October 2026
 
 Review of main at `6a23507a183d4a35e188861756f89666100a6a4b` found

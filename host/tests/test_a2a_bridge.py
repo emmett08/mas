@@ -2,6 +2,7 @@
 from dataclasses import replace
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import hashlib
+import importlib.util
 import json
 from pathlib import Path
 import tempfile
@@ -248,3 +249,51 @@ class A2AClientFixtureTests(unittest.TestCase):
             validate('Message', {'messageId': 'old', 'role': 'agent', 'parts': [{'kind': 'text', 'text': 'bad'}]})
         with self.assertRaises(jsonschema.ValidationError):
             validate('Task', {'id': 'old', 'contextId': 'c', 'status': {'state': 'working'}})
+
+
+class BlockedInterfaceCompatibilityTests(unittest.TestCase):
+    """Unavailable definitions remain visible without becoming terminal failures."""
+
+    def test_blocked_a2a_task_round_trips_and_submitted_default_stays_queued(self):
+        from mas_host.bridges.a2a import _remote_task
+        bridge = A2ABridge(object(), endpoint='https://mas.example/a2a')
+        wire = bridge._task({'task_id': 'task-one', 'state': 'blocked',
+                             'workflow': 'echo', 'updated_at': 0,
+                             'cancel_requested': False, 'metadata': {}, 'result': None})
+        validate('Task', wire)
+        self.assertEqual(wire['status']['state'], 'TASK_STATE_SUBMITTED')
+        self.assertEqual(wire['metadata']['mas']['state'], 'blocked')
+        self.assertEqual(_remote_task(wire).state, 'blocked')
+        del wire['metadata']['mas']['state']
+        self.assertEqual(_remote_task(wire).state, 'queued')
+
+    def test_remote_snapshot_and_orchestrator_receipt_accept_blocked(self):
+        from mas_host.bridges.remote import RemoteSnapshot
+        from mas_host.bridges.orchestrator import receipt
+        snapshot = RemoteSnapshot('task-one', 'blocked').validate()
+        self.assertEqual(snapshot.state, 'blocked')
+        value = {'task_id': 'task-one', 'state': 'blocked'}
+        self.assertEqual(receipt(value, 'task-one'), value)
+        with self.assertRaises(ServiceError):
+            receipt({**value, 'state': 'unrecognised'})
+        with self.assertRaises(ServiceError):
+            RemoteSnapshot('task-one', 'unrecognised').validate()
+
+    @unittest.skipUnless(importlib.util.find_spec('langgraph') is not None,
+                         'optional LangGraph SDK is not installed')
+    def test_langgraph_blocked_receipt_interrupts_and_allows_poll(self):
+        from unittest.mock import Mock
+        from mas_host.bridges.langgraph import make_langgraph_node
+        blocked = {'task_id': 'task-one', 'state': 'blocked',
+                   'capabilities': {'cancel': True, 'update': False}}
+        connector = Mock()
+        connector.submit.return_value = blocked
+        connector.inspect.return_value = blocked
+        with patch('langgraph.types.interrupt', return_value={'action': 'poll'}) as interrupt:
+            node = make_langgraph_node(connector, 'echo', 'node-one')
+            result = node({'mas_operation_id': 'op-one', 'input': {}},
+                          {'configurable': {'thread_id': 'thread-one'}})
+        interrupt.assert_called_once_with({'mas_receipt': blocked, 'actions': ['poll', 'cancel']})
+        connector.inspect.assert_called_once_with('task-one')
+        connector.wait.assert_not_called()
+        self.assertEqual(result, {'mas_receipt': blocked})

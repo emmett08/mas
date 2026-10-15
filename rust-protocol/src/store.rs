@@ -14,10 +14,10 @@ fn now() -> Result<f64> { Ok(SystemTime::now().duration_since(UNIX_EPOCH).map_er
 pub struct Store { db: Connection }
 /// Operational identity projection. Audit history is intentionally absent so
 /// opening an actor session does not decode every retained message and result.
-pub(crate) struct RunMembership { actors: std::collections::BTreeSet<String> }
+pub struct RunMembership { pub(crate) actors: std::collections::BTreeSet<String> }
 
 impl RunMembership {
-    pub(crate) fn contains(&self, actor: &str) -> bool { self.actors.contains(actor) }
+    pub fn contains(&self, actor: &str) -> bool { self.actors.contains(actor) }
 }
 
 struct Run { config: Value, deadline: f64, messages: i64, bytes: i64, calls: i64, active: String, expired: bool }
@@ -41,7 +41,7 @@ fn reconcile_transaction(db:&Transaction<'_>,id:&str) -> Result<(bool,usize,f64)
         Ok((true,closed,observed))
     } else { Ok((false,0,observed)) }
 }
-fn config(source: &Value) -> Result<Value> {
+pub(crate) fn config(source: &Value) -> Result<Value> {
     let supplied = source.as_object().ok_or("configuration must be an object")?;
     let allowed = ["agents","edges","mailbox_capacity","application","max_messages","max_bytes","max_calls","wall_seconds"];
     if supplied.keys().any(|k| !allowed.contains(&k.as_str())) { return Err("unknown configuration field".into()); }
@@ -84,7 +84,9 @@ impl Store {
         if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) { std::fs::create_dir_all(parent).map_err(err)?; }
         let mut db = Connection::open(path).map_err(err)?;
         db.busy_timeout(Duration::from_secs(10)).map_err(err)?;
-        db.execute_batch("PRAGMA foreign_keys=ON; PRAGMA synchronous=FULL;").map_err(err)?;
+        // EXTRA also syncs journal unlink, preserving committed allocations
+        // across OS/power failure in SQLite's default DELETE journal mode.
+        db.execute_batch("PRAGMA foreign_keys=ON; PRAGMA synchronous=EXTRA;").map_err(err)?;
         // Inspect before creating any tables. In particular, the former Python
         // database is not writable by this schema and requires explicit migration.
         // Serialize initialization so concurrent opens cannot see a partial schema.
@@ -95,37 +97,19 @@ impl Store {
         const APPLICATION_ID: i64 = 0x4d415331;
         let fresh = objects == 0 && application == 0 && version == 0;
         if fresh {
-            tx.execute_batch("CREATE TABLE runs(id TEXT PRIMARY KEY,config TEXT NOT NULL,deadline REAL NOT NULL,message_count INTEGER NOT NULL DEFAULT 0,byte_count INTEGER NOT NULL DEFAULT 0,call_count INTEGER NOT NULL DEFAULT 0,active TEXT NOT NULL DEFAULT '1');
-                CREATE TABLE messages(seq INTEGER PRIMARY KEY AUTOINCREMENT,run TEXT NOT NULL REFERENCES runs(id),id TEXT NOT NULL,sender TEXT NOT NULL,recipient TEXT NOT NULL,content TEXT NOT NULL,received INTEGER NOT NULL DEFAULT 0,acked INTEGER NOT NULL DEFAULT 0,UNIQUE(run,id));
-                CREATE INDEX mailbox ON messages(run,recipient,acked,seq);
-                CREATE TABLE calls(run TEXT NOT NULL REFERENCES runs(id),id TEXT NOT NULL,actor TEXT NOT NULL,state TEXT NOT NULL DEFAULT 'reserved',result TEXT,UNIQUE(run,id));
-                PRAGMA application_id=1296126769; PRAGMA user_version=1;").map_err(err)?;
+            tx.execute_batch(crate::store_schema::V1).map_err(err)?;
         } else {
             if application != APPLICATION_ID || !matches!(version,1|2) || objects != if version == 1 {4} else {6} {
                 return Err("incompatible database schema: use a fresh MAS database path; legacy or unrelated databases require explicit migration".into());
             }
-            for (table,expected) in [
-                ("runs", if version == 1 { &["id","config","deadline","message_count","byte_count","call_count","active"][..] } else { &["id","config","deadline","message_count","byte_count","call_count","active","expired"][..] }),
-                ("messages", &["seq","run","id","sender","recipient","content","received","acked"][..]),
-                ("calls", &["run","id","actor","state","result"][..]),
-                ("tasks", &["run","id","request_id","state","terminal_id","closed_at"][..]),
-                ("admissions", &["scope","policy_fingerprint","limit_count","attempts"][..]),
-            ] {
-                if version == 1 && matches!(table,"tasks"|"admissions") { continue; }
-                let mut statement = tx.prepare(&format!("PRAGMA table_info({table})")).map_err(err)?;
-                let names = statement.query_map([],|r|r.get::<_,String>(1)).map_err(err)?.collect::<std::result::Result<Vec<_>,_>>().map_err(err)?;
-                if names.iter().map(String::as_str).collect::<Vec<_>>() != expected {
-                    return Err("incompatible database schema: table layout differs from MAS native schema".into());
-                }
-            }
+            crate::store_schema::validate(&tx, version)?;
         }
         if fresh || version == 1 {
-            tx.execute_batch("ALTER TABLE runs ADD COLUMN expired INTEGER NOT NULL DEFAULT 0 CHECK(expired IN (0,1));
-                CREATE TABLE tasks(run TEXT NOT NULL REFERENCES runs(id),id TEXT NOT NULL,request_id TEXT NOT NULL,state TEXT NOT NULL DEFAULT 'open' CHECK(state IN ('open','completed','unresolved','failed','cancelled','expired_outcome_unknown')),terminal_id TEXT,closed_at REAL,PRIMARY KEY(run,id),UNIQUE(run,request_id),FOREIGN KEY(run,request_id) REFERENCES messages(run,id),FOREIGN KEY(run,terminal_id) REFERENCES messages(run,id));
-                CREATE TABLE admissions(scope TEXT PRIMARY KEY,policy_fingerprint TEXT NOT NULL,limit_count INTEGER NOT NULL CHECK(limit_count>0),attempts INTEGER NOT NULL DEFAULT 0 CHECK(attempts>=0 AND attempts<=limit_count));").map_err(err)?;
+            tx.execute_batch(crate::store_schema::V2_MIGRATION).map_err(err)?;
             // Rebuild task state from native-v1 accepted history in the same
             // migration transaction. Invalid histories leave the old DB intact.
             crate::tasks::migrate(&tx)?;
+            crate::store_schema::validate(&tx, 2)?;
             tx.execute_batch("PRAGMA user_version=2;").map_err(err)?;
         }
         tx.commit().map_err(err)?;
@@ -624,6 +608,7 @@ mod tests {
     #[test]
     fn admission_reservations_are_durable_bounded_and_policy_frozen() {
         let p=path();let mut s=Store::open(&p).unwrap();let fingerprint="a".repeat(64);
+        assert_eq!(s.db.query_row("PRAGMA synchronous",[],|r|r.get::<_,i64>(0)).unwrap(),3);
         s.register_admission("gateway/global",&fingerprint,2).unwrap();
         assert_eq!(s.reserve_admission("gateway/global").unwrap(),1);drop(s);
         let mut s=Store::open(&p).unwrap();s.register_admission("gateway/global",&fingerprint,2).unwrap();

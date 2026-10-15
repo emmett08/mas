@@ -3,9 +3,43 @@
 //! recognised JSON string/number token and serialises lowered typed values.
 
 pub mod store;
+pub mod repository;
+#[cfg(feature = "postgres-repository")]
+pub mod postgres_repository;
+#[cfg(feature = "postgres-repository")]
+pub mod shared_host;
+#[cfg(feature = "postgres-repository")]
+pub mod shared_leadership;
+#[cfg(feature = "postgres-repository")]
+pub mod shared_backup;
+#[cfg(feature = "postgres-repository")]
+pub mod shared_jobs;
+#[cfg(feature = "postgres-repository")]
+pub mod shared_commands;
+#[cfg(feature = "postgres-repository")]
+pub mod shared_archive;
+#[cfg(feature = "postgres-repository")]
+pub mod shared_transfers;
+#[cfg(feature = "postgres-repository")]
+pub mod shared_timing;
+#[cfg(feature = "postgres-repository")]
+pub mod shared_accounting;
+#[cfg(feature = "postgres-repository")]
+pub mod shared_tasks;
+#[cfg(feature = "postgres-repository")]
+pub mod shared_composition;
+#[cfg(feature = "postgres-repository")]
+pub mod shared_remote;
+#[cfg(feature = "postgres-repository")]
+pub mod shared_artifacts;
+#[cfg(feature = "postgres-repository")]
+pub mod shared_control;
+mod store_schema;
 pub mod tasks;
 pub mod examples;
 pub mod gateway;
+pub mod host_ipc;
+pub mod worker_supervisor;
 
 use nom::{
     branch::alt,
@@ -319,6 +353,18 @@ pub fn parse_json(source: &str) -> Result<Value, Diagnostic> {
     check_limits(source, MAX_BYTES, MAX_DEPTH)?;
     let (_, value) = all_consuming(ws(|i| json_value(i, 0, MAX_DEPTH)))
         .parse(source).map_err(|e| diagnostic(source, e))?;
+    Ok(value)
+}
+
+/// Private host command transport budget. Wire messages retain MAX_BYTES.
+#[cfg(feature = "postgres-repository")]
+pub const SHARED_COMMAND_BYTES: usize = 1_048_576;
+#[cfg(feature = "postgres-repository")]
+pub fn parse_shared_command(source: &str) -> Result<Value, Diagnostic> {
+    if source.len()>SHARED_COMMAND_BYTES {
+        return Err(Diagnostic {code:"SIZE",message:"Shared command exceeds transport budget".into(),line:None,column:None});
+    }
+    let (_,value)=all_consuming(ws(|i|json_value(i,0,MAX_DEPTH))).parse(source).map_err(|e|diagnostic(source,e))?;
     Ok(value)
 }
 

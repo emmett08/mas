@@ -1,11 +1,15 @@
 """Ancestor limits remain effective when reusable plans are nested."""
+from contextlib import ExitStack
+import multiprocessing
 from pathlib import Path
 import tempfile
 import time
+from types import SimpleNamespace
 import unittest
+from unittest import mock
 
 from mas_host import Invocation, Outcome
-from mas_host.task_service import Workflow
+from mas_host.task_service import RunnerExecutor, Workflow
 from mas_host.workflow_engine import WorkflowEngine
 from mas_host.workflow_plan import WorkflowPlan
 from test_runner import FunctionAdapter, topology
@@ -78,6 +82,52 @@ class WorkflowScopeTests(unittest.TestCase):
         result=self.run_plan(self.engine(child,lambda c,r:(time.sleep(5),Outcome({}))[1]))
         self.assertEqual(result['state'],'expired')
         self.assertLess(time.monotonic()-started,3)
+
+    def test_nested_deadline_during_bootstrap_expires_without_unknown_effect(self):
+        child=plan('child',{'kind':'task','workflow':'leaf'},wall_seconds=1)
+        marker=self.root/'dispatched'
+
+        def handler(context, request):
+            marker.write_text('called')
+            return Outcome({})
+
+        engine=self.engine(child,handler)
+        bootstrap=RunnerExecutor._bootstrap
+        entered=self.root/'bootstrap-entered'
+        wall,monotonic=int(time.time()),time.monotonic()
+        offset=multiprocessing.Value('d',0)
+
+        def elapsed():
+            if time.monotonic()-monotonic > 30:
+                raise AssertionError('bootstrap deadline fixture did not finish')
+            return offset.value
+
+        clock=SimpleNamespace(time=lambda:wall+elapsed(),
+                              monotonic=lambda:monotonic+elapsed(),sleep=time.sleep)
+
+        def cross_deadline(executor, workflow, execution):
+            path=bootstrap(executor,workflow,execution)
+            entered.write_text(execution['run_id'])
+            # Both scheduler and forked worker observe expiry only after the
+            # real bootstrap has retained this identity. Native subprocess and
+            # process-cleanup deadlines continue using their real clocks.
+            offset.value=2
+            return path
+
+        with ExitStack() as patches:
+            for module in ('workflow_engine','workflow_evaluator','workflow_store','workflow_allocation'):
+                patches.enter_context(mock.patch('mas_host.'+module+'.time',clock))
+            patches.enter_context(mock.patch.object(RunnerExecutor,'_bootstrap',cross_deadline))
+            result=self.run_plan(engine)
+        self.assertEqual(result['state'],'expired')
+        self.assertFalse(marker.exists())
+        self.assertEqual(engine.operations.health()['usage']['runs'],0)
+        self.assertEqual(engine.operations.health()['usage']['calls'],0)
+        with engine.store.transaction(readonly=True) as db:
+            attempts=list(db.execute('SELECT state,run_directory FROM attempts'))
+        self.assertEqual([row['state'] for row in attempts],['cancelled'])
+        self.assertEqual(entered.read_text(),attempts[0]['run_directory'])
+        self.assertTrue((engine.state_dir/attempts[0]['run_directory']/'bootstrap.json').is_file())
 
     def test_scope_deadline_is_not_renewed_on_inspection(self):
         child=plan('child',{'kind':'task','workflow':'leaf'})

@@ -316,7 +316,7 @@ class StructuredProviderTests(unittest.TestCase):
                 self.assertTrue(client.closed)
                 self.assertEqual(structured_binding(provider), binding)
 
-    def test_failed_openai_cleanup_cannot_commit_a_completed_invocation(self):
+    def test_failed_openai_cleanup_preserves_completion_without_reporting_success(self):
         client = OpenAIClient()
         client.close = lambda: (_ for _ in ()).throw(RuntimeError("SECRET cleanup"))
         provider = OpenAIStructuredProvider("test-model", "specialist", environ={"OPENAI_API_KEY": "key"})
@@ -327,6 +327,9 @@ class StructuredProviderTests(unittest.TestCase):
         self.assertNotIn("SECRET", str(error.exception))
         self.assertEqual(len(context.calls), 1)
         self.assertFalse(hasattr(context, "completed"))
+        self.assertEqual(error.exception.outcome["certainty"], "completed")
+        self.assertEqual(error.exception.outcome["output_status"], "valid")
+        self.assertEqual(error.exception.completed_output, {"accepted": True})
 
     def test_openai_interruption_survives_cleanup_failure(self):
         primary = KeyboardInterrupt()

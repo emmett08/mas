@@ -15,6 +15,7 @@ import time
 from .operations import DeploymentLedger, _file_lock
 from .service_contracts import ServiceError
 from .service_mutation import service_mutation
+from .request_namespaces import RequestScope, epoch_guard
 from .task_service import RunnerExecutor, _object, _text
 from .workflow_allocation import WorkflowAllocation
 from .workflow_plan import WorkflowPlan, bind_plan, validate_registry
@@ -32,7 +33,8 @@ class WorkflowEngine:
     pipe stops admission after scheduler death without relying on PID reuse.
     """
     def __init__(self, state_dir, plans, workflows, grants, *, operations=None,
-                 max_instances=1000, mas_bin='mas', gateway_bin='mas-gateway'):
+                 max_instances=1000, mas_bin='mas', gateway_bin='mas-gateway', workflow_versions=None,
+                 scheduler_policy=None):
         self.state_dir = Path(state_dir).absolute()
         self.operations = operations or DeploymentLedger(self.state_dir)
         if Path(self.operations.state_dir).absolute() != self.state_dir:
@@ -48,11 +50,21 @@ class WorkflowEngine:
                           for name, workflow in workflows.items()}
         validate_registry(self.plans, self.workflows)
         self.bindings = {name: bind_plan(name, self.plans, self.workflows) for name in self.plans}
+        self.workflow_versions = {}
+        from .task_service import Workflow
+        for name, versions in (workflow_versions or {}).items():
+            for workflow in versions:
+                if not isinstance(workflow, Workflow):
+                    raise ServiceError('invalid_workflow')
+                copied = replace(workflow, topology=json.loads(encode(workflow.topology)))
+                self.workflow_versions[name, copied.identity] = copied
+        self.workflow_versions.update({(name, workflow.identity): workflow for name, workflow in self.workflows.items()})
+        self._active_workflows = self.workflows
         self.evaluator = PlanEvaluator(self.plans, self)
         self.grants = {}
         for principal, names in grants.items():
             _text(principal, 'principal')
-            if isinstance(names, str) or not set(names) <= set(self.plans):
+            if isinstance(names, str):
                 raise ServiceError('invalid_grants')
             self.grants[principal] = frozenset(names)
         self.options = {'mas_bin': mas_bin, 'gateway_bin': gateway_bin}
@@ -63,6 +75,28 @@ class WorkflowEngine:
             if not active and not (self.state_dir / 'composition.sqlite').exists():
                 raise ServiceError('audit_only')
             self.store = WorkflowStore(self.state_dir, readonly=not active)
+            from .definitions import DefinitionRegistry
+            self.definitions = DefinitionRegistry(self.state_dir, readonly=not active)
+            with self.store.transaction(readonly=True) as db:
+                retained = {(row[0], row[1]) for row in db.execute('SELECT DISTINCT plan,identity FROM instances')}
+                if db.execute("SELECT 1 FROM sqlite_master WHERE name='archives'").fetchone():
+                    retained.update((row[0], row[1]) for row in db.execute('SELECT DISTINCT plan,identity FROM archives'))
+            if any(not names <= set(self.plans) | {name for name, _identity in retained} for names in self.grants.values()):
+                raise ServiceError('invalid_grants')
+            if active:
+                for name, identity in retained:
+                    self.definitions.remember('plan', name, identity)
+                for (name, identity), workflow in self.workflow_versions.items():
+                    self.definitions.remember('workflow', name, identity, descriptor=workflow.descriptor,
+                                              implementation_digest=workflow.verified_implementation.digest,
+                                              implementation_manifest=workflow.verified_implementation.manifest)
+                for name, plan in self.plans.items():
+                    self.definitions.remember('plan_source', name, plan.identity, descriptor=plan.spec)
+                    binding = self.bindings[name]
+                    self.definitions.remember('plan', name, binding['identity'],
+                                              descriptor={key: value for key, value in binding.items() if key != 'identity'}, current=True)
+            from .scheduler_capacity import SchedulerCapacity
+            self.capacity = SchedulerCapacity(self.state_dir, scheduler_policy, readonly=not active)
 
     def _mutation(self):
         return service_mutation(self.operations, self.store)
@@ -73,29 +107,100 @@ class WorkflowEngine:
             raise ServiceError('workflow_not_found')
         if item['plan'] not in self.grants.get(principal, ()):
             raise ServiceError('forbidden')
-        if bind_plan(item['plan'], self.plans, self.workflows)['identity'] != item['identity']:
-            raise ServiceError('workflow_changed')
         return item
 
-    def submit(self, principal, request_key, plan, input):
+    def _workflow(self, name, identity, *, verify=True):
+        workflow = self.workflow_versions.get((name, identity))
+        if workflow is None or workflow.identity != identity:
+            raise ServiceError('definition_unavailable')
+        record = self.definitions.inspect('workflow', name, identity)
+        if not record or record['retired'] or record['implementation_provenance'] != 'verified_source_package':
+            raise ServiceError('definition_unavailable')
+        if verify:
+            try:
+                workflow.verify_implementation()
+            except ServiceError:
+                raise ServiceError('definition_unavailable') from None
+        return workflow
+
+    @contextmanager
+    def _execution_definition(self, item):
+        """Resolve retained declarative plans and exact executable leaf versions."""
+        binding = self.definitions.inspect('plan', item['plan'], item['identity'])
+        descriptor = binding['descriptor'] if binding else None
+        if binding and binding['retired']:
+            raise ServiceError('definition_unavailable')
+        if descriptor is None:
+            # Legacy records have no source snapshot. Only an exactly matching
+            # currently supplied binding establishes the missing source.
+            current = self.bindings.get(item['plan'])
+            if current is None or current['identity'] != item['identity']:
+                raise ServiceError('definition_unavailable')
+            descriptor = current
+        plans = {item['plan']: WorkflowPlan(descriptor['spec'])}
+        for name, identity in descriptor['plans'].items():
+            record = self.definitions.inspect('plan_source', name, identity)
+            if record and record['descriptor'] is not None:
+                plans[name] = WorkflowPlan(record['descriptor'])
+            elif name in self.plans and self.plans[name].identity == identity:
+                plans[name] = self.plans[name]
+            else:
+                raise ServiceError('definition_unavailable')
+        workflows = {name: self._workflow(name, identity) for name, identity in descriptor['workflows'].items()}
+        if bind_plan(item['plan'], plans, workflows)['identity'] != item['identity']:
+            raise ServiceError('definition_unavailable')
+        previous, previous_evaluator = self._active_workflows, self.evaluator
+        self._active_workflows, self.evaluator = workflows, PlanEvaluator(plans, self)
+        try:
+            yield plans[item['plan']].spec
+        finally:
+            self._active_workflows, self.evaluator = previous, previous_evaluator
+
+    def submit(self, principal, request_key, plan, input, *, metadata=None, expected_identity=None, expected_deployment_id=None,
+               request_epoch=None, _request_namespace=None):
         _text(request_key, 'request_key')
         if plan not in self.grants.get(principal, ()):
             raise ServiceError('forbidden')
-        if bind_plan(plan, self.plans, self.workflows)['identity'] != self.bindings[plan]['identity']:
-            raise ServiceError('workflow_changed')
         value = _object(input)
-        with self._mutation() as db:
-            row = self.store.submitted(db, principal, request_key)
+        metadata = _object(metadata) if metadata is not None else {}
+        scope = RequestScope.supplied(_request_namespace, request_epoch)
+        from .principal_quotas import submission_mutation, check_submission_quota
+        with epoch_guard(self.operations, principal, scope), submission_mutation(self.operations, self.store, principal) as db:
+            scope.check_owner(db, principal)
+            if expected_deployment_id is not None and expected_deployment_id != self.operations.deployment_id:
+                raise ServiceError('deployment_identity_mismatch')
+            row = self.store.submitted(db, principal, request_key, scope=scope)
             if row is not None:
-                if (row['plan'] != plan or encode(row['input']) != encode(value)
-                        or row['identity'] != self.bindings[plan]['identity']):
+                if expected_identity is not None and row['identity'] != expected_identity:
+                    raise ServiceError('workflow_identity_mismatch')
+                if (row['plan'] != plan or not self.store.submission_matches(row, value)
+                        or row.get('metadata', {}) != metadata):
                     raise ServiceError('request_conflict')
                 instance = row['id']
             else:
+                if plan not in self.plans:
+                    raise ServiceError('definition_unavailable')
+                if 'input_schema' in self.plans[plan].spec:
+                    from .operation_contracts import JsonObjectSchema, ContractError
+                    try:
+                        JsonObjectSchema(self.plans[plan].spec['input_schema']).validate(value)
+                    except ContractError:
+                        raise ServiceError('workflow_input_schema_mismatch') from None
+                if expected_identity is not None and self.bindings[plan]['identity'] != expected_identity:
+                    raise ServiceError('workflow_identity_mismatch')
+                if bind_plan(plan, self.plans, self.workflows)['identity'] != self.bindings[plan]['identity']:
+                    raise ServiceError('workflow_changed')
+                if self.definitions.current('plan', plan) != self.bindings[plan]['identity']:
+                    raise ServiceError('workflow_changed')
                 self.operations.check_storage_admission()
+                check_submission_quota(self.operations, principal)
+                from .execution_policy import timing_policy
+                policy = timing_policy(self.plans[plan].spec.get('timing_policy'))
+                clock = policy.start(int(time.time() * 1000)) if policy else None
                 instance = self.store.create_instance(
                     db, principal, request_key, plan, self.bindings[plan]['identity'], value,
-                    wall_seconds=self.plans[plan].spec['limits']['wall_seconds'], maximum=self.max_instances)
+                    wall_seconds=policy.business_seconds if policy else self.plans[plan].spec['limits']['wall_seconds'],
+                    maximum=self.max_instances, metadata=metadata, clock=clock, scope=scope)
         return self.inspect(principal, instance)
 
     def inspect(self, principal, instance):
@@ -118,9 +223,6 @@ class WorkflowEngine:
             attempt = self.store.task_detail(db, instance, path, revision)
             if attempt is None:
                 raise ServiceError('workflow_task_not_found')
-            workflow = self.workflows.get(attempt['workflow'])
-            if workflow is None or workflow.identity != attempt['identity']:
-                raise ServiceError('workflow_changed')
             detail = {'instance_id': instance, 'plan': item['plan'],
                       'instance_state': item['state'], 'deadline': item['deadline'], **attempt}
             encode_task_inspection(detail)
@@ -156,14 +258,29 @@ class WorkflowEngine:
     def node(self, instance, path, kind, input, limits):
         return self.store.node(instance, path, kind, input, limits)
 
+    def progress(self, instance, path, kind):
+        return self.store.progress(instance, path, kind)
+
+    def checkpoint(self, instance, path, kind, next_index, output, consumed=0):
+        return self.store.checkpoint(instance, path, kind, next_index, output, consumed)
+
     def finish_node(self, instance, path, state, output=None, error=None):
         return self.store.finish_node(instance, path, state, output, error)
 
-    def scope(self, instance, path, limits, deadline):
-        return self.store.scope(instance, path, limits, deadline)
+    def scope(self, instance, path, limits, deadline, *, timing_policy=None):
+        return self.store.scope(instance, path, limits, deadline, timing_policy=timing_policy)
+
+    def join_decision(self, instance, path):
+        return self.store.join_decision(instance, path)
+
+    def decide_join(self, instance, path, winners, obsolete):
+        return self.store.decide_join(instance, path, winners, obsolete)
+
+    def join_drain_state(self, instance, path):
+        return self.store.join_drain_state(instance, path)
 
     def attempt(self, instance, path, workflow, input, deadline):
-        leaf = self.workflows[workflow]
+        leaf = self._active_workflows[workflow]
         return self.store.attempt(instance, path, workflow, input, deadline,
                                   identity=leaf.identity, wall_seconds=leaf.topology.get('wall_seconds', 3600))
 
@@ -192,22 +309,29 @@ class WorkflowEngine:
                 return True  # EOF: scheduler lifetime ended; nobody writes bytes.
             current = self._instance(item['id'])
             return (current['cancel_requested'] or time.monotonic() >= monotonic_deadline
+                    or self.store.scope_cancelled(item['id'], attempt['path'])
+                    or bool(current.get('error') and current['error'].get('code') == 'scope_timing_expired')
                     or current['plan'] not in self.grants.get(current['principal'], ()))
         try:
             scopes = self.store.scopes(item['id'], attempt['path'])
+            from .service_timing import execution_deadline
             monotonic_deadline = min([monotonic_deadline, *[
-                time.monotonic() + max(0, scope['deadline'] - time.time()) for scope in scopes]])
+                time.monotonic() + max(0, scope['deadline'] - time.time()) for scope in scopes],
+                *[execution_deadline(scope) for scope in scopes if scope.get('clock')]])
             allocation = WorkflowAllocation(self.operations, self.store, item['id'], limits, stopped,
                                             monotonic_deadline, scopes=scopes)
             executor = RunnerExecutor(self.state_dir, operations=allocation, **self.options)
-            original = self.workflows[attempt['workflow']]
+            original = self._active_workflows[attempt['workflow']]
             workflow = replace(original, topology={**original.topology, 'wall_seconds': attempt['wall_seconds']})
             result = executor.execute(workflow, {'run_id': attempt['run_directory'],
                 'run_directory': attempt['run_directory'], 'input': attempt['input'],
                 'principal': item['principal'], 'workflow': attempt['workflow'],
                 'task_id': 'task-flow-' + hashlib.sha256((item['id'] + ':' + attempt['path']).encode()).hexdigest(),
-                'revision': attempt['revision'], 'execution_deadline': monotonic_deadline},
+                'revision': attempt['revision'], 'execution_deadline': monotonic_deadline,
+                'event_sink': lambda event: self.store.protocol_event(item['id'], attempt, event)},
                 cancelled=stopped, ownership_descriptor=lock_fd)
+            for event in result.events:
+                self.store.protocol_event(item['id'], attempt, event)
             self._save_attempt(attempt, result.state, result.result, result.error)
         except BaseException:
             # Unknown includes infrastructure uncertainty. Recovery reuses the
@@ -215,6 +339,66 @@ class WorkflowEngine:
             self._save_attempt(attempt, 'unknown', error={'code': 'worker_interrupted'})
 
     def run(self, principal, instance):
+        with self.store.transaction(readonly=True) as db:
+            item = self._owned(db, principal, instance)
+        from .service_timing import status
+        timing = status(item)
+        if item['state'] in _FINISHED or item['state'] in _PAUSED and not (timing and timing['expired']) and not self.store.expired_scopes(instance):
+            return self.inspect(principal, instance)
+        try:
+            with self._execution_definition(item) as plan:
+                return self._run_definition(principal, instance, plan)
+        except ServiceError as error:
+            if error.code != 'definition_unavailable':
+                raise
+            with self._ownership(instance), _file_lock(self.state_dir / '.deployment.lock', False):
+                if self.operations.readonly or not self.operations.admission_enabled:
+                    raise ServiceError('audit_only')
+                uncertain = any(self._requires_reconciliation(attempt['run_directory'])
+                                for attempt in self.store.pending_attempts(instance))
+                self.store.block_definition(instance, uncertain=uncertain)
+            return self.inspect(principal, instance)
+
+    def definition_status(self, name, identity):
+        """Read source and dependency availability without mutating the evaluator."""
+        record = self.definitions.inspect('plan', name, identity)
+        if record is None:
+            raise ServiceError('definition_not_found')
+        descriptor = record['descriptor']
+        available = descriptor is not None and not record['retired']
+        dependencies = []
+        if descriptor is not None:
+            for leaf, version in descriptor['workflows'].items():
+                retained = self.definitions.inspect('workflow', leaf, version)
+                present = ((leaf, version) in self.workflow_versions and retained is not None
+                    and not retained['retired'] and retained['implementation_provenance'] == 'verified_source_package')
+                dependencies.append({'kind': 'workflow', 'name': leaf, 'identity': version, 'available': present})
+                available = available and present
+            for child, version in descriptor['plans'].items():
+                retained = self.definitions.inspect('plan_source', child, version)
+                present = retained is not None and retained['descriptor'] is not None and not retained['retired']
+                dependencies.append({'kind': 'plan_source', 'name': child, 'identity': version, 'available': present})
+                available = available and present
+        return {'kind': 'plan', 'name': name, 'identity': identity,
+                'current': self.definitions.current('plan', name) == identity,
+                'retired': bool(record['retired']), 'source_present': descriptor is not None,
+                'available': bool(available), 'dependencies': dependencies,
+                'implementation_reverified_at_dispatch': True}
+
+    def retire_definition(self, plan, identity):
+        """Trusted management operation; current aliases and live work retain definitions."""
+        with _file_lock(self.state_dir / '.deployment.lock', True, nonblocking=True):
+            if self.operations.readonly or not self.operations.admission_enabled:
+                raise ServiceError('audit_only')
+            with self.store.transaction(readonly=True) as db:
+                if db.execute("SELECT 1 FROM instances i WHERE plan=? AND identity=? AND (state NOT IN "
+                              "('completed','failed','cancelled','expired') OR EXISTS(SELECT 1 FROM attempts a "
+                              "WHERE a.instance=i.id AND a.state IN ('running','unknown'))) LIMIT 1", (plan, identity)).fetchone():
+                    raise ServiceError('definition_in_use')
+            self.definitions.retire('plan', plan, identity)
+            return self.definitions.inspect('plan', plan, identity)
+
+    def _run_definition(self, principal, instance, plan):
         from .workflow_scheduler import SchedulerOwnership
         with self.store.transaction(readonly=True) as db:
             self._owned(db, principal, instance)
@@ -222,9 +406,10 @@ class WorkflowEngine:
             if self.operations.readonly or not self.operations.admission_enabled:
                 raise ServiceError('audit_only')
             item = self._instance(instance)
-            if item['state'] in _FINISHED | _PAUSED:
+            from .service_timing import status, execution_deadline
+            timing = status(item)
+            if item['state'] in _FINISHED or item['state'] in _PAUSED and not (timing and timing['expired']) and not self.store.expired_scopes(instance):
                 return self.inspect(principal, instance)
-            plan = self.plans[item['plan']].spec
             limits = plan['limits']
             deadline = time.monotonic() + max(0, item['deadline'] - time.time())
             live = {}
@@ -238,42 +423,81 @@ class WorkflowEngine:
                     if state == 'running':
                         self._save_attempt(attempt, 'unknown', error={'code': 'worker_lost'})
                 current = self._instance(instance)
+                timing = self.store.clock_activity(instance, len(live)) if current.get('clock') else None
+                scope_expired = self.store.scope_clock_activity(instance, [attempt['path'] for attempt in live.values()])
+                if timing is not None:
+                    deadline = execution_deadline(self._instance(instance))
                 ready = []
                 state, output = self._advance(instance, 'root', plan['root'], item['input'], limits, item['deadline'], ready)
-                expired = time.monotonic() >= deadline
+                expired = time.monotonic() >= deadline or bool(timing and timing['expired']) or bool(scope_expired)
                 stopped = current['cancel_requested'] or expired
                 if not live and (stopped or state in _PAUSED | {'expired', 'cancelled'}
                                  or state in _FINISHED and not ready):
+                    if state == 'completed' and not stopped and 'output_schema' in plan:
+                        from .operation_contracts import JsonObjectSchema, ContractError
+                        try:
+                            JsonObjectSchema(plan['output_schema']).validate(output)
+                        except ContractError:
+                            state = 'failed'
+                            self.store.finish_node(instance, 'root', 'failed', error={'code': 'workflow_output_schema_mismatch'})
                     self.store.finish_instance(instance, state, output, expired=expired)
                     return self.inspect(principal, instance)
                 if not stopped and state not in _PAUSED | {'expired', 'cancelled'}:
                     for attempt in ready:
                         if len(live) >= limits['max_parallel']:
                             break
+                        if self.store.scope_cancelled(instance, attempt['path']):
+                            continue
                         scopes = self.store.scopes(instance, attempt['path'])
                         if any(sum(other['path'] == scope['path'] or other['path'].startswith(scope['path']+'/')
                                    for other in live.values()) >= scope['limits']['max_parallel'] for scope in scopes):
                             continue
-                        self._save_attempt(attempt, 'running')
+                        workflow = self._active_workflows[attempt['workflow']]
+                        slot = self.capacity.acquire(attempt['run_directory'], item['principal'], attempt['workflow'],
+                                                     resources=getattr(workflow, 'resource_keys', ()))
+                        if slot is None:
+                            continue
                         key = (attempt['path'], attempt['revision'])
-                        def execute(reader, descriptors, attempt=attempt):
-                            self._worker(attempt, item, limits, descriptors, reader, deadline)
-                        ownership.spawn(key, execute)
+                        def execute(reader, descriptors, attempt=attempt, slot=slot):
+                            try:
+                                self._worker(attempt, item, limits, (*descriptors, slot.descriptor), reader, deadline)
+                            finally:
+                                slot.close()
+                        try:
+                            if current.get('clock'):
+                                observed = self.store.clock_activity(instance, len(live) + 1)
+                                if observed and observed['expired']:
+                                    continue
+                            if self.store.scope_clock_activity(instance, [other['path'] for other in live.values()] + [attempt['path']]):
+                                continue
+                            self._save_attempt(attempt, 'running')
+                            ownership.spawn(key, execute)
+                        finally:
+                            slot.close()
                         live[key] = attempt
                 if not live:
+                    if ready and not stopped:
+                        time.sleep(0.05)
+                        continue
                     raise ServiceError('workflow_no_progress')
-                time.sleep(0.02)
+                ownership.wait(0.02)
 
-    def continue_task(self, principal, instance, path, request_key, input):
+    def continue_task(self, principal, instance, path, request_key, input, *, metadata=None, expected_identity=None, expected_deployment_id=None):
         _text(request_key, 'request_key')
         supplied = _object(input)
+        metadata = _object(metadata) if metadata is not None else {}
         with self.store.transaction(readonly=True) as db:
-            self._owned(db, principal, instance)
-        with self._ownership(instance), self._mutation() as db:
+            scope = RequestScope.retained(self._owned(db, principal, instance))
+        with epoch_guard(self.operations, principal, scope), self._ownership(instance), self._mutation() as db:
             item = self._owned(db, principal, instance)
+            scope.check_owner(db, principal)
+            if expected_deployment_id is not None and expected_deployment_id != self.operations.deployment_id:
+                raise ServiceError('deployment_identity_mismatch')
+            if expected_identity is not None and expected_identity != item['identity']:
+                raise ServiceError('workflow_identity_mismatch')
             old = self.store.continuation(db, instance, request_key)
             if old:
-                if old['path'] != path or old['input'] != encode(supplied):
+                if not self.store.continuation_matches(old, path, supplied, metadata):
                     raise ServiceError('request_conflict')
             else:
                 if item['cancel_requested'] or item['state'] not in {'input_required', 'auth_required'} or item['deadline'] <= time.time():
@@ -281,7 +505,7 @@ class WorkflowEngine:
                 attempt = self.store.latest_attempt(db, instance, path)
                 if not attempt or attempt['state'] not in {'input_required', 'auth_required'}:
                     raise ServiceError('invalid_continuation')
-                workflow = self.workflows[attempt['workflow']]
+                workflow = self._workflow(attempt['workflow'], attempt['identity'])
                 if workflow.continue_input is None:
                     raise ServiceError('unsupported_capability')
                 self.operations.check_storage_admission()
@@ -290,7 +514,7 @@ class WorkflowEngine:
                 if revision >= 32:
                     raise ServiceError('revision_limit')
                 self.store.continue_attempt(db, item, attempt, request_key, supplied, value,
-                                            wall_seconds=workflow.topology.get('wall_seconds', 3600))
+                                            wall_seconds=workflow.topology.get('wall_seconds', 3600), metadata=metadata)
         return self.inspect(principal, instance)
 
     def recover(self, principal, instance):

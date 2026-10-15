@@ -20,9 +20,9 @@ class WorkflowAllocation:
         if self.stopped() or time.monotonic() >= self.deadline:
             raise OperationsError('workflow admission closed')
 
-    def admit_run(self, run_id, run_dir):
+    def admit_run(self, run_id, run_dir, *, principal=None):
         self._check()
-        return self.ledger.admit_run(run_id, run_dir)
+        return self.ledger.admit_run(run_id, run_dir, principal=principal)
 
     def admit_call(self, run_id, call_id, reservation_microusd=None):
         self._check()

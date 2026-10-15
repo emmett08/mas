@@ -20,7 +20,7 @@ class StreamableHTTPTransport:
     advertised URL. Corporate OAuth may provide/refresh the token externally.
     """
     def __init__(self, endpoint: str, *, token: str | None = None, timeout_seconds: int = 30,
-                 allow_loopback_http=False):
+                 allow_loopback_http=False, transport_policy=None):
         from .service_client import validate_endpoint
         validate_endpoint(endpoint, allow_loopback_http=allow_loopback_http)
         if type(timeout_seconds) is not int or not 1 <= timeout_seconds <= 60:
@@ -30,10 +30,18 @@ class StreamableHTTPTransport:
             raise MCPError(-32602, "Invalid MCP bearer credential")
         self.endpoint, self._token = endpoint, token
         self.timeout_seconds, self.allow_loopback_http = timeout_seconds, allow_loopback_http
+        if transport_policy is not None:
+            from .http_policy import HTTPTransportPolicy
+            if not isinstance(transport_policy, HTTPTransportPolicy):
+                raise MCPError(-32602, 'Invalid explicit transport policy')
+        self.transport_policy = transport_policy
 
     def descriptor(self):
-        return {"kind": "streamable-http", "endpoint": self.endpoint,
-                "timeout_seconds": self.timeout_seconds, "allow_loopback_http": self.allow_loopback_http}
+        value = {"kind": "streamable-http", "endpoint": self.endpoint,
+                 "timeout_seconds": self.timeout_seconds, "allow_loopback_http": self.allow_loopback_http}
+        if self.transport_policy is not None:
+            value['transport_policy'] = self.transport_policy.descriptor()
+        return value
 
     def exchange(self, message: dict, *, headers=None):
         from .service_client import http_exchange
@@ -49,7 +57,8 @@ class StreamableHTTPTransport:
             status, response_headers, body = http_exchange(
                 self.endpoint, method="POST", body=integer_json(bounded(message)).encode(), headers=outgoing,
                 timeout_seconds=self.timeout_seconds, max_response_bytes=MAX_MESSAGE,
-                allow_loopback_http=self.allow_loopback_http, sse_response_id=message["id"])
+                allow_loopback_http=self.allow_loopback_http, sse_response_id=message["id"],
+                transport_policy=self.transport_policy)
         except Exception:
             raise MCPError(1002, "MCP HTTP failed; external outcome may be unknown") from None
         # Protocol errors on 400/404 still have valuable structured error codes.
