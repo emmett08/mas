@@ -15,6 +15,7 @@ import random
 import shutil
 import subprocess
 import tempfile
+import time
 import unittest
 from unittest.mock import patch
 
@@ -145,17 +146,33 @@ class GeneratedCanonicalContracts(unittest.TestCase):
 class GeneratedRustCorrespondence(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        release = Path(__file__).resolve().parents[2] / 'rust-protocol/target/release/mas-protocol-codec'
-        cls.binary = os.environ.get('MAS_CODEC_BIN') or shutil.which('mas-protocol-codec') or str(release)
+        release = Path(__file__).resolve().parents[2] / 'rust-protocol/target/release'
+        cls.binary = (os.environ.get('MAS_CODEC_BIN') or shutil.which('mas-protocol-codec')
+                      or str(release / 'mas-protocol-codec'))
+        cls.public_cli = False
         if not Path(cls.binary).is_file():
-            raise unittest.SkipTest('Rust codec unavailable; build release or set MAS_CODEC_BIN')
+            # Installed images expose the same Rust parser through mas; they
+            # need not install the development-only standalone codec wrapper.
+            cls.binary = os.environ.get('MAS_BIN') or shutil.which('mas') or str(release / 'mas')
+            cls.public_cli = True
+        if not Path(cls.binary).is_file():
+            raise unittest.SkipTest('Rust codec and mas unavailable; build release or set MAS_BIN')
+        # Contain a systematically hanging executable across all generated
+        # subtests, instead of multiplying the per-process timeout 306 times.
+        cls.deadline = time.monotonic() + 60
 
     def codec(self, operation, source):
-        result = subprocess.run([self.binary, operation], input=source, text=True,
-                                capture_output=True, timeout=10)
+        remaining = self.deadline - time.monotonic()
+        self.assertGreater(remaining, 0, 'generated codec execution budget exhausted')
+        command = [self.binary, operation] + (['-'] if self.public_cli else [])
+        result = subprocess.run(command, input=source, text=True,
+                                capture_output=True, timeout=min(10, remaining))
         self.assertIn(result.returncode, (0, 2), result.stderr)
         value = json.loads(result.stdout)
         self.assertEqual(result.returncode == 0, value['ok'])
+        if self.public_cli and value['ok']:
+            return {'ok': True, **({'text': value['result']['text']} if operation == 'encode'
+                                  else {'message': value['result']})}
         return value
 
     def test_seeded_python_rust_canonical_payload_and_identity(self):
