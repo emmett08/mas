@@ -3,10 +3,12 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import signal
 import tempfile
 import unittest
 from unittest.mock import patch
 
+from mas_host.contracts import AdapterInterrupted
 from mas_host.definitions import DefinitionRegistry, canonical
 from mas_host.diagnostics import doctor
 from mas_host.operations import DeploymentLedger
@@ -132,6 +134,34 @@ class ProvenanceTests(unittest.TestCase):
         self.assertEqual(result['runtime']['binaries']['mas']['sha256'], digest)
         self.assertIsNone(result['runtime']['binaries']['mas-gateway']['version'])
         self.assertFalse((self.root / 'absent').exists())
+
+    @unittest.skipUnless(os.name == 'posix', 'POSIX shutdown signals')
+    def test_shutdown_during_version_observation_is_not_unavailable_evidence(self):
+        self.write()
+        state = self.root / 'state'
+        DeploymentLedger(state)
+        DefinitionRegistry(state)
+        operations = (
+            ('mas_host.runtime_provenance.package_digest',
+             lambda: build_record(self.package, self.binaries)),
+            ('mas_host.diagnostics._read_database', lambda: retained_versions(state)),
+        )
+        for boundary, observe in operations:
+            with self.subTest(boundary=boundary):
+                delivered = []
+                def interrupted(number, _frame):
+                    delivered.append(number)
+                    raise AdapterInterrupted('host shutdown')
+                def reading(*_args):
+                    os.kill(os.getpid(), signal.SIGTERM)
+                previous = signal.signal(signal.SIGTERM, interrupted)
+                try:
+                    with patch(boundary, side_effect=reading):
+                        with self.assertRaises(AdapterInterrupted):
+                            observe()
+                    self.assertEqual(delivered, [signal.SIGTERM])
+                finally:
+                    signal.signal(signal.SIGTERM, previous)
 
 
 if __name__ == '__main__':

@@ -13,6 +13,8 @@ import stat
 import time
 import uuid
 
+from .contracts import AdapterInterrupted
+
 STAGES = ('http', 'dispatch', 'queue', 'provider', 'protocol', 'reconciliation')
 OUTCOMES = ('returned', 'raised', 'observed')
 BUCKETS_MS = (1, 5, 10, 25, 50, 100, 250, 500, 1000, 5000, 30000, 300000)
@@ -103,6 +105,10 @@ def record(root, stage, duration_us, *, outcome='observed', started_us=None, **i
             finally:
                 if fd is not None:
                     os.close(fd)
+    except AdapterInterrupted:
+        # The supervisor raises this from SIGTERM/SIGINT. Losing an observation
+        # must never consume the shutdown that stops an admitted invocation.
+        raise
     except Exception:
         # This is a lossy observation channel, never an effect ledger.
         return
@@ -171,5 +177,7 @@ def snapshot(root):
     except FileNotFoundError:
         return {'ok': True, 'format': 'mas-telemetry/1', 'records': 0, 'histograms': [], 'recent_spans': [],
                 'basis': 'retained-observation-window', 'lossy': True}
+    except AdapterInterrupted:
+        raise
     except Exception:
         return {'ok': False, 'error': 'telemetry_unavailable'}

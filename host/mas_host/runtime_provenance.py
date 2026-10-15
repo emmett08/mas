@@ -12,6 +12,8 @@ from pathlib import Path
 import re
 import stat
 
+from .contracts import AdapterInterrupted
+
 BUILD_RECORD = 'runtime_build.json'
 MAX_RECORD_BYTES = 1024 * 1024
 MAX_PACKAGE_BYTES = 64 * 1024 * 1024
@@ -131,6 +133,9 @@ def build_record(package, binaries):
                 'binary_matches': matched, 'record_sha256': hashlib.sha256(raw).hexdigest(),
                 'source_status': 'build_recorded' if record['source_commit'] else 'not_recorded',
                 'trust_basis': 'installed-package; release authentication is external'}
+    except AdapterInterrupted:
+        # Shutdown is control flow, not missing or malformed version evidence.
+        raise
     except Exception:
         return {'status': 'unavailable', 'source_commit': None, 'release_tag': None}
 
@@ -204,5 +209,7 @@ def retained_versions(state_dir):
                 items.append(item)
             return {'status': 'retained', 'items': items, 'has_more': has_more,
                     'limit': MAX_DEFINITIONS, 'basis': 'immutable registry; current code is not loaded'}
+    except AdapterInterrupted:
+        raise
     except Exception:
         return {'status': 'unavailable', 'items': [], 'has_more': False}

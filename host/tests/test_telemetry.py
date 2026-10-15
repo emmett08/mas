@@ -1,11 +1,14 @@
 """Observability is bounded, private, lossy and cannot alter an effect result."""
 import concurrent.futures
 import json
+import os
 from pathlib import Path
+import signal
 import tempfile
 import unittest
 from unittest.mock import patch
 
+from mas_host.contracts import AdapterInterrupted
 from mas_host.telemetry import record, snapshot, span, NAME, MAX_LOG_BYTES
 
 
@@ -89,6 +92,27 @@ class TelemetryTests(unittest.TestCase):
         with (self.root / NAME).open('ab') as output:
             output.write(b'{"malformed":true}\n')
         self.assertFalse(snapshot(self.root)['ok'])
+
+    @unittest.skipUnless(os.name == 'posix', 'POSIX shutdown signals')
+    def test_shutdown_signal_during_observation_open_is_not_discarded(self):
+        for number in (signal.SIGTERM, signal.SIGINT):
+            for name, observe in (('record', lambda: record(self.root, 'protocol', 1)),
+                                  ('snapshot', lambda: snapshot(self.root))):
+                with self.subTest(signal=number, observation=name):
+                    delivered = []
+                    def interrupted(received, _frame):
+                        delivered.append(received)
+                        raise AdapterInterrupted('host shutdown')
+                    def opening(*_args):
+                        os.kill(os.getpid(), number)
+                    previous = signal.signal(number, interrupted)
+                    try:
+                        with patch('mas_host.telemetry._open', side_effect=opening):
+                            with self.assertRaises(AdapterInterrupted):
+                                observe()
+                        self.assertEqual(delivered, [number])
+                    finally:
+                        signal.signal(number, previous)
 
 
 if __name__ == '__main__':
