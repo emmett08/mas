@@ -120,8 +120,10 @@ class MixedExposure:
                     raise RuntimeError('unexpected_pause')
                 item.setdefault('paused_at', time.monotonic())
                 if time.monotonic() - item['paused_at'] >= self.profile.paused_hold_seconds:
+                    resume_requested = time.monotonic()
                     self.service.update(item['principal'], item['task_id'], key + '-continue', {'resumed': True})
-                    item['resumed_at'] = time.monotonic()
+                    # End the observed pause before update can commit or dispatch.
+                    item['resumed_at'] = resume_requested
             elif receipt['state'] not in {'queued', 'running'}:
                 raise RuntimeError('unexpected_task_state_' + receipt['state'])
         self.sample()
@@ -212,10 +214,12 @@ def run_mixed_reference(repository, *, smoke=False, expected_commit=None):
                     return False
             exposure.wait(ready, timeout=30)
             report['dispatcher_startup_seconds'] = time.monotonic() - started
+            completed_history_started = time.monotonic()
             for offset in range(0, profile.retained_completed, profile.max_pending):
                 for index in range(offset, min(offset + profile.max_pending, profile.retained_completed)):
                     exposure.submit(('alice', 'bob')[index % 2], 'history', 'history')
                 exposure.drain()
+            report['completed_history_seconds'] = time.monotonic() - completed_history_started
             report['history_before_mixed_load'] = _history_counts(service)
             mixed_started = time.monotonic()
             for round_index in range(profile.mixed_rounds):
