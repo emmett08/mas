@@ -33,7 +33,7 @@ jobs:
       - name: Build Rust host binaries
         run: |
           rustup toolchain install 1.99.0 --profile minimal
-          cargo build --locked --release --manifest-path rust-protocol/Cargo.toml --bin mas --bin mas-gateway
+          cargo build --locked --release --manifest-path rust-protocol/Cargo.toml --bin mas --bin mas-gateway --bin mas-protocol-codec
       - name: Install host and test without API calls
         env:
           MAS_BIN: ${{ github.workspace }}/rust-protocol/target/release/mas
