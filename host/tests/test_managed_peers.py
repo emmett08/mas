@@ -138,6 +138,26 @@ class RegistryTests(unittest.TestCase):
         ca_two = self.registration(transport_policy=policy | {'additional_ca_sha256': 'b' * 64})
         self.assertNotEqual(ca_one.identity, ca_two.identity)
 
+    def test_phase_timeout_changes_require_a_new_peer_binding(self):
+        budgets = dict.fromkeys(('dns', 'connect', 'tls', 'headers', 'body'), 1000)
+        policy = HTTPTransportPolicy(phase_timeouts_ms=budgets)
+        registration = self.registration(transport_policy=policy.descriptor())
+        self.register(registration)
+        peer = ManagedPeerConnector(self.registry, 'worker-host', 'orchestrator',
+                                    token_file='/private/token', transport_policy=policy)
+        self.assertEqual(peer.registration.identity, registration.identity)
+        self.assertEqual(PeerRegistration.from_dict(registration.descriptor).identity, registration.identity)
+        changed = HTTPTransportPolicy(phase_timeouts_ms={**budgets, 'body': 2000})
+        self.assertNotEqual(self.registration(transport_policy=changed.descriptor()).identity,
+                            registration.identity)
+        with self.assertRaisesRegex(ServiceError, 'peer version immutable'):
+            self.register(self.registration(transport_policy=changed.descriptor()), key='timeout-change', revision=1)
+        peer.service.transport_policy = changed
+        with mock.patch('mas_host.bridges.managed_peer.read_token_file') as secret:
+            with self.assertRaisesRegex(ServiceError, 'peer binding changed'):
+                peer.negotiate()
+            secret.assert_not_called()
+
     def test_mutated_lifecycle_or_artifact_transport_fails_before_credentials(self):
         self.register()
         for target in ('service', '_artifact_service'):

@@ -166,6 +166,13 @@ class SharedRemoteTests(unittest.TestCase):
                 reason='Must require a new version', expected_revision=2)
         self.assertEqual(peers.resolve('analysis', 'owner').identity, current.identity)
         self.assertNotIn('/private/', str(peers.status()))
+        phased = HTTPTransportPolicy(phase_timeouts_ms={
+            'dns': 1000, 'connect': 2000, 'tls': 3000, 'headers': 4000, 'body': 5000})
+        version_three = PeerRegistration(version='3', transport_policy=phased.descriptor(), **options)
+        peers.register(registration=version_three, operator='owner', request_key='phased',
+            reason='Explicit independent timeout phases', expected_revision=2)
+        self.assertEqual(peers.resolve('analysis', 'owner')._encoded, version_three._encoded)
+        self.assertEqual(peers.resolve('analysis', 'owner', version='2')._encoded, current._encoded)
 
     def test_remote_lifecycle_is_durable_without_local_shadow_databases(self):
         runner = self.runner()

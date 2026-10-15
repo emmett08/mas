@@ -39,6 +39,29 @@ mod tests {
             assert!(peer_transport(&invalid).is_err());
         }
     }
+
+    #[test]
+    fn peer_transport_phase_budgets_are_versioned_bounded_and_exact() {
+        let binding = json!({"transport_policy": {
+            "format":"mas-http-policy/2", "proxy_url":null, "proxy_authentication":false,
+            "loopback_proxy_bypass":true, "allowed_origins":[], "additional_ca_sha256":null,
+            "phase_timeouts_ms":{"dns":100,"connect":200,"tls":300,"headers":400,"body":500}}});
+        assert!(peer_transport(&binding).is_ok());
+        for invalid_budget in [json!(0), json!(300001), json!(true), json!(1.5), Value::Null] {
+            let mut invalid = binding.clone();
+            invalid["transport_policy"]["phase_timeouts_ms"]["dns"] = invalid_budget;
+            assert!(peer_transport(&invalid).is_err());
+        }
+        let mut invalid = binding.clone();
+        invalid["transport_policy"]["format"] = json!("mas-http-policy/1");
+        assert!(peer_transport(&invalid).is_err());
+        let mut invalid = binding.clone();
+        invalid["transport_policy"]["phase_timeouts_ms"].as_object_mut().unwrap().remove("tls");
+        assert!(peer_transport(&invalid).is_err());
+        let mut invalid = binding;
+        invalid["transport_policy"]["phase_timeouts_ms"]["resolver"] = json!("arbitrary.module");
+        assert!(peer_transport(&invalid).is_err());
+    }
 }
 
 pub(crate) const DDL: &str = "
@@ -146,8 +169,21 @@ fn peer_transport(reg: &Value) -> Result<()> {
         }
     }
     if let Some(policy) = reg.get("transport_policy") {
-        fields(policy, &["format", "proxy_url", "proxy_authentication", "loopback_proxy_bypass",
-            "allowed_origins", "additional_ca_sha256"], &[])?;
+        let mut required = vec!["format", "proxy_url", "proxy_authentication", "loopback_proxy_bypass",
+            "allowed_origins", "additional_ca_sha256"];
+        match policy["format"].as_str() {
+            Some("mas-http-policy/1") => (),
+            Some("mas-http-policy/2") => required.push("phase_timeouts_ms"),
+            _ => return Err("invalid peer transport policy".into()),
+        }
+        fields(policy, &required, &[])?;
+        if let Some(budgets) = policy.get("phase_timeouts_ms") {
+            let phases = ["dns", "connect", "tls", "headers", "body"];
+            fields(budgets, &phases, &[])?;
+            for phase in phases {
+                integer(budgets, phase, 1, 300_000)?;
+            }
+        }
         let origin = |value: &Value, proxy: bool| {
             value.as_str().is_some_and(|s| {
                 let authority = s.strip_prefix("http://").or_else(||
@@ -164,8 +200,7 @@ fn peer_transport(reg: &Value) -> Result<()> {
                 })
             })
         };
-        if policy["format"] != "mas-http-policy/1"
-            || policy["loopback_proxy_bypass"] != true
+        if policy["loopback_proxy_bypass"] != true
             || !policy["proxy_authentication"].is_boolean()
             || policy["proxy_authentication"] == true && policy["proxy_url"].is_null()
             || !policy["proxy_url"].is_null() && !origin(&policy["proxy_url"], true)
