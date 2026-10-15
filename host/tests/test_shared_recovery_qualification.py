@@ -1,8 +1,9 @@
 """Populated PostgreSQL recovery rehearsal; external effects are bounded doubles.
 
-The measured interval includes sealing, native dump/restore, verification,
-activation and recovered service inspection. It is a controlled-cutover fixture,
-not a database replication, production fencing or availability measurement.
+The measured interval includes sealing, native dump/restore, external object
+restoration, verification, activation and a fresh admitted task to completion.
+It is a controlled-cutover fixture, not a database replication, production
+fencing or availability measurement.
 """
 import base64
 from dataclasses import replace
@@ -15,13 +16,14 @@ import unittest
 from unittest import mock
 
 from mas_host import RunnerError
-from mas_host.artifacts import ArtifactPolicy
+from mas_host.artifacts import ArtifactError, ArtifactPolicy, ArtifactRef
 from mas_host.circuit_breaker import CircuitPolicy
 from mas_host.cursor_cloud import CloudError
 from mas_host.distributed import remote_binding, WORKER_PROTOCOL
 from mas_host.durable_jobs import CursorCloudJobAdapter
 from mas_host.event_delivery import WebhookTarget
 from mas_host.peer_registry import PeerRegistration
+from mas_host.s3_artifacts import S3ArtifactContent
 from mas_host.service_contracts import ServiceError
 from mas_host.shared_artifact_transfer import SharedArtifactScope, SharedArtifactTransferService
 from mas_host.shared_artifacts import SharedArtifactStore
@@ -39,6 +41,7 @@ import test_shared_backup as backup_fixtures
 import test_shared_composition as composition_fixtures
 import test_shared_remote as remote_fixtures
 import test_shared_service as service_fixtures
+import test_s3_artifacts as object_fixtures
 
 
 @unittest.skipUnless(os.environ.get('MAS_TEST_POSTGRES_DSN'), 'requires actual PostgreSQL backend fixture')
@@ -52,6 +55,7 @@ class PopulatedRecoveryQualificationTests(unittest.TestCase):
         self.root = Path(self.fixture.temp.name)
         self.authority = self.fixture.source
         self.authority.renew(lease_seconds=300)
+        self.resumed_effects = self.root / 'resumed-effects.jsonl'
         self.runners = []
         self.addCleanup(self.close_runners)
 
@@ -75,17 +79,21 @@ class PopulatedRecoveryQualificationTests(unittest.TestCase):
             {'a': service_fixtures.SharedEcho(), 'b': service_fixtures.SharedEcho()},
             'a', 'b', 'work', classify=composition_fixtures.classify_confirmation,
             continue_input=composition_fixtures.confirm)
+        probe = Workflow('recovery-probe/1', {'agents': ['a', 'b'], 'application': 'agent-task/1',
+            'max_calls': 1, 'wall_seconds': 300},
+            {'a': service_fixtures.SharedEcho(),
+             'b': composition_fixtures.Increment(self.resumed_effects)}, 'a', 'b', 'work')
         leaves = SharedTaskService(authority, self.root / cache / 'leaves',
-            {'work': workflow}, {'alice': {'work'}}, supervised=False)
+            {'work': workflow, 'probe': probe}, {'alice': {'work', 'probe'}}, supervised=False)
         plans = {'sequence': composition_fixtures.plan({'kind': 'sequence', 'steps': [
             {'kind': 'task', 'workflow': 'work'}, {'kind': 'task', 'workflow': 'work'}]})}
         compositions = SharedCompositionService(authority, self.root / cache / 'compositions',
             plans, {'work': workflow}, {'alice': {'sequence'}}, supervised=False)
         return SharedTaskFacade(leaves, compositions)
 
-    def transfers(self, authority, cache):
+    def transfers(self, authority, cache, content=None):
         scope = SharedArtifactScope(authority, self.root / cache, 'transfer-results',
-            {'alice': 'alice'}, ArtifactPolicy(), self.fixture.content)
+            {'alice': 'alice'}, ArtifactPolicy(), content or self.fixture.content)
         return SharedArtifactTransferService(self.root / cache / 'sessions', {'results': scope})
 
     def test_populated_inventory_restores_original_obligations_and_measures_full_cutover(self):
@@ -177,6 +185,17 @@ class PopulatedRecoveryQualificationTests(unittest.TestCase):
         self.assertIsNotNone(event_before['pending'])
         allocations = {scope: self.authority.query('scope', {'scope': scope})
                        for scope in ('deployment', 'principal/alice')}
+        self.assertFalse(self.resumed_effects.exists())
+
+        # The database archive deliberately does not contain object bytes.
+        # An independent operator retains content under the original identity.
+        object_backup = self.root / 'retained-object.blob'
+        object_backup.write_bytes(f.content.verify_object(f.artifacts.store_id,
+            f.reference, collect=True))
+        object_manifest = self.root / 'retained-object.json'
+        object_manifest.write_text(json.dumps({'reference': f.reference.to_dict(),
+            'store_id': f.artifacts.store_id, 'backend': f.content.descriptor,
+            'file': object_backup.name}, sort_keys=True))
 
         stages = {}
         started = previous = time.monotonic()
@@ -203,10 +222,31 @@ class PopulatedRecoveryQualificationTests(unittest.TestCase):
         f.restore.restore_audit(self.root / 'populated-archive')
         self.assertEqual(f.restore.inspect()['state'], before['state'])
         stage('native_restore_and_inventory_ms')
+
+        # Simulate loss of the source content service and rebuild an empty
+        # service at its pinned logical identity from the retained backup only.
+        f.object_client.objects.clear()
+        restored_client = object_fixtures.ObjectClient()
+        restored_content = S3ArtifactContent(f.content.config, client=restored_client)
+        self.assertEqual(restored_client.objects, {})
         def reader(namespace, digest, size):
             self.assertEqual((namespace, digest, size),
                 (f.reference.namespace, f.reference.sha256, f.reference.size))
-            return f.content.verify_object(f.artifacts.store_id, f.reference, collect=True)
+            return restored_content.verify_object(f.artifacts.store_id, f.reference, collect=True)
+        with self.assertRaises(ArtifactError):
+            f.restore.verify_objects(reader)
+        self.assertEqual(f.restore.inspect()['mode'], 'audit')
+        retained = json.loads(object_manifest.read_text())
+        self.assertEqual(retained['backend'], restored_content.descriptor)
+        self.assertEqual(retained['store_id'], f.artifacts.store_id)
+        self.assertEqual(ArtifactRef.from_dict(retained['reference']), f.reference)
+        self.assertEqual(retained['file'], object_backup.name)
+        with object_backup.open('rb') as source:
+            restored_content.publish_object(retained['store_id'],
+                ArtifactRef.from_dict(retained['reference']), source, ArtifactPolicy())
+        self.assertEqual(len(restored_client.objects), 1)
+        self.assertEqual(f.object_client.objects, {})
+        stage('external_object_restore_ms')
         verified = f.restore.verify_objects(reader)
         stage('object_verification_ms')
         activated = f.restore.activate(fencing_proof=f.proof(verified, before['database']), read_object=reader)
@@ -228,11 +268,11 @@ class PopulatedRecoveryQualificationTests(unittest.TestCase):
         self.assertEqual(current_worker.evidence('alice', call['call_id']), [receipt])
         self.assertFalse(current_worker.receipt('worker', receipt=receipt)['authoritative'])
         self.assertEqual(SharedCircuitBreaker(successor, policy).status(), circuit_before)
-        self.assertEqual(self.transfers(successor, 'empty-transfer-cache').status('alice', transfer), transfer_before)
+        self.assertEqual(self.transfers(successor, 'empty-transfer-cache', restored_content).status('alice', transfer), transfer_before)
         chunk = successor.query('transfer.read', {'principal': 'alice', 'transfer_id': transfer, 'offset': 0})
         self.assertEqual((bytes.fromhex(chunk['hex']), chunk['next_offset']), (data[:12], 12))
         restored_artifacts = SharedArtifactStore(successor, namespace='retained', principal='alice',
-            content_backend=f.content, policy=ArtifactPolicy())
+            content_backend=restored_content, policy=ArtifactPolicy())
         self.assertEqual(restored_artifacts.read_bytes(f.reference), b'retained exact object bytes')
         self.assertEqual(successor.query('event.read', {'principal': 'alice', 'subscription_id': 'subscription'}), event_before)
         for scope, expected in allocations.items():
@@ -246,6 +286,39 @@ class PopulatedRecoveryQualificationTests(unittest.TestCase):
         with self.assertRaises(RunnerError):
             self.authority.renew()
         stage('recovered_service_verification_ms')
+
+        # Activation does not reopen admission. The operator separately resumes
+        # this epoch, then the public service admits one new effect.
+        successor.renew(lease_seconds=300)
+        successor.set_draining(False, operator='recovery-operator',
+            evidence={'fixture': 'restored-state-and-objects-verified'})
+        self.assertFalse(successor.authority_status()['draining'])
+        resumed = recovered.submit('alice', 'resumed-probe', 'probe', {'value': 41})['task_id']
+        self.assertEqual(recovered.run_once(resumed)['state'], 'completed')
+        self.assertEqual(recovered.result('alice', resumed), {'value': 42})
+        effects = [json.loads(line) for line in self.resumed_effects.read_text().splitlines()]
+        self.assertEqual(len(effects), 1)
+        self.assertEqual(effects[0]['input'], {'value': 41})
+        self.assertEqual(recovered.submit('alice', 'resumed-probe', 'probe', {'value': 41})['task_id'], resumed)
+        self.assertIsNone(recovered.run_once(resumed))
+        self.assertEqual(len(self.resumed_effects.read_text().splitlines()), 1)
+        for scope, previous_allocation in allocations.items():
+            expected = {**previous_allocation,
+                **{name: previous_allocation[name] + 1 for name in ('runs', 'calls', 'microusd')}}
+            self.assertEqual(successor.query('scope', {'scope': scope}), expected)
+        # New admission never resolves or replays the prior uncertain effects.
+        for task, expected in tasks.items():
+            self.assertEqual(recovered.inspect('alice', task), expected)
+        self.assertEqual(SharedRemoteTaskService(successor, peer_client, namespace='alice/analysis').status('logical-job'), remote_before)
+        self.assertEqual(SharedJobStore(successor, self.root / 'new-cloud-cache', principal='alice').status('cloud-unknown'), cloud_before)
+        self.assertEqual(current_worker.inspect('alice', call['call_id'])['state'], 'unknown')
+        self.assertFalse(current_worker.dispatch('worker', **{k: assignment[k]
+            for k in ('boot', 'call_id', 'fence')})['execute'])
+        self.assertEqual(successor.query('invocation', {'run': f.run, 'call_id': 'uncertain-call'})['state'], 'executing')
+        self.assertEqual([item[0] for item in peer_client.calls], ['submit'])
+        self.assertEqual([item[0] for item in cloud_client.calls], ['create'])
+        self.assertFalse(list(self.root.rglob('*.sqlite')), 'resumed service must still use shared authority')
+        stage('explicit_resume_and_task_completion_ms')
         total_ms = round((time.monotonic() - started) * 1000, 3)
         self.assertLess(total_ms, 60_000, 'controlled populated recovery exceeded the 60s fixture gate')
         self.assertEqual(manifest['payload']['seal']['payload']['state'], before['state'])
@@ -253,4 +326,7 @@ class PopulatedRecoveryQualificationTests(unittest.TestCase):
             'profile': 'sealed-source-local-postgresql-fixture', 'total_ms': total_ms,
             'stages_ms': stages, 'populated_tables': len([v for v in counts.values() if v]),
             'required_populated_tables': list(required), 'acknowledged_state_lost': False,
-            'admission_open': False, 'production_rpo_rto_established': False}, sort_keys=True))
+            'objects_restored_from_backup': len(restored_client.objects),
+            'admission_open': True, 'fresh_tasks_completed': 1,
+            'prior_uncertain_effects_replayed': False,
+            'production_rpo_rto_established': False}, sort_keys=True))

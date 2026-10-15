@@ -16,8 +16,9 @@ Before running the recovery tests, the reference targets are:
 - same-database controller recovery gate within 60 seconds, excluding independent
   reconciliation of unresolved provider outcomes;
 - a separate populated controlled-cutover rehearsal within 60 seconds, measured
-  from source sealing through dump, restore, object verification, activation and
-  recovered service inspection;
+  from source sealing through dump, restore, external object restoration,
+  verification, activation, explicit admission reopening and a fresh task's
+  successful completion;
 - a restored archive remains closed to all service admission until its exact
   final source state, shared objects and external fencing proof are verified.
 
@@ -83,6 +84,10 @@ not manufacture that evidence or auto-promote a replica.
 the deployment's trusted content port. Missing bytes, changed digests/sizes or a
 changed inventory stop recovery. Object reservations and unresolved retention
 links stay in the verified database state; they are never refunded on restore.
+The database archive contains object identities and obligations, not object
+bytes. Operators must retain and restore the content independently under the
+original backend and store identities before verification. The recovery manager
+does not copy object backups or authorise rebinding to a different backend.
 
 Activation also requires an **externally signed fencing attestation**, using the
 retained independent recovery key reference. There is no `force` flag or boolean
@@ -141,17 +146,31 @@ provider circuit state; acknowledged upload chunks; and a pending webhook page.
 It checks that the required domain tables contain records before sealing, compares
 every retained table and sequence after restore, and reads each domain through
 the successor's native repositories. Original task, invocation, remote, worker,
-transfer and event identities survive. Allocation totals remain unchanged,
-unknown effects remain unresolved, and admission stays drained. The fixture
-providers record no additional calls during recovery.
+transfer and event identities survive. Before activation, the rehearsal empties
+the original object store and confirms that verification fails against a new
+empty content service. An explicit external-operator stage restores previously
+retained backup bytes into that service under the original pinned identities;
+the recovery manager then verifies them. This stage uses the bounded S3 transport
+double and the content publication port, not direct insertion into its object map.
+
+Allocation totals remain unchanged through restoration, and the activated
+successor initially remains drained. After inspecting the restored state, the
+operator explicitly reopens admission. The public task service then completes a
+fresh task with one bounded invocation and a one-microusd reservation. The test
+checks that deployment and principal run, call and reservation totals each rise
+by exactly one, including after request replay. Prior uncertain peer, cloud and
+worker effects remain unresolved; the old invocation remains charged; the prior
+provider doubles receive no additional calls; and the fresh effect runs once.
 
 The rehearsal emits `mas-controlled-recovery-qualification/1` JSON in the backend
-test log, including stage durations and the total measured interval. Its total
-includes all recovery stages; the older archive test's activation-only timer
-continues to check the narrower activation operation. The source is available
+test log, including stage durations, restored object count, fresh completed task
+count and the total measured interval. Its total includes external object restore
+and explicit reopening through successful execution; the older archive test's
+activation-only timer continues to check the narrower activation operation. The source is available
 for an intentional seal, the database is local, external fencing is a controlled
-fixture attestation, and object transport uses a bounded double. These explicit
-conditions make the result reproducible without claiming production RPO/RTO.
+fixture attestation, object backup bytes were retained before the cutover, and
+object transport uses a bounded double. These explicit conditions make the
+result reproducible without claiming production RPO/RTO.
 
 Crash/PITR promotion still requires a deployment-specific proof that every
 acknowledged admission and effect record survived, plus independently established
