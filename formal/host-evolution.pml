@@ -2,7 +2,7 @@
  * at most two invocation attempts and one worker-fence transition. Repository
  * commits are atomic; authenticated receipts and truthful not-sent evidence
  * are environmental assumptions. No OS/provider/network refinement claim. */
-mtype = { Queued, Running, NotSent, Completed, Unknown, Archived };
+mtype = { Queued, Running, NotSent, Completed, Unknown, Archived, Blocked };
 mtype state = Queued;
 byte receipts = 1;
 byte attempts = 0;
@@ -36,22 +36,47 @@ inline invariants() {
 proctype Execute() {
     available;
     atomic {
+        if
+#ifdef BUG_EVOLUTION_STALE_ADMISSION
+        :: true ->
+#else
+        :: assigned_fence == current_fence ->
+#endif
+        assert(assigned_fence == current_fence); /* EVOLUTION_CURRENT_ADMISSION */
         state = Running;
         executed_version = pinned_version;
 #ifdef BUG_EVOLUTION_ALIAS
         executed_version = alias_version;
 #endif
         attempts++; charges++; spent++;
+        :: else -> state = Blocked
+        fi;
         invariants()
     }
     if
-    :: state = Completed
-    :: state = NotSent
-    :: state = Unknown
+    :: state == Running ->
+        if
+        :: state = Completed
+        :: state = NotSent
+        :: state = Unknown
+        fi
+    :: state == Blocked -> skip
     fi;
     if
     :: state == NotSent ->
-        atomic { attempts++; charges++; spent++; state = Completed; invariants() }
+        atomic {
+            if
+#ifdef BUG_EVOLUTION_STALE_ADMISSION
+            :: true ->
+#else
+            :: assigned_fence == current_fence ->
+#endif
+                assert(assigned_fence == current_fence); /* EVOLUTION_CURRENT_ADMISSION */
+                attempts++; charges++; spent++; state = Completed
+            :: else -> state = Blocked
+            fi;
+            invariants()
+        }
     :: state != NotSent -> skip
     fi;
     atomic { settled = true; invariants() }
