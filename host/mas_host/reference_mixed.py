@@ -249,11 +249,6 @@ def run_mixed_reference(repository, *, smoke=False, expected_commit=None):
                     'completed_by_principal': {owner: sum(item['principal'] == owner for item in completed)
                                                for owner in ('alice', 'bob')}})
             report['mixed_elapsed_seconds'] = time.monotonic() - mixed_started
-            # Reuse exactly the request key whose admission was denied. Rejection must leave no accepted request.
-            receipt = service.submit('alice', 'overflow', 'mixed',
-                                     {'principal': 'alice', 'key': 'overflow', 'class': 'short'})
-            checks['denied_request_key_reusable_after_drain'] = receipt['state'] == 'queued'
-            checks['reused_probe_cancelled_without_execution'] = service.cancel('alice', receipt['task_id'])['state'] == 'cancelled'
         except (RuntimeError, ServiceError, OSError, ValueError) as error:
             failures.append(type(error).__name__ + ':' + (str(error) if isinstance(error, RuntimeError) else 'fixture_failed'))
         finally:
@@ -275,6 +270,16 @@ def run_mixed_reference(repository, *, smoke=False, expected_commit=None):
                     break
                 time.sleep(0.1)
             cleanup_seconds = time.monotonic() - finished
+        if not failures and len(rounds) == profile.mixed_rounds and not final_processes['descendant_processes']:
+            # Reuse the rejected key only after the dispatcher has stopped.
+            # Cancelling while it runs would race admission and charge another run.
+            try:
+                receipt = service.submit('alice', 'overflow', 'mixed',
+                                         {'principal': 'alice', 'key': 'overflow', 'class': 'short'})
+                checks['denied_request_key_reusable_after_drain'] = receipt['state'] == 'queued'
+                checks['reused_probe_cancelled_without_execution'] = service.cancel('alice', receipt['task_id'])['state'] == 'cancelled'
+            except (RuntimeError, OSError, ValueError):
+                failures.append('post_cleanup_reuse_probe_failed')
         final_storage = storage_sample(state)
         mixed = {key: item for key, item in exposure.jobs.items() if item['phase'] == 'mixed'}
         completed_by_owner = {owner: sum(item['principal'] == owner and 'completed' in item for item in mixed.values())

@@ -107,7 +107,7 @@ an independent, exact-source report.
 | Pause lifecycle | `input_required`, held for at least three seconds, then public `update` and a fresh execution revision |
 | Saturation | Four callbacks held concurrently, two per principal, until the observer releases their barrier |
 | Backpressure | Fill all 16 pending positions during saturation; a further submit must return `queue_full` |
-| Reuse | The rejected request key must become admissible after draining; the queued probe is then cancelled |
+| Reuse | After dispatcher shutdown, the rejected key must become admissible; its queued probe is cancelled without execution |
 | Retained task ceiling | 2,048, fixed before the deployment is created |
 | Preparation / each execution phase | At most 180 seconds; saturation observation at most 30 seconds |
 | State / process / RSS ceilings | 512 MiB / 64 descendant processes / 2 GiB summed descendant RSS |
