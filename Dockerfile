@@ -20,6 +20,13 @@ COPY host/pyproject.toml host/requirements-openai.txt host/requirements-bridges.
 RUN python -m pip install --no-cache-dir --require-hashes -r requirements-build.txt \
     && python -m pip download --no-cache-dir --require-hashes --dest /wheels -r requirements-openai.txt -r requirements-bridges.txt
 COPY host/mas_host ./mas_host
+ARG MAS_SOURCE_COMMIT=""
+ARG MAS_RELEASE_TAG=""
+COPY --from=rust-build /build/rust-protocol/target/release/mas /build/binaries/mas
+COPY --from=rust-build /build/rust-protocol/target/release/mas-gateway /build/binaries/mas-gateway
+COPY rust-protocol/Cargo.toml /build/rust-Cargo.toml
+COPY scripts/write-runtime-provenance.py /build/write-runtime-provenance.py
+RUN --network=none python /build/write-runtime-provenance.py --host /build/host --rust-manifest /build/rust-Cargo.toml --binaries /build/binaries --source-commit "$MAS_SOURCE_COMMIT" --release-tag "$MAS_RELEASE_TAG"
 RUN --network=none python -m pip wheel --no-cache-dir --no-index --no-deps --no-build-isolation --wheel-dir /wheels . \
     && python -c 'from pathlib import Path; import hashlib; p=next(Path("/wheels").glob("mas_host-*.whl")); Path("/wheels/host-wheel.txt").write_text(str(p)+" --hash=sha256:"+hashlib.sha256(p.read_bytes()).hexdigest()+"\n")'
 

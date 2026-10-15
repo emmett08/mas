@@ -28,4 +28,4 @@ where = ["."]
 include = ["mas_host*"]
 
 [tool.setuptools.package-data]
-mas_host = ["cursor_runtime.json", "cursor_bridge_patch.json", "cursor_transport_bootstrap.mjs"]
+mas_host = ["runtime_build.json", "cursor_runtime.json", "cursor_bridge_patch.json", "cursor_transport_bootstrap.mjs"]

@@ -123,6 +123,52 @@ class RetentionBudgetTests(unittest.TestCase):
                 store.events(db, identity, 0, 100)
             store.create_instance(db, 'alice', 'second', 'plan', 'definition', {}, wall_seconds=100, maximum=1)
 
+    def test_thousand_historical_instances_archive_without_refunding_authority(self):
+        # These terminal historical fixtures retain actual admitted run/call
+        # allocations. Their creation is not a provider or throughput test.
+        from mas_host.workflow_engine import WorkflowEngine
+        state = self.root / 'long-history'
+        ledger = DeploymentLedger(state, DeploymentPolicy(max_runs=1002, max_calls=1002,
+            max_reserved_microusd=1002, per_call_reservation_microusd=1, min_free_bytes=1))
+        source = {'format': 'mas-workflow/1', 'name': 'history', 'version': '1',
+            'limits': {'max_steps': 1, 'max_parallel': 1, 'wall_seconds': 300,
+                       'max_calls': 1, 'max_reserved_microusd': 1},
+            'root': {'kind': 'transform', 'fields': {'value': {'path': ['value'], 'type': 'integer'}}}}
+        engine = WorkflowEngine(state, {'history': source}, {}, {'alice': {'history'}}, operations=ledger)
+        identities = []
+        for number in range(1000):
+            run = f'historical-{number}'
+            ledger.admit_run(run, state / run, principal='alice')
+            ledger.admit_call(run, 'call', 1)
+            with engine.store.transaction() as db:
+                identity = engine.store.create_instance(db, 'alice', str(number), 'history',
+                    engine.bindings['history']['identity'], {'value': number}, wall_seconds=300, maximum=1000)
+                db.execute("UPDATE instances SET state='completed',output='{}' WHERE id=?", (identity,))
+                db.execute('INSERT INTO allocations VALUES(?,?,?,?)', (identity, run, 'call', 1))
+            identities.append(identity)
+        with self.assertRaisesRegex(ServiceError, 'workflow limit'):
+            engine.submit('alice', 'next', 'history', {'value': 1000})
+        before = ledger.health()['usage']
+        self.assertEqual(before, {'runs': 1000, 'calls': 1000, 'reserved_microusd': 1000})
+        archived = archive_workflows(state, 0, apply=True)['instances']
+        self.assertEqual(sum(item['archived'] for item in archived), 1000)
+        # Reopening both public owners cannot replenish historical allowance.
+        ledger = DeploymentLedger(state)
+        engine = WorkflowEngine(state, {'history': source}, {}, {'alice': {'history'}}, operations=ledger)
+        fresh = engine.submit('alice', 'next', 'history', {'value': 1000})
+        self.assertEqual(engine.run('alice', fresh['instance_id'])['output'], {'value': 1000})
+        for number in (0, 499, 999):
+            replay = engine.submit('alice', str(number), 'history', {'value': number})
+            self.assertEqual(replay['instance_id'], identities[number])
+            self.assertTrue(replay['archived'])
+            with self.assertRaisesRegex(ServiceError, 'request conflict'):
+                engine.submit('alice', str(number), 'history', {'value': -1})
+        self.assertEqual(ledger.health()['usage'], before)
+        with engine.store.transaction(readonly=True) as db:
+            self.assertEqual(db.execute('SELECT count(*) FROM archives').fetchone()[0], 1000)
+            self.assertEqual(db.execute('SELECT count(*) FROM instances').fetchone()[0], 1)
+            self.assertEqual(db.execute('SELECT sum(amount) FROM allocations').fetchone()[0], 1000)
+
     def test_unresolved_work_is_retained_even_under_terminal_parent(self):
         store = WorkflowStore(self.state)
         identity = self.completed(store)

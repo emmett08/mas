@@ -393,15 +393,24 @@ def doctor(state_dir, config_path=None, *, environ=None):
             packages[name] = None
     binaries = {name: _binary(environment.get(variable, name)) for name, variable in
                 (('mas', 'MAS_BIN'), ('mas-gateway', 'MAS_GATEWAY_BIN'))}
+    from .runtime_provenance import build_record, retained_versions
+    provenance = build_record(Path(__file__).parent, binaries)
+    for name, matched in provenance.get('binary_matches', {}).items():
+        if matched:
+            binaries[name].update(version=provenance['binaries'][name]['version'],
+                                  version_status='content_bound_build_record')
+    versions = retained_versions(state_dir)
     metrics = operational_metrics(state_dir)
     configuration = effective_configuration(config_path) if config_path is not None else {'ok': True, 'configuration': None}
     checks = {'python_supported': sys.version_info >= (3, 10),
               'jsonschema_available': packages['jsonschema'] is not None,
               'binaries_available': all(value['executable'] and value['sha256'] for value in binaries.values()),
-              'state_readable': metrics['ok'], 'configuration_valid': configuration['ok']}
+              'state_readable': metrics['ok'], 'configuration_valid': configuration['ok'],
+              'build_binding_valid': provenance['status'] in {'not_recorded', 'content_bound'}}
     return {'ok': all(checks.values()), 'advisory': True, 'checks': checks,
         'runtime': {'python': platform.python_version(), 'sqlite': sqlite3.sqlite_version,
                     'packages': packages, 'binaries': binaries},
+        'provenance': provenance, 'retained_versions': versions,
         'configuration': configuration.get('configuration'),
         'state': {'stores': metrics.get('stores', {}), 'budget': metrics.get('budget'),
                   'storage': metrics.get('storage'), 'error': metrics.get('error')},
