@@ -171,6 +171,8 @@ fn main() {
         Ok(result) => json!({"version":1,"ok":true,"result":result}),
         Err(error) => {
             let code = match error.as_str() {
+                "stale protocol authority" => "stale_protocol_authority",
+                "controller_lease_expired" => "controller_lease_expired",
                 "controller_admission_closed"
                 | "event_ack_conflict"
                 | "event_policy_changed"

@@ -8,19 +8,34 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import subprocess
+import sys
 import tempfile
 import unittest
+from unittest import mock
 import uuid
 
 from mas_host import RunnerError
 from mas_host.distributed import remote_binding, WORKER_PROTOCOL
 from mas_host.service_contracts import ServiceError
-from mas_host.shared_authority import SharedAuthority
+from mas_host.shared_authority import SharedAuthority, SharedAuthorityRejected
 from mas_host.shared_control import SharedWorkerController
-import test_shared_service as fixtures
+from mas_host.topology import compile_topology
 
 
 ROOT = Path(__file__).resolve().parents[2]
+
+
+class ObservedAuthority(SharedAuthority):
+    """Retain the native rejection before a public worker port sanitises it."""
+    rejection_code = None
+
+    def _request(self, *args, **kwargs):
+        try:
+            return super()._request(*args, **kwargs)
+        except (RunnerError, ServiceError) as error:
+            self.rejection_code = getattr(error, 'code', None)
+            raise
 
 
 class NativeAuthorityTrace:
@@ -34,7 +49,7 @@ class NativeAuthorityTrace:
         self.authorities = {0: self.authority(0, 1)}
         self.authorities[0].initialise()
         self.authorities[0].renew(lease_seconds=300)
-        for scope in ('deployment', 'principal/alice', 'ancestor/root', 'provider/fixture'):
+        for scope in ('deployment', 'principal/alice', 'ancestor/root', 'ancestor/leaf'):
             self.authorities[0].configure_scope(scope, max_runs=10, max_calls=10, max_microusd=10)
         digest = hashlib.sha256(b'formal-authority-fixture').hexdigest()
         self.grants = {f'worker-{worker}': {'trust_zone': 'trusted', 'capacity': 1,
@@ -47,19 +62,16 @@ class NativeAuthorityTrace:
         self.tasks = [None, None]
         self.assignments = [None, None]
         self.authoritative = [False, False]
-        self.runners = []
+        self.rejection_code = None
 
     def authority(self, controller, epoch):
-        authority = SharedAuthority(**self.settings, controller=f'controller-{controller}', epoch=epoch)
+        authority = ObservedAuthority(**self.settings, controller=f'controller-{controller}', epoch=epoch)
         self.testcase.addCleanup(authority.close)
         return authority
 
     def close(self):
-        for runner in self.runners:
-            try:
-                runner.close()
-            except RunnerError:
-                pass  # A fenced handle cannot release ownership.
+        for authority in self.authorities.values():
+            authority.close()
 
     def register(self, worker):
         return self.controllers[self.current].register(f'worker-{worker}',
@@ -67,27 +79,38 @@ class NativeAuthorityTrace:
             architecture='x86_64', runtime='python-3.14.0', trust_zone='trusted', protocol=WORKER_PROTOCOL)
 
     def act(self, operation, args):
+        self.rejection_code = None
+        for authority in self.authorities.values():
+            authority.rejection_code = None
         try:
             if operation == 'admit':
                 controller, task = args
                 authority = self.authorities[controller]
-                runner = authority.runner({'agents': ['a', 'b'], 'application': 'agent-task/1',
-                    'max_calls': 2, 'wall_seconds': 300},
-                    {'a': fixtures.SharedEcho(), 'b': fixtures.SharedEcho()}, self.root / f'task-{task}',
-                    principal='alice', ancestors=('ancestor/root', 'provider/fixture'),
-                    workflow_version='authority-trace/1', supervised=False)
-                self.runners.append(runner)
-                runner._journal.step('effect', 'invoke', {'input': self.binding}, {})
-                call = runner._journal.create_invocation('effect', 'b', 1)
-                runner._session.admit_invocation(call['call_id'])
-                self.controllers[controller].submit_admitted(call['call_id'], self.binding)
-                self.tasks[task] = call['call_id']
+                configuration = compile_topology({'agents': ['a', 'b'], 'application': 'agent-task/1',
+                    'max_calls': 2, 'wall_seconds': 300})
+                run, owner, call = f'trace-run-{task}', f'trace-owner-{task}', f'trace-call-{task}'
+                # Exercise the native admission command directly: Runner's
+                # constructor deliberately sanitises service exceptions.
+                authority.command('create_run', {'run': run, 'principal': 'alice',
+                    'ancestors': ['ancestor/root', 'ancestor/leaf'], 'configuration': configuration,
+                    'metadata': {'run_id': run, 'workflow_version': 'authority-trace/1',
+                        'topology': configuration, 'max_depth': 8,
+                        'secret_reference': authority.secret_reference, 'principal': 'alice'}})
+                authority.command('claim_run', {'run': run, 'owner': owner})
+                authority.command('step', {'run': run, 'owner': owner, 'key': 'effect',
+                    'kind': 'invoke', 'input': {'input': self.binding}, 'initial': {}})
+                authority.command('prepare_invocation', {'run': run, 'owner': owner,
+                    'step_key': 'effect', 'actor': 'b', 'call_id': call, 'reservation_microusd': 1})
+                authority.command('admit_invocation', {'run': run, 'owner': owner, 'call_id': call})
+                self.controllers[controller].submit_admitted(call, self.binding)
+                self.tasks[task] = call
                 return True
             if operation == 'claim':
                 controller, worker, task = args
                 assignment = self.controllers[controller].claim(f'worker-{worker}',
                     boot=f'boot-{worker}-{self.boots[worker]}')['assignment']
                 if assignment is None:
+                    self.rejection_code = 'no_assignment'
                     return False
                 self.testcase.assertEqual(assignment['call_id'], self.tasks[task],
                                           'native scheduling selected a different logical task')
@@ -96,8 +119,12 @@ class NativeAuthorityTrace:
             if operation in ('dispatch', 'replay_dispatch'):
                 controller, worker, task = args
                 assignment = self.assignments[task]
-                return self.controllers[controller].dispatch(f'worker-{worker}',
-                    **{key: assignment[key] for key in ('boot', 'call_id', 'fence')})['execute']
+                result = self.controllers[controller].dispatch(f'worker-{worker}',
+                    **{key: assignment[key] for key in ('boot', 'call_id', 'fence')})
+                self.testcase.assertIs(type(result['execute']), bool)
+                if not result['execute']:
+                    self.rejection_code = result.get('reason')
+                return result['execute']
             if operation == 'receipt':
                 controller, worker, task = args
                 assignment = self.assignments[task]
@@ -125,7 +152,15 @@ class NativeAuthorityTrace:
                 self.register(worker)
                 return True
             raise AssertionError(f'unsupported formal corpus operation: {operation}')
-        except (RunnerError, ServiceError):
+        except (RunnerError, ServiceError) as error:
+            native = {authority.rejection_code for authority in self.authorities.values()
+                      if authority.rejection_code is not None}
+            self.testcase.assertLessEqual(len(native), 1)
+            self.rejection_code = next(iter(native), getattr(error, 'code', None))
+            if self.rejection_code not in {'admission_draining', 'stale_protocol_authority',
+                                           'stale_worker_assignment', 'stale_worker_epoch'}:
+                raise AssertionError(f'unexpected native failure during {operation}: '
+                                     f'{self.rejection_code or type(error).__name__}') from error
             return False
 
     def observe(self):
@@ -141,13 +176,62 @@ class NativeAuthorityTrace:
                 states.append('admitted' if state == 'pending' else state)
                 evidence.append(len(self.controllers[self.current].evidence('alice', call)))
         allocations = [authority.query('scope', {'scope': scope})
-                       for scope in ('deployment', 'principal/alice', 'ancestor/root', 'provider/fixture')]
+                       for scope in ('deployment', 'principal/alice', 'ancestor/root', 'ancestor/leaf')]
         self.testcase.assertEqual({value['calls'] for value in allocations}, {allocations[0]['calls']})
         self.testcase.assertEqual({value['microusd'] for value in allocations}, {allocations[0]['calls']})
         return {'epoch': status['epoch'], 'controller': int(status['controller'].removeprefix('controller-')),
                 'draining': status['draining'],
                 'charges': allocations[0]['calls'], 'states': states,
                 'authoritative': list(self.authoritative), 'stored_evidence': evidence}
+
+
+class AuthorityRejectionBoundaryTests(unittest.TestCase):
+    def authority(self):
+        return SharedAuthority(binary=sys.executable, dsn='fixture-only', namespace='fixture',
+            deployment='fixture', controller='controller', epoch=1,
+            secret_key=b'fixture-secret' * 4, secret_reference='fixture-key/1')
+
+    def test_native_fencing_codes_preserve_runner_error_compatibility(self):
+        for code in SharedAuthorityRejected.CODES:
+            response = subprocess.CompletedProcess([], 1, json.dumps(
+                {'version': 1, 'ok': False, 'error': {'code': code}}), '')
+            with self.subTest(code=code), mock.patch('subprocess.run', return_value=response):
+                with self.assertRaises(SharedAuthorityRejected) as raised:
+                    self.authority().authority_status()
+                self.assertIsInstance(raised.exception, RunnerError)
+                self.assertEqual(raised.exception.code, code)
+                self.assertEqual(str(raised.exception), code)
+
+    def test_transport_and_malformed_replies_are_not_semantic_rejections(self):
+        replies = ['not JSON', '{}', '[]', '{"version":1,"ok":false,"error":null}',
+                   json.dumps({'version': 2, 'ok': False, 'error': {'code': 'stale_protocol_authority'}}),
+                   json.dumps({'version': 1, 'ok': False, 'error': {'code': 'shared_authority_rejected'}})]
+        for content in replies:
+            response = subprocess.CompletedProcess([], 1, content, 'private-server-details')
+            with self.subTest(reply=content), mock.patch('subprocess.run', return_value=response):
+                with self.assertRaises(RunnerError) as raised:
+                    self.authority().authority_status()
+                self.assertNotIsInstance(raised.exception, SharedAuthorityRejected)
+                self.assertFalse(hasattr(raised.exception, 'code'))
+                self.assertNotIn('private-server-details', str(raised.exception))
+        with mock.patch('subprocess.run', side_effect=OSError('private-connection-details')):
+            with self.assertRaises(RunnerError) as raised:
+                self.authority().authority_status()
+            self.assertNotIsInstance(raised.exception, SharedAuthorityRejected)
+            self.assertNotIn('private-connection-details', str(raised.exception))
+
+    def test_trace_rejects_unrelated_runtime_and_service_failures(self):
+        native = NativeAuthorityTrace.__new__(NativeAuthorityTrace)
+        native.testcase = self
+        native.authorities = {0: type('Authority', (), {'rejection_code': None})()}
+        native.boots = [0, 0]
+        controller = mock.Mock()
+        native.controllers = {0: controller}
+        for error in (RunnerError('transport failed'), ServiceError('worker_queue_full')):
+            controller.claim.side_effect = error
+            with self.subTest(error=type(error).__name__), self.assertRaisesRegex(
+                    AssertionError, 'unexpected native failure'):
+                native.act('claim', [0, 0, 0])
 
 
 @unittest.skipUnless(os.environ.get('MAS_TEST_POSTGRES_DSN'), 'requires actual PostgreSQL backend fixture')
@@ -162,6 +246,8 @@ class SharedAuthorityTraceTests(unittest.TestCase):
                 try:
                     for ordinal, action in enumerate(trace['actions']):
                         accepted = native.act(action['op'], action['args'])
+                        self.assertEqual(native.rejection_code, action.get('reject_code'),
+                                         f"unexpected rejection for {action['op']} {action['args']}")
                         actual = {'accepted': accepted, **native.observe()}
                         self.assertEqual(actual, action['expect'],
                             f"trace {trace['name']} step {ordinal}: {action['op']} {action['args']}")

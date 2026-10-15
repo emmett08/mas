@@ -34,6 +34,10 @@ the single-threaded supervisor/fork boundary. Its configuration travels over
 private stdin; a lifetime pipe and parent PID check stop it when its controller
 exits. Renewal failure does not elect a new controller or reuse a new epoch.
 Normal operations validate both epoch and lease in the same transaction.
+Native replies distinguish `stale_protocol_authority` and
+`controller_lease_expired` from unavailable or malformed transport replies.
+The Python port preserves these fixed codes in `SharedAuthorityRejected`, a
+`RunnerError` subclass; it exposes no database or credential details.
 
 A live controller may explicitly `handover(next_controller)`. After its lease
 expires, a successor with the exact prior binding may `takeover(next_controller)`.
