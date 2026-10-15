@@ -21,10 +21,20 @@ class JsonSizeError(RunnerError):
     """Canonical JSON exceeds the caller's explicit byte bound."""
 
 
-def integer_json(value: object, limit: int = JSON_BYTES) -> str:
-    """Reject Python coercions before handing JSON to the authoritative codec."""
+def integer_json(value: object, limit: int = JSON_BYTES, *, max_depth: int | None = None) -> str:
+    """Reject Python coercions before handing JSON to the authoritative codec.
+
+    The default preserves the historical descriptor/storage domain: children
+    may occur at depth 32, including empty containers. An explicit ``max_depth``
+    counts containers as Rust does (32 for protocol payloads, 33 for the encode
+    envelope). The extra envelope must not reduce the valid payload depth.
+    """
+    if max_depth is not None and (type(max_depth) is not int or not 1 <= max_depth <= 33):
+        raise RunnerError("invalid JSON nesting limit")
+
     def check(item: object, depth: int) -> None:
-        if depth > 32:
+        if (depth > (32 if max_depth is None else max_depth)
+                or max_depth is not None and type(item) in (list, dict) and depth >= max_depth):
             raise RunnerError("JSON nesting limit exceeded")
         if item is None or type(item) in (str, bool):
             return

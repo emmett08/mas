@@ -15,6 +15,10 @@ Before running the recovery tests, the reference targets are:
   allocations and uncertain effects;
 - same-database controller recovery gate within 60 seconds, excluding independent
   reconciliation of unresolved provider outcomes;
+- a separate populated controlled-cutover rehearsal within 60 seconds, measured
+  from source sealing through dump, restore, external object restoration,
+  verification, activation, explicit admission reopening and a fresh task's
+  successful completion;
 - a restored archive remains closed to all service admission until its exact
   final source state, shared objects and external fencing proof are verified.
 
@@ -31,6 +35,10 @@ the single-threaded supervisor/fork boundary. Its configuration travels over
 private stdin; a lifetime pipe and parent PID check stop it when its controller
 exits. Renewal failure does not elect a new controller or reuse a new epoch.
 Normal operations validate both epoch and lease in the same transaction.
+Native replies distinguish `stale_protocol_authority` and
+`controller_lease_expired` from unavailable or malformed transport replies.
+The Python port preserves these fixed codes in `SharedAuthorityRejected`, a
+`RunnerError` subclass; it exposes no database or credential details.
 
 A live controller may explicitly `handover(next_controller)`. After its lease
 expires, a successor with the exact prior binding may `takeover(next_controller)`.
@@ -76,6 +84,10 @@ not manufacture that evidence or auto-promote a replica.
 the deployment's trusted content port. Missing bytes, changed digests/sizes or a
 changed inventory stop recovery. Object reservations and unresolved retention
 links stay in the verified database state; they are never refunded on restore.
+The database archive contains object identities and obligations, not object
+bytes. Operators must retain and restore the content independently under the
+original backend and store identities before verification. The recovery manager
+does not copy object backups or authorise rebinding to a different backend.
 
 Activation also requires an **externally signed fencing attestation**, using the
 retained independent recovery key reference. There is no `force` flag or boolean
@@ -126,3 +138,43 @@ rejects unsigned/changed fencing proofs, checks closed audit admission, hashes
 object bytes through the content port and retains an uncertain charged call
 through activation. The object transport fault fixture is separate from the
 real S3 and multi-machine deployment qualifications.
+
+`test_shared_recovery_qualification.py` also populates completed, queued and
+human-paused leaf tasks; a paused composition; an unresolved peer submission;
+an unresolved Cursor launch; worker claims and a non-authoritative late receipt;
+provider circuit state; acknowledged upload chunks; and a pending webhook page.
+It checks that the required domain tables contain records before sealing, compares
+every retained table and sequence after restore, and reads each domain through
+the successor's native repositories. Original task, invocation, remote, worker,
+transfer and event identities survive. Before activation, the rehearsal empties
+the original object store and confirms that verification fails against a new
+empty content service. An explicit external-operator stage restores previously
+retained backup bytes into that service under the original pinned identities;
+the recovery manager then verifies them. This stage uses the bounded S3 transport
+double and the content publication port, not direct insertion into its object map.
+
+Allocation totals remain unchanged through restoration, and the activated
+successor initially remains drained. After inspecting the restored state, the
+operator explicitly reopens admission. The public task service then completes a
+fresh task with one bounded invocation and a one-microusd reservation. The test
+checks that deployment and principal run, call and reservation totals each rise
+by exactly one, including after request replay. Prior uncertain peer, cloud and
+worker effects remain unresolved; the old invocation remains charged; the prior
+provider doubles receive no additional calls; and the fresh effect runs once.
+
+The rehearsal emits `mas-controlled-recovery-qualification/1` JSON in the backend
+test log, including stage durations, restored object count, fresh completed task
+count and the total measured interval. Its total includes external object restore
+and explicit reopening through successful execution; the older archive test's
+activation-only timer continues to check the narrower activation operation. The source is available
+for an intentional seal, the database is local, external fencing is a controlled
+fixture attestation, object backup bytes were retained before the cutover, and
+object transport uses a bounded double. These explicit conditions make the
+result reproducible without claiming production RPO/RTO.
+
+Crash/PITR promotion still requires a deployment-specific proof that every
+acknowledged admission and effect record survived, plus independently established
+fencing of any old writable authority. A successful controlled-cutover rehearsal
+does not provide that proof for an unexpectedly lost database. Without it, the
+restored copy remains audit-only; operators must not reset allocations or create
+replacement invocation identities to reopen admission.

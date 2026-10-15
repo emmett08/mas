@@ -17,6 +17,7 @@ from urllib.parse import urlsplit
 from ..codec import integer_json
 from ..contracts import RunnerError
 from ..service_contracts import ServiceError
+from ._http_worker import PHASES, TIMEOUT_EXIT
 from .authentication import _principal, _unique, read_token_file, validate_token
 
 MAX_WIRE_BYTES = 1_048_576
@@ -94,6 +95,15 @@ def http_exchange(endpoint, *, method="POST", body=None, headers=None,
                                    stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
                                    close_fds=True, env=worker_environment)
         output, _unused = process.communicate(wire, timeout=timeout_seconds)
+        # The fixed isolated worker exits on cumulative phase expiry, even if
+        # DNS or a slow stream is blocked. These codes establish a timeout only;
+        # they never establish that an external effect did not execute.
+        if policy_wire is not None and 'phase_timeouts_ms' in policy_wire:
+            if process.returncode == TIMEOUT_EXIT:
+                raise ServiceError('transport_timeout')
+            if process.returncode in range(TIMEOUT_EXIT + 1, TIMEOUT_EXIT + 1 + len(PHASES)):
+                phase = PHASES[process.returncode - TIMEOUT_EXIT - 1]
+                raise ServiceError('transport_' + phase + '_timeout')
         if len(output) > 2 * max_response_bytes + 65536:
             raise ServiceError("invalid_remote_response")
         response = json.loads(output, object_pairs_hook=_unique)

@@ -58,3 +58,4 @@ jobs:
             machine-evidence/*/controller.log
             machine-evidence/*/observations.json
             machine-evidence/*/case.json
+            machine-evidence/*/failure.json

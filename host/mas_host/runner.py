@@ -34,7 +34,8 @@ def _encode_wire(command, mas_bin: str, run_id: str, sender: str, recipient: str
     """Use the authoritative Rust codec, including its complete wire bound."""
     envelope = {"message_id": message_id, "run_id": run_id, "sender": sender,
                 "recipient": recipient, "version": "1", "kind": kind, "payload": payload}
-    return command([mas_bin, "encode", "-"], _json(envelope, ENCODE_ENVELOPE_BYTES))["text"]
+    return command([mas_bin, "encode", "-"],
+                   _json(envelope, ENCODE_ENVELOPE_BYTES, max_depth=33))["text"]
 
 
 def _gateway_frame(token: str, **command) -> str:
@@ -513,6 +514,8 @@ class Runner:
                           envelope["payload"], envelope["message_id"])
         try:
             self._gateway(envelope["sender"], command="send", wire=wire)
+        except AdapterInterrupted:
+            raise  # Shutdown is not a lost reply authorising an immediate retry.
         except RunnerError:
             # Exact-envelope retry is safe under Rust's durable identity rule.
             self._gateway(envelope["sender"], command="send", wire=wire)
@@ -523,6 +526,8 @@ class Runner:
         if self._event_sink is not None:
             try:
                 self._journal.queue_event(self._protocol_event(envelope))
+            except AdapterInterrupted:
+                raise
             except Exception:
                 pass  # Reconstruct from the accepted durable envelope on restart.
         self.flush_events()
@@ -545,16 +550,22 @@ class Runner:
         for event in self._journal.pending_events():
             try:
                 self._event_sink(json.loads(_json(event)))
+            except AdapterInterrupted:
+                raise
             except Exception:
                 continue
             try:
                 self._journal.publish_event(event["message_id"])
+            except AdapterInterrupted:
+                raise
             except Exception:
                 pass  # Sink deduplication makes a lost publication ACK harmless.
 
     def _ack(self, actor, message_id):
         try:
             self._gateway(actor, command="ack", message_id=message_id)
+        except AdapterInterrupted:
+            raise
         except RunnerError:
             self._gateway(actor, command="ack", message_id=message_id)
 
@@ -569,8 +580,10 @@ class Runner:
         except JournalError as error:
             raise RunnerError(str(error)) from None
         finally:
-            self.flush_events()
-            self._request_lock.release()
+            try:
+                self.flush_events()
+            finally:
+                self._request_lock.release()
 
     def _exchange(self, sender: str, recipient: str, operation: str, input: dict, key: str) -> Outcome:
         if len(self._active) >= self._max_depth:

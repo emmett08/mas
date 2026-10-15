@@ -21,6 +21,13 @@ bounded settlement with and without reduction, seven safety mutations, an
 indefinite-response counterexample and a successful-join reachability witness.
 Its finite response assumptions and implementation boundary are stated separately.
 
+The [shared-authority contract](shared-authority-notes.md) adds competing
+controller/worker commands, independently active hierarchical quota ceilings,
+worker boot and lease fencing, retained late evidence and admission-closed
+restoration from final sealed archives. Its shared corpus executes selected
+observations against the native PostgreSQL authority. These additional models
+remain bounded safety checks with explicit transaction and fencing assumptions.
+
 ## Reproduce
 
 Install SPIN, a C compiler and Linux utilities `sh` and `sha256sum`, then run

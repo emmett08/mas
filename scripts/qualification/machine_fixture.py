@@ -81,9 +81,11 @@ def main():
         from mas_host.worker_entry import run_worker
         return run_worker({'probe': Probe})
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('action', choices=['describe', 'run', 'snapshot', 'lose-spool', 'rpc', 'serve'])
+    parser.add_argument('action', choices=['describe', 'run', 'snapshot', 'lose-spool', 'rpc', 'serve',
+                                          'start', 'job', 'supervise'])
     parser.add_argument('--case', default='initial')
     parser.add_argument('--config', type=Path)
+    parser.add_argument('--job', help='unique original guest job nonce')
     args = parser.parse_args()
     if args.action == 'serve':
         from mas_host.bridges.authentication import StaticTokenVerifier
@@ -99,7 +101,24 @@ def main():
     if not args.case.isalnum():
         raise ValueError('invalid case')
     spool = GUEST_STATE / args.case
-    if args.action == 'describe':
+    if args.action in ('start', 'job', 'supervise'):
+        # Leaf execution does not import this management-only helper.
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        from guest_job import inspect_job, launch_job, supervise_job
+        directory = spool / 'job'
+        command = [sys.executable, str(Path(__file__).resolve())]
+        if args.action == 'start':
+            # DurableWorker requires its spool itself (not only GUEST_STATE)
+            # to be private; mkdir(parents=True) would default this ancestor.
+            spool.mkdir(mode=0o700, exist_ok=True)
+            result = launch_job(directory, args.case, args.job,
+                command + ['supervise', '--case', args.case, '--job', args.job])
+        elif args.action == 'job':
+            result = inspect_job(directory, args.job)
+        else:
+            supervise_job(directory, args.job, command + ['run', '--case', args.case])
+            return 0
+    elif args.action == 'describe':
         result = {**machine(), 'capabilities': {op.name: op.implementation for op in operations()}}
     elif args.action == 'snapshot':
         log = GUEST_STATE / 'effects.jsonl'

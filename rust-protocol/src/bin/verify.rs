@@ -4,6 +4,8 @@ use serde_json::{json, Value};
 use std::{env, fs, io, path::{Path, PathBuf}, process::{Command, Stdio}, thread, time::{Duration, Instant}};
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
+#[path = "verify/authority.rs"]
+mod authority;
 const PROPERTIES: [&str; 2] = ["message_0_progress", "message_1_progress"];
 
 struct Options {
@@ -165,9 +167,11 @@ struct CaseOptions {
     weak_fairness: bool,
     reachability_witness: bool,
     progress_property: Option<&'static str>,
+    definitions: Vec<String>,
 }
 
 fn expected_assertion(defect: Option<&str>) -> Option<&'static str> {
+    if let Some(property) = authority::expected_assertion(defect) { return Some(property); }
     Some(match defect? {
         "BUG_EARLY_ACK" => "TRANSPORT_ACK_REQUIRES_RECEIPT",
         "BUG_ALLOW_FORBIDDEN" => "TRANSPORT_ROUTE_ALLOWED",
@@ -212,6 +216,7 @@ fn expected_assertion(defect: Option<&str>) -> Option<&'static str> {
         "BUG_EVOLUTION_STALE_COMMIT" => "EVOLUTION_STALE_WRITE_REJECTED",
         "BUG_EVOLUTION_SLOT_DUPLICATE" => "EVOLUTION_SLOT_OWNERSHIP",
         "BUG_EVOLUTION_ARCHIVE_UNKNOWN" => "EVOLUTION_UNKNOWN_RETAINED",
+        "BUG_EVOLUTION_STALE_ADMISSION" => "EVOLUTION_CURRENT_ADMISSION",
         "WITNESS_WORKFLOW_SUCCESS" => "REACH_WORKFLOW_SUCCESS",
         "WITNESS_SERVICE_TWO_OWNERS" => "REACH_SERVICE_TWO_OWNERS",
         "WITNESS_SERVICE_CANCEL_PAUSE" => "REACH_SERVICE_CANCEL_PAUSE",
@@ -270,6 +275,7 @@ fn replay_assertion(model_name: &str, model: &str, replay: &str) -> Option<Strin
     // alternatives. Match their exact failed expression instead of guessing
     // another source line. This remains an assertion-specific, fail-closed gate.
     let expression = lines.next()?.strip_prefix("spin: text of failed assertion: ")?;
+    if let Some(marker) = authority::replay_assertion(model_name, model, expression) { return Some(marker.to_owned()); }
     if let Some(marker) = core_replay_assertion(model_name, model, expression) { return Some(marker.to_owned()); }
     let witness = match expression {
         "assert(!((receipts[0]==1)&&(receipts[1]==1)))" => Some("REACH_SERVICE_TWO_OWNERS"),
@@ -313,7 +319,7 @@ fn expected_check_satisfied(check: &Value, counterexample: bool, cycle: bool) ->
 }
 
 fn run_case(source: &Path, dest: &Path, opt: &Options, case: CaseOptions) -> Result<Value> {
-    let CaseOptions {defect,no_reduce,capacity,standalone:task,unbounded_faults,assumption_witness,weak_fairness,reachability_witness,progress_property}=case;
+    let CaseOptions {defect,no_reduce,capacity,standalone:task,unbounded_faults,assumption_witness,weak_fairness,reachability_witness,progress_property,definitions}=case;
     fs::create_dir_all(dest)?;
     // Reject stale verifier/trail output from a previous interrupted invocation.
     for entry in fs::read_dir(dest)? {
@@ -324,7 +330,7 @@ fn run_case(source: &Path, dest: &Path, opt: &Options, case: CaseOptions) -> Res
     let model_name = if task { source.file_name().and_then(|s|s.to_str()).ok_or("invalid standalone model filename")? } else { "protocol.pml" };
     let model = dest.join(model_name);
     fs::write(&model, if task {fs::read_to_string(source)?} else {generate(source, &opt.root)?})?;
-    let mut defs = Vec::new();
+    let mut defs: Vec<String> = definitions.iter().map(|definition| format!("-D{definition}")).collect();
     if let Some(bug) = defect { defs.push(format!("-D{bug}")); }
     if let Some(size) = capacity { defs.push(format!("-DCAPACITY={size}")); }
     if unbounded_faults {defs.push("-DUNBOUNDED_FAULTS".into());}
@@ -420,6 +426,7 @@ fn run_case(source: &Path, dest: &Path, opt: &Options, case: CaseOptions) -> Res
     Ok(json!({"topology":source.file_name().unwrap().to_string_lossy(),"source_sha256":sha(source)?,
         "model_sha256":sha(&model)?,"defect":defect,"capacity":capacity.unwrap_or(config["mailbox_capacity"].as_u64().unwrap_or(2)),
         "partial_order_reduction":!no_reduce,"weak_process_fairness":weak_fairness,
+        "definitions":definitions,
         "fault_repetition":if unbounded_faults {"unlimited"} else {"bounded_or_not_applicable"},
         "purpose":if reachability_witness {"reachability_witness"} else if assumption_witness {"assumption_counterexample"} else if defect.is_some() {"deliberate_defect"}
             else if task && progress_property.is_some() {"standalone_safety_and_bounded_progress"}
@@ -593,11 +600,13 @@ fn main() -> Result<()> {
         ("negative-evolution-stale-commit",Some("BUG_EVOLUTION_STALE_COMMIT"),false),
         ("negative-evolution-slot-duplicate",Some("BUG_EVOLUTION_SLOT_DUPLICATE"),false),
         ("negative-evolution-archive-unknown",Some("BUG_EVOLUTION_ARCHIVE_UNKNOWN"),false),
+        ("negative-evolution-stale-admission",Some("BUG_EVOLUTION_STALE_ADMISSION"),false),
     ] {
         let case=run_case(&opt.root.join("formal/host-evolution.pml"),&opt.out.join(name),&opt,
             CaseOptions{standalone:true,defect,no_reduce,..Default::default()})?;
         println!("{name} {}",case["status"]);cases.push(case);
     }
+    authority::run(&opt, &mut cases)?;
     let corpus_path = opt.root.join("host/tests/fixtures/task-service-traces.json");
     let corpus: Value = serde_json::from_str(&fs::read_to_string(&corpus_path)?)?;
     if corpus["version"] != 1 {return Err("unsupported trace corpus version".into());}
@@ -626,7 +635,13 @@ fn main() -> Result<()> {
             "workflow_composition":{"branches":2,"shared_call_allowance_values":[1,2],"crashes":1,
                 "cancellation_requests":1,"expiry_events":1,"observations_per_dispatched_branch":1},
             "task_service":{"principals":2,"tasks":2,"scheduled_tasks":1,"revisions_per_task":2,"workers":1,"crashes":1,
-                "shared_trace_count":corpus["traces"].as_array().unwrap().len()}},
+                "shared_trace_count":corpus["traces"].as_array().unwrap().len()},
+            "host_evolution":{"request_keys":1,"definition_versions":2,"invocation_attempts":2,"capacity_slots":2,"worker_fence_changes":1},
+            "shared_authority":{"controller_bindings":2,"workers":2,"calls":2,"principals":2,"providers":2,
+                "ancestor_depth":2,"child_scopes":2,"worker_boots":2,"lease_expiry_per_call":1,
+                "unit_reservation_per_call":1,"independent_scope_ceiling_values":[1,2]},
+            "authority_recovery":{"source_authorities":1,"replacement_authorities":1,"snapshots":1,
+                "audit_restores":1,"logical_calls":2,"unit_reservation_per_call":1}},
         "limits":{"seconds_per_command":opt.seconds,"memory_mb":opt.memory,"depth":opt.depth},
         "assumptions":["fixed membership and directed ACL","no scheduling fairness required by bounded transport model",
             "bounded faults for positive transport liveness only","SQLite transaction isolation and atomic recovery boundary",
@@ -642,7 +657,10 @@ fn main() -> Result<()> {
             "Local remote-evidence separation is an environmental assumption, not a proof of the remote implementation",
             "Shared finite traces compare model transitions with real TaskService/SQLite and an injected executor, not unrestricted implementation refinement",
             "Workflow settlement requires finitely observed responses/faults and continued execution; unknown is a settled result, not success",
-            "Workflow composition abstracts durable assignment and shared admission; nested scope budgets and OS supervision require separate implementation evidence"],
+            "Workflow composition abstracts durable assignment and shared admission; its lower authority model separately checks bounded nested scopes",
+            "Shared authority commands are atomic; controller handover and worker boot/lease fencing are distinct; no fairness or real-time lease guarantee",
+            "Recovery models final sealed archives, trusted external fencing evidence and admission-closed audit restores; no replication or cryptographic refinement claim",
+            "Shared authority selected traces execute native PostgreSQL commands separately; finite correspondence is not full implementation refinement"],
         "runner_sha256":sha(&opt.root.join("rust-protocol/src/bin/verify.rs"))?,
         "template_sha256":sha(&opt.root.join("formal/protocol.pml.in"))?,
         "actions_sha256":sha(&opt.root.join("formal/actions.pml.in"))?,
@@ -655,6 +673,10 @@ fn main() -> Result<()> {
         "task_service_model_sha256":sha(&opt.root.join("formal/task-service.pml"))?,
         "workflow_composition_model_sha256":sha(&opt.root.join("formal/workflow-composition.pml"))?,
         "host_evolution_model_sha256":sha(&opt.root.join("formal/host-evolution.pml"))?,
+        "shared_authority_model_sha256":sha(&opt.root.join("formal/shared-authority.pml"))?,
+        "authority_recovery_model_sha256":sha(&opt.root.join("formal/authority-recovery.pml"))?,
+        "authority_trace_corpus_sha256":sha(&opt.root.join("formal/authority-traces.json"))?,
+        "authority_verifier_module_sha256":sha(&opt.root.join("rust-protocol/src/bin/verify/authority.rs"))?,
         "task_service_trace_corpus_sha256":sha(&corpus_path)?});
     fs::write(opt.out.join("summary.json"),format!("{}\n",serde_json::to_string_pretty(&summary)?))?;
     if !ok{return Err(io::Error::other("model verification failed or incomplete; inspect summary.json").into());}
@@ -664,7 +686,7 @@ fn main() -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    fn scratch() -> PathBuf {
+    pub(super) fn scratch() -> PathBuf {
         static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         let path=env::temp_dir().join(format!("mas-verify-test-{}-{}-{}",std::process::id(),
             std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos(),
@@ -846,6 +868,7 @@ mod tests {
             ("stale-commit",Some("BUG_EVOLUTION_STALE_COMMIT"),false),
             ("slot-duplicate",Some("BUG_EVOLUTION_SLOT_DUPLICATE"),false),
             ("archive-unknown",Some("BUG_EVOLUTION_ARCHIVE_UNKNOWN"),false),
+            ("stale-admission",Some("BUG_EVOLUTION_STALE_ADMISSION"),false),
         ] {
             let record=run_case(&root.join("formal/host-evolution.pml"),&out.join(name),&opt,
                 CaseOptions{standalone:true,defect,no_reduce,..Default::default()}).unwrap();

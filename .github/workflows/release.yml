@@ -108,6 +108,9 @@ jobs:
           push: false
           tags: ${{ matrix.image }}:${{ needs.candidate.outputs.version }}
           provenance: mode=max
+          build-args: |
+            MAS_SOURCE_COMMIT=${{ needs.candidate.outputs.source }}
+            MAS_RELEASE_TAG=${{ needs.candidate.outputs.version }}
           outputs: type=oci,dest=mas-${{ matrix.variant }}-${{ matrix.architecture }}.oci.tar,compression=gzip,force-compression=true
       - name: Import and verify the exact OCI runtime image
         run: |

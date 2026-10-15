@@ -127,10 +127,44 @@ Names, endpoints, credential contents and factory targets are excluded from the
 summary.
 
 These commands never import or execute the declared workflow factory, run a
-configured binary, call a provider or migrate a database. Binary versions are
-therefore reported as unverified (`version_status: not_executed`); the digest is
-the observed file identity. Factory registrations, provider connectivity and
-provider-specific credentials remain runtime checks. Known legacy root schemas
+configured binary, call a provider or migrate a database. `doctor` and `preflight`
+include `provenance` and `retained_versions`. Image builds embed a
+`mas-runtime-build/1` receipt in the installed Python package. It records the
+host package version, declared Rust version, exact source commit and release tag
+when supplied by the build, and SHA-256 bindings for the package sources/assets
+and both Rust binaries. The diagnostic recomputes those bindings before assigning
+`version_status: content_bound_build_record`. A changed package or binary reports
+a mismatch and fails the advisory preflight; it cannot inherit the recorded
+binary version. An absent receipt reports `not_recorded` and preserves inspection
+of older installations. Ordinary local builds may record exact content while
+reporting source/release identity as unknown.
+
+The release workflow supplies its selected full commit and tag to both image
+builds. For a trusted manual build, pass `--build-arg MAS_SOURCE_COMMIT=<full SHA>`
+and optionally `--build-arg MAS_RELEASE_TAG=v0.MINOR.PATCH`. A trusted wheel build
+can run `scripts/write-runtime-provenance.py --host host --rust-manifest
+rust-protocol/Cargo.toml --binaries rust-protocol/target/release --source-commit
+<full SHA>` before building the wheel. The writer requires Python 3.11 or later;
+runtime inspection retains the host's Python 3.10 support. A platform lacking
+no-follow/nonblocking file-open safeguards reports build evidence as unavailable
+without opening the file; it does not attempt an unsafe fallback. The receipt inherits
+the trust of the installed package. Its hashes establish content correspondence;
+release authentication still comes from the retained OCI provenance/signature
+and installation procedure, not from a label supplied by an arbitrary builder.
+
+Retained registration summaries report immutable definition versions/digests,
+registered executable-worker versions and provider implementation/contract
+versions without returning application names, commands, prompts, model settings,
+endpoints or credentials. Descriptor digests are checked before summary. Retired
+and unavailable old code remains inspectable; `execution_availability:
+not_checked` avoids treating historical metadata as current executable readiness.
+The summary reads at most 1,000 definitions and emits at most 1 MiB of version
+items, with `has_more` when bounded. Exact per-definition inspection remains
+available through the authorised operator API. Legacy missing metadata stays
+`not_recorded`; malformed or unsupported evidence is `unavailable`.
+
+Factory registrations, provider connectivity and provider-specific credentials
+remain runtime checks. Known legacy root schemas
 are inspected in place and flagged `migration_needed`; an unsupported existing
 schema or failed integrity check closes the diagnostic result. An absent store
 is reported as absent and is not created. An uninitialised deployment has no

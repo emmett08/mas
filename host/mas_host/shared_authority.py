@@ -22,6 +22,21 @@ from .journal import JournalError, RunLock, canonical
 from .topology import compile_topology
 
 
+class SharedAuthorityRejected(RunnerError):
+    """A sanitised native authority decision, distinct from transport failure.
+
+Existing callers may continue catching RunnerError. The code names only a
+fixed authority condition; database, credential and request details stay private.
+    """
+    CODES = frozenset({'stale_protocol_authority', 'controller_lease_expired'})
+
+    def __init__(self, code):
+        if code not in self.CODES:
+            raise ValueError('unsupported shared authority rejection')
+        self.code = code
+        super().__init__(code)
+
+
 class SharedAuthority:
     """Trusted host configuration; never construct from an actor's payload."""
     def __init__(self, *, binary, dsn, namespace, deployment, controller, epoch,
@@ -57,6 +72,13 @@ class SharedAuthority:
             if len(result.stdout.encode('utf-8')) > 16 * 1024 * 1024:
                 raise ValueError
             decoded = json.loads(result.stdout)
+            if (type(decoded) is not dict or type(decoded.get('version')) is not int
+                    or decoded['version'] != 1 or (decoded.get('ok') is False
+                    and type(decoded.get('error')) is not dict)):
+                raise ValueError
+            if (decoded.get('version') == 1 and decoded.get('ok') is False
+                    and decoded.get('error', {}).get('code') in SharedAuthorityRejected.CODES):
+                raise SharedAuthorityRejected(decoded['error']['code'])
             if (decoded.get('version') == 1 and decoded.get('ok') is False
                     and decoded.get('error', {}).get('code') != 'shared_authority_rejected'
                     and operation in ('command', 'query')):

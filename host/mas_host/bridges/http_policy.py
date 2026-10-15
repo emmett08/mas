@@ -12,10 +12,22 @@ import ipaddress
 from pathlib import Path
 import re
 import ssl
+from types import MappingProxyType
 from urllib.parse import urlsplit
 
 from ..service_contracts import ServiceError
 from .authentication import read_private_file
+
+
+HTTP_PHASES = ('dns', 'connect', 'tls', 'headers', 'body')
+
+
+def _phase_timeouts(value):
+    if (not isinstance(value, (dict, MappingProxyType)) or set(value) != set(HTTP_PHASES)
+            or any(type(value[name]) is not int or not 1 <= value[name] <= 300_000
+                   for name in HTTP_PHASES)):
+        raise ServiceError('invalid_transport_policy')
+    return {name: value[name] for name in HTTP_PHASES}
 
 
 def _origin(value, *, proxy=False):
@@ -47,11 +59,13 @@ class HTTPTransportPolicy:
     additional_ca_pem: str | None = field(default=None, repr=False)
     allowed_origins: tuple[str, ...] = ()
     proxy_authorization_file: Path | None = field(default=None, repr=False)
+    phase_timeouts_ms: dict | None = None
 
     @classmethod
     def from_config(cls, value):
         if (type(value) is not dict or set(value) - {
-                'proxy_url', 'additional_ca_file', 'allowed_origins', 'proxy_authorization_file'}
+                'proxy_url', 'additional_ca_file', 'allowed_origins', 'proxy_authorization_file',
+                'phase_timeouts_ms'}
                 or type(value.get('allowed_origins', [])) is not list):
             raise ServiceError('invalid_transport_policy')
         pem = None
@@ -63,9 +77,13 @@ class HTTPTransportPolicy:
                 raise ServiceError('invalid_ca_bundle') from None
         return cls(proxy_url=value.get('proxy_url'), additional_ca_pem=pem,
                    allowed_origins=tuple(value.get('allowed_origins', [])),
-                   proxy_authorization_file=value.get('proxy_authorization_file'))
+                   proxy_authorization_file=value.get('proxy_authorization_file'),
+                   phase_timeouts_ms=value.get('phase_timeouts_ms'))
 
     def __post_init__(self):
+        if self.phase_timeouts_ms is not None:
+            object.__setattr__(self, 'phase_timeouts_ms', MappingProxyType(
+                _phase_timeouts(self.phase_timeouts_ms)))
         if self.proxy_url is not None:
             object.__setattr__(self, 'proxy_url', _origin(self.proxy_url, proxy=True))
         elif self.proxy_authorization_file is not None:
@@ -85,16 +103,24 @@ class HTTPTransportPolicy:
                 raise ServiceError('invalid_ca_bundle') from None
 
     def descriptor(self):
-        return {'format': 'mas-http-policy/1', 'proxy_url': self.proxy_url,
+        result = {'format': 'mas-http-policy/1', 'proxy_url': self.proxy_url,
                 'proxy_authentication': self.proxy_authorization_file is not None,
                 'loopback_proxy_bypass': True, 'allowed_origins': list(self.allowed_origins),
                 'additional_ca_sha256': hashlib.sha256(self.additional_ca_pem.encode('ascii')).hexdigest()
                     if self.additional_ca_pem is not None else None}
+        if self.phase_timeouts_ms is not None:
+            result.update(format='mas-http-policy/2', phase_timeouts_ms=dict(self.phase_timeouts_ms))
+        return result
 
     @classmethod
     def validate_descriptor(cls, value):
         """Validate a public binding without loading roots or resolving secrets."""
-        if (type(value) is not dict or set(value) != set(cls().descriptor())
+        version = value.get('format') if type(value) is dict else None
+        expected_fields = set(cls().descriptor())
+        if version == 'mas-http-policy/2':
+            expected_fields.add('phase_timeouts_ms')
+        if (type(version) is not str or version not in {'mas-http-policy/1', 'mas-http-policy/2'}
+                or set(value) != expected_fields
                 or type(value['allowed_origins']) is not list
                 or type(value['proxy_authentication']) is not bool
                 or value['loopback_proxy_bypass'] is not True
@@ -104,7 +130,9 @@ class HTTPTransportPolicy:
                     or re.fullmatch(r'[0-9a-f]{64}', value['additional_ca_sha256']) is None)):
             raise ServiceError('invalid_transport_policy')
         expected = cls(proxy_url=value['proxy_url'],
-                       allowed_origins=tuple(value['allowed_origins'])).descriptor()
+                       allowed_origins=tuple(value['allowed_origins']),
+                       phase_timeouts_ms=_phase_timeouts(value['phase_timeouts_ms'])
+                           if version == 'mas-http-policy/2' else None).descriptor()
         expected['proxy_authentication'] = value['proxy_authentication']
         expected['additional_ca_sha256'] = value['additional_ca_sha256']
         if expected != value:
@@ -143,5 +171,8 @@ class HTTPTransportPolicy:
                     raise ValueError()
             except (UnicodeError, ValueError):
                 raise ServiceError('invalid_proxy_credential') from None
-        return {'proxy_url': proxy, 'proxy_authorization': authorization,
-                'additional_ca_pem': self.additional_ca_pem}
+        result = {'proxy_url': proxy, 'proxy_authorization': authorization,
+                  'additional_ca_pem': self.additional_ca_pem}
+        if self.phase_timeouts_ms is not None:
+            result['phase_timeouts_ms'] = dict(self.phase_timeouts_ms)
+        return result
