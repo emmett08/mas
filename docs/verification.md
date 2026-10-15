@@ -23,7 +23,9 @@ explicitly; a skip is not passing interoperability evidence.
 
 The native suite passed **72 tests**, with 13 actual-PostgreSQL cases and three
 SPIN-only unit entry points reserved for their separate fixture/verifier gates.
-All **44 script tests** passed. Focused checks passed for phase deadlines,
+All **45 script tests** passed, including the build-time provenance writer
+in the scripts suite; seven provenance reader tests also passed against a fresh
+installed wheel in a tests-only directory. Focused checks passed for phase deadlines,
 managed peers, provenance portability, generated codec/allocation contracts and
 strict native rejection decoding. The generated differential methods also
 passed through the installed public `mas encode/parse` fallback.
@@ -40,14 +42,23 @@ Exact-source hosted results, not either local run, must qualify the full suite.
 
 ### Formal verification and correspondence
 
-The Protocol checks workflow runs the complete formal suite and retains its
-machine-readable result. The new authority/recovery coverage includes 22 named
-defect mutations, eight reachability witnesses and seven selected traces with
-59 observations, in addition to the existing transport, lifecycle, host recovery
-and composition checks. Reviewers checked the mutation/witness assertion oracles
-and repaired lease-expiry, stale-controller reachability, contested child-quota
-and nonempty-history witness defects. A completed run with matching source
-hashes is required before claiming that its entire suite passed.
+The [hosted Protocol checks run](https://github.com/emmett08/mas/actions/runs/38696365514)
+passed **158 cases and 188 checks** on the submitted model sources: 102 complete
+zero-error checks, 70 intended-defect counterexamples, two liveness-assumption
+counterexamples and 14 reachability witnesses. SPIN 6.5.2 completed verification
+in approximately 287 seconds. The downloaded evidence ZIP matched GitHub's
+SHA-256 (`b5ab81b4e86f77c13a7753c48e10fc53f11ac86a460ddcc0abf65f54f4ddb7b4`);
+all 17 source hashes, 947 log references and 86 replay-trail hashes matched.
+This intact hosted evidence supersedes the local report with one unexplained
+empty raw log; that individual positive profile also passed an independent rerun.
+
+The new authority/recovery coverage includes 22 named defect mutations, eight
+reachability witnesses and seven selected traces with 59 observations, in
+addition to the existing transport, lifecycle, host recovery and composition
+checks. Reviewers checked the assertion oracles and repaired lease-expiry,
+stale-controller reachability, contested child-quota and nonempty-history
+witness defects. The workflow report binds these results to its model/runner
+hashes; full implementation and installed-image checks remain separate gates.
 
 The complete finite-state searches establish only the modelled properties at
 the documented bounds. They do not establish unbounded correctness, a refinement
