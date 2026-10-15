@@ -588,5 +588,217 @@
       "mas_shared_sha256": "0c40cd8b71148cde67a8321269da24019adbb95b2898dc9be7b5ca6593f42cad",
       "scope": "Managed peer and HTTP transport source suites after the deadline repair; legacy identities, secret rotation, policy/timeout canonicalisation, native public-field validation and pre-effect drift rejection. Independent review passed. The added PostgreSQL roundtrip and full installed-image checks require final combined-head CI."
     }
-  ]
+  ],
+  "published_runtime_qualification": {
+    "remote_commit": "d8c04fab1adc2218beabfaaf2637b0728cbde311",
+    "tested_merge_commit": "bcd0a51085f51fd42066b31a5d6f803d94840ded",
+    "source_tree": "5b0c8cead1826e15e0f46b97fd162da11431d5cb",
+    "postgres": {
+      "status": "PASS",
+      "run": 38659538357,
+      "job": 116177258977,
+      "native_contract_tests": 65,
+      "native_postgres_tests": 13,
+      "python_shared_tests": 104,
+      "python_shared_skipped": 0,
+      "python_shared_seconds": 922.426,
+      "real_postgres_rustfs_checks": 6,
+      "live_provider_calls": 0,
+      "log_sha256": "b7b0f8241cc3c7ee99329dabbb56771faececbddcf17e88bcf47d76a65a29adc"
+    },
+    "independent_vms": {
+      "status": "PASS",
+      "run": 38659538536,
+      "job": 116177259369,
+      "cases": 5,
+      "profile": "qemu-tcg-independent-kernels",
+      "disk_flush_enabled": true,
+      "artifact": 11939025035,
+      "artifact_sha256": "28532f0fda52f7dd524b74f03d506a0c77e1989419d8668e4838122f85c5813f",
+      "scope": "Exact lost-ack receipt survives hard reset. Partition/spool/artefact loss retain original unknown records and charges. All per-case records match the aggregate."
+    },
+    "portable_clients": {
+      "status": "PASS",
+      "run": 38659538360,
+      "platforms": [
+        "Linux",
+        "macOS",
+        "Windows"
+      ],
+      "tests_per_platform": 6,
+      "skipped": 0
+    },
+    "containment": {
+      "status": "PASS",
+      "run": 38659538381
+    },
+    "protocol": {
+      "status": "PASS",
+      "run": 38659538374,
+      "native_tests": 61,
+      "spin_cases": 110,
+      "shared_trace_cases_included": 11,
+      "artifact": 11938403063,
+      "artifact_sha256": "97dbd3766422c3fcb64535c73cb87f66a086237972957af43c15405d56b7dfc8"
+    },
+    "security": {
+      "status": "PASS",
+      "run": 38659538584,
+      "artifacts": [
+        11938477393,
+        11938731590
+      ]
+    },
+    "arm64_images": {
+      "status": "FAIL",
+      "job": 116177259452,
+      "native": {
+        "passed": 1125,
+        "skipped": 116
+      },
+      "musl": {
+        "passed": 1108,
+        "skipped": 126
+      },
+      "cursor": {
+        "passed": 1119,
+        "skipped": 119,
+        "failures": 1
+      },
+      "artifact": 11938668078,
+      "artifact_sha256": "ee72c33d133c325c0c0cca0e094a99221290bc6022e482a7065e07698dd11618",
+      "failure": "The new bootstrap-expiry regression could expire before entering bootstrap; its final retained-manifest assertion then failed. All original deadline and new peer-policy cases passed."
+    },
+    "subsequent_test_repair": {
+      "local_commit": "016b48931217fd0d0965161743b753366eecc92c",
+      "production_changes": false,
+      "tests": 6,
+      "passed": 6,
+      "seconds": 2.925,
+      "log_sha256": "1c898ce917ef1f613a9778a5052149d624c8659cbd72cf4e5ec8ab00c89b2a72",
+      "independent_test_passed": true,
+      "negative_control": "The corrected test still fails with unknown != expired when run against the pre-repair RunnerExecutor.execute.",
+      "scope": "Shared frozen fixture clock advances only after the real bootstrap retains its assigned run identity. Native subprocess and cleanup clocks remain real; original assertions are retained. Final-head image regression gates remain required."
+    },
+    "amd64_images": {
+      "status": "PASS",
+      "run": 38659538364,
+      "job": 116177258981,
+      "native": {
+        "passed": 1125,
+        "skipped": 116,
+        "seconds": 249.081
+      },
+      "musl": {
+        "passed": 1108,
+        "skipped": 126,
+        "seconds": 449.713
+      },
+      "cursor": {
+        "passed": 1120,
+        "skipped": 119,
+        "seconds": 211.688
+      },
+      "scripts": 44,
+      "real_temporal": 26,
+      "mcp": 36,
+      "a2a": 35,
+      "reconciliation_and_bridge_restart": "PASS",
+      "artifact": 11939147381,
+      "artifact_sha256": "8a44a22d6c2d7830659cae4e3127dbecdbd1763c55ff0be588ec3d7c102e2023",
+      "reference_load": {
+        "status": "PASS",
+        "report_sha256": "bd60865efa3eaf5c7601004cfbe61f43b0c1cac9c1bb7f504a4eb9d50b3a5299",
+        "active_load_seconds": 60.654028144999984,
+        "elapsed_to_drain_seconds": 60.76183967,
+        "cleanup_seconds": 0.03904744999999821,
+        "submitted": 100,
+        "completed_by_principal": {
+          "alice": 50,
+          "bob": 50
+        },
+        "deployment_usage": {
+          "calls": 100,
+          "reserved_microusd": 0,
+          "runs": 100
+        },
+        "latency_seconds": {
+          "inspect": {
+            "maximum": 0.009921160999994072,
+            "minimum": 0.0032253120000120816,
+            "p50": 0.004195650000013984,
+            "p95": 0.0066069499999912296,
+            "p99": 0.007543571000013571,
+            "quantile_method": "nearest_rank",
+            "samples": 555
+          },
+          "submission_to_completion_observation": {
+            "maximum": 0.7869275090000087,
+            "minimum": 0.5893364290000136,
+            "p50": 0.7368513199999995,
+            "p95": 0.7669728620000171,
+            "p99": 0.7748661459999937,
+            "quantile_method": "nearest_rank",
+            "samples": 100
+          },
+          "submit": {
+            "maximum": 0.043070076999981666,
+            "minimum": 0.02375690100001293,
+            "p50": 0.03032512400000087,
+            "p95": 0.04122125600000004,
+            "p99": 0.042110573000002205,
+            "quantile_method": "nearest_rank",
+            "samples": 100
+          }
+        },
+        "resource_peaks": {
+          "descendant_processes": 4,
+          "descendant_rss_bytes": 126836736,
+          "descendant_threads": 4,
+          "distinct_descendants_observed": 301,
+          "observed_orphans": 0,
+          "observer_rss_bytes": 39096320
+        },
+        "final_processes": {
+          "descendant_processes": 0,
+          "descendant_rss_bytes": 0,
+          "descendant_threads": 0,
+          "distinct_descendants_observed": 301,
+          "observed_orphans": 0,
+          "observer_rss_bytes": 39096320
+        },
+        "retained_state_growth": {
+          "allocated_bytes": 11571200,
+          "apparent_bytes": 10082593,
+          "files": 911
+        },
+        "checks": {
+          "all_observed_descendants_reaped": true,
+          "all_submissions_completed": true,
+          "both_principals_progressed": true,
+          "cleanup_within_fixture_bound": true,
+          "completion_p99_within_fixture_ceiling": true,
+          "control_p99_within_fixture_ceiling": true,
+          "effect_trace_exact_once": true,
+          "four_slots_admitted": true,
+          "global_capacity_denied": true,
+          "minimum_active_load_duration": true,
+          "minimum_completed_samples": true,
+          "no_paid_reservations": true,
+          "observed_callback_capacity": true,
+          "observer_growth_within_limit": true,
+          "one_admission_and_call_per_submission": true,
+          "principal_capacity_denied": true,
+          "process_peak_within_limit": true,
+          "released_capacity_reusable": true,
+          "retained_state_growth_within_limit": true,
+          "round_robin_fifo": true,
+          "rss_peak_within_limit": true,
+          "source_and_binaries_stable": true,
+          "state_below_deployment_ceiling": true
+        },
+        "scope": "Fixed local regression workload, not saturated capacity or production SLO acceptance."
+      }
+    }
+  }
 }

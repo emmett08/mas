@@ -1,7 +1,10 @@
 """Ancestor limits remain effective when reusable plans are nested."""
+from contextlib import ExitStack
+import multiprocessing
 from pathlib import Path
 import tempfile
 import time
+from types import SimpleNamespace
 import unittest
 from unittest import mock
 
@@ -90,13 +93,31 @@ class WorkflowScopeTests(unittest.TestCase):
 
         engine=self.engine(child,handler)
         bootstrap=RunnerExecutor._bootstrap
+        entered=self.root/'bootstrap-entered'
+        wall,monotonic=int(time.time()),time.monotonic()
+        offset=multiprocessing.Value('d',0)
+
+        def elapsed():
+            if time.monotonic()-monotonic > 30:
+                raise AssertionError('bootstrap deadline fixture did not finish')
+            return offset.value
+
+        clock=SimpleNamespace(time=lambda:wall+elapsed(),
+                              monotonic=lambda:monotonic+elapsed(),sleep=time.sleep)
 
         def cross_deadline(executor, workflow, execution):
             path=bootstrap(executor,workflow,execution)
-            time.sleep(max(0,execution['execution_deadline']-time.monotonic())+.02)
+            entered.write_text(execution['run_id'])
+            # Both scheduler and forked worker observe expiry only after the
+            # real bootstrap has retained this identity. Native subprocess and
+            # process-cleanup deadlines continue using their real clocks.
+            offset.value=2
             return path
 
-        with mock.patch.object(RunnerExecutor,'_bootstrap',cross_deadline):
+        with ExitStack() as patches:
+            for module in ('workflow_engine','workflow_evaluator','workflow_store','workflow_allocation'):
+                patches.enter_context(mock.patch('mas_host.'+module+'.time',clock))
+            patches.enter_context(mock.patch.object(RunnerExecutor,'_bootstrap',cross_deadline))
             result=self.run_plan(engine)
         self.assertEqual(result['state'],'expired')
         self.assertFalse(marker.exists())
@@ -105,6 +126,7 @@ class WorkflowScopeTests(unittest.TestCase):
         with engine.store.transaction(readonly=True) as db:
             attempts=list(db.execute('SELECT state,run_directory FROM attempts'))
         self.assertEqual([row['state'] for row in attempts],['cancelled'])
+        self.assertEqual(entered.read_text(),attempts[0]['run_directory'])
         self.assertTrue((engine.state_dir/attempts[0]['run_directory']/'bootstrap.json').is_file())
 
     def test_scope_deadline_is_not_renewed_on_inspection(self):

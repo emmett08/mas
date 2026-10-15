@@ -6,6 +6,35 @@ The single review is [PR #45](https://github.com/emmett08/mas/pull/45), against
 `main`; PRs #16–44 are superseded. Implementation and fault qualification continue.
 The earlier records below remain historical evidence for their recorded source.
 
+The subsequent combined revision `d8c04fab1adc2218beabfaaf2637b0728cbde311`
+passed **all 104 shared Python tests without skips**, 65 native contract tests,
+13 actual PostgreSQL cases and all six real PostgreSQL/RustFS boundaries. The
+Python backend suite took 922.426 seconds. This includes both repaired fixtures,
+the new peer-policy roundtrip, backup/restore, archival, native transfer IDs and
+offsets across empty replacement caches, epoch fencing, revocation and tampering.
+The same revision passed all five independent-VM fault cases, portable clients
+on three operating systems, real containment, 110 SPIN cases and security gates.
+Its tested merge `bcd0a51085f51fd42066b31a5d6f803d94840ded` has the exact
+submitted tree `5b0c8cead1826e15e0f46b97fd162da11431d5cb`.
+
+Its complete amd64 image workflow passed: 1,125 native tests (116 skips),
+1,108 installed musl tests (126 skips), 1,120 Cursor-image tests (119 skips),
+44 script tests, 26 real Temporal tests, 36 MCP tests and 35 A2A tests.
+Reconciliation, private secret mounts and supervised bridge restart recovery
+also passed. Skips identify profile-specific backend or dependency gates;
+the actual PostgreSQL suite above ran without skips.
+
+The arm64 native and musl suites passed. Its Cursor suite exposed a race only in
+the new bootstrap-expiry test: the one-second fixture deadline could expire
+before bootstrap, so the test's final manifest assertion failed despite correct
+expiry and zero effects. Test-only repair `016b489` uses a shared controlled clock
+that advances after the real bootstrap retains its run identity. All six scope
+tests and independent review passed. A negative control still fails against the
+original buggy executor, confirming that the test detects the production defect.
+Production code is unchanged by this repair; final-head image qualification is
+still required. The [receipt](verification/host-evolution-source.json) records
+these revision-specific results; the current PR checks report the final run.
+
 Revision `71e4d87dd661152d0202cbd76f23d8d524e64724` passed all five
 independent-kernel VM fault cases, the native Linux/macOS/Windows clients,
 real Linux containment, formal checks and dependency/image security gates.
