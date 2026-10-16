@@ -81,8 +81,9 @@ authorisation to execute remediation.
 For message carriage, `Assessment::payload()` returns the application record
 `{"profile":"assessment.v1","record":…}` for the existing task Result's
 `output` field. The outer task payload retains `task_id`, `reply_to`, `status`
-and `output`; its status remains `completed` or `unresolved` independently of
-the assessment status. `Assessment::from_message` validates this nesting and
+and `output`; its status remains `completed` or `unresolved`. A completed task
+may return an inconclusive assessment or evaluator error record; an unresolved
+task cannot carry a completed assessment. `Assessment::from_message` validates this nesting and
 requires assessment identity and evaluator identity to equal
 the envelope's `message_id` and `sender`. Existing repository admission still
 checks authenticated actor, route, budget and delivery state. The run context

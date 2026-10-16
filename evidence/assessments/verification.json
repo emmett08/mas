@@ -38,10 +38,10 @@
     "rust-protocol/src/bin/verify/assessments.rs": "19d5219050a8792ad4deb01417b7e0f88c1e00a8dafef188b2bacecd4c09b272",
     "rust-protocol/src/bin/verify.rs": "19ea8f34b9c5f3f13139a98149a6735af656367890cd90999bcba30c6220b0ff",
     "rust-protocol/src/assessment.rs": "caef9b0e074366c1b20b3f030f31b8cb2ee13e1b9f5044a5c91fb7b0380d4c1a",
-    "rust-protocol/tests/assessment.rs": "d1b2099e9ff40ded8f639c648fd634404012e398459d19b30f3614183a0ac85f",
+    "rust-protocol/tests/assessment.rs": "2af0cf2b34f05c035856290c481e1e8e5fe710010e082453c8a3c4503e359719",
     "rust-protocol/src/assessment/helpers.rs": "2a4ba86fd9d37091d71eeafc6d15e923f7492d51773aa19cb6b7bd0a9b0df81a",
     "rust-protocol/src/assessment/history.rs": "e3ed90a89304ef775bf46619e0baff5f8c3103eaf8a1ca343631741c631e2ec1",
-    "rust-protocol/src/assessment/records.rs": "ab617bc22020211e1fdfa197f4ca5277559f52989d0493718d0587e82ed28247",
+    "rust-protocol/src/assessment/records.rs": "f99a9a313251b9351888246ecb11a7745ba7ea05ad4e30e61fd252ffef0045ff",
     "rust-protocol/src/assessment/validation.rs": "e832c7b0710b0b97c3f598f5f7f048688f9d5d472ad0a3757d5617c67e8e14e4"
   },
   "raw_evidence": {
@@ -54,5 +54,15 @@
     "Cross-repository host and example correspondence requires their implementation tests.",
     "No measured incident-analysis improvement or independent-outcome result is established here."
   ],
-  "integration": "Assessment profile carried inside existing agent-task/1 Result.output; public test confirms real request/result admission, rejection of misplaced profile, and duplicate delivery."
+  "integration": "Assessment profile carried inside existing agent-task/1 Result.output; public test confirms real request/result admission, rejection of misplaced profile, missing or mismatched task correlation, unsupported envelope/profile versions, wrong kind/sender/assessment identity, failed/unresolved status, duplicate delivery and changed content under an existing identity.",
+  "full_suite": {
+    "status": "PASS",
+    "cases": 199,
+    "checks": 235,
+    "complete_no_error_checks": 114,
+    "expected_counterexamples": 121,
+    "summary_sha256": "da8d7094c5c11a1acceb0f51a3653f1946a44a8eed6cf035cdaf91039895bbe3",
+    "command": "cargo run --locked --manifest-path rust-protocol/Cargo.toml --bin verify -- --out formal/evidence/full-assessment-increment",
+    "scope": "All existing and new finite models. Model and runner sources unchanged by the final conservative message-carriage decoder guards. Full raw evidence is reproducible by the command and retained by the existing Protocol checks CI artifact."
+  }
 }

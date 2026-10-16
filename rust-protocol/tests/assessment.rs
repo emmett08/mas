@@ -24,11 +24,53 @@ fn exact_assessment_roundtrips_inside_existing_envelope() {
     let wire=format!("message \"assessment-0\" run \"run\" from \"reviewer\" to \"coordinator\" version \"1\" kind \"Result\" payload {result_payload};");
     let message = parse_message(&wire, MAX_BYTES, MAX_DEPTH).unwrap();
     assert_eq!(Assessment::from_message(&message).unwrap(), a);
+    for change in 0..10 {
+        let mut bad = message.clone();
+        match change {
+            0 => bad.version = "2".into(),
+            1 => bad.kind = "Failure".into(),
+            2 => {
+                bad.payload.insert("status".into(), json!("failed"));
+            }
+            3 => {
+                bad.payload.insert("status".into(), json!("unresolved"));
+            }
+            4 => bad.sender = "intruder".into(),
+            5 => bad.message_id = "other-assessment".into(),
+            6 => {
+                bad.payload.remove("task_id");
+            }
+            7 => {
+                bad.payload.remove("reply_to");
+            }
+            8 => bad.payload.get_mut("output").unwrap()["profile"] = json!("assessment.v2"),
+            9 => {
+                bad.payload.insert("extra".into(), json!(1));
+            }
+            _ => unreachable!(),
+        }
+        assert!(
+            Assessment::from_message(&bad).is_err(),
+            "carriage case {change}"
+        );
+    }
+    let mut evaluator_error = message.clone();
+    evaluator_error.payload.get_mut("output").unwrap()["record"]["status"] = json!("error");
+    evaluator_error.payload.get_mut("output").unwrap()["record"]["findings"] = json!([]);
+    evaluator_error.payload.get_mut("output").unwrap()["record"]["error"] =
+        json!("evaluator failed");
+    assert!(!Assessment::from_message(&evaluator_error).unwrap().passes());
     let mut store = mas_protocol_codec::store::Store::open(":memory:").unwrap();
     store.create_run("run",&json!({"agents":["coordinator","reviewer"],"edges":[["coordinator","reviewer"],["reviewer","coordinator"]],"application":"agent-task/1"})).unwrap();
     let request=parse_message("message \"request-0\" run \"run\" from \"coordinator\" to \"reviewer\" version \"1\" kind \"Request\" payload {\"task_id\":\"evaluate-0\",\"operation\":\"assess\",\"input\":{}};",MAX_BYTES,MAX_DEPTH).unwrap();
     store.send(&request, "coordinator").unwrap();
     store.receive("run", "reviewer", 1).unwrap();
+    // Lifecycle correlation remains enforced by the existing task store.
+    for key in ["reply_to", "task_id"] {
+        let mut bad = message.clone();
+        bad.payload.insert(key.into(), json!("unknown"));
+        assert!(store.send(&bad, "reviewer").is_err());
+    }
     let mut misplaced = message.clone();
     misplaced.payload = a.payload().as_object().unwrap().clone();
     assert!(store.send(&misplaced, "reviewer").is_err());
@@ -38,6 +80,13 @@ fn exact_assessment_roundtrips_inside_existing_envelope() {
         false
     );
     assert_eq!(store.send(&message, "reviewer").unwrap()["duplicate"], true);
+    let mut conflicting = message.clone();
+    conflicting.payload.get_mut("output").unwrap()["record"]["findings"][0]["explanation"] =
+        json!("changed under the same assessment and message identity");
+    assert!(store
+        .send(&conflicting, "reviewer")
+        .unwrap_err()
+        .contains("different content"));
     let mut changed = message;
     changed.sender = "intruder".into();
     assert_eq!(

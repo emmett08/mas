@@ -393,6 +393,12 @@ impl Assessment {
             code: e.code,
             message: e.message,
         })?;
+        if message.version != "1" {
+            return reject(
+                "VERSION",
+                "assessment carriage requires supported envelope version 1",
+            );
+        }
         let payload = Value::Object(message.payload.clone());
         if message.kind != "Result" {
             return reject(
@@ -414,6 +420,12 @@ impl Assessment {
             return reject("VERSION", "unsupported assessment payload profile");
         }
         let a = Self::from_value(&o["record"])?;
+        if task["status"] == "unresolved" && a.status == AssessmentStatus::Completed {
+            return reject(
+                "STATUS",
+                "unresolved evaluator task cannot carry a completed assessment",
+            );
+        }
         if a.id != message.message_id || a.evaluator.id != message.sender {
             return reject(
                 "AUTHORITY",
