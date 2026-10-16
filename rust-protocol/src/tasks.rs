@@ -6,12 +6,16 @@ use rusqlite::{params, OptionalExtension, Transaction};
 use serde_json::{json, Value};
 
 pub(crate) fn validate_transition(db: &Transaction<'_>, message: &Message) -> Result<(), String> {
+    validate_prior(message, prior(db, message)?)
+}
+
+pub(crate) fn prior(db: &Transaction<'_>, message: &Message) -> Result<Option<PriorTask>, String> {
     let task_id = message.payload.get("task_id").and_then(Value::as_str).unwrap_or("");
     let prior:Option<(String,String,bool,String,String)>=db.query_row(
         "SELECT t.request_id,t.state,m.received,m.sender,m.recipient FROM tasks t JOIN messages m ON m.run=t.run AND m.id=t.request_id WHERE t.run=? AND t.id=?",
         params![message.run_id,task_id],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?)))
         .optional().map_err(|e|e.to_string())?;
-    validate_prior(message, prior)
+    Ok(prior)
 }
 
 pub(crate) type PriorTask = (String, String, bool, String, String);

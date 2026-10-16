@@ -6,6 +6,7 @@
 //! journals, artefacts or controller bootstrap highly available.
 use crate::{
     parse_message,
+    admission::{AdmissionCode as Code, AdmissionError as Admission, AdmissionResult},
     repository::ProtocolRepository,
     store::{config, RunMembership},
     Message, MAX_BYTES, MAX_DEPTH,
@@ -379,33 +380,39 @@ impl ProtocolRepository for PostgresRepository {
         self.inspect(id)
     }
     fn send(&mut self, message: &Message, actor: &str) -> Result<Value> {
+        self.send_checked(message, actor).map_err(|error|error.message)
+    }
+    fn send_checked(&mut self, message: &Message, actor: &str) -> AdmissionResult<Value> {
+        let exists = self.transaction(|tx| Ok(tx.query_opt("SELECT 1 FROM runs WHERE id=$1", &[&message.run_id]).map_err(db_error)?.is_some()))?;
+        if !exists { return Err(Admission::rejected(Code::UnknownRun,"unknown run")); }
         self.reconcile(&message.run_id)?;
-        let wire = message.format().map_err(|e| e.message)?;
-        let message = parse_message(&wire, MAX_BYTES, MAX_DEPTH).map_err(|e| e.message)?;
+        let wire = message.format().map_err(|e|Admission::rejected(Code::InvalidMessage,e.message))?;
+        let message = parse_message(&wire, MAX_BYTES, MAX_DEPTH).map_err(|e|Admission::rejected(Code::InvalidMessage,e.message))?;
         let content = message.to_value().to_string();
         let size = content.len() as i64;
         // Return a committed expiry as an inner error so the deadline observation
         // cannot roll back merely because this message has been refused.
         self.transaction(|tx| {
-            let r=run(tx,&message.run_id,Some(actor))?;
-            if message.sender!=actor {return Err("sender differs from host worker identity".into());}
-            if !r.config["agents"].as_array().unwrap().iter().any(|a|a.as_str()==Some(&message.recipient)) {return Err("unregistered recipient".into());}
-            if r.config["edges"].as_array().is_some_and(|edges|!edges.contains(&json!([message.sender,message.recipient]))) {return Err("route forbidden by frozen topology".into());}
+            let r=run(tx,&message.run_id,None)?;
+            if !r.config["agents"].as_array().is_some_and(|agents|agents.iter().any(|a|a.as_str()==Some(actor))) {return Ok(Err(Admission::rejected(Code::UnknownActor,"unregistered worker")));}
+            if message.sender!=actor {return Ok(Err(Admission::rejected(Code::ActorMismatch,"sender differs from host worker identity")));}
+            if !r.config["agents"].as_array().unwrap().iter().any(|a|a.as_str()==Some(&message.recipient)) {return Ok(Err(Admission::rejected(Code::UnknownRecipient,"unregistered recipient")));}
+            if r.config["edges"].as_array().is_some_and(|edges|!edges.contains(&json!([message.sender,message.recipient]))) {return Ok(Err(Admission::rejected(Code::ForbiddenRoute,"route forbidden by frozen topology")));}
             if let Some(row)=tx.query_opt("SELECT content,seq FROM messages WHERE run=$1 AND id=$2",&[&message.run_id,&message.message_id]).map_err(db_error)? {
-                if row.get::<_,String>(0)!=content {return Err("message identity reused with different content".into());}
+                if row.get::<_,String>(0)!=content {return Ok(Err(Admission::rejected(Code::IdentityConflict,"message identity reused with different content")));}
                 return Ok(Ok(json!({"accepted":true,"duplicate":true,"sequence":row.get::<_,i64>(1)})));
             }
             let (expired,_,observed)=reconcile(tx,&message.run_id)?;
-            if expired {return Ok(Err("wall-clock budget exhausted".into()));}
-            if message.version!=r.active {return Err("inactive or incompatible protocol version".into());}
-            if r.messages>=r.config["max_messages"].as_i64().unwrap() || size>r.config["max_bytes"].as_i64().unwrap()-r.bytes {return Err("communication budget exhausted".into());}
+            if expired {return Ok(Err(Admission::rejected(Code::DeadlineExceeded,"wall-clock budget exhausted")));}
+            if message.version!=r.active {return Ok(Err(Admission::rejected(Code::UnsupportedVersion,"inactive or incompatible protocol version")));}
+            if r.messages>=r.config["max_messages"].as_i64().unwrap() || size>r.config["max_bytes"].as_i64().unwrap()-r.bytes {return Ok(Err(Admission::rejected(Code::BudgetExceeded,"communication budget exhausted")));}
             let pending:i64=tx.query_one("SELECT count(*) FROM messages WHERE run=$1 AND recipient=$2 AND NOT acked",&[&message.run_id,&message.recipient]).map_err(db_error)?.get(0);
-            if pending>=r.config["mailbox_capacity"].as_i64().unwrap() {return Err("mailbox full; retry after acknowledgement".into());}
+            if pending>=r.config["mailbox_capacity"].as_i64().unwrap() {return Ok(Err(Admission::mailbox_full()));}
             let task_profile=r.config["application"]=="agent-task/1";
             if task_profile {
                 let task=message.payload.get("task_id").and_then(Value::as_str).unwrap_or("");
                 let prior=tx.query_opt("SELECT t.request_id,t.state,m.received,m.sender,m.recipient FROM tasks t JOIN messages m ON m.run=t.run AND m.id=t.request_id WHERE t.run=$1 AND t.id=$2",&[&message.run_id,&task]).map_err(db_error)?.map(|row|(row.get(0),row.get(1),row.get(2),row.get(3),row.get(4)));
-                crate::tasks::validate_prior(&message,prior)?;
+                if let Err(message)=crate::tasks::validate_prior(&message,prior) {return Ok(Err(Admission::rejected(Code::InvalidTransition,message)));}
             }
             let seq:i64=tx.query_one("INSERT INTO messages(run,id,sender,recipient,content) VALUES($1,$2,$3,$4,$5) RETURNING seq",&[&message.run_id,&message.message_id,&message.sender,&message.recipient,&content]).map_err(db_error)?.get(0);
             if task_profile {
@@ -548,5 +555,42 @@ impl ProtocolRepository for PostgresRepository {
     fn inspect(&self, id: &str) -> Result<Value> {
         self.reconcile(id)?;
         self.transaction(|tx| inspect(tx, id))
+    }
+    fn observe(&self, id: &str, include_payloads: bool) -> Result<Value> {
+        let mut client = self.client.try_borrow_mut().map_err(|_|"repository transaction already active")?;
+        let mut tx = client.build_transaction().read_only(true)
+            .isolation_level(postgres::IsolationLevel::RepeatableRead).start().map_err(db_error)?;
+        // Preserve the repository's authority, recovery and lease requirements.
+        // A snapshot needs no row lock and cannot renew a lease or reconcile.
+        let authority = tx.query_opt("SELECT deployment,controller,epoch,version FROM authority WHERE singleton=true",&[])
+            .map_err(db_error)?.ok_or("missing protocol authority")?;
+        let version: i64 = authority.get(3);
+        if authority.get::<_,String>(0) != self.binding.deployment
+            || authority.get::<_,String>(1) != self.binding.controller
+            || authority.get::<_,i64>(2) != self.binding.epoch || !matches!(version,1..=12) {
+            return Err("stale protocol authority".into());
+        }
+        if version >= 6 { crate::shared_backup::check_active(&mut tx)?; }
+        if version >= 3 { crate::shared_leadership::check_lease(&mut tx)?; }
+        let r = run(&mut tx,id,None)?;
+        let run = json!({"config":r.config,"deadline":r.deadline,
+            "usage":{"messages":r.messages,"bytes":r.bytes,"calls":r.calls},
+            "active_protocol":r.active,"expired":r.expired});
+        let mut messages = Vec::new();
+        for row in tx.query("SELECT seq,id,sender,recipient,content,received,acked FROM messages WHERE run=$1 ORDER BY seq",&[&id]).map_err(db_error)? {
+            messages.push(crate::observation::message(row.get(0),row.get(1),id,row.get(2),row.get(3),row.get(4),row.get(5),row.get(6),include_payloads)?);
+        }
+        let mut calls = Vec::new();
+        for row in tx.query("SELECT id,actor,state,result FROM calls WHERE run=$1 ORDER BY seq",&[&id]).map_err(db_error)? {
+            let mut call = json!({"id":row.get::<_,String>(0),"actor":row.get::<_,String>(1),"state":row.get::<_,String>(2)});
+            if include_payloads { call["evidence"] = crate::observation::optional_json(row.get(3))?; }
+            calls.push(call);
+        }
+        let tasks = tx.query("SELECT id,request_id,state,terminal_id,closed_at FROM tasks WHERE run=$1 ORDER BY seq",&[&id]).map_err(db_error)?.into_iter().map(|row|
+            json!({"task_id":row.get::<_,String>(0),"request_id":row.get::<_,String>(1),
+                "state":row.get::<_,String>(2),"terminal_message_id":row.get::<_,Option<String>>(3),
+                "closed_at":row.get::<_,Option<f64>>(4)})).collect();
+        tx.commit().map_err(db_error)?;
+        Ok(crate::observation::snapshot_value(id,include_payloads,run,messages,calls,tasks))
     }
 }

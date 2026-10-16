@@ -21,6 +21,13 @@ bounded settlement with and without reduction, seven safety mutations, an
 indefinite-response counterexample and a successful-join reachability witness.
 Its finite response assumptions and implementation boundary are stated separately.
 
+The [admission and operation-outcome models](operation-outcomes-notes.md) check
+typed admission retries, read-only observation, original execution reservations,
+independent effect and verification outcomes, and append-only reconciliation.
+They include delayed original effects after uncertain recovery and distinguish
+explicit same-identity message resume from replay of an uncertain external effect.
+Use `--operations-only` to run this subset.
+
 The [shared-authority contract](shared-authority-notes.md) adds competing
 controller/worker commands, independently active hierarchical quota ceilings,
 worker boot and lease fencing, retained late evidence and admission-closed

@@ -1,6 +1,7 @@
 //! Durable bounded transport. Actor identities are asserted by a trusted host;
 //! this embedded store is not a network authentication or external-effect layer.
 use crate::{parse_message, Message, MAX_BYTES, MAX_DEPTH};
+use crate::admission::{AdmissionCode as Code, AdmissionError as Admission, AdmissionResult};
 use rusqlite::{params, Connection, OptionalExtension, Transaction, TransactionBehavior};
 use serde_json::{json, Value};
 use std::{path::Path, time::{Duration, SystemTime, UNIX_EPOCH}};
@@ -22,15 +23,20 @@ impl RunMembership {
 
 struct Run { config: Value, deadline: f64, messages: i64, bytes: i64, calls: i64, active: String, expired: bool }
 fn run(db: &Connection, id: &str, actor: Option<&str>, deadline: bool) -> Result<Run> {
-    let row = db.query_row("SELECT config,deadline,message_count,byte_count,call_count,active,expired FROM runs WHERE id=?",[id],|r| {
-        Ok((r.get::<_,String>(0)?,r.get::<_,f64>(1)?,r.get::<_,i64>(2)?,r.get::<_,i64>(3)?,r.get::<_,i64>(4)?,r.get::<_,String>(5)?,r.get::<_,bool>(6)?))
-    }).optional().map_err(err)?.ok_or("unknown run")?;
-    let config: Value = serde_json::from_str(&row.0).map_err(err)?;
-    if actor.is_some_and(|a| !config["agents"].as_array().is_some_and(|v| v.iter().any(|x| x.as_str()==Some(a)))) {
+    let run = load_run(db, id)?.ok_or("unknown run")?;
+    if actor.is_some_and(|a| !run.config["agents"].as_array().is_some_and(|v| v.iter().any(|x| x.as_str()==Some(a)))) {
         return Err("unregistered worker".into());
     }
-    if deadline && (row.6 || now()? >= row.1) { return Err("wall-clock budget exhausted".into()); }
-    Ok(Run { config, deadline:row.1,messages:row.2,bytes:row.3,calls:row.4,active:row.5,expired:row.6 })
+    if deadline && (run.expired || now()? >= run.deadline) { return Err("wall-clock budget exhausted".into()); }
+    Ok(run)
+}
+fn load_run(db: &Connection, id: &str) -> Result<Option<Run>> {
+    let row = db.query_row("SELECT config,deadline,message_count,byte_count,call_count,active,expired FROM runs WHERE id=?",[id],|r| {
+        Ok((r.get::<_,String>(0)?,r.get::<_,f64>(1)?,r.get::<_,i64>(2)?,r.get::<_,i64>(3)?,r.get::<_,i64>(4)?,r.get::<_,String>(5)?,r.get::<_,bool>(6)?))
+    }).optional().map_err(err)?;
+    let Some(row) = row else { return Ok(None); };
+    let config: Value = serde_json::from_str(&row.0).map_err(err)?;
+    Ok(Some(Run { config, deadline:row.1,messages:row.2,bytes:row.3,calls:row.4,active:row.5,expired:row.6 }))
 }
 fn reconcile_transaction(db:&Transaction<'_>,id:&str) -> Result<(bool,usize,f64)> {
     let r=run(db,id,None,false)?;
@@ -185,21 +191,31 @@ impl Store {
         self.inspect(id)
     }
     pub fn send(&mut self, message: &Message, actor: &str) -> Result<Value> {
+        self.send_checked(message, actor).map_err(|error| error.message)
+    }
+    /// Typed admission preserves the wire contract and original identity.
+    /// Only `Retryable` establishes that transient capacity refused this attempt.
+    /// An `Unknown` outcome requires reconciliation, not a fresh identity.
+    pub fn send_checked(&mut self, message: &Message, actor: &str) -> AdmissionResult<Value> {
+        if load_run(&self.db, &message.run_id)?.is_none() {
+            return Err(Admission::rejected(Code::UnknownRun, "unknown run"));
+        }
         self.reconcile(&message.run_id)?;
-        let wire = message.format().map_err(|e|e.message)?;
-        let message = parse_message(&wire,MAX_BYTES,MAX_DEPTH).map_err(|e|e.message)?;
+        let wire = message.format().map_err(|e|Admission::rejected(Code::InvalidMessage,e.message))?;
+        let message = parse_message(&wire,MAX_BYTES,MAX_DEPTH).map_err(|e|Admission::rejected(Code::InvalidMessage,e.message))?;
         let content = message.to_value().to_string();
         let size = i64::try_from(content.len()).map_err(err)?;
         let tx = self.db.transaction_with_behavior(TransactionBehavior::Immediate).map_err(err)?;
-        let r = run(&tx,&message.run_id,Some(actor),false)?;
-        if message.sender != actor { return Err("sender differs from host worker identity".into()); }
-        if !r.config["agents"].as_array().unwrap().iter().any(|a| a.as_str()==Some(&message.recipient)) { return Err("unregistered recipient".into()); }
+        let r = load_run(&tx,&message.run_id)?.ok_or_else(||Admission::rejected(Code::UnknownRun,"unknown run"))?;
+        if !r.config["agents"].as_array().is_some_and(|agents|agents.iter().any(|a|a.as_str()==Some(actor))) { return Err(Admission::rejected(Code::UnknownActor,"unregistered worker")); }
+        if message.sender != actor { return Err(Admission::rejected(Code::ActorMismatch,"sender differs from host worker identity")); }
+        if !r.config["agents"].as_array().unwrap().iter().any(|a| a.as_str()==Some(&message.recipient)) { return Err(Admission::rejected(Code::UnknownRecipient,"unregistered recipient")); }
         if let Some(edges) = r.config["edges"].as_array() {
-            if !edges.contains(&json!([message.sender,message.recipient])) { return Err("route forbidden by frozen topology".into()); }
+            if !edges.contains(&json!([message.sender,message.recipient])) { return Err(Admission::rejected(Code::ForbiddenRoute,"route forbidden by frozen topology")); }
         }
         let old: Option<(String,i64)> = tx.query_row("SELECT content,seq FROM messages WHERE run=? AND id=?",params![message.run_id,message.message_id],|r|Ok((r.get(0)?,r.get(1)?))).optional().map_err(err)?;
         if let Some((prior,seq)) = old {
-            if prior != content { return Err("message identity reused with different content".into()); }
+            if prior != content { return Err(Admission::rejected(Code::IdentityConflict,"message identity reused with different content")); }
             tx.commit().map_err(err)?;
             return Ok(json!({"accepted":true,"duplicate":true,"sequence":seq}));
         }
@@ -208,19 +224,26 @@ impl Store {
         let admission = reconcile_transaction(&tx,&message.run_id)?;
         if admission.0 {
             tx.commit().map_err(err)?;
-            return Err("wall-clock budget exhausted".into());
+            return Err(Admission::rejected(Code::DeadlineExceeded,"wall-clock budget exhausted"));
         }
-        if message.version != r.active { return Err("inactive or incompatible protocol version".into()); }
-        if r.messages >= r.config["max_messages"].as_i64().unwrap() || size > r.config["max_bytes"].as_i64().unwrap()-r.bytes { return Err("communication budget exhausted".into()); }
+        if message.version != r.active { return Err(Admission::rejected(Code::UnsupportedVersion,"inactive or incompatible protocol version")); }
+        if r.messages >= r.config["max_messages"].as_i64().unwrap() || size > r.config["max_bytes"].as_i64().unwrap()-r.bytes { return Err(Admission::rejected(Code::BudgetExceeded,"communication budget exhausted")); }
         let pending: i64 = tx.query_row("SELECT COUNT(*) FROM messages WHERE run=? AND recipient=? AND acked=0",params![message.run_id,message.recipient],|r|r.get(0)).map_err(err)?;
-        if pending >= r.config["mailbox_capacity"].as_i64().unwrap() { return Err("mailbox full; retry after acknowledgement".into()); }
-        if r.config["application"] == "agent-task/1" { crate::tasks::validate_transition(&tx,&message)?; }
+        if pending >= r.config["mailbox_capacity"].as_i64().unwrap() { return Err(Admission::mailbox_full()); }
+        if r.config["application"] == "agent-task/1" {
+            let prior = crate::tasks::prior(&tx,&message)?;
+            crate::tasks::validate_prior(&message,prior).map_err(|message|Admission::rejected(Code::InvalidTransition,message))?;
+        }
         tx.execute("INSERT INTO messages(run,id,sender,recipient,content) VALUES(?,?,?,?,?)",params![message.run_id,message.message_id,message.sender,message.recipient,content]).map_err(err)?;
         let seq = tx.last_insert_rowid();
         if r.config["application"] == "agent-task/1" { crate::tasks::record_transition(&tx,&message,Some(admission.2))?; }
         tx.execute("UPDATE runs SET message_count=message_count+1,byte_count=byte_count+? WHERE id=?",params![size,message.run_id]).map_err(err)?;
         tx.commit().map_err(err)?;
         Ok(json!({"accepted":true,"duplicate":false,"sequence":seq}))
+    }
+    /// Read one committed snapshot without expiring tasks or changing receipts.
+    pub fn observe(&self, id: &str, include_payloads: bool) -> Result<Value> {
+        crate::observation::sqlite_snapshot(&self.db, id, include_payloads)
     }
     pub fn receive(&mut self, id: &str, actor: &str, limit: usize) -> Result<Value> {
         self.reconcile(id)?;

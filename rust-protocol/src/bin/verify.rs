@@ -6,6 +6,8 @@ use std::{env, fs, io, path::{Path, PathBuf}, process::{Command, Stdio}, thread,
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 #[path = "verify/authority.rs"]
 mod authority;
+#[path = "verify/operations.rs"]
+mod operations;
 const PROPERTIES: [&str; 2] = ["message_0_progress", "message_1_progress"];
 
 struct Options {
@@ -172,6 +174,7 @@ struct CaseOptions {
 
 fn expected_assertion(defect: Option<&str>) -> Option<&'static str> {
     if let Some(property) = authority::expected_assertion(defect) { return Some(property); }
+    if let Some(property) = operations::expected_assertion(defect) { return Some(property); }
     Some(match defect? {
         "BUG_EARLY_ACK" => "TRANSPORT_ACK_REQUIRES_RECEIPT",
         "BUG_ALLOW_FORBIDDEN" => "TRANSPORT_ROUTE_ALLOWED",
@@ -338,7 +341,8 @@ fn run_case(source: &Path, dest: &Path, opt: &Options, case: CaseOptions) -> Res
     let mut simulations_ok = true;
     if task && source.file_name().is_some_and(|name| name == "host-recovery.pml" || name == "cursor-jobs.pml"
         || name == "bridge-service.pml" || name == "bridge-events.pml" || name == "task-service.pml"
-        || name == "workflow-composition.pml" || name == "host-evolution.pml") && defect.is_none() {
+        || name == "workflow-composition.pml" || name == "host-evolution.pml"
+        || name == "admission-observation.pml" || name == "operation-outcomes.pml") && defect.is_none() {
         for seed in [17, 29, 53] {
             let command = strings(&["spin", &format!("-n{seed}"), "-u10000", "-p", "-g", "-l", model_name]);
             let mut record = run(&command, dest, &format!("simulation-{seed}"), opt)?;
@@ -372,7 +376,7 @@ fn run_case(source: &Path, dest: &Path, opt: &Options, case: CaseOptions) -> Res
     if generated["returncode"] != 0 {
         return Ok(json!({"topology":source.file_name().unwrap().to_string_lossy(),"status":"GENERATION_FAILED","commands":commands}));
     }
-    let cycle_defect = defect==Some("BUG_NO_ACK") || defect==Some("BUG_WORKFLOW_STALL");
+    let cycle_defect = matches!(defect, Some("BUG_NO_ACK" | "BUG_WORKFLOW_STALL" | "BUG_ADMISSION_STALL" | "BUG_OPERATION_STALL"));
     let modes = if assumption_witness || cycle_defect {vec!["ltl"]}
         else if progress_property.is_some() && defect.is_none() {vec!["safety","ltl"]}
         else if task || unbounded_faults || defect.is_some() {vec!["safety"]} else {vec!["safety","ltl"]};
@@ -440,6 +444,7 @@ fn main() -> Result<()> {
     let mut opt=Options{examples:root.join("examples"),out:root.join("formal/evidence"),root,
         seconds:30,memory:512,depth:100000,only:None,generate_only:false};
     let mut args=env::args().skip(1);
+    let mut operations_only=false;
     while let Some(arg)=args.next() {
         match arg.as_str() {
             "--out"=>opt.out=PathBuf::from(args.next().ok_or("--out needs path")?),
@@ -449,7 +454,8 @@ fn main() -> Result<()> {
             "--depth"=>opt.depth=args.next().ok_or("--depth needs integer")?.parse()?,
             "--only"=>opt.only=Some(args.next().ok_or("--only needs topology")?),
             "--generate-only"=>opt.generate_only=true,
-            "--help"|"-h"=>{println!("verify [--out PATH] [--examples PATH] [--only TOPOLOGY] [--generate-only] [--seconds 30] [--memory-mb 512] [--depth 100000]\nRequires Linux, SPIN, cc, POSIX sh and sha256sum.");return Ok(());},
+            "--operations-only"=>operations_only=true,
+            "--help"|"-h"=>{println!("verify [--out PATH] [--examples PATH] [--only TOPOLOGY] [--operations-only] [--generate-only] [--seconds 30] [--memory-mb 512] [--depth 100000]\nRequires Linux, SPIN, cc, POSIX sh and sha256sum.");return Ok(());},
             _=>return Err(format!("unknown option {arg}").into()),
         }
     }
@@ -480,6 +486,17 @@ fn main() -> Result<()> {
         versions.push(version);
     }
     let mut cases=Vec::new();
+    if operations_only {
+        operations::run(&opt,&mut cases)?;
+        let ok=cases.iter().all(|case|case["status"]=="PASS");
+        let summary=json!({"status":if ok{"PASS"}else{"FAIL_OR_INCONCLUSIVE"},
+            "versions":versions,"cases":cases,"contract":operations::contract(&opt)?,
+            "limits":{"seconds_per_command":opt.seconds,"memory_mb":opt.memory,"depth":opt.depth},
+            "runner_sha256":sha(&opt.root.join("rust-protocol/src/bin/verify.rs"))?});
+        fs::write(opt.out.join("summary.json"),format!("{}\n",serde_json::to_string_pretty(&summary)?))?;
+        if !ok {return Err("operation verification failed or incomplete; inspect summary.json".into());}
+        return Ok(());
+    }
     for source in &sources {
         let name=source.file_stem().unwrap().to_string_lossy();
         let case=run_case(source,&opt.out.join(name.as_ref()),&opt,CaseOptions::default())?;
@@ -624,6 +641,7 @@ fn main() -> Result<()> {
         case["purpose"]=json!("shared_trace_conformance");
         println!("{name} {}",case["status"]);cases.push(case);
     }
+    operations::run(&opt,&mut cases)?;
     let ok=cases.iter().all(|c|c["status"]=="PASS");
     let summary=json!({"status":if ok{"PASS"}else{"FAIL_OR_INCONCLUSIVE"},"versions":versions,"cases":cases,
         "bounds":{"messages":2,"durable_slots":2,"bounded_transport":{"lost_ack_per_message":1,"restart_per_message":1,"redelivery_per_message":1},
@@ -642,6 +660,7 @@ fn main() -> Result<()> {
                 "unit_reservation_per_call":1,"independent_scope_ceiling_values":[1,2]},
             "authority_recovery":{"source_authorities":1,"replacement_authorities":1,"snapshots":1,
                 "audit_restores":1,"logical_calls":2,"unit_reservation_per_call":1}},
+        "operations":operations::contract(&opt)?,
         "limits":{"seconds_per_command":opt.seconds,"memory_mb":opt.memory,"depth":opt.depth},
         "assumptions":["fixed membership and directed ACL","no scheduling fairness required by bounded transport model",
             "bounded faults for positive transport liveness only","SQLite transaction isolation and atomic recovery boundary",

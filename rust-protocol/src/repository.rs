@@ -4,6 +4,7 @@
 //! quota/message/task changes. Callers receive no unchecked SQL/transaction port.
 //! A failed or lost acknowledgement never authorises a second external effect.
 use crate::{
+    admission::{AdmissionError, AdmissionResult},
     store::{RunMembership, Store},
     Message,
 };
@@ -23,6 +24,11 @@ pub trait ProtocolRepository {
     fn run_membership(&self, id: &str) -> RepositoryResult<RunMembership>;
     fn create_run(&mut self, id: &str, configuration: &Value) -> RepositoryResult<Value>;
     fn send(&mut self, message: &Message, actor: &str) -> RepositoryResult<Value>;
+    /// Older implementations remain source compatible. Their untyped failures
+    /// cannot establish non-admission and therefore default to `Unknown`.
+    fn send_checked(&mut self, message: &Message, actor: &str) -> AdmissionResult<Value> {
+        self.send(message, actor).map_err(AdmissionError::unknown)
+    }
     fn receive(&mut self, id: &str, actor: &str, limit: usize) -> RepositoryResult<Value>;
     fn ack(&mut self, id: &str, message_id: &str, actor: &str) -> RepositoryResult<Value>;
     fn reserve_call(&mut self, id: &str, actor: &str, call_id: &str) -> RepositoryResult<Value>;
@@ -34,6 +40,10 @@ pub trait ProtocolRepository {
         evidence: &Value,
     ) -> RepositoryResult<Value>;
     fn inspect(&self, id: &str) -> RepositoryResult<Value>;
+    /// A committed read snapshot, without deadline reconciliation or delivery.
+    fn observe(&self, _id: &str, _include_payloads: bool) -> RepositoryResult<Value> {
+        Err("read-only observation is not supported by this repository".into())
+    }
 }
 
 impl ProtocolRepository for Store {
@@ -60,6 +70,9 @@ impl ProtocolRepository for Store {
     fn send(&mut self, message: &Message, actor: &str) -> RepositoryResult<Value> {
         Store::send(self, message, actor)
     }
+    fn send_checked(&mut self, message: &Message, actor: &str) -> AdmissionResult<Value> {
+        Store::send_checked(self, message, actor)
+    }
     fn receive(&mut self, id: &str, actor: &str, limit: usize) -> RepositoryResult<Value> {
         Store::receive(self, id, actor, limit)
     }
@@ -80,5 +93,8 @@ impl ProtocolRepository for Store {
     }
     fn inspect(&self, id: &str) -> RepositoryResult<Value> {
         Store::inspect(self, id)
+    }
+    fn observe(&self, id: &str, include_payloads: bool) -> RepositoryResult<Value> {
+        Store::observe(self, id, include_payloads)
     }
 }
