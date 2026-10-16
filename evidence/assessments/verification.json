@@ -1,0 +1,57 @@
+{
+  "schema": "mas-assessment-increment-verification/1",
+  "base_revision": "0240e190ceca19834d57906419af629693b9cbf5",
+  "status": "PASS",
+  "profile": "assessment.v1",
+  "schema_version": 1,
+  "native_tests": {
+    "passed": 79,
+    "ignored_formal_entrypoints": 3,
+    "command": "cargo test --locked --manifest-path rust-protocol/Cargo.toml"
+  },
+  "clippy": {
+    "status": "completed",
+    "existing_warnings": [
+      "observation.rs::message too_many_arguments",
+      "bin/mas.rs::arg needless_lifetimes"
+    ],
+    "new_module_warnings": 0
+  },
+  "formal": {
+    "cases": 18,
+    "checks": 20,
+    "positive_checks": 4,
+    "safety_mutation_counterexamples": 13,
+    "liveness_mutation_counterexamples": 1,
+    "reachability_witnesses": 2,
+    "command": "cargo run --locked --manifest-path rust-protocol/Cargo.toml --bin verify -- --assessments-only --out formal/evidence/assessments",
+    "limits": {
+      "depth": 100000,
+      "memory_mb": 512,
+      "seconds_per_command": 30
+    },
+    "spin_version": "Spin Version 6.5.2 -- 6 December 2019",
+    "compiler_version": "cc (Ubuntu 13.3.0-6ubuntu2~24.04) 13.3.0"
+  },
+  "source_sha256": {
+    "formal/assessment-revision.pml": "8011fd2a9d4353425b01f0847ebdb2f2b1653a2514f626d0f4262fca23cacb85",
+    "rust-protocol/src/bin/verify/assessments.rs": "19d5219050a8792ad4deb01417b7e0f88c1e00a8dafef188b2bacecd4c09b272",
+    "rust-protocol/src/bin/verify.rs": "19ea8f34b9c5f3f13139a98149a6735af656367890cd90999bcba30c6220b0ff",
+    "rust-protocol/src/assessment.rs": "caef9b0e074366c1b20b3f030f31b8cb2ee13e1b9f5044a5c91fb7b0380d4c1a",
+    "rust-protocol/tests/assessment.rs": "a1256b4345c17b9c9ede43ab02cff934f4987730de49bd1f22cf85bc43899373",
+    "rust-protocol/src/assessment/helpers.rs": "2a4ba86fd9d37091d71eeafc6d15e923f7492d51773aa19cb6b7bd0a9b0df81a",
+    "rust-protocol/src/assessment/history.rs": "e3ed90a89304ef775bf46619e0baff5f8c3103eaf8a1ca343631741c631e2ec1",
+    "rust-protocol/src/assessment/records.rs": "cafd61f4ccf936174e515a51dd4b6ad36053abd23b5e22ad66de6cd026008ec0",
+    "rust-protocol/src/assessment/validation.rs": "e832c7b0710b0b97c3f598f5f7f048688f9d5d472ad0a3757d5617c67e8e14e4"
+  },
+  "raw_evidence": {
+    "path": "spin-checks.zip",
+    "sha256": "48dc19a017543399bb35996f0f96b675eedb9c3903bac58e3a61a7fa41d314e8"
+  },
+  "independent_review": "Separate reviewer checked model properties, abstraction and exact final model hash; requested binding/conflict/error coverage repaired before acceptance.",
+  "limits": [
+    "Control properties hold only for the declared finite model and assumptions.",
+    "Cross-repository host and example correspondence requires their implementation tests.",
+    "No measured incident-analysis improvement or independent-outcome result is established here."
+  ]
+}
