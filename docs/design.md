@@ -74,6 +74,69 @@ stateDiagram-v2
 
 Read receipts and acknowledgements are mailbox state, independent of this task state. A reply may follow receive before ack. Valid termination of a workflow must be specified by its caller. Arbitrary conjectures need an unresolved outcome; no eventual proof or refutation is promised.
 
+## Typed admission and recovery
+
+Rust callers can use `Store::send_checked` or
+`ProtocolRepository::send_checked`. Successful receipts retain the existing
+`accepted`, `duplicate` and `sequence` fields. Failures expose an
+`AdmissionError` with stable `code`, `disposition` and explanatory `message`;
+`to_value()` supplies its JSON representation.
+
+| Disposition | Established fact | Caller action |
+| --- | --- | --- |
+| `rejected` | This attempt was refused by a validation, identity, routing, deadline or budget rule. | Correct the cause; preserve any already accepted identity and content. |
+| `retryable` | This attempt was refused because its recipient's mailbox was full. | After capacity becomes available, retry the identical message within the caller's attempt and time limits. |
+| `unknown` | The repository could not establish the admission outcome. | Reconcile the original identity. A missing observation does not establish that an outstanding operation cannot still commit. |
+
+The concrete codes are `invalid_message`, `unknown_run`, `unknown_actor`,
+`actor_mismatch`, `unknown_recipient`, `forbidden_route`, `identity_conflict`,
+`deadline_exceeded`, `unsupported_version`, `budget_exceeded`, `mailbox_full`,
+`invalid_transition` and `outcome_unknown`. Database failures are conservatively
+`unknown`, including failures before commit; diagnostic strings never determine
+retry permission. Independent deadline reconciliation may commit even when
+message admission is refused. Identical resends continue to return their retained
+acceptance, including after the deadline or while the mailbox is full.
+
+`send` remains a compatibility wrapper returning its original string errors.
+The command-line and gateway interfaces retain their existing response formats;
+typed admission is currently a Rust repository API. Older custom repository
+implementations remain source compatible: the default `send_checked` delegates
+to their `send` and marks every untyped error `unknown`. They must override that
+method to establish more specific outcomes.
+
+These dispositions describe admission into a mailbox. They do not establish
+whether a recipient started, completed or verified an external operation.
+Operation identity, target preconditions, execution authority and evidence of
+external effects belong to the host and its adapters. Incident response uses the
+same message envelope and task contract as other applications; it introduces no
+remediation-specific protocol profile.
+
+## Read-only observation
+
+`observation::Observer::open(path)?.snapshot(run_id, include_payloads)` opens an
+existing SQLite database read-only and validates its native version-2 schema.
+It neither creates nor migrates databases. `Store::observe` and
+`ProtocolRepository::observe` expose the same snapshot contract for an already
+open repository. A snapshot reports committed state without expiry
+reconciliation, message delivery or acknowledgement; a deadline may therefore
+have passed while a retained task still reads `open`.
+
+The result is versioned `mas-protocol-observation/1`, with `run_id`,
+`payloads_included`, `run`, `messages`, `calls` and `tasks`. `run` contains frozen
+configuration, deadline, usage, active protocol and recorded expiry. Message
+records contain sequence, envelope identities, kind, receipt flags and task
+correlation. Payloads and call evidence appear only with explicit opt-in.
+Retained envelope content is validated against its identity columns before
+disclosure. The caller still controls filesystem or database permissions and
+must authorise disclosure of the remaining routing metadata.
+
+PostgreSQL observation uses a repeatable-read, read-only transaction. It checks
+the bound deployment, controller, epoch, schema version and applicable recovery
+and lease guards without locking authority rows or renewing leases. A snapshot
+is an observation of that transaction's state, never an execution lease or a
+history of every transition. Default observation on an older custom repository
+returns an explicit unsupported error rather than calling mutating `inspect`.
+
 ## Reducing assumptions
 
 | Option | Benefit | Remaining condition |

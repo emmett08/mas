@@ -1,0 +1,478 @@
+{
+  "schema": "mas-operation-model-receipt/1",
+  "status": "PASS",
+  "cases": 23,
+  "checks": 27,
+  "spin": "Spin Version 6.5.2 -- 6 December 2019",
+  "compiler": "cc (Ubuntu 13.3.0-6ubuntu2~24.04) 13.3.0",
+  "limits": {
+    "depth": 100000,
+    "memory_mb": 512,
+    "seconds_per_command": 30
+  },
+  "contract": {
+    "assumptions": [
+      "Atomic durable SQLite/Kubernetes transactions and exact identity/content comparisons",
+      "Error dispositions truthfully distinguish known nonadmission from uncertain commit",
+      "Host continues execution; API outcomes are finitely observed or become unknown",
+      "Production host uses eight attempts; model uses two to expose retry exhaustion and resume",
+      "No aggregate retry bound over arbitrary explicit resumes or restarts is claimed",
+      "Expiry and cancellation are observations, not a real-time or scheduling guarantee",
+      "An already reserved owner may cause its original effect after unknown terminal publication",
+      "A live resource observation does not establish historical causation or fence a delayed owner",
+      "No cryptographic, storage corruption, unrestricted effect exactly-once or refinement proof"
+    ],
+    "bounds": {
+      "attempts_per_invocation": 2,
+      "explicit_resumes": 1,
+      "external_dispatches": 1,
+      "logical_requests": 1,
+      "mailbox_capacity": 1,
+      "operations": 1,
+      "reconciliation_records": 2,
+      "request_identity_values": 2,
+      "reservations": 1,
+      "snapshot_reads": 2
+    },
+    "models": {
+      "admission-observation.pml": "a9b1a2d2396881db69a4e04eb02280421440486c831fcdde9b137dce76ff4bde",
+      "operation-outcomes.pml": "bb184ad7bdb0d24fa35850f2d9a4e03d407fd6577b0105daecf2629441478105"
+    },
+    "runner_module_sha256": "cd54c876775b7349e5a05e10f0e7bc99e71ccd59ab1e0a59bd7b789765e344d6",
+    "schema": "mas-operation-verification/1"
+  },
+  "runner_sha256": "d100b1c432803805d65eddbca11ff7ab186f790040cb178c874e8a68f1a51450",
+  "raw_evidence": {
+    "file": "operation-models-evidence.tar.gz",
+    "sha256": "56cf176f6e924dc67adc7449f7b2da18db8523fb991a9d0d047acf3454dbb417"
+  },
+  "results": [
+    {
+      "case": "admission-observation-positive",
+      "purpose": "standalone_safety_and_bounded_progress",
+      "expected": "COMPLETE_NO_ERRORS",
+      "result": "PASS",
+      "checks": [
+        {
+          "property": "safety",
+          "result": "COMPLETE_NO_ERRORS",
+          "states_stored": "16036",
+          "expected_assertion": null,
+          "replayed_assertion": null,
+          "expected_ltl": null,
+          "replayed_ltl": null
+        },
+        {
+          "property": "admission_settles",
+          "result": "COMPLETE_NO_ERRORS",
+          "states_stored": "29948",
+          "expected_assertion": null,
+          "replayed_assertion": null,
+          "expected_ltl": null,
+          "replayed_ltl": null
+        }
+      ]
+    },
+    {
+      "case": "admission-observation-no-reduction",
+      "purpose": "standalone_safety_and_bounded_progress",
+      "expected": "COMPLETE_NO_ERRORS",
+      "result": "PASS",
+      "checks": [
+        {
+          "property": "safety",
+          "result": "COMPLETE_NO_ERRORS",
+          "states_stored": "30103",
+          "expected_assertion": null,
+          "replayed_assertion": null,
+          "expected_ltl": null,
+          "replayed_ltl": null
+        },
+        {
+          "property": "admission_settles",
+          "result": "COMPLETE_NO_ERRORS",
+          "states_stored": "57892",
+          "expected_assertion": null,
+          "replayed_assertion": null,
+          "expected_ltl": null,
+          "replayed_ltl": null
+        }
+      ]
+    },
+    {
+      "case": "admission-observation-bug_admission_deadline",
+      "purpose": "deliberate_defect",
+      "expected": "COUNTEREXAMPLE",
+      "result": "PASS",
+      "checks": [
+        {
+          "property": "safety",
+          "result": "COUNTEREXAMPLE",
+          "states_stored": "17",
+          "expected_assertion": "ADMISSION_LIVE_AT_RETRY_CHECK",
+          "replayed_assertion": "ADMISSION_LIVE_AT_RETRY_CHECK",
+          "expected_ltl": null,
+          "replayed_ltl": null
+        }
+      ]
+    },
+    {
+      "case": "admission-observation-bug_admission_unknown_retry",
+      "purpose": "deliberate_defect",
+      "expected": "COUNTEREXAMPLE",
+      "result": "PASS",
+      "checks": [
+        {
+          "property": "safety",
+          "result": "COUNTEREXAMPLE",
+          "states_stored": "408",
+          "expected_assertion": "ADMISSION_UNKNOWN_NOT_RETRIED",
+          "replayed_assertion": "ADMISSION_UNKNOWN_NOT_RETRIED",
+          "expected_ltl": null,
+          "replayed_ltl": null
+        }
+      ]
+    },
+    {
+      "case": "admission-observation-bug_admission_identity",
+      "purpose": "deliberate_defect",
+      "expected": "COUNTEREXAMPLE",
+      "result": "PASS",
+      "checks": [
+        {
+          "property": "safety",
+          "result": "COUNTEREXAMPLE",
+          "states_stored": "111",
+          "expected_assertion": "ADMISSION_IDENTITY_RETAINED",
+          "replayed_assertion": "ADMISSION_IDENTITY_RETAINED",
+          "expected_ltl": null,
+          "replayed_ltl": null
+        }
+      ]
+    },
+    {
+      "case": "admission-observation-bug_admission_bound",
+      "purpose": "deliberate_defect",
+      "expected": "COUNTEREXAMPLE",
+      "result": "PASS",
+      "checks": [
+        {
+          "property": "safety",
+          "result": "COUNTEREXAMPLE",
+          "states_stored": "185",
+          "expected_assertion": "ADMISSION_ATTEMPT_BOUND",
+          "replayed_assertion": "ADMISSION_ATTEMPT_BOUND",
+          "expected_ltl": null,
+          "replayed_ltl": null
+        }
+      ]
+    },
+    {
+      "case": "admission-observation-bug_admission_expired_launch",
+      "purpose": "deliberate_defect",
+      "expected": "COUNTEREXAMPLE",
+      "result": "PASS",
+      "checks": [
+        {
+          "property": "safety",
+          "result": "COUNTEREXAMPLE",
+          "states_stored": "648",
+          "expected_assertion": "ADMISSION_LAUNCH_REQUIRES_ACTIONABLE",
+          "replayed_assertion": "ADMISSION_LAUNCH_REQUIRES_ACTIONABLE",
+          "expected_ltl": null,
+          "replayed_ltl": null
+        }
+      ]
+    },
+    {
+      "case": "admission-observation-bug_observer_mutation",
+      "purpose": "deliberate_defect",
+      "expected": "COUNTEREXAMPLE",
+      "result": "PASS",
+      "checks": [
+        {
+          "property": "safety",
+          "result": "COUNTEREXAMPLE",
+          "states_stored": "2",
+          "expected_assertion": "OBSERVER_PRESERVES_PROTOCOL_STATE",
+          "replayed_assertion": "OBSERVER_PRESERVES_PROTOCOL_STATE",
+          "expected_ltl": null,
+          "replayed_ltl": null
+        }
+      ]
+    },
+    {
+      "case": "admission-observation-bug_admission_stall",
+      "purpose": "deliberate_defect",
+      "expected": "COUNTEREXAMPLE",
+      "result": "PASS",
+      "checks": [
+        {
+          "property": "admission_settles",
+          "result": "COUNTEREXAMPLE",
+          "states_stored": "71",
+          "expected_assertion": null,
+          "replayed_assertion": null,
+          "expected_ltl": "admission_settles",
+          "replayed_ltl": "admission_settles"
+        }
+      ]
+    },
+    {
+      "case": "admission-observation-witness_admission_retry_success",
+      "purpose": "reachability_witness",
+      "expected": "COUNTEREXAMPLE",
+      "result": "PASS",
+      "checks": [
+        {
+          "property": "safety",
+          "result": "COUNTEREXAMPLE",
+          "states_stored": "1607",
+          "expected_assertion": "REACH_ADMISSION_RETRY_SUCCESS",
+          "replayed_assertion": "REACH_ADMISSION_RETRY_SUCCESS",
+          "expected_ltl": null,
+          "replayed_ltl": null
+        }
+      ]
+    },
+    {
+      "case": "admission-observation-witness_admission_lost_commit",
+      "purpose": "reachability_witness",
+      "expected": "COUNTEREXAMPLE",
+      "result": "PASS",
+      "checks": [
+        {
+          "property": "safety",
+          "result": "COUNTEREXAMPLE",
+          "states_stored": "619",
+          "expected_assertion": "REACH_ADMISSION_LOST_COMMIT",
+          "replayed_assertion": "REACH_ADMISSION_LOST_COMMIT",
+          "expected_ltl": null,
+          "replayed_ltl": null
+        }
+      ]
+    },
+    {
+      "case": "admission-observation-witness_admission_resume_duplicate",
+      "purpose": "reachability_witness",
+      "expected": "COUNTEREXAMPLE",
+      "result": "PASS",
+      "checks": [
+        {
+          "property": "safety",
+          "result": "COUNTEREXAMPLE",
+          "states_stored": "814",
+          "expected_assertion": "REACH_ADMISSION_RESUME_DUPLICATE",
+          "replayed_assertion": "REACH_ADMISSION_RESUME_DUPLICATE",
+          "expected_ltl": null,
+          "replayed_ltl": null
+        }
+      ]
+    },
+    {
+      "case": "operation-outcomes-positive",
+      "purpose": "standalone_safety_and_bounded_progress",
+      "expected": "COMPLETE_NO_ERRORS",
+      "result": "PASS",
+      "checks": [
+        {
+          "property": "safety",
+          "result": "COMPLETE_NO_ERRORS",
+          "states_stored": "616080",
+          "expected_assertion": null,
+          "replayed_assertion": null,
+          "expected_ltl": null,
+          "replayed_ltl": null
+        },
+        {
+          "property": "operation_settles",
+          "result": "COMPLETE_NO_ERRORS",
+          "states_stored": "613989",
+          "expected_assertion": null,
+          "replayed_assertion": null,
+          "expected_ltl": null,
+          "replayed_ltl": null
+        }
+      ]
+    },
+    {
+      "case": "operation-outcomes-no-reduction",
+      "purpose": "standalone_safety_and_bounded_progress",
+      "expected": "COMPLETE_NO_ERRORS",
+      "result": "PASS",
+      "checks": [
+        {
+          "property": "safety",
+          "result": "COMPLETE_NO_ERRORS",
+          "states_stored": "792403",
+          "expected_assertion": null,
+          "replayed_assertion": null,
+          "expected_ltl": null,
+          "replayed_ltl": null
+        },
+        {
+          "property": "operation_settles",
+          "result": "COMPLETE_NO_ERRORS",
+          "states_stored": "790312",
+          "expected_assertion": null,
+          "replayed_assertion": null,
+          "expected_ltl": null,
+          "replayed_ltl": null
+        }
+      ]
+    },
+    {
+      "case": "operation-outcomes-bug_operation_redispatch",
+      "purpose": "deliberate_defect",
+      "expected": "COUNTEREXAMPLE",
+      "result": "PASS",
+      "checks": [
+        {
+          "property": "safety",
+          "result": "COUNTEREXAMPLE",
+          "states_stored": "33",
+          "expected_assertion": "OPERATION_ORIGINAL_RESERVATION",
+          "replayed_assertion": "OPERATION_ORIGINAL_RESERVATION",
+          "expected_ltl": null,
+          "replayed_ltl": null
+        }
+      ]
+    },
+    {
+      "case": "operation-outcomes-bug_operation_causality",
+      "purpose": "deliberate_defect",
+      "expected": "COUNTEREXAMPLE",
+      "result": "PASS",
+      "checks": [
+        {
+          "property": "safety",
+          "result": "COUNTEREXAMPLE",
+          "states_stored": "15",
+          "expected_assertion": "OPERATION_REPORT_IMMUTABLE",
+          "replayed_assertion": "OPERATION_REPORT_IMMUTABLE",
+          "expected_ltl": null,
+          "replayed_ltl": null
+        }
+      ]
+    },
+    {
+      "case": "operation-outcomes-bug_operation_early_pass",
+      "purpose": "deliberate_defect",
+      "expected": "COUNTEREXAMPLE",
+      "result": "PASS",
+      "checks": [
+        {
+          "property": "safety",
+          "result": "COUNTEREXAMPLE",
+          "states_stored": "111",
+          "expected_assertion": "OPERATION_VERIFICATION_REQUIRES_EVIDENCE",
+          "replayed_assertion": "OPERATION_VERIFICATION_REQUIRES_EVIDENCE",
+          "expected_ltl": null,
+          "replayed_ltl": null
+        }
+      ]
+    },
+    {
+      "case": "operation-outcomes-bug_operation_history",
+      "purpose": "deliberate_defect",
+      "expected": "COUNTEREXAMPLE",
+      "result": "PASS",
+      "checks": [
+        {
+          "property": "safety",
+          "result": "COUNTEREXAMPLE",
+          "states_stored": "42",
+          "expected_assertion": "OPERATION_OBSERVATION_IMMUTABLE",
+          "replayed_assertion": "OPERATION_OBSERVATION_IMMUTABLE",
+          "expected_ltl": null,
+          "replayed_ltl": null
+        }
+      ]
+    },
+    {
+      "case": "operation-outcomes-bug_operation_binding",
+      "purpose": "deliberate_defect",
+      "expected": "COUNTEREXAMPLE",
+      "result": "PASS",
+      "checks": [
+        {
+          "property": "safety",
+          "result": "COUNTEREXAMPLE",
+          "states_stored": "4293",
+          "expected_assertion": "OPERATION_OBSERVATION_BOUND",
+          "replayed_assertion": "OPERATION_OBSERVATION_BOUND",
+          "expected_ltl": null,
+          "replayed_ltl": null
+        }
+      ]
+    },
+    {
+      "case": "operation-outcomes-bug_operation_stall",
+      "purpose": "deliberate_defect",
+      "expected": "COUNTEREXAMPLE",
+      "result": "PASS",
+      "checks": [
+        {
+          "property": "operation_settles",
+          "result": "COUNTEREXAMPLE",
+          "states_stored": "50",
+          "expected_assertion": null,
+          "replayed_assertion": null,
+          "expected_ltl": "operation_settles",
+          "replayed_ltl": "operation_settles"
+        }
+      ]
+    },
+    {
+      "case": "operation-outcomes-witness_operation_verified",
+      "purpose": "reachability_witness",
+      "expected": "COUNTEREXAMPLE",
+      "result": "PASS",
+      "checks": [
+        {
+          "property": "safety",
+          "result": "COUNTEREXAMPLE",
+          "states_stored": "446612",
+          "expected_assertion": "REACH_OPERATION_VERIFIED",
+          "replayed_assertion": "REACH_OPERATION_VERIFIED",
+          "expected_ltl": null,
+          "replayed_ltl": null
+        }
+      ]
+    },
+    {
+      "case": "operation-outcomes-witness_operation_late_effect",
+      "purpose": "reachability_witness",
+      "expected": "COUNTEREXAMPLE",
+      "result": "PASS",
+      "checks": [
+        {
+          "property": "safety",
+          "result": "COUNTEREXAMPLE",
+          "states_stored": "71",
+          "expected_assertion": "REACH_OPERATION_LATE_EFFECT",
+          "replayed_assertion": "REACH_OPERATION_LATE_EFFECT",
+          "expected_ltl": null,
+          "replayed_ltl": null
+        }
+      ]
+    },
+    {
+      "case": "operation-outcomes-witness_operation_reconciled_unknown",
+      "purpose": "reachability_witness",
+      "expected": "COUNTEREXAMPLE",
+      "result": "PASS",
+      "checks": [
+        {
+          "property": "safety",
+          "result": "COUNTEREXAMPLE",
+          "states_stored": "45",
+          "expected_assertion": "REACH_OPERATION_RECONCILED_UNKNOWN",
+          "replayed_assertion": "REACH_OPERATION_RECONCILED_UNKNOWN",
+          "expected_ltl": null,
+          "replayed_ltl": null
+        }
+      ]
+    }
+  ]
+}

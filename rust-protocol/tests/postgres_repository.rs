@@ -155,6 +155,54 @@ fn sqlite_postgres_complete_protocol_trace_agrees() {
 
 #[test]
 #[ignore = "requires MAS_TEST_POSTGRES_DSN and an actual PostgreSQL server"]
+fn typed_admission_and_read_only_observation_agree_across_backends() {
+    fn typed_trace<R: ProtocolRepository>(repository: &mut R) -> Vec<Value> {
+        let mut c = configuration(); c["mailbox_capacity"] = json!(1);
+        repository.create_run("r",&c).unwrap();
+        let mut output = vec![repository.send_checked(&request(),"missing").unwrap_err().to_value()];
+        output.push(repository.send_checked(&request(),"a").unwrap());
+        let mut second = request(); second.message_id="second".into(); second.payload["task_id"]=json!("second");
+        output.push(repository.send_checked(&second,"a").unwrap_err().to_value());
+        output.push(repository.send_checked(&request(),"a").unwrap());
+        repository.receive("r","b",1).unwrap(); repository.ack("r","q","b").unwrap();
+        output.push(repository.send_checked(&second,"a").unwrap());
+        for include in [false,true] {
+            let mut snapshot=repository.observe("r",include).unwrap();
+            snapshot["run"].as_object_mut().unwrap().remove("deadline");
+            output.push(snapshot);
+        }
+        output
+    }
+    let fixture=Fixture::new();
+    let path=std::env::temp_dir().join(format!("mas-pg-typed-{}.sqlite",std::process::id()));
+    let mut local=Store::open(&path).unwrap();
+    assert_eq!(typed_trace(&mut local),typed_trace(&mut fixture.open()));
+    drop(local); std::fs::remove_file(path).unwrap();
+}
+
+#[test]
+#[ignore = "requires MAS_TEST_POSTGRES_DSN and an actual PostgreSQL server"]
+fn postgres_observation_retains_expiry_and_enforces_authority_and_lease() {
+    let fixture=Fixture::new(); let mut repository=fixture.open();
+    repository.create_run("r",&configuration()).unwrap();
+    repository.send_checked(&request(),"a").unwrap();
+    fixture.admin().execute("UPDATE runs SET deadline=0 WHERE id='r'",&[]).unwrap();
+    let snapshot=repository.observe("r",false).unwrap();
+    assert_eq!(snapshot["run"]["expired"],false);
+    assert_eq!(snapshot["tasks"][0]["state"],"open");
+    assert_eq!(snapshot["messages"][0]["received"],false);
+    assert!(!fixture.admin().query_one("SELECT expired FROM runs WHERE id='r'",&[]).unwrap().get::<_,bool>(0));
+    repository.install_host_repository().unwrap();
+    repository.install_controller_repository().unwrap();
+    fixture.admin().execute("UPDATE controller_lease SET lease_until=clock_timestamp()-interval '1 second'",&[]).unwrap();
+    assert!(repository.observe("r",false).unwrap_err().contains("lease_expired"));
+    fixture.admin().execute("UPDATE controller_lease SET lease_until=clock_timestamp()+interval '60 seconds'",&[]).unwrap();
+    repository.handover("controller-two").unwrap();
+    assert!(repository.observe("r",false).unwrap_err().contains("stale protocol authority"));
+}
+
+#[test]
+#[ignore = "requires MAS_TEST_POSTGRES_DSN and an actual PostgreSQL server"]
 fn concurrent_connections_cannot_over_allocate_or_reuse_identity() {
     let fixture = Arc::new(Fixture::new());
     fixture.open().create_run("r", &configuration()).unwrap();
