@@ -78,12 +78,17 @@ its frozen invocation configuration. `passes()` aggregates an assessment's
 findings after contextual validation; it is not an outcome measurement or an
 authorisation to execute remediation.
 
-For message carriage, `Assessment::payload()` returns
-`{"profile":"assessment.v1","record":…}`. `Assessment::from_message` validates
-this profile and requires assessment identity and evaluator identity to equal
+For message carriage, `Assessment::payload()` returns the application record
+`{"profile":"assessment.v1","record":…}` for the existing task Result's
+`output` field. The outer task payload retains `task_id`, `reply_to`, `status`
+and `output`; its status remains `completed` or `unresolved` independently of
+the assessment status. `Assessment::from_message` validates this nesting and
+requires assessment identity and evaluator identity to equal
 the envelope's `message_id` and `sender`. Existing repository admission still
 checks authenticated actor, route, budget and delivery state. The run context
-comes from the envelope and host record scope.
+comes from the envelope and host record scope. The public integration test
+inserts the request and Result through the real `agent-task/1` store, verifies
+duplicate delivery and rejects a misplaced top-level assessment payload.
 
 ## Revision and retention
 

@@ -384,6 +384,7 @@ impl Assessment {
             && self.status == AssessmentStatus::Completed
             && self.findings.iter().all(|f| f.verdict == Verdict::Pass)
     }
+    /// Application record placed inside the existing task Result `output`.
     pub fn payload(&self) -> Value {
         json!({"profile":PROFILE,"record":self.to_value()})
     }
@@ -393,7 +394,22 @@ impl Assessment {
             message: e.message,
         })?;
         let payload = Value::Object(message.payload.clone());
-        let o = object(&payload, &["profile", "record"])?;
+        if message.kind != "Result" {
+            return reject(
+                "KIND",
+                "assessment carriage requires an existing task Result",
+            );
+        }
+        let task = object(&payload, &["task_id", "reply_to", "status", "output"])?;
+        id(&task["task_id"])?;
+        id(&task["reply_to"])?;
+        if !matches!(task["status"].as_str(), Some("completed" | "unresolved")) {
+            return reject(
+                "STATUS",
+                "task Result requires completed or unresolved status",
+            );
+        }
+        let o = object(&task["output"], &["profile", "record"])?;
         if o["profile"] != PROFILE {
             return reject("VERSION", "unsupported assessment payload profile");
         }
