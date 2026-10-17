@@ -670,7 +670,7 @@ fn main() -> Result<()> {
         println!("{name} {}",case["status"]);cases.push(case);
     }
     authority::run(&opt, &mut cases)?;
-    let corpus_path = opt.root.join("host/tests/fixtures/task-service-traces.json");
+    let corpus_path = opt.root.join("formal/task-service-traces.json");
     let corpus: Value = serde_json::from_str(&fs::read_to_string(&corpus_path)?)?;
     if corpus["version"] != 1 {return Err("unsupported trace corpus version".into());}
     let trace_sources = opt.out.join("trace-sources");fs::create_dir_all(&trace_sources)?;

@@ -17,7 +17,7 @@ their adapters, independent result checks and operational reconciliation.
 | Connecting agents to tools and data | [MCP](https://modelcontextprotocol.io/docs/learn/architecture) | It standardises access to tools and resources. |
 
 These approaches complement one another through the shipped [MCP, A2A and
-orchestrator bridges](bridges.md). Integrations must assign ownership
+orchestrator bridges](https://github.com/emmett08/mas-reference-host/blob/main/docs/bridges.md). Integrations must assign ownership
 of retries, effect identity and accounting to prevent competing recovery
 mechanisms from repeating operations.
 
@@ -46,12 +46,12 @@ productivity; those require a comparison on representative tasks.
 
 | Organisational problem | Proposed participants and routes | Existing starting point and remaining integration |
 | --- | --- | --- |
-| Check values extracted from documents | Extractor → reviewer → deterministic validator; failed checks return for correction. | The [invoice mesh](host-runner.md#what-the-example-does) computes and checks totals from supplied structured input. Document ingestion, extraction and validation against the original document require adapters. |
-| Maintain a repository through remote agent jobs | Coordinator → coding job → tests → reviewer; publication follows acceptance. | [Cursor Cloud submission and reconciliation](providers.md#durable-cursor-cloud-jobs) are implemented. The complete testing/review/publication sequence requires application integration. |
+| Check values extracted from documents | Extractor → reviewer → deterministic validator; failed checks return for correction. | The [invoice mesh](https://github.com/emmett08/mas-reference-host/blob/main/docs/host-runner.md#what-the-example-does) computes and checks totals from supplied structured input. Document ingestion, extraction and validation against the original document require adapters. |
+| Maintain a repository through remote agent jobs | Coordinator → coding job → tests → reviewer; publication follows acceptance. | [Cursor Cloud submission and reconciliation](https://github.com/emmett08/mas-reference-host/blob/main/docs/providers.md#durable-cursor-cloud-jobs) are implemented. The complete testing/review/publication sequence requires application integration. |
 | Investigate and repair a CI failure | Log collector → diagnosis → repair → targeted tests → reviewer. | Compose the [routing and evaluator–optimiser patterns](examples.md) with CI and repository adapters. The fixtures demonstrate control flow; they do not perform CI repairs. |
 | Develop and check mathematical results | Proposers → critic → proof checker; numerical questions route to a simulation worker. | [Star/tree and review-loop fixtures](examples.md) demonstrate exchanges. Theorem representations, proof-assistant and simulation adapters, and mathematical acceptance rules remain application work. |
 | Reanalyse data and update a manuscript | Data validator → analysis worker → interpretation → reviewer → document builder. | [Chaining and sequential-crew fixtures](examples.md) demonstrate stage dependencies. Dataset provenance, statistical checks, computation and publication require adapters. |
-| Apply an infrastructure change | Planner → policy checker → authorised decision → deployment worker → health checker. | [Gateway controls](gateway.md) and [bridge integration](bridges.md) provide integration points. Deployment permissions, approval authentication, health checks and recovery policy remain application responsibilities. |
+| Apply an infrastructure change | Planner → policy checker → authorised decision → deployment worker → health checker. | [Gateway controls](gateway.md) and [bridge integration](https://github.com/emmett08/mas-reference-host/blob/main/docs/bridges.md) provide integration points. Deployment permissions, approval authentication, health checks and recovery policy remain application responsibilities. |
 | Remediate a service incident | Classifier → diagnostics → approved remediation; ambiguous cases route to a person. | [Routing and simulated human-review fixtures](examples.md) demonstrate branches. Service diagnostics, authenticated decisions and remediation adapters must be supplied. |
 
 ### Limits, recovery and acceptance
@@ -65,7 +65,7 @@ productivity; those require a comparison on representative tasks.
    changes and repair budget. Require independent tests and review before merge.
    Preserve the remote agent/run identities; a submission receipt establishes
    acceptance of work, while a terminal service status still requires result
-   review. Follow the [recovery walkthrough](providers.md#offline-failure-and-recovery-walkthrough).
+   review. Follow the [recovery walkthrough](https://github.com/emmett08/mas-reference-host/blob/main/docs/providers.md#offline-failure-and-recovery-walkthrough).
    A single coding agent with ordinary CI can suffice when these coordination
    and recovery requirements are absent.
 3. **CI repair.** Scope work to an identified failure and limit edits and test
@@ -91,7 +91,7 @@ productivity; those require a comparison on representative tasks.
    Inspect deployment identity and observed state after a timeout; select any
    retry or compensating action through the application's recovery policy.
    Existing deployment tooling can own execution while MAS coordinates proposals
-   and checks through [orchestrator bridges](orchestrators.md).
+   and checks through [orchestrator bridges](https://github.com/emmett08/mas-reference-host/blob/main/docs/orchestrators.md).
 7. **Service remediation.** Restrict actions to an approved catalogue, named
    services and a maximum attempt count. Verify the intended health condition
    after action. Reconcile a restart request against service observations before
@@ -106,7 +106,7 @@ permission to change a repository, deploy software or restart a service.
 
 Star, mesh and tree describe logical communication permissions over central
 SQLite storage. `Runner` schedules synchronous nested delegation; membership
-is frozen per run. The optional [workflow engine](composable-workflows.md)
+is frozen per run. The optional [workflow engine](https://github.com/emmett08/mas-reference-host/blob/main/docs/composable-workflows.md)
 adds durable parallel branches using separately owned Rust-backed runs, with
 bounded processes and shared allocations on one Linux host. It supplies neither
 a distributed worker pool nor high availability. Trusted adapters share a security
@@ -129,8 +129,8 @@ Compare the smallest useful MAS topology against a single-agent baseline on a
 representative workflow. Define an independent acceptance check, then measure
 useful-result rate, cost, latency and reconciliation effort. Exercise crash
 recovery and unknown outcomes before deployment. Use the
-[adapter guide](host-runner.md), [operations guide](operations.md) and
-[acceptance procedure](deployment-acceptance.md) to make that decision from
+[adapter guide](https://github.com/emmett08/mas-reference-host/blob/main/docs/host-runner.md), [operations guide](https://github.com/emmett08/mas-reference-host/blob/main/docs/operations.md) and
+[acceptance procedure](https://github.com/emmett08/mas-reference-host/blob/main/docs/deployment-acceptance.md) to make that decision from
 application evidence.
 
 External documentation consulted on 13 October 2026.

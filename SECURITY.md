@@ -39,5 +39,5 @@ currently offered.
 Run state includes private messages, gateway capabilities and provider evidence.
 Restrict access to state and backups. Provider API keys remain outside protocol
 messages. Do not upload state directories as CI evidence or issue attachments.
-See [release and upgrade procedures](docs/releases.md) and the operations guide
+See [release and upgrade procedures](https://github.com/emmett08/mas-reference-host/blob/main/docs/releases.md) and the operations guide
 for backup, restore, retention and uncertain external outcomes.

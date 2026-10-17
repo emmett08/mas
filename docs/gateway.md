@@ -1,6 +1,6 @@
 # Private agent admission
 
-The [reusable Python host runner](host-runner.md) provisions this gateway, keeps
+The [reusable Python host runner](https://github.com/emmett08/mas-reference-host/blob/main/docs/host-runner.md) provisions this gateway, keeps
 capabilities private, supervises subprocess calls and dispatches model/tool
 adapters. Its Compose mesh is the quickest complete integration example.
 
