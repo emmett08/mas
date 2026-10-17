@@ -35,6 +35,11 @@ restoration from final sealed archives. Its shared corpus executes selected
 observations against the native PostgreSQL authority. These additional models
 remain bounded safety checks with explicit transaction and fencing assumptions.
 
+The [assessment and revision model](assessment-revision-notes.md) adds exact
+assessment identity, evaluator authority, immutable findings, two-world input
+disclosure, replay and bounded revision checks. Use `--assessments-only` for
+this subset; the default verifier also includes it.
+
 ## Reproduce
 
 Install SPIN, a C compiler and Linux utilities `sh` and `sha256sum`, then run

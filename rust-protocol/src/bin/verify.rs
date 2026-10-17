@@ -8,6 +8,8 @@ type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 mod authority;
 #[path = "verify/operations.rs"]
 mod operations;
+#[path = "verify/assessments.rs"]
+mod assessments;
 const PROPERTIES: [&str; 2] = ["message_0_progress", "message_1_progress"];
 
 struct Options {
@@ -173,6 +175,7 @@ struct CaseOptions {
 }
 
 fn expected_assertion(defect: Option<&str>) -> Option<&'static str> {
+    if let Some(property) = assessments::expected_assertion(defect) { return Some(property); }
     if let Some(property) = authority::expected_assertion(defect) { return Some(property); }
     if let Some(property) = operations::expected_assertion(defect) { return Some(property); }
     Some(match defect? {
@@ -342,7 +345,7 @@ fn run_case(source: &Path, dest: &Path, opt: &Options, case: CaseOptions) -> Res
     if task && source.file_name().is_some_and(|name| name == "host-recovery.pml" || name == "cursor-jobs.pml"
         || name == "bridge-service.pml" || name == "bridge-events.pml" || name == "task-service.pml"
         || name == "workflow-composition.pml" || name == "host-evolution.pml"
-        || name == "admission-observation.pml" || name == "operation-outcomes.pml") && defect.is_none() {
+        || name == "admission-observation.pml" || name == "operation-outcomes.pml" || name == "assessment-revision.pml") && defect.is_none() {
         for seed in [17, 29, 53] {
             let command = strings(&["spin", &format!("-n{seed}"), "-u10000", "-p", "-g", "-l", model_name]);
             let mut record = run(&command, dest, &format!("simulation-{seed}"), opt)?;
@@ -376,7 +379,7 @@ fn run_case(source: &Path, dest: &Path, opt: &Options, case: CaseOptions) -> Res
     if generated["returncode"] != 0 {
         return Ok(json!({"topology":source.file_name().unwrap().to_string_lossy(),"status":"GENERATION_FAILED","commands":commands}));
     }
-    let cycle_defect = matches!(defect, Some("BUG_NO_ACK" | "BUG_WORKFLOW_STALL" | "BUG_ADMISSION_STALL" | "BUG_OPERATION_STALL"));
+    let cycle_defect = matches!(defect, Some("BUG_NO_ACK" | "BUG_WORKFLOW_STALL" | "BUG_ADMISSION_STALL" | "BUG_OPERATION_STALL" | "BUG_REVISION_STALL"));
     let modes = if assumption_witness || cycle_defect {vec!["ltl"]}
         else if progress_property.is_some() && defect.is_none() {vec!["safety","ltl"]}
         else if task || unbounded_faults || defect.is_some() {vec!["safety"]} else {vec!["safety","ltl"]};
@@ -445,6 +448,7 @@ fn main() -> Result<()> {
         seconds:30,memory:512,depth:100000,only:None,generate_only:false};
     let mut args=env::args().skip(1);
     let mut operations_only=false;
+    let mut assessments_only=false;
     while let Some(arg)=args.next() {
         match arg.as_str() {
             "--out"=>opt.out=PathBuf::from(args.next().ok_or("--out needs path")?),
@@ -455,7 +459,8 @@ fn main() -> Result<()> {
             "--only"=>opt.only=Some(args.next().ok_or("--only needs topology")?),
             "--generate-only"=>opt.generate_only=true,
             "--operations-only"=>operations_only=true,
-            "--help"|"-h"=>{println!("verify [--out PATH] [--examples PATH] [--only TOPOLOGY] [--operations-only] [--generate-only] [--seconds 30] [--memory-mb 512] [--depth 100000]\nRequires Linux, SPIN, cc, POSIX sh and sha256sum.");return Ok(());},
+            "--assessments-only"=>assessments_only=true,
+            "--help"|"-h"=>{println!("verify [--out PATH] [--examples PATH] [--only TOPOLOGY] [--operations-only] [--assessments-only] [--generate-only] [--seconds 30] [--memory-mb 512] [--depth 100000]\nRequires Linux, SPIN, cc, POSIX sh and sha256sum.");return Ok(());},
             _=>return Err(format!("unknown option {arg}").into()),
         }
     }
@@ -486,6 +491,16 @@ fn main() -> Result<()> {
         versions.push(version);
     }
     let mut cases=Vec::new();
+    if assessments_only {
+        assessments::run(&opt,&mut cases)?;
+        let ok=cases.iter().all(|case|case["status"]=="PASS");
+        let summary=json!({"status":if ok{"PASS"}else{"FAIL_OR_INCONCLUSIVE"},
+            "versions":versions,"cases":cases,"contract":assessments::contract(&opt)?,
+            "limits":{"seconds_per_command":opt.seconds,"memory_mb":opt.memory,"depth":opt.depth}});
+        fs::write(opt.out.join("summary.json"),format!("{}\n",serde_json::to_string_pretty(&summary)?))?;
+        if !ok {return Err("assessment verification failed or incomplete; inspect summary.json".into());}
+        return Ok(());
+    }
     if operations_only {
         operations::run(&opt,&mut cases)?;
         let ok=cases.iter().all(|case|case["status"]=="PASS");
@@ -642,6 +657,7 @@ fn main() -> Result<()> {
         println!("{name} {}",case["status"]);cases.push(case);
     }
     operations::run(&opt,&mut cases)?;
+    assessments::run(&opt,&mut cases)?;
     let ok=cases.iter().all(|c|c["status"]=="PASS");
     let summary=json!({"status":if ok{"PASS"}else{"FAIL_OR_INCONCLUSIVE"},"versions":versions,"cases":cases,
         "bounds":{"messages":2,"durable_slots":2,"bounded_transport":{"lost_ack_per_message":1,"restart_per_message":1,"redelivery_per_message":1},

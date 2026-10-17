@@ -4,6 +4,7 @@
 
 pub mod store;
 pub mod admission;
+pub mod assessment;
 pub mod observation;
 pub mod repository;
 #[cfg(feature = "postgres-repository")]

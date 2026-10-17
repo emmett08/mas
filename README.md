@@ -1,5 +1,10 @@
 # MAS: AI agent communication in Rust
 
+The [assessment contract](docs/assessment-contract.md) binds criterion-level
+findings to exact candidates, evaluators, rubrics, evidence and revision feedback
+using existing message envelopes. Its [SPIN model](formal/assessment-revision-notes.md)
+checks identity, authority, immutable history and bounded feedback handling.
+
 The [bridge guide](docs/bridges.md) covers authenticated MCP and A2A endpoints,
 durable remote tasks, Temporal/LangGraph connectors and mixed-provider deployments.
 
