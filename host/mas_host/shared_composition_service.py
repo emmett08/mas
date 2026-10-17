@@ -107,6 +107,9 @@ class SharedCompositionService:
     """Trusted composition worker plus protocol-neutral authenticated lifecycle."""
     def __init__(self, authority, cache_dir, plans, workflows, grants, *,
                  workflow_versions=None, supervised=True, max_instances=1000, gateway_bin=None):
+        registered = [*workflows.values(), *(value for versions in (workflow_versions or {}).values() for value in versions)]
+        if any(getattr(workflow, 'assessment_policies', None) for workflow in registered):
+            raise ServiceError('assessment_profile_requires_local_journal')
         self.authority = self.operations = authority
         self.state_dir = Path(cache_dir).absolute()
         self.plans = {name: value if isinstance(value, WorkflowPlan) else WorkflowPlan(value)

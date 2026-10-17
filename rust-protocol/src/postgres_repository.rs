@@ -203,6 +203,27 @@ impl PostgresRepository {
         tx.commit().map_err(db_error)?;
         Ok(result)
     }
+
+    /// Bound observations share the authority guards but neither lock authority
+    /// rows nor reconcile deadlines or renew leases.
+    fn read_transaction<T>(&self, apply: impl FnOnce(&mut Transaction<'_>) -> Result<T>) -> Result<T> {
+        let mut client = self.client.try_borrow_mut().map_err(|_|"repository transaction already active")?;
+        let mut tx = client.build_transaction().read_only(true)
+            .isolation_level(postgres::IsolationLevel::RepeatableRead).start().map_err(db_error)?;
+        let authority = tx.query_opt("SELECT deployment,controller,epoch,version FROM authority WHERE singleton=true",&[])
+            .map_err(db_error)?.ok_or("missing protocol authority")?;
+        let version: i64 = authority.get(3);
+        if authority.get::<_,String>(0) != self.binding.deployment
+            || authority.get::<_,String>(1) != self.binding.controller
+            || authority.get::<_,i64>(2) != self.binding.epoch || !matches!(version,1..=12) {
+            return Err("stale protocol authority".into());
+        }
+        if version >= 6 { crate::shared_backup::check_active(&mut tx)?; }
+        if version >= 3 { crate::shared_leadership::check_lease(&mut tx)?; }
+        let value=apply(&mut tx)?;
+        tx.commit().map_err(db_error)?;
+        Ok(value)
+    }
 }
 
 pub(crate) struct Run {
@@ -405,6 +426,9 @@ impl ProtocolRepository for PostgresRepository {
             let (expired,_,observed)=reconcile(tx,&message.run_id)?;
             if expired {return Ok(Err(Admission::rejected(Code::DeadlineExceeded,"wall-clock budget exhausted")));}
             if message.version!=r.active {return Ok(Err(Admission::rejected(Code::UnsupportedVersion,"inactive or incompatible protocol version")));}
+            if r.config["application"]=="agent-task/1" && !crate::tasks::response_route_permitted(&r.config,&message) {
+                return Ok(Err(Admission::rejected(Code::ForbiddenRoute,"task request requires a permitted reverse response route")));
+            }
             if r.messages>=r.config["max_messages"].as_i64().unwrap() || size>r.config["max_bytes"].as_i64().unwrap()-r.bytes {return Ok(Err(Admission::rejected(Code::BudgetExceeded,"communication budget exhausted")));}
             let pending:i64=tx.query_one("SELECT count(*) FROM messages WHERE run=$1 AND recipient=$2 AND NOT acked",&[&message.run_id,&message.recipient]).map_err(db_error)?.get(0);
             if pending>=r.config["mailbox_capacity"].as_i64().unwrap() {return Ok(Err(Admission::mailbox_full()));}
@@ -425,6 +449,23 @@ impl ProtocolRepository for PostgresRepository {
             }
             tx.execute("UPDATE runs SET message_count=message_count+1,byte_count=byte_count+$1 WHERE id=$2",&[&size,&message.run_id]).map_err(db_error)?;
             Ok(Ok(json!({"accepted":true,"duplicate":false,"sequence":seq})))
+        })?
+    }
+    fn reconcile_message(&self, id: &str, actor: &str, message_id: &str) -> AdmissionResult<Value> {
+        if !crate::identity(message_id) {
+            return Err(Admission::rejected(Code::InvalidMessage,"invalid message identity"));
+        }
+        self.read_transaction(|tx| {
+            if tx.query_opt("SELECT 1 FROM runs WHERE id=$1",&[&id]).map_err(db_error)?.is_none() {
+                return Ok(Err(Admission::rejected(Code::UnknownRun,"unknown run")));
+            }
+            let r=run(tx,id,None)?;
+            if !r.config["agents"].as_array().is_some_and(|agents|agents.iter().any(|a|a.as_str()==Some(actor))) {
+                return Ok(Err(Admission::rejected(Code::UnknownActor,"unregistered worker")));
+            }
+            let receipt=tx.query_opt("SELECT seq,received,acked FROM messages WHERE run=$1 AND sender=$2 AND id=$3",
+                &[&id,&actor,&message_id]).map_err(db_error)?.map(|row|(row.get(0),row.get(1),row.get(2)));
+            Ok(Ok(crate::admission::message_observation(message_id,receipt)))
         })?
     }
     fn receive(&mut self, id: &str, actor: &str, limit: usize) -> Result<Value> {
@@ -557,22 +598,8 @@ impl ProtocolRepository for PostgresRepository {
         self.transaction(|tx| inspect(tx, id))
     }
     fn observe(&self, id: &str, include_payloads: bool) -> Result<Value> {
-        let mut client = self.client.try_borrow_mut().map_err(|_|"repository transaction already active")?;
-        let mut tx = client.build_transaction().read_only(true)
-            .isolation_level(postgres::IsolationLevel::RepeatableRead).start().map_err(db_error)?;
-        // Preserve the repository's authority, recovery and lease requirements.
-        // A snapshot needs no row lock and cannot renew a lease or reconcile.
-        let authority = tx.query_opt("SELECT deployment,controller,epoch,version FROM authority WHERE singleton=true",&[])
-            .map_err(db_error)?.ok_or("missing protocol authority")?;
-        let version: i64 = authority.get(3);
-        if authority.get::<_,String>(0) != self.binding.deployment
-            || authority.get::<_,String>(1) != self.binding.controller
-            || authority.get::<_,i64>(2) != self.binding.epoch || !matches!(version,1..=12) {
-            return Err("stale protocol authority".into());
-        }
-        if version >= 6 { crate::shared_backup::check_active(&mut tx)?; }
-        if version >= 3 { crate::shared_leadership::check_lease(&mut tx)?; }
-        let r = run(&mut tx,id,None)?;
+        self.read_transaction(|tx| {
+        let r = run(tx,id,None)?;
         let run = json!({"config":r.config,"deadline":r.deadline,
             "usage":{"messages":r.messages,"bytes":r.bytes,"calls":r.calls},
             "active_protocol":r.active,"expired":r.expired});
@@ -590,7 +617,7 @@ impl ProtocolRepository for PostgresRepository {
             json!({"task_id":row.get::<_,String>(0),"request_id":row.get::<_,String>(1),
                 "state":row.get::<_,String>(2),"terminal_message_id":row.get::<_,Option<String>>(3),
                 "closed_at":row.get::<_,Option<f64>>(4)})).collect();
-        tx.commit().map_err(db_error)?;
         Ok(crate::observation::snapshot_value(id,include_payloads,run,messages,calls,tasks))
+        })
     }
 }

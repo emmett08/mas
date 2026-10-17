@@ -188,6 +188,16 @@ class _ContextProxy:
         _fields(reply, {"output", "status"})
         return Outcome(reply["output"], reply["status"])
 
+    def assessment(self, operation: str, data: dict) -> dict:
+        self._check()
+        self._channel.send({"op": "assessment", "operation": operation, "data": data})
+        reply = self._channel.receive()
+        _raise_reply_error(reply)
+        _fields(reply, {"assessment"})
+        if type(reply["assessment"]) is not dict:
+            _invalid()
+        return reply["assessment"]
+
     def invoke(self, call, *, input: dict | None = None,
                reservation_microusd: int | None = None) -> dict:
         retry_of = None
@@ -382,6 +392,14 @@ class AdapterProtocolSession:
                     if not accepted:
                         continue
                     channel.send({"output": outcome.output, "status": outcome.status})
+                elif operation == "assessment":
+                    _fields(frame, {"op", "operation", "data"})
+                    if type(frame["operation"]) is not str or type(frame["data"]) is not dict:
+                        _invalid()
+                    accepted, result = _operation_reply(channel, lambda: self.context.assessment(
+                        frame["operation"], frame["data"]))
+                    if accepted:
+                        channel.send({"assessment": result})
                 elif operation == "result":
                     _fields(frame, {"op", "output", "status"})
                     if type(frame["output"]) is not dict or frame["status"] not in ("completed", "unresolved"):

@@ -70,6 +70,25 @@ fn persistent_codec_gateway_and_status_match_direct_contract() {
 }
 
 #[test]
+fn persistent_gateway_preserves_versioned_admission_and_private_identity_observation() {
+    let path=database(); let mut session=HostSession::open(&path,&config(),"r").unwrap();
+    let wire="message \"checked\" run \"r\" from \"a\" to \"b\" version \"1\" kind \"Notice\" payload {\"private\":\"secret\"};";
+    let profile=mas_protocol_codec::admission::PROFILE;
+    let send=json!({"token":"ab".repeat(32),"command":"send_checked","profile":profile,"wire":wire}).to_string();
+    let observe=json!({"token":"ab".repeat(32),"command":"reconcile_message","profile":profile,"message_id":"checked"}).to_string();
+    let mut input=frame(1,"gateway",&send,now()+10_000);
+    input.extend(frame(2,"gateway",&observe,now()+10_000));
+    input.extend(frame(3,"close","",now()+10_000));
+    let mut output=Vec::new(); session.serve(&mut Cursor::new(input),&mut output).unwrap();
+    let results=replies(output);
+    assert_eq!(results[0]["result"],json!({"profile":profile,"accepted":true,"duplicate":false,"sequence":1}));
+    assert_eq!(results[1]["result"],json!({"profile":profile,"message_id":"checked","state":"present","accepted":true,"sequence":1,"received":false,"acknowledged":false}));
+    assert!(!results[1].to_string().contains("secret"));
+    assert_eq!(admissions(&path),2);
+    let _=std::fs::remove_file(path);
+}
+
+#[test]
 fn incomplete_or_malformed_ipc_never_reaches_admission() {
     let command = json!({"token":"ab".repeat(32),"command":"reserve","call_id":"c"}).to_string();
     let mut truncated = frame(1,"gateway",&command,now()+10_000);

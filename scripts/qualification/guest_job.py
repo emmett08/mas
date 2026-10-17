@@ -191,10 +191,10 @@ def inspect_job(directory, nonce):
         result = _read(directory / 'result.json', OUTPUT_LIMIT + 16384)
     except FileNotFoundError:
         result = None
-    if result is not None:
+    else:
+        if result is None:
+            raise ValueError('invalid guest job completion')
         _completion(result, launch)
-    elif (directory / 'result.json').exists():
-        raise ValueError('invalid guest job completion')
     observed = {'launch': launch, 'completion': result}
     if (directory / 'failure.json').exists():
         failure = _read(directory / 'failure.json')

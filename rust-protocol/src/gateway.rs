@@ -9,6 +9,9 @@ use sha2::{Digest, Sha256};
 use std::{collections::{BTreeMap, BTreeSet}, io::{BufRead, Write}};
 use subtle::ConstantTimeEq;
 
+#[path = "gateway_checked.rs"]
+mod checked;
+
 type Result<T> = std::result::Result<T, String>;
 
 /// JSONL frames, excluding the final newline, are limited independently of wire
@@ -191,6 +194,9 @@ impl<P: ProtocolRepository> Gateway<P> {
         let index = match selected { Some(i) => i, None => return reject("unauthorised", close) };
         let credential = &self.credentials[index];
         if self.store.reserve_admission(&credential.scope).is_err() { return reject("credential_admission_closed", close); }
+        if checked::is_command(&request) {
+            return checked::handle(&mut self.store,&credential.run_id,&credential.actor,&request,close);
+        }
         // Identity is never accepted from an untrusted actor/run field. A wire
         // envelope also has to match both parts of the capability binding.
         let result = self.execute(index, &request);

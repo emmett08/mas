@@ -55,12 +55,20 @@ The generic transport accepts any valid kind. The optional task profile constrai
 
 | Kind | Required payload fields | Preconditions and meaning |
 |---|---|---|
-| `Request` | `task_id`, `operation`, `input` | Fresh task identity; `input` is an object. An operation declares requested work, never grants tool permissions. |
+| `Request` | `task_id`, `operation`, `input` | Fresh task identity; `input` is an object; the worker has a permitted reverse route for its Result or Failure. An operation declares requested work, never grants tool permissions. |
 | `Result` | `task_id`, `reply_to`, `status`, `output` | Exact request message ID; reversed participants; request received; task open. Status `completed` or `unresolved`; output is an object. Both are terminal reports. |
 | `Failure` | `task_id`, `reply_to`, `reason` | Same correlation, reverse participants and receipt requirements; non-empty reason. Terminal failure. |
 | `Cancel` | `task_id`, `reply_to`, `reason` | Requester's original direction, exact request ID, task open; non-empty reason. Terminal cancellation when accepted. |
 
 The first committed terminal transition wins a race between result, cancellation and runtime-observed expiry. Expiry writes a task record, not a fabricated worker message. An accepted cancellation records protocol closure, not confirmed worker stoppage. Neither cancellation nor expiry undoes external effects. Identical message resends retain their original acceptance; conflicting or late fresh terminal messages fail. Closed queued requests remain available as history with `actionable: false`; a host must check that field before starting work. The value is a snapshot, not an exclusive execution lease. Forwarding through a hub or team lead creates a new request with a new identity and explicit context. Workflow dependencies belong to the host; routing edges do not imply a tree of obligations.
+
+New task Requests with a missing reverse response route are rejected as
+`forbidden_route` before message or task insertion. The rule applies only to
+new `agent-task/1` requests: generic one-way messages remain permitted, and
+identical resends retain their earlier acceptance even if the historical
+request predates this check. Existing run configuration and records need no
+migration. A return route permits a response; it does not guarantee execution,
+capacity for that response or task completion.
 
 ```mermaid
 stateDiagram-v2
@@ -98,11 +106,24 @@ message admission is refused. Identical resends continue to return their retaine
 acceptance, including after the deadline or while the mailbox is full.
 
 `send` remains a compatibility wrapper returning its original string errors.
-The command-line and gateway interfaces retain their existing response formats;
-typed admission is currently a Rust repository API. Older custom repository
+The command-line and legacy gateway `send` retain their existing response
+formats. The additive gateway commands `send_checked` and `reconcile_message`
+require the explicit `mas-admission/1` profile; persistent host IPC carries them
+through its existing `gateway` operation. Checked failures disclose stable codes
+and dispositions, never private repository diagnostics. Older custom repository
 implementations remain source compatible: the default `send_checked` delegates
 to their `send` and marks every untyped error `unknown`. They must override that
 method to establish more specific outcomes.
+
+`Store::reconcile_message` and `ProtocolRepository::reconcile_message` observe
+one sent identity for the bound run and actor without receiving messages,
+acknowledging them or reconciling expiry. `present` returns only its sequence and
+receipt flags; `absent` makes no distinction between a missing identity and an
+identity belonging to another actor or run. Neither result discloses a payload.
+Absence means no matching committed message was visible in that snapshot. An
+outstanding send may still commit later; absence never authorises a replacement
+identity or repetition of an external effect. A custom repository without this
+capability returns an `unknown` outcome. See [gateway recovery](gateway.md).
 
 These dispositions describe admission into a mailbox. They do not establish
 whether a recipient started, completed or verified an external operation.

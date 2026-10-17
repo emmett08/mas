@@ -227,6 +227,9 @@ impl Store {
             return Err(Admission::rejected(Code::DeadlineExceeded,"wall-clock budget exhausted"));
         }
         if message.version != r.active { return Err(Admission::rejected(Code::UnsupportedVersion,"inactive or incompatible protocol version")); }
+        if r.config["application"] == "agent-task/1" && !crate::tasks::response_route_permitted(&r.config,&message) {
+            return Err(Admission::rejected(Code::ForbiddenRoute,"task request requires a permitted reverse response route"));
+        }
         if r.messages >= r.config["max_messages"].as_i64().unwrap() || size > r.config["max_bytes"].as_i64().unwrap()-r.bytes { return Err(Admission::rejected(Code::BudgetExceeded,"communication budget exhausted")); }
         let pending: i64 = tx.query_row("SELECT COUNT(*) FROM messages WHERE run=? AND recipient=? AND acked=0",params![message.run_id,message.recipient],|r|r.get(0)).map_err(err)?;
         if pending >= r.config["mailbox_capacity"].as_i64().unwrap() { return Err(Admission::mailbox_full()); }
@@ -244,6 +247,25 @@ impl Store {
     /// Read one committed snapshot without expiring tasks or changing receipts.
     pub fn observe(&self, id: &str, include_payloads: bool) -> Result<Value> {
         crate::observation::sqlite_snapshot(&self.db, id, include_payloads)
+    }
+    /// Observe only messages sent by the bound actor, without changing delivery,
+    /// expiry or acknowledgement. Absence is a committed snapshot observation;
+    /// it cannot establish that an outstanding send will never commit.
+    pub fn reconcile_message(&self, id: &str, actor: &str, message_id: &str) -> AdmissionResult<Value> {
+        if !crate::identity(message_id) {
+            return Err(Admission::rejected(Code::InvalidMessage,"invalid message identity"));
+        }
+        let tx=self.db.unchecked_transaction().map_err(err)?;
+        let r=load_run(&tx,id)?.ok_or_else(||Admission::rejected(Code::UnknownRun,"unknown run"))?;
+        if !r.config["agents"].as_array().is_some_and(|agents|agents.iter().any(|a|a.as_str()==Some(actor))) {
+            return Err(Admission::rejected(Code::UnknownActor,"unregistered worker"));
+        }
+        let receipt=tx.query_row(
+            "SELECT seq,received,acked FROM messages WHERE run=? AND sender=? AND id=?",
+            params![id,actor,message_id],|row|Ok((row.get(0)?,row.get(1)?,row.get(2)?))
+        ).optional().map_err(err)?;
+        tx.commit().map_err(err)?;
+        Ok(crate::admission::message_observation(message_id,receipt))
     }
     pub fn receive(&mut self, id: &str, actor: &str, limit: usize) -> Result<Value> {
         self.reconcile(id)?;

@@ -199,6 +199,8 @@ class SharedAuthority:
     def runner(self, topology, adapters, cache_dir, *, principal, run_id=None, new_run_id=None,
                ancestors=(), **options):
         from .runner import Runner
+        if options.get('assessment_policies'):
+            raise RunnerError('assessment journal requires local SQLite persistence')
         if any(key in options for key in ('operations', 'protocol_client', 'session_factory', '_resume_dir')):
             raise RunnerError('shared authority owns runner persistence configuration')
         if (not is_actor_identity(principal) or run_id is not None and not is_actor_identity(run_id)

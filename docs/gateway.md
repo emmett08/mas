@@ -112,16 +112,70 @@ capability. A token cannot authorise itself by naming a different actor.
 | Command | Additional fields | Authority |
 | --- | --- | --- |
 | `send` | `wire` | Matching run and sender; frozen route and task validation |
+| `send_checked` | `profile: "mas-admission/1"`, `wire` | Same admission rules, with stable rejection dispositions |
+| `reconcile_message` | `profile: "mas-admission/1"`, `message_id` | Read-only receipt for an identity sent by the bound actor |
 | `receive` | Optional `limit`, integer 1–100 | Bound actor's pending mailbox |
 | `ack` | `message_id` | Bound actor's received message |
 | `reserve` | `call_id` | Bound actor's call budget |
 | `finish` | `call_id`, object `evidence` | Bound actor's existing reservation |
 
 Responses are `{"ok":true,"result":...}` or
-`{"ok":false,"error":{"code":"..."}}`. Rejected operations return a fixed
-code; neither request contents nor credential details appear in diagnostics.
+`{"ok":false,"error":{"code":"..."}}`. Legacy commands retain their fixed
+rejection code; neither request contents nor credential details appear in diagnostics.
 The complete Rust subprocess client is in
 [`rust-protocol/examples/gateway.rs`](../rust-protocol/examples/gateway.rs).
+
+## Versioned admission and identity recovery
+
+Use the additive checked command when an adapter must distinguish retryable
+capacity pressure from a rejected identity or an uncertain storage outcome:
+
+```json
+{"token":"<private session token>","command":"send_checked","profile":"mas-admission/1","wire":"message \"q1\" run \"demo\" from \"hub\" to \"proposer\" version \"1\" kind \"Request\" payload {\"task_id\":\"t1\",\"operation\":\"sum\",\"input\":{\"values\":[2,3]}};"}
+```
+
+Accepted receipts retain `accepted`, `duplicate` and `sequence`, adding
+`profile: "mas-admission/1"`. A refused attempt returns, for example:
+
+```json
+{"ok":false,"error":{"profile":"mas-admission/1","code":"mailbox_full","disposition":"retryable"}}
+```
+
+The [typed admission contract](design.md#typed-admission-and-recovery) defines
+all codes and the `rejected`, `retryable` and `unknown` dispositions. A new task
+Request without its worker's reverse response route returns
+`forbidden_route/rejected`. Syntax and profile errors return
+`invalid_message/rejected`; a wire run or sender that conflicts with the
+capability returns `actor_mismatch/rejected`. No checked error includes the
+repository's diagnostic string. Frame, authentication and attempt-limit failures
+retain their existing fixed errors before checked execution begins. No command
+automatically retries an external effect.
+
+After a lost send response, observe the original identity using the same sender
+capability:
+
+```json
+{"token":"<private session token>","command":"reconcile_message","profile":"mas-admission/1","message_id":"q1"}
+{"ok":true,"result":{"profile":"mas-admission/1","message_id":"q1","state":"present","accepted":true,"sequence":1,"received":false,"acknowledged":false}}
+```
+
+The gateway derives the run and actor from the credential. It discloses only
+messages sent by that actor, and returns no payload, recipient or other actor's
+receipt. A missing identity, another actor's identity and an identity in another
+run all return the same scoped observation:
+
+```json
+{"ok":true,"result":{"profile":"mas-admission/1","message_id":"q1","state":"absent"}}
+```
+
+`absent` means that no matching committed message was visible in this snapshot.
+An outstanding send may commit afterwards. This result never establishes that
+an external operation did not occur or authorises a fresh identity. `present`
+establishes mailbox admission and the displayed receipt flags, not execution or
+completion. Reconciliation changes no delivery, acknowledgement or expiry
+state; global and credential attempt allowances still apply. Persistent host IPC
+passes both commands through its existing `gateway` operation unchanged. Legacy
+`send` continues to return its existing `operation_rejected` errors.
 
 ## Admission and failure semantics
 

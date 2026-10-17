@@ -46,8 +46,8 @@ pub mod worker_supervisor;
 
 use nom::{
     branch::alt,
-    bytes::complete::{tag, take_while1, take_while_m_n},
-    character::complete::{char, digit0, multispace0, multispace1, one_of},
+    bytes::complete::{tag, take_while, take_while1, take_while_m_n},
+    character::complete::{char, multispace0, multispace1, one_of},
     combinator::{all_consuming, map, opt, recognize, value as constant},
     error::{ErrorKind, ParseError},
     multi::{many0, separated_list0},
@@ -123,7 +123,10 @@ fn quoted(input: &str) -> ResultAt<'_, String> {
 fn integer(input: &str) -> ResultAt<'_, Value> {
     let (remaining, token) = recognize(pair(opt(char('-')), alt((
         recognize(char('0')),
-        recognize(pair(one_of("123456789"), digit0)),
+        // The bytes combinator retains the end-of-input slice offset. nom 8's
+        // character::complete::digit0 can return an empty slice at its starting
+        // offset, causing recognize to truncate a scalar integer at EOF.
+        recognize(pair(one_of("123456789"), take_while(|c: char| c.is_ascii_digit()))),
     )))).parse(input)?;
     if token.trim_start_matches('-').len() > MAX_INTEGER_DIGITS {
         return failure(input, "INTEGER", format!("Integer exceeds {MAX_INTEGER_DIGITS} decimal digits"));
@@ -417,5 +420,24 @@ mod tests {
         message.payload.clear();
         message.payload.insert("huge".into(),Value::String("x".repeat(MAX_BYTES)));
         assert_eq!(message.format().unwrap_err().code,"SIZE");
+    }
+    #[test]
+    fn scalar_integer_at_eof_preserves_every_digit_and_matches_nested_json() {
+        for text in ["0","-0","12","-12","9007199254740993","9007199254740992",
+            "340282366920938463463374607431768211456"] {
+            let expected=if text=="-0" {"0"} else {text};
+            let scalar=parse_json(text).unwrap();
+            assert_eq!(scalar.to_string(),expected);
+            assert_eq!(parse_json(&(text.to_owned()+" ")).unwrap(),scalar);
+            assert_eq!(parse_json(&format!("{{\"n\":{text}}}")).unwrap()["n"],scalar);
+            let message=parse_message(&wire(&format!("{{\"n\":{text}}}")),MAX_BYTES,MAX_DEPTH).unwrap();
+            assert_eq!(message.payload["n"],scalar);
+        }
+        let boundary="9".repeat(MAX_INTEGER_DIGITS);
+        assert_eq!(parse_json(&boundary).unwrap().to_string(),boundary);
+        assert_eq!(parse_json(&(boundary+"9")).unwrap_err().code,"INTEGER");
+        for invalid in ["01","1.5","1e3","-","12trailing"] {
+            assert!(parse_json(invalid).is_err(),"{invalid}");
+        }
     }
 }

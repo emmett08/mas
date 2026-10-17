@@ -122,6 +122,7 @@ class Workflow:
     resource_keys: tuple[str, ...] = ()
     circuit_breakers: dict | None = None
     implementation_sources: tuple[Callable, ...] = ()
+    assessment_policies: dict | None = None
     _implementation: object = field(init=False, repr=False, compare=False)
     _worker_bindings: str = field(init=False, repr=False, compare=False)
     _workspace_bindings: str = field(init=False, repr=False, compare=False)
@@ -139,6 +140,9 @@ class Workflow:
         _text(self.operation, "operation")
         object.__setattr__(self, "topology", topology)
         object.__setattr__(self, "adapters", MappingProxyType(dict(self.adapters)))
+        if self.assessment_policies is not None:
+            from .assessment_journal import assessment_policies
+            object.__setattr__(self, "assessment_policies", assessment_policies(self.assessment_policies, self.adapters))
         if self.contract_descriptor is not None:
             object.__setattr__(self, "contract_descriptor", _object(self.contract_descriptor))
         if self.implementation_digest is not None:
@@ -240,6 +244,8 @@ class Workflow:
             descriptor["resource_keys"] = list(self.resource_keys)
         if self.circuit_breakers is not None:
             descriptor["circuit_breakers"] = {actor: policy.descriptor for actor, policy in self.circuit_breakers.items()}
+        if self.assessment_policies:
+            descriptor["assessment_policies"] = _object(self.assessment_policies)
         return descriptor
 
     @property
@@ -382,6 +388,7 @@ class RunnerExecutor:
                            executor=_CancellableExecutor(executor, cancelled, ownership_descriptor),
                            execution_deadline=execution.get("execution_deadline"),
                            retry_policy=workflow.retry_policy,
+                           assessment_policies=workflow.assessment_policies,
                            circuit_breakers=dict(workflow.circuit_breakers) if workflow.circuit_breakers is not None else None,
                            event_sink=execution.get("event_sink"),
                            **self.options)

@@ -5,6 +5,14 @@ use crate::Message;
 use rusqlite::{params, OptionalExtension, Transaction};
 use serde_json::{json, Value};
 
+/// A request's worker must be permitted to return a Result or Failure. Generic
+/// messages retain their directed route contract; historical duplicates bypass
+/// this new-admission check in the repository.
+pub(crate) fn response_route_permitted(configuration: &Value, message: &Message) -> bool {
+    message.kind != "Request" || configuration["edges"].as_array()
+        .is_none_or(|edges| edges.contains(&json!([message.recipient,message.sender])))
+}
+
 pub(crate) fn validate_transition(db: &Transaction<'_>, message: &Message) -> Result<(), String> {
     validate_prior(message, prior(db, message)?)
 }

@@ -4,6 +4,19 @@ use serde_json::{json, Value};
 
 pub type AdmissionResult<T> = Result<T, AdmissionError>;
 
+/// Additive gateway admission and actor-scoped identity observation contract.
+pub const PROFILE: &str = "mas-admission/1";
+
+pub(crate) fn message_observation(message_id: &str, receipt: Option<(i64, bool, bool)>) -> Value {
+    match receipt {
+        Some((sequence, received, acknowledged)) => json!({
+            "profile":PROFILE,"message_id":message_id,"state":"present",
+            "accepted":true,"sequence":sequence,"received":received,"acknowledged":acknowledged
+        }),
+        None => json!({"profile":PROFILE,"message_id":message_id,"state":"absent"}),
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AdmissionDisposition {
     /// This attempt was refused. Correct its cause before resubmission.

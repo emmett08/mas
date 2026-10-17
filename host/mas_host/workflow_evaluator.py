@@ -148,6 +148,13 @@ class PlanEvaluator:
         policy, branches = node['join'], node['branches']
         minimum = (len(branches) if policy['mode'] == 'all' else
                    policy['minimum'] if policy['mode'] == 'quorum' else 1)
+        agreement = None
+        if 'agreement' in policy:
+            from .workflow_agreement import agreement_binding, agrees
+            try:
+                agreement = agreement_binding(policy['agreement'], input, minimum)
+            except ServiceError as error:
+                return self.journal.finish_node(instance, path, 'failed', error={'code': error.code})
         decision = self.journal.join_decision(instance, path)
         if decision is None:
             accepted, states = [], []
@@ -155,7 +162,8 @@ class PlanEvaluator:
                 state, output = self.advance(instance, f'{path}/p-{name}', child,
                                              input, limits, deadline, ready)
                 states.append(state)
-                if state == 'completed' and evaluate_condition(policy['acceptance']['condition'], output):
+                if (state == 'completed' and evaluate_condition(policy['acceptance']['condition'], output)
+                        and (agreement is None or agrees(output, agreement))):
                     accepted.append(name)
                     if len(accepted) == minimum:
                         break
@@ -185,6 +193,8 @@ class PlanEvaluator:
                                             error={'code': 'workflow_acceptance_rejected'})
         output = {'branches': {}, 'join': {'mode': policy['mode'],
                   'acceptance': policy['acceptance'], 'selected': decision['winners']}}
+        if agreement is not None:
+            output['join']['agreement'] = agreement
         # Read only retained winners after the immutable decision. Obsolete
         # controls must never expand a new child during replay or recovery.
         for name in decision['winners']:
