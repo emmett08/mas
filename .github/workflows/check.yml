@@ -11,9 +11,9 @@ concurrency:
 permissions:
   contents: read
 jobs:
-  check:
+  protocol:
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Install pinned Rust and SPIN
@@ -36,3 +36,25 @@ jobs:
           path: |
             formal/evidence
             evidence/examples
+  downstream:
+    uses: ./.github/workflows/downstream.yml
+  check:
+    if: ${{ always() }}
+    needs: [protocol, downstream, reference-host]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Require protocol and downstream compatibility
+        env:
+          PROTOCOL_RESULT: ${{ needs.protocol.result }}
+          DOWNSTREAM_RESULT: ${{ needs.downstream.result }}
+          REFERENCE_RESULT: ${{ needs.reference-host.result }}
+        run: |
+          test "$PROTOCOL_RESULT" = success
+          test "$DOWNSTREAM_RESULT" = success
+          test "$REFERENCE_RESULT" = success
+  reference-host:
+    uses: emmett08/mas-reference-host/.github/workflows/check.yml@11351c72675732214ee29c2b7c18755bcd5071f6
+    with:
+      reference_host_ref: 11351c72675732214ee29c2b7c18755bcd5071f6
+      protocol_ref: ${{ github.sha }}

@@ -1,0 +1,35 @@
+name: Test a consumer against the candidate protocol
+description: Override only the protocol dependency in a disposable CI checkout.
+inputs:
+  directory:
+    description: Consumer directory relative to the workspace.
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: Bind Cargo to the candidate protocol
+      shell: bash
+      env:
+        CONSUMER_DIRECTORY: ${{ inputs.directory }}
+      run: |
+        python3 - <<'PY'
+        import json, os
+        from pathlib import Path
+        root = Path(os.environ['GITHUB_WORKSPACE'])
+        cargo = Path(os.environ['CARGO_HOME'])
+        cargo.mkdir(parents=True, exist_ok=True)
+        (cargo / 'config.toml').write_text(
+            '[patch."https://github.com/emmett08/mas"]\n'
+            'mas-protocol-codec = { path = ' + json.dumps(str(root / 'rust-protocol')) + ' }\n')
+        PY
+        cargo update --manifest-path "$CONSUMER_DIRECTORY/Cargo.toml" -p mas-protocol-codec
+        cargo metadata --manifest-path "$CONSUMER_DIRECTORY/Cargo.toml" --format-version 1 > "$RUNNER_TEMP/consumer-metadata.json"
+        python3 - <<'PY'
+        import json, os
+        from pathlib import Path
+        metadata = json.loads((Path(os.environ['RUNNER_TEMP']) / 'consumer-metadata.json').read_text())
+        packages = [p for p in metadata['packages'] if p['name'] == 'mas-protocol-codec']
+        expected = Path(os.environ['GITHUB_WORKSPACE']) / 'rust-protocol/Cargo.toml'
+        assert len(packages) == 1 and Path(packages[0]['manifest_path']) == expected, packages
+        print('Verified consumer resolves the candidate protocol:', expected)
+        PY

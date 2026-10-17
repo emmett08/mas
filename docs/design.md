@@ -10,7 +10,7 @@
 
 All three designs can be extended to support the requested workflows. The third is selected because one reusable core supports every supplied example without imposing a supervisor on application semantics. It separates message representation, delivery, task transitions and substantive result checking. This is an engineering judgement about the declared use cases, not a benchmark proving universal superiority. A pairwise streaming protocol remains preferable where stream latency or independent remote ownership dominates; a fixed broker can be simpler for a homogeneous queue of jobs.
 
-The protocol implementation is Rust throughout: nom recognition, exact JSON values, SQLite transactions, application validation, CLI, fixtures and verification orchestration. Promela specifies the abstract systems; SPIN generates C verifiers. The core requires no Python service or model API. An optional [reusable Python host](host-runner.md) connects trusted application adapters and OpenAI model calls to the existing Rust gateway; it does not duplicate protocol validation or storage. The gateway remains a local stdio interface.
+The protocol implementation is Rust throughout: nom recognition, exact JSON values, SQLite transactions, application validation, CLI, fixtures and verification orchestration. Promela specifies the abstract systems; SPIN generates C verifiers. The core requires no Python service or model API. An optional [reusable Python host](https://github.com/emmett08/mas-reference-host/blob/main/docs/host-runner.md) connects trusted application adapters and OpenAI model calls to the existing Rust gateway; it does not duplicate protocol validation or storage. The gateway remains a local stdio interface.
 
 ## Reapplying Holzmann
 

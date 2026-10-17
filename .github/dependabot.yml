@@ -8,15 +8,6 @@ updates:
     directory: /rust-protocol
     patterns: ['*']
     multi-ecosystem-group: dependencies
-  - package-ecosystem: pip
-    directory: /host
-    patterns: ['*']
-    multi-ecosystem-group: dependencies
-    # Regenerate wheel hashes with scripts/release-locks.py before merging.
-  - package-ecosystem: docker
-    directory: /
-    patterns: ['*']
-    multi-ecosystem-group: dependencies
   - package-ecosystem: github-actions
     directory: /
     patterns: ['*']

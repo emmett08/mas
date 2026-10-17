@@ -122,7 +122,7 @@ positive safety proofs. The ordinary model must complete with and without
 partial-order reduction.
 
 The canonical corpus is
-`host/tests/fixtures/task-service-traces.json`. The verifier generates deterministic
+`formal/task-service-traces.json`. The verifier generates deterministic
 Promela executions using the same transition inlines; every action checks its
 expected response category, task state, revision, cancellation intent and event
 count. `test_task_service_conformance.py` consumes the exact same JSON against

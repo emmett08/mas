@@ -338,7 +338,7 @@ mutations must replay at their named assertion; an
 unrelated assertion failure cannot satisfy those checks.
 
 The verifier and `test_task_service_conformance.py` both consume
-`host/tests/fixtures/task-service-traces.json`: 11 selected traces and 77 observed
+`formal/task-service-traces.json`: 11 selected traces and 77 observed
 steps. The verifier generates executions of the same Promela transition inlines;
 the test checks the real service and SQLite repository with a controlled executor.
 This establishes finite trace correspondence for the specified observations,

@@ -1,7 +1,7 @@
 # Topologies and workflow examples
 
 For a runnable mix of OpenAI GPT agents and a Python checker, start with the
-[Compose mesh and reusable host runner](host-runner.md). Its configuration is
+[Compose mesh and reusable host runner](https://github.com/emmett08/mas-reference-host/blob/main/docs/host-runner.md). Its configuration is
 `examples/host/mesh.json`; run it with `python -m mas_host` or Compose, not
 `mas demo`. It provides explicit mock and live modes. The fixtures below remain
 deterministic Rust exercises.
@@ -95,7 +95,7 @@ The [organisational use-case guide](choosing-mas.md#organisational-use-cases)
 maps these patterns to repository maintenance, CI repair, research, analysis
 and operational work. It identifies the adapters and acceptance checks each
 application still needs. For an executable application recovery exercise, follow
-the [durable repository-job walkthrough](providers.md#offline-failure-and-recovery-walkthrough):
+the [durable repository-job walkthrough](https://github.com/emmett08/mas-reference-host/blob/main/docs/providers.md#offline-failure-and-recovery-walkthrough):
 it uses the existing service tests with a simulated provider and real SQLite
 state, with an additional Rust-host scenario for abrupt adapter death.
 

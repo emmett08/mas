@@ -23,7 +23,7 @@ model does not verify Python, OS process cleanup, provider execution, billing,
 clock deadlines or the truth of an operator's resolution. There is no formal
 refinement proof from the implementation to this model and no liveness claim.
 
-Implementation evidence comes from `host/tests/test_recovery.py`,
+Implementation evidence comes from [`host/tests/test_recovery.py`](https://github.com/emmett08/mas-reference-host/blob/main/host/tests/test_recovery.py),
 `test_supervision.py` and `test_deployment.py`: actual process death, lost replies,
 stable checkpoint identities, unknown-call blocking, conflicting replay inputs,
 resolved output reuse, shared admission and storage write failures.

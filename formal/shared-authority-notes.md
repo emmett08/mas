@@ -147,7 +147,7 @@ accepted/rejected status, the named rejection when relevant, controller and
 epoch, drain state, cumulative charges, task states, retained evidence count
 and the receipt's authoritative flag.
 
-`host/tests/test_shared_authority_traces.py` runs those actions through actual
+[`host/tests/test_shared_authority_traces.py`](https://github.com/emmett08/mas-reference-host/blob/main/host/tests/test_shared_authority_traces.py) runs those actions through actual
 `SharedAuthority` and `SharedWorkerController` commands and the native PostgreSQL
 repository. It does not substitute a controlled executor for the authority.
 The fixed workload checks deployment, principal, root and child scope charges

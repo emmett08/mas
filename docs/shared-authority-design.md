@@ -130,7 +130,7 @@ admission/completion replies, unresolved effects, queued and paused work, exact
 continuations, parallel compositions, controller renewal and shared worker and
 remote receipts.
 
-[Shared recovery](shared-recovery.md) documents final-source sealing, native
+[Shared recovery](https://github.com/emmett08/mas-reference-host/blob/main/docs/shared-recovery.md) documents final-source sealing, native
 PostgreSQL archives, isolated audit restores, complete table/sequence inventory
 verification, retained object verification and externally signed fencing proof.
 A copied backup is not automatically writable authority. Controlled activation

@@ -107,6 +107,6 @@ security qualification remain separate from offline tests.
 Sources: [A2A 1.0.1 specification](https://a2a-protocol.org/v1.0.1/specification/),
 [normative definitions](https://a2a-protocol.org/latest/definitions/),
 [discovery options](https://a2a-protocol.org/latest/topics/agent-discovery/).
-The implementation-specific [bridge documentation](bridges.md) governs the
+The implementation-specific [bridge documentation](https://github.com/emmett08/mas-reference-host/blob/main/docs/bridges.md) governs the
 transitional Python bridge; this document records protocol responsibilities
 and the native-host direction.

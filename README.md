@@ -11,9 +11,9 @@ Use the separate Rust [mas-host](https://github.com/emmett08/mas-host) for new
 applications. It hosts native functions, executable tools, model adapters and
 composed workflows. Maintained application examples live in
 [mas-host-examples](https://github.com/emmett08/mas-host-examples).
-The Python `host/` in this repository is transitional: its existing examples,
-bridges and recovery tests remain available while those responsibilities move
-to the Rust host. Python application handlers remain supported by the Rust host.
+The Python reference implementation, its containers, bridges and regression tests
+now live in [mas-reference-host](https://github.com/emmett08/mas-reference-host).
+Python application handlers remain supported by the separate native Rust host.
 
 The design separates **who may communicate**, **delivery state**, **task state**
 and **whether a result is correct**. A capability gateway binds agent requests to
@@ -26,7 +26,7 @@ See the [design specification](docs/design.md) and
 
 A2A supplies an external interoperability interface. Its Agent Card describes a
 service; the Nehemiah host still decides membership, routes, budgets and effect
-permissions. The [bridge guide](docs/bridges.md) describes the existing
+permissions. The [bridge guide](https://github.com/emmett08/mas-reference-host/blob/main/docs/bridges.md) describes the existing
 transitional Python integration. The optional
 [native Rust A2A service](https://github.com/emmett08/mas-host/blob/main/docs/a2a.md)
 publishes configured operations with scoped cards and durable request identities.
@@ -40,21 +40,21 @@ immutable history and bounded feedback handling. The
 scripted rehearsal; its retained results do not qualify later host or gateway
 changes.
 
-The remaining host guides in this repository describe the transitional Python
-implementation: [workflow service](docs/host-service-evolution.md),
-[composable workflows](docs/composable-workflows.md),
-[providers](docs/providers.md#reusable-model-adapters),
-[diagnostics](docs/host-observability.md) and
-[implementation status](docs/host-evolution-plan.md).
+The extracted host guides describe the Python reference
+implementation: [workflow service](https://github.com/emmett08/mas-reference-host/blob/main/docs/host-service-evolution.md),
+[composable workflows](https://github.com/emmett08/mas-reference-host/blob/main/docs/composable-workflows.md),
+[providers](https://github.com/emmett08/mas-reference-host/blob/main/docs/providers.md#reusable-model-adapters),
+[diagnostics](https://github.com/emmett08/mas-reference-host/blob/main/docs/host-observability.md) and
+[implementation status](https://github.com/emmett08/mas-reference-host/blob/main/docs/host-evolution-plan.md).
 
 ## Example uses
 
 - **Check a model-produced result.** Run the invoice mesh with model proposers
-  and an exact Python arithmetic checker. The [runnable example](docs/host-runner.md)
+  and an exact Python arithmetic checker. The [runnable example](https://github.com/emmett08/mas-reference-host/blob/main/docs/host-runner.md)
   includes offline mocks and optional OpenAI/Cursor calls.
 - **Recover a repository-job submission.** Submit a Cursor Cloud job, retain its
   identity across local restarts and reconcile an uncertain launch before
-  continuing. The [offline recovery walkthrough](docs/providers.md#offline-failure-and-recovery-walkthrough)
+  continuing. The [offline recovery walkthrough](https://github.com/emmett08/mas-reference-host/blob/main/docs/providers.md#offline-failure-and-recovery-walkthrough)
   exercises the existing durable-job service without credentials.
 - **Investigate a failed CI run.** Route diagnosis, repair and verification to
   separate participants, with a finite repair budget and explicit checks before
@@ -66,73 +66,13 @@ mathematical research, data analysis, infrastructure changes and service
 remediation. It identifies existing demonstrations, required integrations,
 acceptance criteria and simpler alternatives.
 
-## Run the transitional Python examples
+## Python reference host
 
-Run the mixed-agent mesh locally, with no API key required:
-
-```sh
-docker compose up --build --abort-on-container-exit --exit-code-from mesh
-```
-
-The default uses mock model responses, real protocol exchanges and a Python
-checker. To use two separate OpenAI GPT agents, supply `OPENAI_API_KEY` in your
-host shell and run:
-
-```sh
-docker compose -f compose.yaml -f compose.openai.yaml up --build --abort-on-container-exit --exit-code-from mesh
-```
-
-Live mode makes paid API calls and checks model outputs deterministically. The
-host supports custom adapters and graph configurations; this example is a logical
-mesh over the central Rust/SQLite transport. See the [quickstart and adapter
-guide](docs/host-runner.md) for credentials, model selection, persistence and a
-complete custom adapter.
-
-OpenAI and Cursor can also run together. The optional Cursor image uses the
-official SDK in a restricted local mode: no tools, MCP servers, subagents or
-ambient settings. Supply both API keys through the host shell, select a Cursor
-model available to your account as `MAS_PLANNER_MODEL`, then run:
-
-```sh
-docker compose -f compose.yaml -f compose.mixed.yaml run --build --rm mesh
-```
-
-For two Cursor roles, set both model identifiers and use `compose.cursor.yaml`.
-The separate durable-job adapter submits repository work to Cursor Cloud,
-retains the exact remote agent/run identities and reconciles the result after
-local execution ends. A submission receipt is not a completed remote task.
-See [providers and durable jobs](docs/providers.md) for credentials, complete
-commands, recovery and the different execution guarantees.
-
-## Transitional Python host deployment
-
-The Python host in this repository targets a bounded, single-host Linux deployment
-with trusted adapters. The separate Rust host documents its own supported profile.
-The Python host provides durable workflow checkpoints, supervised local execution, shared call and spending reservations, independent reconciliation,
-retention and audit-only backup restore. Uncertain provider outcomes require
-explicit reconciliation; remote effects and actual billing remain outside the
-protocol guarantee. See [operations](docs/operations.md),
-[deployment acceptance](docs/deployment-acceptance.md) and
-[release controls](docs/releases.md). Live-provider acceptance needs your own
-credentials and is not implied by the offline tests.
-
-An opt-in [remote worker profile](docs/distributed-workers.md) distributes
-registered leaf execution while retaining one authoritative controller. It has
-local multi-process failure tests; two-machine qualification remains a release
-gate. [Trusted workspaces](docs/trusted-workspaces.md) are available for approved
-tools, and [persistent Rust IPC](docs/gateway.md#persistent-host-transport) reduces
-gateway process launches. These profiles do not add untrusted-code containment or
-controller high availability; the [shared authority design](docs/shared-authority-design.md)
-records that remaining work.
-
-For a continuously served bridge, apply `compose.bridges.production.yaml` after
-`compose.bridges.yaml`; it supervises ingress, worker and a reconciler on the
-same durable volume. Follow the [bridge operations procedure](docs/operations.md)
-for private credentials, readiness, alerts and recovery. Current verification
-and its remaining deployment gates are recorded in [verification](docs/verification.md).
-
-See [when to choose MAS](docs/choosing-mas.md) for organisational use cases,
-alternatives and a measurable adoption pilot.
+Run the Python fixtures and Docker/Compose deployments from
+[mas-reference-host](https://github.com/emmett08/mas-reference-host). Its setup
+fetches an immutable protocol revision from this repository. New native-host
+applications and the Go demonstration retain their separate repositories and
+reviewed revision pins. See [migration and compatibility](docs/reference-host-migration.md).
 
 ## Build and run
 
@@ -199,7 +139,7 @@ CLI outside agent access. The host privately routes each gateway response to its
 caller. Reserve a call before execution, honour `actionable: false` on closed
 requests, and record actual execution evidence with `finish`. Payloads never grant
 tools or permissions. The gateway uses local standard input/output; it is not a
-remote connector. The transitional [Python host](docs/host-runner.md) supplies model
+remote connector. The extracted [Python reference host](https://github.com/emmett08/mas-reference-host/blob/main/docs/host-runner.md) supplies model
 launching and application scheduling through this interface. New applications use
 the separate Rust [mas-host](https://github.com/emmett08/mas-host).
 
