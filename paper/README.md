@@ -14,7 +14,7 @@ added later under `paper/`. The source citation identifies that examined revisio
 
 ## Build and reproduce
 
-Use TeX Live with `elsarticle`, `bytefield`, `pgf-umlsd`, `algorithm`, `algpseudocode`, TikZ,
+Use TeX Live with `elsarticle`, `bytefield`, `pgf-umlsd`, `tikz-cd`, `algorithm`, `algpseudocode`, TikZ,
 `natbib`, `xurl`, `hyperref`, `lineno`, Latin Modern, BibTeX and `latexmk`.
 On Debian/Ubuntu these are supplied by `latexmk`, `lmodern`,
 `texlive-latex-extra`, `texlive-pictures`, `texlive-science` and `texlive-publishers`.
@@ -57,6 +57,14 @@ recovery after a lost send response, and task closure before delivery
 acknowledgement. They describe protocol behaviour. The separate executed-example
 table reports observations. Gateway forwarding and external work are omitted
 from the sequence diagrams.
+
+The architecture figure separates the permitted actor exchanges from the
+shared implementation, with direct labels for each component's responsibility.
+The state figure uses `tikz-cd` to align five explicitly labelled transitions
+from an open task. Its separate delivery panel shows receipt, repeated receipt
+and acknowledgement. Both figures use fixed text of at least 9 pt, vector
+arrows and greyscale distinctions. Their specifications, rendered alternatives,
+mechanical audits and independent reviews accompany the source files.
 
 The sixth figure compares the recorded one-pass, revision and resampling
 procedures in the external incident-analysis example. It shows call order,
@@ -107,7 +115,7 @@ Current submission-portal requirements still require confirmation.
 |---|---|
 | Motivation, software description, illustrative examples, impact and conclusions | Present in the required order |
 | Elsevier source format and numbered references | `elsarticle`, 12-point A4 single column, `elsarticle-num` and review line numbers |
-| Length | 103-word abstract. TeXcount reports 3,387 text, heading and caption words, excluding references, diagram labels and mathematical counters |
+| Length | 103-word abstract. TeXcount reports 3,424 text, heading and caption words, excluding references, diagram labels and mathematical counters |
 | Architecture and other visual explanations | Six vector figures: architecture, bytefield envelope structure, state transitions, two `pgf-umlsd` sequences and the recorded incident procedures |
 | Faithful algorithms | Two `algorithm`/`algpseudocode` procedures checked against Rust source |
 | Example and empirical evaluation | Three executed offline fixtures, 79 passing Rust tests, 41 classified formal checks and an independently inspected archive of 108 scripted-provider incident runs |

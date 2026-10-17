@@ -1,0 +1,121 @@
+{
+  "schema_version": "1.0",
+  "figure_id": "architecture",
+  "spec_sha256": "d837208279dbdfa02f404a47373efb6af904eded679d50716f58b70475963d68",
+  "audit_sha256": "e28f863bc7130e63c786c2d5e81a76386b09c70b8152716eabb0993ce0bfc8f6",
+  "artifacts": [
+    {
+      "role": "final_pdf",
+      "path": "figures/architecture.pdf",
+      "sha256": "20c00d638d23b89558a48a3610e93952bde4ec19b9dd1b35c74a3379633d8680"
+    },
+    {
+      "role": "prototype",
+      "path": "figures/architecture.pdf",
+      "sha256": "20c00d638d23b89558a48a3610e93952bde4ec19b9dd1b35c74a3379633d8680"
+    },
+    {
+      "role": "prototype",
+      "path": "figures/architecture-side.pdf",
+      "sha256": "8643fec4ac6266c4af63937678c748e433bfa82a4745bc6cbc80d423e14a91bb"
+    }
+  ],
+  "reviewer": {
+    "id": "arch_visual_review",
+    "kind": "agent",
+    "independence_declared": true,
+    "scope": "agent_screening"
+  },
+  "candidates": [
+    {
+      "id": "side-by-side",
+      "prototype": "figures/architecture-side.pdf",
+      "observations": {
+        "reading": "The left panel presents the complete bidirectional three-participant permission mesh. The right panel presents the central implementation. The separated vertical arrow spine is harder to associate with the neighbouring stage labels.",
+        "annotation_burden": "Two full text rows underneath the mesh repeat the panel meaning. The lower-left and central areas consume space without adding a relation.",
+        "reproduction": "Labels remain legible at the retained 128.5 mm width. The manuscript typography is Latin Modern. Dashed and solid arrows survive greyscale."
+      }
+    },
+    {
+      "id": "horizontal",
+      "prototype": "figures/architecture.pdf",
+      "observations": {
+        "reading": "Panel (a) exposes all six permitted directions. Panel (b) traces the call direction through shared local implementation boundaries. The horizontal implementation reads more directly, with the component name and responsibility in the same stage.",
+        "annotation_burden": "The final revision removes the redundant permission label, improves lower-row spacing, changes Rust repository to Rust service, and avoids an awkward line-end hyphen in the IPC description. The two panel headings establish the reading order. The final integrated-width adjustment moves the IPC, service and storage stages left by 1, 2 and 4 mm respectively while preserving the type size.",
+        "reproduction": "At 139.627 mm the 9.2 pt labels and at least 0.4755 pt strokes meet the declared thresholds. No observed clipping or label crossing. The final and greyscale images retain direction and line-style distinctions. The independent reviewer inspected the compacted final and greyscale renders. All three arrows remain separate from text, including the shortened Rust service to SQLite arrow."
+      }
+    }
+  ],
+  "selected_candidate": "horizontal",
+  "initial_reconstruction": {
+    "claim": "The figure shows a fully connected bidirectional three-role permission mesh, alongside the trusted host to IPC to Rust to SQLite implementation path.",
+    "quantities": [
+      "The illustrative graph contains three roles and all six permitted directed actor pairs.",
+      "Arrow length and spacing carry relational rather than numerical meaning."
+    ],
+    "evidence_status": "Illustrative architecture constrained by the examined implementation.",
+    "scope": "The first image-only review used two rendered compositions and this proposed caption: Logical routes and the shared local implementation. (a) Dashed arrows show the permitted directions in an illustrative mesh. (b) Solid arrows show the request path through a trusted host and local IPC to the central repository and its storage. The host controls scheduling and capabilities. Repository transactions govern mailbox and task state.",
+    "unintended_inferences": [
+      "The long curved Hub to Checker edge could be read as a scope arc without its endpoint arrowheads.",
+      "Rust repository could be read as a source-code repository.",
+      "The initial request-path wording could imply every request reaches SQLite."
+    ]
+  },
+  "comparison": {
+    "matches": [
+      "All six directed permissions are visible and supported by the complete frozen mesh relation.",
+      "The host, gateway and store responsibilities match the examined source.",
+      "The physical call direction is separated from permitted actor pairs.",
+      "Greyscale preserves the arrow direction and line-style distinction."
+    ],
+    "findings": [
+      {
+        "id": "component-name",
+        "severity": "minor",
+        "description": "The initial Rust repository label had a possible source-code reading.",
+        "disposition": "resolved",
+        "reason": "The final label is Rust service and names admission and task transitions."
+      },
+      {
+        "id": "call-scope",
+        "severity": "minor",
+        "description": "The initial request-path wording could imply each operation reaches storage.",
+        "disposition": "resolved",
+        "reason": "The caption and specification now describe the direction of calls across implementation boundaries."
+      },
+      {
+        "id": "outer-edge",
+        "severity": "informational",
+        "description": "The longest curved mesh edge could attract an enclosing-scope reading.",
+        "disposition": "accepted",
+        "reason": "The endpoint arrowheads, direct participant labels and caption identify the permitted Hub to Checker pair."
+      },
+      {
+        "id": "spec-geometry",
+        "severity": "minor",
+        "description": "The preliminary specification retained the side prototype triangle placement.",
+        "disposition": "resolved",
+        "reason": "The final specification declares aligned vertices and one curved outer edge, matching the retained source and PDF."
+      },
+      {
+        "id": "manuscript-width",
+        "severity": "minor",
+        "description": "The initial 143.627 mm crop exceeded the manuscript text width.",
+        "disposition": "resolved",
+        "reason": "The final geometry is 139.627 mm wide under the corrected 140 mm target. Type remains 9.2 pt and the adjusted stage gaps preserve separate arrows and labels."
+      }
+    ],
+    "audit_warning_dispositions": [
+      {
+        "index": 0,
+        "disposition": "accepted",
+        "reason": "Shell escape is disabled. This environmental package warning has no effect on the entirely vector figure, which uses no external execution."
+      }
+    ]
+  },
+  "decision": "accept",
+  "limitations": [
+    "Human interpretation benefit remains unmeasured by agent screening.",
+    "The audit covers the cropped figure in Latin Modern. The parent task reviews placement and caption in the complete elsarticle manuscript."
+  ]
+}

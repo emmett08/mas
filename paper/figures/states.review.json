@@ -1,0 +1,143 @@
+{
+  "schema_version": "1.0",
+  "figure_id": "states",
+  "spec_sha256": "32d8d90f4e4203b9a8c2dfeaece28d2158c549f82112348ead8d2187aef17a25",
+  "audit_sha256": "74764737fa7f52dc4fc4d6d2c12c9c374c5cf71cbae010b2851e15697ec2c358",
+  "artifacts": [
+    {
+      "role": "final_pdf",
+      "path": "figures/states.pdf",
+      "sha256": "64d9aa7cc4157e917fc715162db74efec64e74f718904dd063d2857a88ca5976"
+    },
+    {
+      "role": "prototype",
+      "path": "figures/states.pdf",
+      "sha256": "64d9aa7cc4157e917fc715162db74efec64e74f718904dd063d2857a88ca5976"
+    },
+    {
+      "role": "prototype",
+      "path": "figures/states-branches.pdf",
+      "sha256": "505291b1a9e0dcf181dddf8ca8cdef32157b7d9de370306c14cfd155989e8d3f"
+    }
+  ],
+  "reviewer": {
+    "id": "independent-states-visual-review-agent",
+    "kind": "agent",
+    "independence_declared": true,
+    "scope": "agent_screening"
+  },
+  "candidates": [
+    {
+      "id": "branched",
+      "prototype": "figures/states-branches.pdf",
+      "observations": {
+        "reading": "First blind reading recovered two records for one request. Delivery progresses Accepted to Received to Acknowledged, with repeated receipt preserving Received. Task begins Open and selects a terminal outcome through Result, Failure, Cancel or observed expiry. Bold states attracted attention first. The shared task trunk read like a decision tree. Selecting between the two Result endpoints required consulting the caption because the exits lacked status labels.",
+        "annotation_burden": "The large task tree, repeated receipt notes, identity-retention sentence and first-commit sentence competed for attention. The long expired_outcome_unknown identifier dominated its row. Separate panels successfully preserved the delivery/task distinction.",
+        "reproduction": "Inspected at declared 144.35 by 116.68 mm with 9 pt type. Text appeared legible in the supplied digital render, with abundant vertical space and a visually heavy final identifier. This judgement concerns digital inspection at known dimensions."
+      }
+    },
+    {
+      "id": "aligned",
+      "prototype": "figures/states.pdf",
+      "observations": {
+        "reading": "Second blind reading recovered five alternative terminal transitions of one Open task. Result: completed selects Completed and Result: unresolved selects Unresolved, each after receipt. Failure also requires receipt, Cancel comes from the requester, and observed expiry selects Expired, outcome unknown. The explicit lower heading and caption establish that the repeated Open labels refer to the same task. The upper delivery path remains separate. Headings and the aligned routes establish a consistent hierarchy.",
+        "annotation_burden": "Five direct routes replace the common branch and its unlabelled fork. State, event, status and receipt text remain locally readable. Identity retention and first-commit selection move to the caption. Expired, outcome unknown preserves the qualification in ordinary prose. Equal arrow lengths organise the alternatives. The monochrome figure uses position and direct labels for every distinction.",
+        "reproduction": "Blind render inspected at 144.35 by 79.82 mm and 9 pt. Final revision shortens only the separating rule, giving 139.36 by 79.82 mm with unchanged 9 pt text. Inspected the final greyscale preview, earlier thumbnail and final integrated manuscript page 8. Labels, arrowheads and the repeat-receive loop remain distinct. Figure and caption fit within the manuscript text width and remain visibly separate from the following prose."
+      }
+    }
+  ],
+  "selected_candidate": "aligned",
+  "initial_reconstruction": {
+    "claim": "The first blind reading identified two normative transition systems for one request: a three-state delivery lifecycle and a separately closed task record. The caption supplied receipt guards, first-committed-terminal-wins and the Result status selection rule. The second blind reading of the aligned candidate recovered both Result selections directly from the edge labels. It also recovered Failure after receipt, requester cancellation and observed expiry with an unknown outcome. Both readings were recorded in messages to the parent and designer before the specification or source was inspected.",
+    "quantities": [
+      "Categorical delivery states Accepted, Received and Acknowledged.",
+      "Categorical task states Open, Completed, Unresolved, Failed, Cancelled and Expired, outcome unknown.",
+      "Directed incidence represents permitted transitions. Arrow lengths and position supply layout rather than a numerical scale.",
+      "There are no numerical quantities, units, samples or statistical denominators. The domain is the delivery and task records associated with one request."
+    ],
+    "evidence_status": "The figure reads as a normative protocol schematic. Its first-stage evidence status was design specification, with empirical performance outside its claim. Source inspection subsequently established that the state relations were derived from implementation behaviour.",
+    "scope": "The two blind readings concerned one request and its two retained records. First proposed caption: Separate delivery and task records for one request. Arrows show permitted transitions. Receive enables Result and Failure. Acknowledgement releases mailbox capacity. The first committed terminal transition closes the task, with the Result status selecting completed or unresolved. External-effect outcomes require application-level observation. Second proposed caption: Separate delivery and task records for one request. Arrows show permitted transitions. Message identity and history remain after acknowledgement, which releases mailbox capacity. Each lower row shows an alternative transition of the same open task. The first committed terminal transition closes that task. Cancellation and expiry may precede receipt. External-effect outcomes require application-level observation. The final caption appends the manuscript disclosure macro. Its rendered expansion was inspected on manuscript page 8 and leaves the state claims unchanged.",
+    "unintended_inferences": [
+      "The first candidate left Result branch selection dependent on caption reading.",
+      "Repeated Open labels could suggest separate instances when isolated from the lower heading and caption.",
+      "A transition schematic could be read as an exhaustive executable admission contract, although run configuration and message admission add conditions.",
+      "The first candidate shared branch could suggest a decision procedure or concurrent outcomes. The first-commit caption qualifies outcome selection."
+    ]
+  },
+  "comparison": {
+    "matches": [
+      "Delivery sequence, repeated receipt and retained identity match the specified topology and inspected receive, ack and send code.",
+      "Result and Failure require recorded receipt and an open task, matching tasks.rs validation.",
+      "Result statuses map directly to completed and unresolved. Failure maps to failed and requester Cancel maps to cancelled.",
+      "Expiry reconciliation updates open tasks to expired_outcome_unknown. The displayed prose label retains the unknown-outcome distinction.",
+      "First-committed terminal selection matches the transaction and open-state guard.",
+      "The caption separates retained task outcomes from application-level observation of external effects.",
+      "The figure and caption preserve the same-request domain, while manuscript prose and Algorithm 1 supply participant, correlation, route and resource admission checks."
+    ],
+    "findings": [
+      {
+        "id": "result-status-selection",
+        "severity": "blocking",
+        "description": "The branched candidate omitted labels on the two Result exits.",
+        "disposition": "resolved",
+        "reason": "The selected candidate gives completed and unresolved their own explicitly labelled transitions. The second blind reading recovered the mapping from the graphic."
+      },
+      {
+        "id": "single-task-reading",
+        "severity": "minor",
+        "description": "Five repeated Open labels can suggest independent instances when viewed alone.",
+        "disposition": "resolved",
+        "reason": "The lower heading says alternative transitions for one open task. The caption repeats the same-task interpretation and first-committed selection."
+      },
+      {
+        "id": "admission-scope",
+        "severity": "informational",
+        "description": "The graphic selects state relations and two prominent guard classes. Complete transition admission includes additional participant, correlation, route and resource conditions.",
+        "disposition": "accepted",
+        "reason": "The specification scopes the diagram to the lifecycle. The surrounding manuscript and Algorithm 1 provide the additional admission conditions. The arrow caption states permitted transitions rather than universal enablement."
+      },
+      {
+        "id": "state-preserving-operations",
+        "severity": "informational",
+        "description": "The implementation accepts repeated acknowledgement. That state-preserving operation is outside the figure selected routes.",
+        "disposition": "accepted",
+        "reason": "The primary question concerns retained delivery state and its distinction from task closure. Acknowledged remains the same delivery value. The selected repeat-receive loop explains the materially relevant redelivery behaviour."
+      },
+      {
+        "id": "terminal-label",
+        "severity": "minor",
+        "description": "The initial expired_outcome_unknown label was visually heavy.",
+        "disposition": "resolved",
+        "reason": "Expired, outcome unknown preserves the semantic qualifier in ordinary prose and fits its aligned row. The specification records its mapping to the exact identifier."
+      },
+      {
+        "id": "manuscript-width",
+        "severity": "blocking",
+        "description": "The first selected export exceeded the manuscript text width.",
+        "disposition": "resolved",
+        "reason": "The final source reduces the separating rule and crop width to 139.36 mm without changing text size. The updated mechanical audit passes its 140 mm limit. Final integrated manuscript page 8 shows the complete figure and caption within the text width."
+      },
+      {
+        "id": "professional-hierarchy",
+        "severity": "informational",
+        "description": "The selected composition is judged more orderly and compact than the retained branched alternative.",
+        "disposition": "accepted",
+        "reason": "Aligned starts, equal arrows and terminal labels provide direct comparisons. The status labels remove a decoding step and the caption absorbs supporting prose. This is an agent design judgement."
+      }
+    ],
+    "audit_warning_dispositions": [
+      {
+        "index": 0,
+        "disposition": "accepted",
+        "reason": "The only current typesetting warning reports disabled shell escape. Rendering completed successfully and this figure requires no shell-escape operation. The final mechanical audit reports zero errors and zero geometry warnings."
+      }
+    ]
+  },
+  "decision": "accept",
+  "limitations": [
+    "Human interpretation benefit remains unmeasured by agent screening.",
+    "The review uses digital render inspection at declared physical dimensions. It includes no calibrated physical print test.",
+    "The state schematic supplies selected lifecycle relations. The manuscript and implementation define complete admission and execution conditions.",
+    "The acceptance covers the hash-bound figure, caption dependency, specification and mechanical audit. The integrated placement was inspected on the supplied final manuscript page 8."
+  ]
+}

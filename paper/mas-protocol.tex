@@ -5,7 +5,7 @@
 \usepackage{algorithm,algpseudocode,capt-of}
 % elsarticle loads natbib; do not load a competing bibliography package.
 \usepackage{natbib,xurl}
-\usepackage{tikz,bytefield,pgf-umlsd}
+\usepackage{tikz,tikz-cd,bytefield,pgf-umlsd}
 \usetikzlibrary{arrows.meta,positioning,fit,backgrounds,calc}
 \usepackage[colorlinks=true,linkcolor=blue!45!black,citecolor=blue!45!black,urlcolor=blue!45!black]{hyperref}
 \usepackage{listings}
@@ -90,7 +90,7 @@ Figure~\ref{fig:architecture} separates logical communication permission from ph
 \begin{figure}[htbp]
 \centering
 \input{figures/architecture.tex}
-\caption{Logical routes and the local implementation boundary. Dashed links indicate permitted exchanges. Solid arrows indicate requests to the central implementation. The host schedules work and controls external operations. The repository transaction governs mailbox and task state. \aifigure}\label{fig:architecture}
+\caption[Logical routes and local implementation]{\protect\input{figures/architecture.caption.tex}}\label{fig:architecture}
 \end{figure}
 
 Local interprocess communication (IPC) carries repository operations. The capability gateway uses JSON-line requests over standard input and output. The persistent trusted-host interface has a JSON header and length-delimited body. The MAS envelope supplies the message representation carried by these operation interfaces. Host-provisioned capabilities bind gateway operations to an actor and run.
@@ -143,7 +143,7 @@ Receive returns addressed, unacknowledged messages in insertion order and record
 \begin{figure}[htbp]
 \centering
 \input{figures/states.tex}
-\caption{Two independent state records for a request. Receive enables a worker reply. Acknowledgement releases mailbox capacity. Expiry closes an open task through a retained state transition. External-effect outcomes require application-level observation. \aifigure}\label{fig:states}
+\caption[Delivery and task transitions]{\protect\input{figures/states.caption.tex}}\label{fig:states}
 \end{figure}
 
 Expiry reconciliation closes open tasks as \code{expired\_outcome\_unknown}, even when message capacity is exhausted. Its observation time depends on host activity and clock and database availability. A closed request can remain in the mailbox as history with \code{actionable:false}, a snapshot of task state at receipt. Hosts must arbitrate concurrent execution and derive permissions from trusted configuration. Applications establish external-effect outcomes through their own execution and observation controls. This division follows the end-to-end distinction between lower-level delivery and application-level completion~\citep{saltzer1984}.

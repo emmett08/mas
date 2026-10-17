@@ -1,0 +1,1374 @@
+{
+  "ok": true,
+  "checks": [
+    {
+      "name": "page_count",
+      "status": "pass"
+    },
+    {
+      "name": "final_width",
+      "status": "pass"
+    },
+    {
+      "name": "text_size",
+      "status": "pass"
+    },
+    {
+      "name": "text_bounds",
+      "status": "pass"
+    },
+    {
+      "name": "label_overlap",
+      "status": "pass"
+    },
+    {
+      "name": "path_label_crossing",
+      "status": "pass"
+    },
+    {
+      "name": "stroke_size",
+      "status": "pass"
+    },
+    {
+      "name": "raster_resolution",
+      "status": "not_measured"
+    },
+    {
+      "name": "expected_labels",
+      "status": "pass"
+    },
+    {
+      "name": "semantic_fidelity",
+      "status": "not_measured"
+    },
+    {
+      "name": "reading_accuracy",
+      "status": "not_measured"
+    },
+    {
+      "name": "colour_accessibility",
+      "status": "not_measured"
+    }
+  ],
+  "errors": [],
+  "warnings": [],
+  "measurements": {
+    "pages": 1,
+    "page_sizes": [
+      {
+        "page": 1,
+        "width_mm": 139.62733001708983,
+        "height_mm": 55.11412082248263
+      }
+    ],
+    "text_spans": [
+      {
+        "page": 1,
+        "text": "(a) Allowed exchanges",
+        "line_text": "(a) Allowed exchanges",
+        "font": "LMRoman10-Bold",
+        "size_pt": 9.999959503412246,
+        "bbox": [
+          10.958999633789062,
+          3.990729331970215,
+          122.96851348876953,
+          13.953329086303711
+        ],
+        "minimum_pt": 9.0
+      },
+      {
+        "page": 1,
+        "text": "Hub",
+        "line_text": "Hub",
+        "font": "LMRoman9-Regular",
+        "size_pt": 9.199970822334288,
+        "bbox": [
+          55.365997314453125,
+          47.822139739990234,
+          72.89978790283203,
+          56.98773956298828
+        ],
+        "minimum_pt": 9.0
+      },
+      {
+        "page": 1,
+        "text": "Proposer",
+        "line_text": "Proposer",
+        "font": "LMRoman9-Regular",
+        "size_pt": 9.199970822334288,
+        "bbox": [
+          187.56199645996094,
+          46.93113327026367,
+          224.1602325439453,
+          56.09673309326172
+        ],
+        "minimum_pt": 9.0
+      },
+      {
+        "page": 1,
+        "text": "Checker",
+        "line_text": "Checker",
+        "font": "LMRoman9-Regular",
+        "size_pt": 9.199970822334288,
+        "bbox": [
+          322.72198486328125,
+          47.822139739990234,
+          355.4523620605469,
+          56.98773956298828
+        ],
+        "minimum_pt": 9.0
+      },
+      {
+        "page": 1,
+        "text": "Example mesh",
+        "line_text": "Example mesh",
+        "font": "LMRoman9-Regular",
+        "size_pt": 9.199970822334288,
+        "bbox": [
+          175.80699157714844,
+          24.254138946533203,
+          235.9058074951172,
+          33.41973876953125
+        ],
+        "minimum_pt": 9.0
+      },
+      {
+        "page": 1,
+        "text": "(b) Shared implementation",
+        "line_text": "(b) Shared implementation",
+        "font": "LMRoman10-Bold",
+        "size_pt": 9.999959503412246,
+        "bbox": [
+          10.958999633789062,
+          89.02873229980469,
+          146.64964294433594,
+          98.9913330078125
+        ],
+        "minimum_pt": 9.0
+      },
+      {
+        "page": 1,
+        "text": "Trusted host",
+        "line_text": "Trusted host",
+        "font": "LMRoman9-Bold",
+        "size_pt": 9.199970822334288,
+        "bbox": [
+          17.024999618530273,
+          121.03536224365234,
+          77.21549224853516,
+          130.20095825195312
+        ],
+        "minimum_pt": 9.0
+      },
+      {
+        "page": 1,
+        "text": "Scheduling and",
+        "line_text": "Scheduling and",
+        "font": "LMRoman9-Regular",
+        "size_pt": 9.199970822334288,
+        "bbox": [
+          15.851999282836914,
+          132.01913452148438,
+          78.40721893310547,
+          141.1847381591797
+        ],
+        "minimum_pt": 9.0
+      },
+      {
+        "page": 1,
+        "text": "capabilities",
+        "line_text": "capabilities",
+        "font": "LMRoman9-Regular",
+        "size_pt": 9.199970822334288,
+        "bbox": [
+          24.0679988861084,
+          142.97813415527344,
+          70.1984634399414,
+          152.14373779296875
+        ],
+        "minimum_pt": 9.0
+      },
+      {
+        "page": 1,
+        "text": "Local IPC",
+        "line_text": "Local IPC",
+        "font": "LMRoman9-Bold",
+        "size_pt": 9.199970822334288,
+        "bbox": [
+          130.69500732421875,
+          121.92635345458984,
+          178.9885711669922,
+          131.09194946289062
+        ],
+        "minimum_pt": 9.0
+      },
+      {
+        "page": 1,
+        "text": "Gateway or",
+        "line_text": "Gateway or",
+        "font": "LMRoman9-Regular",
+        "size_pt": 9.199970822334288,
+        "bbox": [
+          131.11300659179688,
+          132.91014099121094,
+          178.5633087158203,
+          142.07574462890625
+        ],
+        "minimum_pt": 9.0
+      },
+      {
+        "page": 1,
+        "text": "trusted host interface",
+        "line_text": "trusted host interface",
+        "font": "LMRoman9-Regular",
+        "size_pt": 9.199970822334288,
+        "bbox": [
+          110.80000305175781,
+          143.86912536621094,
+          198.88137817382812,
+          153.03472900390625
+        ],
+        "minimum_pt": 9.0
+      },
+      {
+        "page": 1,
+        "text": "Rust service",
+        "line_text": "Rust service",
+        "font": "LMRoman9-Bold",
+        "size_pt": 9.199970822334288,
+        "bbox": [
+          239.11199951171875,
+          121.92635345458984,
+          297.3502502441406,
+          131.09194946289062
+        ],
+        "minimum_pt": 9.0
+      },
+      {
+        "page": 1,
+        "text": "Admission and",
+        "line_text": "Admission and",
+        "font": "LMRoman9-Regular",
+        "size_pt": 9.199970822334288,
+        "bbox": [
+          237.81900024414062,
+          132.91014099121094,
+          298.63275146484375,
+          142.07574462890625
+        ],
+        "minimum_pt": 9.0
+      },
+      {
+        "page": 1,
+        "text": "task transitions",
+        "line_text": "task transitions",
+        "font": "LMRoman9-Regular",
+        "size_pt": 9.199970822334288,
+        "bbox": [
+          236.34300231933594,
+          143.86912536621094,
+          300.10809326171875,
+          153.03472900390625
+        ],
+        "minimum_pt": 9.0
+      },
+      {
+        "page": 1,
+        "text": "SQLite",
+        "line_text": "SQLite",
+        "font": "LMRoman9-Bold",
+        "size_pt": 9.199970822334288,
+        "bbox": [
+          339.6510009765625,
+          121.03536224365234,
+          372.5463562011719,
+          130.20095825195312
+        ],
+        "minimum_pt": 9.0
+      },
+      {
+        "page": 1,
+        "text": "Messages, tasks",
+        "line_text": "Messages, tasks",
+        "font": "LMRoman9-Regular",
+        "size_pt": 9.199970822334288,
+        "bbox": [
+          324.041015625,
+          132.01913452148438,
+          388.1360778808594,
+          141.1847381591797
+        ],
+        "minimum_pt": 9.0
+      },
+      {
+        "page": 1,
+        "text": "and budgets",
+        "line_text": "and budgets",
+        "font": "LMRoman9-Regular",
+        "size_pt": 9.199970822334288,
+        "bbox": [
+          330.95001220703125,
+          142.97813415527344,
+          381.24163818359375,
+          152.14373779296875
+        ],
+        "minimum_pt": 9.0
+      }
+    ],
+    "strokes": [
+      {
+        "page": 1,
+        "width_pt": 0.5000080322846769,
+        "bbox": [
+          79.07952117919922,
+          51.8180046081543,
+          181.38333129882812,
+          51.8180046081543
+        ]
+      },
+      {
+        "page": 1,
+        "width_pt": 0.5000080322846769,
+        "bbox": [
+          77.14116668701172,
+          50.815284729003906,
+          79.85388946533203,
+          52.82072448730469
+        ]
+      },
+      {
+        "page": 1,
+        "width_pt": 0.5000080322846769,
+        "bbox": [
+          180.6089630126953,
+          50.815284729003906,
+          183.32168579101562,
+          52.82072448730469
+        ]
+      },
+      {
+        "page": 1,
+        "width_pt": 0.5000080322846769,
+        "bbox": [
+          230.34805297851562,
+          51.8180046081543,
+          316.5446472167969,
+          51.8180046081543
+        ]
+      },
+      {
+        "page": 1,
+        "width_pt": 0.5000080322846769,
+        "bbox": [
+          228.4097137451172,
+          50.815284729003906,
+          231.1224365234375,
+          52.82072448730469
+        ]
+      },
+      {
+        "page": 1,
+        "width_pt": 0.5000080322846769,
+        "bbox": [
+          315.770263671875,
+          50.815284729003906,
+          318.4830017089844,
+          52.82072448730469
+        ]
+      },
+      {
+        "page": 1,
+        "width_pt": 0.5000080322846769,
+        "bbox": [
+          66.66387939453125,
+          12.005534172058105,
+          336.56353759765625,
+          44.31858444213867
+        ]
+      },
+      {
+        "page": 1,
+        "width_pt": 0.4755326302722096,
+        "bbox": [
+          64.82041931152344,
+          43.12564468383789,
+          67.71019744873047,
+          45.03291702270508
+        ]
+      },
+      {
+        "page": 1,
+        "width_pt": 0.4755326302722096,
+        "bbox": [
+          335.5172119140625,
+          43.12564468383789,
+          338.406982421875,
+          45.03291702270508
+        ]
+      },
+      {
+        "page": 1,
+        "width_pt": 0.5000080322846769,
+        "bbox": [
+          81.91657257080078,
+          136.8580322265625,
+          104.42547607421875,
+          136.8580322265625
+        ]
+      },
+      {
+        "page": 1,
+        "width_pt": 0.5000080322846769,
+        "bbox": [
+          103.5506820678711,
+          135.71665954589844,
+          106.57256317138672,
+          137.99940490722656
+        ]
+      },
+      {
+        "page": 1,
+        "width_pt": 0.5000080322846769,
+        "bbox": [
+          202.40147399902344,
+          136.8580322265625,
+          229.96946716308594,
+          136.8580322265625
+        ]
+      },
+      {
+        "page": 1,
+        "width_pt": 0.5000080322846769,
+        "bbox": [
+          229.09466552734375,
+          135.71665954589844,
+          232.11654663085938,
+          137.99940490722656
+        ]
+      },
+      {
+        "page": 1,
+        "width_pt": 0.5000080322846769,
+        "bbox": [
+          303.630859375,
+          136.8580322265625,
+          317.6686096191406,
+          136.8580322265625
+        ]
+      },
+      {
+        "page": 1,
+        "width_pt": 0.5000080322846769,
+        "bbox": [
+          316.7937927246094,
+          135.71665954589844,
+          319.815673828125,
+          137.99940490722656
+        ]
+      }
+    ],
+    "rasters": []
+  },
+  "scope": "Mechanical PDF measurements only. Potential overlap and clipping are heuristic warnings. Meaning, reading accuracy and colour accessibility require independent rendered review. Straight path/text-bound crossings are heuristic; curved paths require visual review.",
+  "schema_version": "1.0",
+  "figure_id": "architecture",
+  "provenance_status": "recorded build inputs; scientific provenance requires independent review",
+  "inputs": {
+    "source": {
+      "path": "/workspace/scratch/128eb0ac700a/mas/paper/figures/architecture.tikz.tex",
+      "sha256": "badb556aaf1e96f8cf452cc33ca8c3015d58d23dcd61ae264e31a773e0e2ae7a",
+      "bytes": 1419
+    },
+    "specification": {
+      "path": "/workspace/scratch/128eb0ac700a/mas/paper/architecture.spec.json",
+      "sha256": "d837208279dbdfa02f404a47373efb6af904eded679d50716f58b70475963d68",
+      "bytes": 6705
+    }
+  },
+  "provenance": {
+    "source": {
+      "path": "/workspace/scratch/128eb0ac700a/mas/paper/figures/architecture.tikz.tex",
+      "sha256": "badb556aaf1e96f8cf452cc33ca8c3015d58d23dcd61ae264e31a773e0e2ae7a"
+    },
+    "specification": {
+      "path": "/workspace/scratch/128eb0ac700a/mas/paper/architecture.spec.json",
+      "sha256": "d837208279dbdfa02f404a47373efb6af904eded679d50716f58b70475963d68"
+    },
+    "pdf": {
+      "path": "/workspace/scratch/128eb0ac700a/mas/paper/figures/architecture.pdf",
+      "sha256": "20c00d638d23b89558a48a3610e93952bde4ec19b9dd1b35c74a3379633d8680"
+    }
+  },
+  "declared_local_files": [
+    {
+      "path": "/workspace/scratch/128eb0ac700a/mas/paper/figures/architecture.tikz.tex",
+      "sha256": "badb556aaf1e96f8cf452cc33ca8c3015d58d23dcd61ae264e31a773e0e2ae7a",
+      "bytes": 1419,
+      "declared_path": "figures/architecture.tikz.tex",
+      "role": "source"
+    },
+    {
+      "path": "/workspace/scratch/128eb0ac700a/mas/paper/figures/architecture.caption.tex",
+      "sha256": "9348c5e60312d2dc88de483a52a6874de00749aaf075a3a990b80137faaa3936",
+      "bytes": 354,
+      "declared_path": "figures/architecture.caption.tex",
+      "role": "dependency"
+    }
+  ],
+  "actual_tex_dependencies": [
+    {
+      "path": "/etc/texmf/web2c/texmf.cnf",
+      "sha256": "3443c7e22fbb4585732473f7e95d3cbf3e8657100f9117e711e2af5b0db85a40",
+      "bytes": 475,
+      "classification": "tex_runtime"
+    },
+    {
+      "path": "/usr/share/texlive/texmf-dist/web2c/texmf.cnf",
+      "sha256": "624ed5587722dc013533b63e7ae31688751e59cd5e5bd18f35d5186e7a984ddb",
+      "bytes": 40399,
+      "classification": "tex_runtime"
+    },
+    {
+      "path": "/var/lib/texmf/web2c/pdftex/pdflatex.fmt",
+      "sha256": "da4815f04dad755a54700bb002333b961797ffc26b11775faf57124e12fdbe09",
+      "bytes": 6800794,
+      "classification": "tex_runtime"
+    },
+    {
+      "path": "/tmp/tikz-render-lhui4dhk/wrapper.tex",
+      "sha256": "16a3b63b5d98b36dd82596eecae0a76c24c3c7f137abae885217f39a2f6fe97c",
+      "bytes": 402,
+      "classification": "generated_build_file"
+    },
+    {
+      "path": "/usr/share/texlive/texmf-dist/tex/latex/standalone/standalone.cls",
+      "sha256": "519e4cb820918bd7988ce6f7d80d0eb53381cfab09a5e26001918c6f6594a3be",
+      "bytes": 29032,
+      "classification": "tex_runtime"
+    },
+    {
+      "path": "/usr/share/texlive/texmf-dist/tex/latex/tools/shellesc.sty",
+      "sha256": "46a03221221f7ea971e0251f414c9ed578291d93fe277b315d660dc214c4bd8d",
+      "bytes": 4121,
+      "classification": "tex_runtime"
+    },
+    {
+      "path": "/usr/share/texlive/texmf-dist/tex/generic/iftex/ifluatex.sty",
+      "sha256": "1f1dd9c7cc37bfc574fdf4103a4b8e476e31a5058b0214f14985d2f5f018a221",
+      "bytes": 492,
+      "classification": "tex_runtime"
+    },
+    {
+      "path": "/usr/share/texlive/texmf-dist/tex/generic/iftex/iftex.sty",
+      "sha256": "2de50639c1f27201f2b4d04e9083e0a51fc5a73b8908eea2e80d6e3205636d4a",
+      "bytes": 7237,
+      "classification": "tex_runtime"
+    },
+    {
+      "path": "/usr/share/texlive/texmf-dist/tex/latex/xkeyval/xkeyval.sty",
+      "sha256": "6904c396f2a6992921823387576b7f75074ac3b8e047a8c80687a869aba1e3ae",
+      "bytes": 4937,
+      "classification": "tex_runtime"
+    },
+    {
+      "path": "/usr/share/texlive/texmf-dist/tex/generic/xkeyval/xkeyval.tex",
+      "sha256": "29c2b60c6973c374a655e44791799823294d53fb04e16db31a681f71a125b3da",
+      "bytes": 19231,
+      "classification": "tex_runtime"
+    },
+    {
+      "path": "/usr/share/texlive/texmf-dist/tex/generic/xkeyval/xkvutils.tex",
+      "sha256": "5e82c31b1b4492c89f0a36c8a1f65ca5dc1d3a7f2ced1b30a1a5be0da9bcc411",
+      "bytes": 7677,
+      "classification": "tex_runtime"
+    },
+    {
+      "path": "/usr/share/texlive/texmf-dist/tex/generic/xkeyval/keyval.tex",
+      "sha256": "7a8dbfe90926a910e5dcb10ee627ae03256496e62f38348e28e2e4bc03d5e266",
+      "bytes": 2725,
+      "classification": "tex_runtime"
+    },
+    {
+      "path": "/usr/share/texlive/texmf-dist/tex/latex/standalone/standalone.cfg",
+      "sha256": "22638cfc9fb1002d3b2f0078ad0f3c8438b78ba28e9d847daf988138de0abc23",
+      "bytes": 1015,
+      "classification": "tex_runtime"
+    },
+    {
+      "path": "/usr/share/texmf/tex/latex/preview/preview.sty",
+      "sha256": "a49f130f37e32b4fd0bac16297f66bd81244ec60fe3dfbb011771010f79612a0",
+      "bytes": 13873,
+      "classification": "tex_runtime"
+    },
+    {
+      "path": "/usr/share/texlive/texmf-dist/tex/latex/base/article.cls",
+      "sha256": "859217b3457cca472e5a96ef193218c87a4e62a6445cdd501ba7e1954fa32afa",
+      "bytes": 20144,
+      "classification": "tex_runtime"
+    },
+    {
+      "path": "/usr/share/texlive/texmf-dist/tex/latex/base/size10.clo",
+      "sha256": "c168d18288a2aba793904edf4d836c78d16fff01b8344d1365c6d72a2bd8929c",
+      "bytes": 8448,
+      "classification": "tex_runtime"
+    },
+    {
+      "path": "/usr/share/texlive/texmf-dist/tex/latex/base/fontenc.sty",
+      "sha256": "b17f7346c2d881bba3bde28711e53cc7d3125e5ea440672f59bbbdbbd95499ed",
+      "bytes": 5119,
+      "classification": "tex_runtime"
+    },
+    {
+      "path": "/usr/share/texlive/texmf-dist/fonts/tfm/jknappen/ec/ecrm1000.tfm",
+      "sha256": "6538d396bf70b360a36c6af2ba424f1f25ecb1700fda4a22462a3044e1bce5b4",
+      "bytes": 3584,
+      "classification": "tex_runtime"
+    },
+    {
+      "path": "/usr/share/texmf/tex/latex/lm/lmodern.sty",
+      "sha256": "d2877369dcb4bfe7b1b6bba1a3d96c46e93366459c9b46576f1b221009bbe359",
+      "bytes": 1608,
+      "classification": "tex_runtime"
+    },
+    {
+      "path": "/usr/share/texlive/texmf-dist/tex/latex/amsmath/amsmath.sty",
+      "sha256": "da22219a49c094141141bb29034c438d1ccba8a9afe6cdd5d15b96c15bf56901",
+      "bytes": 88371,
+      "classification": "tex_runtime"
+    },
+    {
+      "path": "/usr/share/texlive/texmf-dist/tex/latex/amsmath/amsopn.sty",
+      "sha256": "981dbcccfc3a2449768ae5b1cb7b8b1468bb1f7842429067cd6f6ef0ade42fc2",
+      "bytes": 4474,
+      "classification": "tex_runtime"
+    },
+    {
+      "path": "/usr/share/texlive/texmf-dist/tex/latex/amsmath/amstext.sty",
+      "sha256": "2bf2e4f0efe99c33bfd757e1dee1b4267742f8af3e449d6bdb4342c2917b1bce",
+      "bytes": 2444,
+      "classification": "tex_runtime"
+    },
+    {
+      "path": "/usr/share/texlive/texmf-dist/tex/latex/amsmath/amsgen.sty",
+      "sha256": "1232e78c8af6c4bc16c024fe33b9c4c3322679ad6887be22bc013ddb8d254ed9",
+      "bytes": 4173,
+      "classification": "tex_runtime"
+    },
+    {
+      "path": "/usr/share/texlive/texmf-dist/tex/latex/amsmath/amsbsy.sty",
+      "sha256": "f69355f4b0a8b650296fe2fd9471783a6940e6525efd5d7d306b5477daef494d",
+      "bytes": 2222,
+      "classification": "tex_runtime"
+    },
+    {
+      "path": "/usr/share/texlive/texmf-dist/tex/latex/amsfonts/amssymb.sty",
+      "sha256": "70838b061b56569dd3ed9f339b1bdd1c78ba185de49f27ceae331c97f48b5986",
+      "bytes": 13829,
+      "classification": "tex_runtime"
+    },
+    {
+      "path": "/usr/share/texlive/texmf-dist/tex/latex/amsfonts/amsfonts.sty",
+      "sha256": "dab8b0e621267acfd89736cf97bdcc02647c545c0719c4997be8a7d1bf98f9c3",
+      "bytes": 5949,
+      "classification": "tex_runtime"
+    },
+    {
+      "path": "/usr/share/texlive/texmf-dist/tex/latex/mathtools/mathtools.sty",
+      "sha256": "3bf3c7550c81c3aa1bf4d39c14fe1c31e1e1599bf709c9ba2c180ee609f18c76",
+      "bytes": 62269,
+      "classification": "tex_runtime"
+    },
+    {
+      "path": "/usr/share/texlive/texmf-dist/tex/latex/graphics/keyval.sty",
+      "sha256": "8434ad08617159240fd19b4fcae8bf79a6137af413f3798c8a750e9839f8902e",
+      "bytes": 2671,
+      "classification": "tex_runtime"
+    },
+    {
+      "path": "/usr/share/texlive/texmf-dist/tex/latex/tools/calc.sty",
+      "sha256": "9c9da7f39469dd6ab1cb765cd5ef87dd72792c8eb9426e4619faecd00e9f2345",
+      "bytes": 10214,
+      "classification": "tex_runtime"
+    },
+    {
+      "path": "/usr/share/texlive/texmf-dist/tex/latex/mathtools/mhsetup.sty",
+      "sha256": "c3ae1e23f43029fbfc271e3b1440a692e1cd924d1810430b99e4f2aa5b9ccf09",
+      "bytes": 5582,
+      "classification": "tex_runtime"
+    },
+    {
+      "path": "/usr/share/texlive/texmf-dist/tex/latex/tools/bm.sty",
+      "sha256": "bd9d400203713e38554dc425dde1bd0280da4d60e2acd1819195517e59373678",
+      "bytes": 13231,
+      "classification": "tex_runtime"
+    },
+    {
+      "path": "/usr/share/texlive/texmf-dist/tex/latex/xcolor/xcolor.sty",
+      "sha256": "6d66da8f16088689c2f4995b4e920703cc94faade57911ed7aabd32b04367824",
+      "bytes": 55487,
+      "classification": "tex_runtime"
+    },
+    {
+      "path": "/usr/share/texlive/texmf-dist/tex/latex/graphics-cfg/color.cfg",
+      "sha256": "a3529ccdadc8248b4c5d7c34ceea53bdc1509b54f18a192ad51b924bd297d8df",
+      "bytes": 1213,
+      "classification": "tex_runtime"
+    },
+    {
+      "path": "/usr/share/texlive/texmf-dist/tex/latex/graphics-def/pdftex.def",
+      "sha256": "6b0d3c7739f5344c3356bb0cef98bc17d8710e1e060914f42390d6503141c249",
+      "bytes": 19448,
+      "classification": "tex_runtime"
+    },
+    {
+      "path": "/usr/share/texlive/texmf-dist/tex/latex/graphics/mathcolor.ltx",
+      "sha256": "0804bb6e9e1eeeaeda861f29206d308194ea7cc846e38abaa344cdefa1d408cd",
+      "bytes": 2885,
+      "classification": "tex_runtime"
+    },
+    {
+      "path": "/usr/share/texlive/texmf-dist/tex/latex/pgf/frontendlayer/tikz.sty",
+      "sha256": "6e39ff4fdf9f126aff28880a7dd59fccc0e6735409d92ca455cdd2a4f2b4db53",
+      "bytes": 339,
+      "classification": "tex_runtime"
+    },
+    {
+      "path": "/usr/share/texlive/texmf-dist/tex/latex/pgf/basiclayer/pgf.sty",
+      "sha256": "99e08946749446e0b9b7faa985f8202740a94476f9e99bab5286cca5ce4766e9",
+      "bytes": 1090,
+      "classification": "tex_runtime"
+    },
+    {
+      "path": "/usr/share/texlive/texmf-dist/tex/latex/pgf/utilities/pgfrcs.sty",
+      "sha256": "9653b8fae6bba95bec40ffbedd7d6c2b8f3be4a85b8b39580ab3ee6c3590041a",
+      "bytes": 325,
+      "classification": "tex_runtime"
+    },
+    {
+      "path": "/usr/share/texlive/texmf-dist/tex/generic/pgf/utilities/pgfutil-common.tex",
+      "sha256": "7e25bd0bcb3399a5b1ee01c882d0bd51b455fcd1798edf4ecbde4bfc5c2198e1",
+      "bytes": 29239,
+      "classification": "tex_runtime"
+    },
+    {
+      "path": "/usr/share/texlive/texmf-dist/tex/generic/pgf/utilities/pgfutil-latex.def",
+      "sha256": "6afcd415b6831a153969f66e8b06e9045fe5a5a40239ef51d76de757105396a2",
+      "bytes": 6950,
+      "classification": "tex_runtime"
+    },
+    {
+      "path": "/usr/share/texlive/texmf-dist/tex/generic/pgf/utilities/pgfrcs.code.tex",
+      "sha256": "6d28f51c1b4cb933969339982286f86bb1c9af70ed34535482321de4cd491664",
+      "bytes": 4385,
+      "classification": "tex_runtime"
+    },
+    {
+      "path": "/usr/share/texlive/texmf-dist/tex/generic/pgf/pgf.revision.tex",
+      "sha256": "ac54ea0a31097f28b4e37b09fa17985728d589c10640cf220d7e959f63b9e731",
+      "bytes": 114,
+      "classification": "tex_runtime"
+    },
+    {
+      "path": "/usr/share/texlive/texmf-dist/tex/latex/pgf/basiclayer/pgfcore.sty",
+      "sha256": "3a52a05062a74a763ee604b4a3d20f0be4a4b99fe8182373e30ccea0abafc96e",
+      "bytes": 373,
+      "classification": "tex_runtime"
+    },
+    {
+      "path": "/usr/share/texlive/texmf-dist/tex/latex/graphics/graphicx.sty",
+      "sha256": "e9fe8e56401707f18a3d18716dadfd1dab999d02118c82af05691599cedec445",
+      "bytes": 8010,
+      "classification": "tex_runtime"
+    },
+    {
+      "path": "/usr/share/texlive/texmf-dist/tex/latex/graphics/graphics.sty",
+      "sha256": "36e2e612e708d04785971d6bcfed324d0a0f9ce337ea73680e69dd2603d0327a",
+      "bytes": 18387,
+      "classification": "tex_runtime"
+    },
+    {
+      "path": "/usr/share/texlive/texmf-dist/tex/latex/graphics/trig.sty",
+      "sha256": "c2a4f1d01abaf7ad739f1af03238ebb6ab35a7bbfbd5d713acceddda4fb043d5",
+      "bytes": 4023,
+      "classification": "tex_runtime"
+    },
+    {
+      "path": "/usr/share/texlive/texmf-dist/tex/latex/graphics-cfg/graphics.cfg",
+      "sha256": "feb91e48789a21e4acced98e952c77a2e2cf4a77e01bf147b59fa56a1b3f2008",
+      "bytes": 1224,
+      "classification": "tex_runtime"
+    },
+    {
+      "path": "/usr/share/texlive/texmf-dist/tex/latex/pgf/systemlayer/pgfsys.sty",
+      "sha256": "cc7121c5706c5c52807aea879ca0a9083a8dc81b04d96303d0d398804d9d3d52",
+      "bytes": 443,
+      "classification": "tex_runtime"
+    },
+    {
+      "path": "/usr/share/texlive/texmf-dist/tex/generic/pgf/systemlayer/pgfsys.code.tex",
+      "sha256": "aa771cadef59f480af688c690c5de28e23636ef4890842b9758b7d8943ede4ac",
+      "bytes": 61351,
+      "classification": "tex_runtime"
+    },
+    {
+      "path": "/usr/share/texlive/texmf-dist/tex/generic/pgf/utilities/pgfkeys.code.tex",
+      "sha256": "212f64f8641fb944a006a3c0825e78d30b0a2c5e3b4c4d62ff59ef61214caeed",
+      "bytes": 39784,
+      "classification": "tex_runtime"
+    },
+    {
+      "path": "/usr/share/texlive/texmf-dist/tex/generic/pgf/utilities/pgfkeyslibraryfiltered.code.tex",
+      "sha256": "b3d57e19c1893ef33eb240cb7da4286418481b44f7b0ab1677fbc190d6a85201",
+      "bytes": 37433,
+      "classification": "tex_runtime"
+    },
+    {
+      "path": "/usr/share/texlive/texmf-dist/tex/generic/pgf/systemlayer/pgf.cfg",
+      "sha256": "eb308ac3d665db8dd3c03b18328c551609346c659c2ce0e5029223fbcc339cb3",
+      "bytes": 926,
+      "classification": "tex_runtime"
+    },
+    {
+      "path": "/usr/share/texlive/texmf-dist/tex/generic/pgf/systemlayer/pgfsys-pdftex.def",
+      "sha256": "c1200f3d129912978bbd41684ffee42e960bf9a776768a5b9f57557140113f7d",
+      "bytes": 12612,
+      "classification": "tex_runtime"
+    },
+    {
+      "path": "/usr/share/texlive/texmf-dist/tex/generic/pgf/systemlayer/pgfsys-common-pdf.def",
+      "sha256": "babfe19163bca9c6fa5b1abb6b6154cd0d1ca98888f08f1bf7d06a74de5fd330",
+      "bytes": 5542,
+      "classification": "tex_runtime"
+    },
+    {
+      "path": "/usr/share/texlive/texmf-dist/tex/generic/pgf/systemlayer/pgfsyssoftpath.code.tex",
+      "sha256": "6ea4caeea5bcb6cd60b80ef4607e8a79824ec0cdcebb47424c1bdbe0c2ea6671",
+      "bytes": 7778,
+      "classification": "tex_runtime"
+    },
+    {
+      "path": "/usr/share/texlive/texmf-dist/tex/generic/pgf/systemlayer/pgfsysprotocol.code.tex",
+      "sha256": "818b8e3cd0606bdb8ac7fbaccc5f80033672fa817537536f76bc67bc3942928c",
+      "bytes": 1896,
+      "classification": "tex_runtime"
+    },
+    {
+      "path": "/usr/share/texlive/texmf-dist/tex/generic/pgf/basiclayer/pgfcore.code.tex",
+      "sha256": "ec94fcfeeda3204c4e43d2008be50b6005da0e642deafaead137284d66e82926",
+      "bytes": 1016,
+      "classification": "tex_runtime"
+    },
+    {
+      "path": "/usr/share/texlive/texmf-dist/tex/generic/pgf/math/pgfmath.code.tex",
+      "sha256": "7fa0ff434e9cdeb14c40f326d53e6ea0273ef2046daf28987992e2488d186c85",
+      "bytes": 949,
+      "classification": "tex_runtime"
+    },
+    {
+      "path": "/usr/share/texlive/texmf-dist/tex/generic/pgf/math/pgfmathutil.code.tex",
+      "sha256": "cda208d98bdc556a06f5915571c6ce4d98c18aa639c4782a56c6d32a6ba68055",
+      "bytes": 8471,
+      "classification": "tex_runtime"
+    },
+    {
+      "path": "/usr/share/texlive/texmf-dist/tex/generic/pgf/math/pgfmathparser.code.tex",
+      "sha256": "8986f92b517f94415ae5642fc03eb9a8998fdaab446ab2e10f97985d5a9589da",
+      "bytes": 37466,
+      "classification": "tex_runtime"
+    },
+    {
+      "path": "/usr/share/texlive/texmf-dist/tex/generic/pgf/math/pgfmathfunctions.code.tex",
+      "sha256": "9758185623cce6b2a8d4a504d10dfd0a01ef6d3480794fa4c466384f4c08540c",
+      "bytes": 9649,
+      "classification": "tex_runtime"
+    },
+    {
+      "path": "/usr/share/texlive/texmf-dist/tex/generic/pgf/math/pgfmathfunctions.basic.code.tex",
+      "sha256": "c94abbd89ad0556546d9e5053af16b58ce7f38d19c379b27309e5fefd23908f8",
+      "bytes": 28178,
+      "classification": "tex_runtime"
+    },
+    {
+      "path": "/usr/share/texlive/texmf-dist/tex/generic/pgf/math/pgfmathfunctions.trigonometric.code.tex",
+      "sha256": "1c8834abe00807467a52d31ef96032d5084b2560eea45995018084d13a3cde3c",
+      "bytes": 92405,
+      "classification": "tex_runtime"
+    },
+    {
+      "path": "/usr/share/texlive/texmf-dist/tex/generic/pgf/math/pgfmathfunctions.random.code.tex",
+      "sha256": "c10a26a167c06b16e2d80ee4b119f77818ba2357ece3e5bc3cf7470c5dfb09f9",
+      "bytes": 7890,
+      "classification": "tex_runtime"
+    },
+    {
+      "path": "/usr/share/texlive/texmf-dist/tex/generic/pgf/math/pgfmathfunctions.comparison.code.tex",
+      "sha256": "ea5ff35778088d94d8d2f1a20075ec57cc4ecd22844f9c288625a6db59ba7818",
+      "bytes": 3865,
+      "classification": "tex_runtime"
+    },
+    {
+      "path": "/usr/share/texlive/texmf-dist/tex/generic/pgf/math/pgfmathfunctions.base.code.tex",
+      "sha256": "f83601dd74e8c166162cb3daf926744c44ccf15a0122e17613658f82fa64c6a9",
+      "bytes": 10165,
+      "classification": "tex_runtime"
+    },
+    {
+      "path": "/usr/share/texlive/texmf-dist/tex/generic/pgf/math/pgfmathfunctions.round.code.tex",
+      "sha256": "9b980e1373f9451da75cc6030a5b4c1671b88a1b14b45ed172cfb7cf2607fe1f",
+      "bytes": 3379,
+      "classification": "tex_runtime"
+    },
+    {
+      "path": "/usr/share/texlive/texmf-dist/tex/generic/pgf/math/pgfmathfunctions.misc.code.tex",
+      "sha256": "51038be668b2083ac5e8ae38a1da6f75091ee9471d71f33749d01a8bff1a9aa6",
+      "bytes": 11024,
+      "classification": "tex_runtime"
+    },
+    {
+      "path": "/usr/share/texlive/texmf-dist/tex/generic/pgf/math/pgfmathfunctions.integerarithmetics.code.tex",
+      "sha256": "6e9383c1e63a6dbcfd2d95369905df566bdb6e7374c06e28c15a25eb782dc46b",
+      "bytes": 3177,
+      "classification": "tex_runtime"
+    },
+    {
+      "path": "/usr/share/texlive/texmf-dist/tex/generic/pgf/math/pgfmathcalc.code.tex",
+      "sha256": "14bf1941381e7eb35dce4850d0aa819360f1db9ba9752c81cff19920f2c4c7b7",
+      "bytes": 13270,
+      "classification": "tex_runtime"
+    },
+    {
+      "path": "/usr/share/texlive/texmf-dist/tex/generic/pgf/math/pgfmathfloat.code.tex",
+      "sha256": "ccd576f7cebab3a0c5d5cdef41fc44e638d7bb4a20e0a0465160eba1757795e5",
+      "bytes": 104717,
+      "classification": "tex_runtime"
+    },
+    {
+      "path": "/usr/share/texlive/texmf-dist/tex/generic/pgf/math/pgfint.code.tex",
+      "sha256": "95f8053efeeb2267d543d8d1afb10195d6114765eea7b90755b4e0c359324d64",
+      "bytes": 3063,
+      "classification": "tex_runtime"
+    },
+    {
+      "path": "/usr/share/texlive/texmf-dist/tex/generic/pgf/basiclayer/pgfcorepoints.code.tex",
+      "sha256": "7533dd80c95a5124726b0a617a5f458226d4a7490bcd209e3fd7e717e24dc127",
+      "bytes": 33335,
+      "classification": "tex_runtime"
+    },
+    {
+      "path": "/usr/share/texlive/texmf-dist/tex/generic/pgf/basiclayer/pgfcorepathconstruct.code.tex",
+      "sha256": "64b0b4193616b937a2b4520c678f8863ae06ab38385bb58db437b39a8f27719b",
+      "bytes": 44195,
+      "classification": "tex_runtime"
+    },
+    {
+      "path": "/usr/share/texlive/texmf-dist/tex/generic/pgf/basiclayer/pgfcorepathusage.code.tex",
+      "sha256": "165569c2ffb6a80272d2853c3d3c4373c386391e8cbb81ed9683ae2a810dd28c",
+      "bytes": 21302,
+      "classification": "tex_runtime"
+    },
+    {
+      "path": "/usr/share/texlive/texmf-dist/tex/generic/pgf/basiclayer/pgfcorescopes.code.tex",
+      "sha256": "cd9bb9fbaac3f5bca5bedd77ca07a8c4457467869e2303fdf2b446a30dca9f9f",
+      "bytes": 20821,
+      "classification": "tex_runtime"
+    },
+    {
+      "path": "/usr/share/texlive/texmf-dist/tex/generic/pgf/basiclayer/pgfcoregraphicstate.code.tex",
+      "sha256": "81862c3425e8aa2a82e605eb8fde07b1b7b47862b981922393d4f54ca9fa6250",
+      "bytes": 6038,
+      "classification": "tex_runtime"
+    },
+    {
+      "path": "/usr/share/texlive/texmf-dist/tex/generic/pgf/basiclayer/pgfcoretransformations.code.tex",
+      "sha256": "bdea875774b4ad7a1e12debc67c46286245031f5c2e287c9e192f3ca4b6193b6",
+      "bytes": 22012,
+      "classification": "tex_runtime"
+    },
+    {
+      "path": "/usr/share/texlive/texmf-dist/tex/generic/pgf/basiclayer/pgfcorequick.code.tex",
+      "sha256": "6143371709342ea83dcdb1744a229d18f4c1ee670e1e31b496046a708bfa3e66",
+      "bytes": 2965,
+      "classification": "tex_runtime"
+    },
+    {
+      "path": "/usr/share/texlive/texmf-dist/tex/generic/pgf/basiclayer/pgfcoreobjects.code.tex",
+      "sha256": "541e41626d66e0e8bc8b5249805c9efbb134dfe0dc85c63102eea3c2d21da6f0",
+      "bytes": 2544,
+      "classification": "tex_runtime"
+    },
+    {
+      "path": "/usr/share/texlive/texmf-dist/tex/generic/pgf/basiclayer/pgfcorepathprocessing.code.tex",
+      "sha256": "ebcf9d5dec1714b575ffef09be6cdf03eaf1501f511204d7efae5d73b07b2221",
+      "bytes": 17311,
+      "classification": "tex_runtime"
+    },
+    {
+      "path": "/usr/share/texlive/texmf-dist/tex/generic/pgf/basiclayer/pgfcorearrows.code.tex",
+      "sha256": "1668608078204a627d6e67a853f8a904e6149b901607ae177741c650b143a94e",
+      "bytes": 43820,
+      "classification": "tex_runtime"
+    },
+    {
+      "path": "/usr/share/texlive/texmf-dist/tex/generic/pgf/basiclayer/pgfcoreshade.code.tex",
+      "sha256": "b111efaa8b7c0905870b1ce9bcf400cd59c8db3cfa8d7ae91e7d63c1bac747cc",
+      "bytes": 35249,
+      "classification": "tex_runtime"
+    },
+    {
+      "path": "/usr/share/texlive/texmf-dist/tex/generic/pgf/basiclayer/pgfcoreimage.code.tex",
+      "sha256": "758e504e9c194cf9bbed098700b1d7969420e9a87552222d3000084a9d095571",
+      "bytes": 6911,
+      "classification": "tex_runtime"
+    },
+    {
+      "path": "/usr/share/texlive/texmf-dist/tex/generic/pgf/basiclayer/pgfcoreexternal.code.tex",
+      "sha256": "545c4616f93c5f5d25bc04090a0b7ef869bab84b3952fadfd539d71187c83fe0",
+      "bytes": 19324,
+      "classification": "tex_runtime"
+    },
+    {
+      "path": "/usr/share/texlive/texmf-dist/tex/generic/pgf/basiclayer/pgfcorelayers.code.tex",
+      "sha256": "743e89ac1e529af45751fa85fde4b3438284a63dfd53ff52c94c2f229b20beff",
+      "bytes": 4883,
+      "classification": "tex_runtime"
+    },
+    {
+      "path": "/usr/share/texlive/texmf-dist/tex/generic/pgf/basiclayer/pgfcoretransparency.code.tex",
+      "sha256": "ea5e14f7fade556cee79636a6824710e97db928542fc1b23dfa618ff6448688e",
+      "bytes": 8893,
+      "classification": "tex_runtime"
+    },
+    {
+      "path": "/usr/share/texlive/texmf-dist/tex/generic/pgf/basiclayer/pgfcorepatterns.code.tex",
+      "sha256": "f91d37fcda30e70ae85fbd9030682bc64df4424fc1260704def57dc6c444a63a",
+      "bytes": 9691,
+      "classification": "tex_runtime"
+    },
+    {
+      "path": "/usr/share/texlive/texmf-dist/tex/generic/pgf/basiclayer/pgfcorerdf.code.tex",
+      "sha256": "0bc32a855862a83b7ece27d2ebf6bfeace759d6b64fb776394eee13d62401350",
+      "bytes": 5196,
+      "classification": "tex_runtime"
+    },
+    {
+      "path": "/usr/share/texlive/texmf-dist/tex/generic/pgf/modules/pgfmoduleshapes.code.tex",
+      "sha256": "da529b71510425e3a42b242f71ae849f74c09fd8197f7c18e3abb723b67ef958",
+      "bytes": 44792,
+      "classification": "tex_runtime"
+    },
+    {
+      "path": "/usr/share/texlive/texmf-dist/tex/generic/pgf/modules/pgfmoduleplot.code.tex",
+      "sha256": "f5454a5037c902bf21166d9592d5d15790f4b70c00a636d2b2fc47b76c8ccb21",
+      "bytes": 16121,
+      "classification": "tex_runtime"
+    },
+    {
+      "path": "/usr/share/texlive/texmf-dist/tex/latex/pgf/compatibility/pgfcomp-version-0-65.sty",
+      "sha256": "7df38d1bb03d0bf642b3f53c38d86641765d950f82d481ebd63c67838bc78ee7",
+      "bytes": 21013,
+      "classification": "tex_runtime"
+    },
+    {
+      "path": "/usr/share/texlive/texmf-dist/tex/latex/pgf/compatibility/pgfcomp-version-1-18.sty",
+      "sha256": "b5a95ba245bb51ce01e5ead16e818a0024f16cd208df3386b30ba0798a911344",
+      "bytes": 989,
+      "classification": "tex_runtime"
+    },
+    {
+      "path": "/usr/share/texlive/texmf-dist/tex/latex/pgf/utilities/pgffor.sty",
+      "sha256": "5ae03317ea221a6f68d807775bd06a10625aa9fb1f590dbe2114688f735c447d",
+      "bytes": 348,
+      "classification": "tex_runtime"
+    },
+    {
+      "path": "/usr/share/texlive/texmf-dist/tex/latex/pgf/utilities/pgfkeys.sty",
+      "sha256": "b90072b20d0590f23fd0ad273d059e3b7737319b3fb61e3bea6102fd77f24b3d",
+      "bytes": 274,
+      "classification": "tex_runtime"
+    },
+    {
+      "path": "/usr/share/texlive/texmf-dist/tex/latex/pgf/math/pgfmath.sty",
+      "sha256": "4abed7d8c88642201dd1a932a435ae05a1f2659f1f7e95c72d6b5347c83d232a",
+      "bytes": 306,
+      "classification": "tex_runtime"
+    },
+    {
+      "path": "/usr/share/texlive/texmf-dist/tex/generic/pgf/utilities/pgffor.code.tex",
+      "sha256": "5787859fab7c72cc3dfd7134e78bbb0e770a43e7da39f93732c24232249fdde8",
+      "bytes": 24033,
+      "classification": "tex_runtime"
+    },
+    {
+      "path": "/usr/share/texlive/texmf-dist/tex/generic/pgf/frontendlayer/tikz/tikz.code.tex",
+      "sha256": "e7c6e44b8fb9fe8fab049144fbe3e430dbc2b441148d72999e309cd5fc3a83c5",
+      "bytes": 186782,
+      "classification": "tex_runtime"
+    },
+    {
+      "path": "/usr/share/texlive/texmf-dist/tex/generic/pgf/libraries/pgflibraryplothandlers.code.tex",
+      "sha256": "b3db772dd8eb595d8a5c8ef8d232862f9cef97d4ac9dedee283ad7b6e83361dd",
+      "bytes": 32995,
+      "classification": "tex_runtime"
+    },
+    {
+      "path": "/usr/share/texlive/texmf-dist/tex/generic/pgf/modules/pgfmodulematrix.code.tex",
+      "sha256": "ceafd7c1de02bde3d5a7570489ed6a150db51aabd658c1c78acf1ee5b5f89c6e",
+      "bytes": 21211,
+      "classification": "tex_runtime"
+    },
+    {
+      "path": "/usr/share/texlive/texmf-dist/tex/generic/pgf/frontendlayer/tikz/libraries/tikzlibrarytopaths.code.tex",
+      "sha256": "992706da31e055cdbecf5b1bf1b9c267383e3b4d4385773448f868e1cabf17f2",
+      "bytes": 11518,
+      "classification": "tex_runtime"
+    },
+    {
+      "path": "/usr/share/texlive/texmf-dist/tex/generic/pgf/libraries/pgflibraryarrows.meta.code.tex",
+      "sha256": "df116c22bd614af5154bb957850a3f6d5252234c00df3198a1d8f063e1468519",
+      "bytes": 58801,
+      "classification": "tex_runtime"
+    },
+    {
+      "path": "/usr/share/texmf/tex/latex/lm/t1lmr.fd",
+      "sha256": "6b61abc8a6796f1884f819afcfc4c33558564f7e5c1d47b720e50ee15dba829a",
+      "bytes": 1867,
+      "classification": "tex_runtime"
+    },
+    {
+      "path": "/usr/share/texmf/fonts/tfm/public/lm/ec-lmr10.tfm",
+      "sha256": "cd13479f463b9a575d053dd7bf0884daa46bfdeffe4b7f537c193861652ac9e5",
+      "bytes": 12056,
+      "classification": "tex_runtime"
+    },
+    {
+      "path": "/usr/share/texlive/texmf-dist/tex/latex/l3backend/l3backend-pdftex.def",
+      "sha256": "f1081e3391243f0d67554da9841fec0c050d76d9865033e92d3ef82cf537d23e",
+      "bytes": 30006,
+      "classification": "tex_runtime"
+    },
+    {
+      "path": "/tmp/tikz-render-lhui4dhk/wrapper.aux",
+      "sha256": "fbabe80c887f95a1ede6847f22dd91b380bda9d17ae8bfaa72e1741b16aa41e9",
+      "bytes": 32,
+      "classification": "generated_build_file"
+    },
+    {
+      "path": "/usr/share/texlive/texmf-dist/tex/context/base/mkii/supp-pdf.mkii",
+      "sha256": "5dd3675b88c7b61d3703e6bf35ed75623acc6b163dff7b1477b485cee8ad71cb",
+      "bytes": 71627,
+      "classification": "tex_runtime"
+    },
+    {
+      "path": "/workspace/scratch/128eb0ac700a/mas/paper/figures/architecture.tikz.tex",
+      "sha256": "badb556aaf1e96f8cf452cc33ca8c3015d58d23dcd61ae264e31a773e0e2ae7a",
+      "bytes": 1419,
+      "declared_path": "figures/architecture.tikz.tex",
+      "role": "source",
+      "staged_path": "/tmp/tikz-render-lhui4dhk/figures/architecture.tikz.tex",
+      "classification": "declared_local"
+    },
+    {
+      "path": "/usr/share/texmf/fonts/tfm/public/lm/ec-lmbx10.tfm",
+      "sha256": "0895c940bd2e763b70dcab18ebf27fd3f93c2490f43b2a8c028fc7fc24b2e855",
+      "bytes": 12076,
+      "classification": "tex_runtime"
+    },
+    {
+      "path": "/usr/share/texmf/fonts/tfm/public/lm/ec-lmr9.tfm",
+      "sha256": "9e5b21c43423010fb28b078b34f2c10e5c5f4f871ec51fb84dca9caf05fae31f",
+      "bytes": 12084,
+      "classification": "tex_runtime"
+    },
+    {
+      "path": "/usr/share/texmf/fonts/tfm/public/lm/ec-lmbx9.tfm",
+      "sha256": "c6cbec1d83b81845060d8505d1172666aa270bfaaec1fa18284648f3c4fd8f63",
+      "bytes": 12080,
+      "classification": "tex_runtime"
+    },
+    {
+      "path": "/var/lib/texmf/fonts/map/pdftex/updmap/pdftex_dl14.map",
+      "sha256": "27e9d932b27954e1ca6f840feaf632ee4ee4b3158b8fa07c3656fec559d06858",
+      "bytes": 87436,
+      "classification": "tex_runtime"
+    },
+    {
+      "path": "/usr/share/texmf/fonts/enc/dvips/lm/lm-ec.enc",
+      "sha256": "7f9932c402d22a937b853406cfdf4166b80260e3ff21a03fe9a4c05105a2918c",
+      "bytes": 2375,
+      "classification": "tex_runtime"
+    },
+    {
+      "path": "/usr/share/texmf/fonts/type1/public/lm/lmbx10.pfb",
+      "sha256": "4acd67f9ece59a12e073aa863dbb1d5cea194f7f7b88ecce4659184d8275aa42",
+      "bytes": 121021,
+      "classification": "tex_runtime"
+    },
+    {
+      "path": "/usr/share/texmf/fonts/type1/public/lm/lmbx9.pfb",
+      "sha256": "ce9210e86ff32cc60ea84cfa672ee69e034ad41658cf281274ab6d870814deca",
+      "bytes": 126646,
+      "classification": "tex_runtime"
+    },
+    {
+      "path": "/usr/share/texmf/fonts/type1/public/lm/lmr9.pfb",
+      "sha256": "0a28c017128947f0b23cef511dac5499bdd73b7c8f218f605b632aa9f3e2e2d4",
+      "bytes": 121065,
+      "classification": "tex_runtime"
+    }
+  ],
+  "runtime_versions": {
+    "python": "3.12.14",
+    "platform": "Linux-6.18.44-x86_64-with-glibc2.39",
+    "latexmk": "Latexmk, John Collins, 31 Jan. 2024. Version 4.83",
+    "pdflatex": "pdfTeX 3.141592653-2.6-1.40.25 (TeX Live 2023/Debian)",
+    "pdfinfo": "pdfinfo version 26.05.0",
+    "pdftoppm": "pdftoppm version 26.05.0",
+    "PyMuPDF": "1.26.6",
+    "Pillow": "12.3.0",
+    "numpy": "2.3.5",
+    "jsonschema": "4.26.0"
+  },
+  "recorded_recipe": [
+    [
+      "python3",
+      "/path/to/design-evidence-visualisation/scripts/render_tikz.py",
+      "figures/architecture.tikz.tex",
+      "--spec",
+      "architecture.spec.json",
+      "--audit",
+      "figures/architecture.audit.json"
+    ]
+  ],
+  "tex_environment": {
+    "TEXINPUTS": "/tmp/tikz-render-lhui4dhk//:"
+  },
+  "executed_commands": [
+    [
+      "/usr/bin/latexmk",
+      "-pdf",
+      "-halt-on-error",
+      "-no-shell-escape",
+      "-recorder",
+      "-interaction=nonstopmode",
+      "-file-line-error",
+      "wrapper.tex"
+    ],
+    [
+      "/opt/codex/runtimes/codex-primary-runtime/dependencies/bin/override/pdfinfo",
+      "/tmp/tikz-render-lhui4dhk/wrapper.pdf"
+    ],
+    [
+      "/usr/bin/pdffonts",
+      "/tmp/tikz-render-lhui4dhk/wrapper.pdf"
+    ],
+    [
+      "/usr/bin/pdftotext",
+      "/tmp/tikz-render-lhui4dhk/wrapper.pdf",
+      "/tmp/tikz-render-lhui4dhk/extracted.txt"
+    ],
+    [
+      "/opt/codex/runtimes/codex-primary-runtime/dependencies/bin/override/pdftoppm",
+      "-png",
+      "-r",
+      "300",
+      "-singlefile",
+      "/tmp/tikz-render-lhui4dhk/wrapper.pdf",
+      "/tmp/tikz-render-lhui4dhk/preview-ieggwlbu/rendered"
+    ],
+    [
+      "/usr/bin/kpsewhich",
+      "-var-value=TEXMFDIST"
+    ],
+    [
+      "/usr/bin/kpsewhich",
+      "-var-value=TEXMFDEBIAN"
+    ],
+    [
+      "/usr/bin/kpsewhich",
+      "-var-value=TEXMFLOCAL"
+    ],
+    [
+      "/usr/bin/kpsewhich",
+      "-var-value=TEXMFSYSCONFIG"
+    ],
+    [
+      "/usr/bin/kpsewhich",
+      "-var-value=TEXMFSYSVAR"
+    ],
+    [
+      "/usr/bin/kpsewhich",
+      "-var-value=TEXMFVAR"
+    ],
+    [
+      "/usr/bin/kpsewhich",
+      "-var-value=TEXMFCONFIG"
+    ],
+    [
+      "/usr/bin/latexmk",
+      "-v"
+    ],
+    [
+      "/usr/bin/pdflatex",
+      "--version"
+    ],
+    [
+      "/opt/codex/runtimes/codex-primary-runtime/dependencies/bin/override/pdfinfo",
+      "-v"
+    ],
+    [
+      "/opt/codex/runtimes/codex-primary-runtime/dependencies/bin/override/pdftoppm",
+      "-v"
+    ]
+  ],
+  "typography": {
+    "linewidth_tex_pt": 345.0,
+    "columnwidth_tex_pt": 345.0
+  },
+  "typesetting_warnings": [
+    "Package shellesc Warning: Shell escape disabled on input line 73."
+  ],
+  "artifacts": [
+    {
+      "path": "/tmp/tikz-render-lhui4dhk/wrapper.pdf",
+      "sha256": "20c00d638d23b89558a48a3610e93952bde4ec19b9dd1b35c74a3379633d8680",
+      "bytes": 82266,
+      "destination": "/workspace/scratch/128eb0ac700a/mas/paper/figures/architecture.pdf"
+    },
+    {
+      "path": "/tmp/tikz-render-lhui4dhk/preview.png",
+      "sha256": "48218784b8cbd8a6dc9f5faa8a1f34fb4b25ba5adf6826c117c1f42e719189a4",
+      "bytes": 74920,
+      "destination": "/workspace/scratch/128eb0ac700a/architecture-prototypes/final.png"
+    },
+    {
+      "path": "/tmp/tikz-render-lhui4dhk/qa/wrapper.preview-colour.png",
+      "sha256": "fdbd769d34716d0e3f26ea9e2e7da94da59651112fdd3d13de956aaaef08f681",
+      "bytes": 44075,
+      "destination": "/workspace/scratch/128eb0ac700a/architecture-prototypes/qa/architecture.preview-colour.png"
+    },
+    {
+      "path": "/tmp/tikz-render-lhui4dhk/qa/wrapper.preview-greyscale.png",
+      "sha256": "6edc577e63645b4dd9f8281c6b0fe0b749c636729ab31f14b66f53f7d15bfe72",
+      "bytes": 19534,
+      "destination": "/workspace/scratch/128eb0ac700a/architecture-prototypes/qa/architecture.preview-greyscale.png"
+    },
+    {
+      "path": "/tmp/tikz-render-lhui4dhk/qa/wrapper.preview-thumbnail.png",
+      "sha256": "88d5853f4a9d98ccc0d61893def8eef850e351068df810104b6fc1586bab0c12",
+      "bytes": 11881,
+      "destination": "/workspace/scratch/128eb0ac700a/architecture-prototypes/qa/architecture.preview-thumbnail.png"
+    },
+    {
+      "path": "/tmp/tikz-render-lhui4dhk/qa/wrapper.preview-protanopia.png",
+      "sha256": "fdbd769d34716d0e3f26ea9e2e7da94da59651112fdd3d13de956aaaef08f681",
+      "bytes": 44075,
+      "destination": "/workspace/scratch/128eb0ac700a/architecture-prototypes/qa/architecture.preview-protanopia.png"
+    },
+    {
+      "path": "/tmp/tikz-render-lhui4dhk/qa/wrapper.preview-deuteranopia.png",
+      "sha256": "fdbd769d34716d0e3f26ea9e2e7da94da59651112fdd3d13de956aaaef08f681",
+      "bytes": 44075,
+      "destination": "/workspace/scratch/128eb0ac700a/architecture-prototypes/qa/architecture.preview-deuteranopia.png"
+    }
+  ]
+}

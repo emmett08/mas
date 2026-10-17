@@ -1,0 +1,163 @@
+{
+  "schema_version": "1.0",
+  "figure_id": "states",
+  "purpose": {
+    "reader_question": "How do the delivery record and task record of one accepted request change, and which operations connect their rules?",
+    "expected_reading": "Delivery proceeds from accepted through received to acknowledged, with repeated receipt and retained identity. Five aligned relations show alternative transitions for the same open task. The first committed terminal transition closes that task. Result and Failure require receipt. Cancellation and expiry can precede receipt.",
+    "claim": "MAS keeps delivery and task state in separate records. Task outcomes distinguish completed, unresolved, failed, cancelled and expired_outcome_unknown under their respective admission rules.",
+    "scope": "The SQLite repository and agent-task/1 profile at the cited implementation revision. Transitions describe the protocol contract, with each operation subject to the admission checks described in the manuscript.",
+    "permitted_inferences": [
+      "Repeated receipt before acknowledgement returns the same message identity.",
+      "Result and Failure can close a received task before acknowledgement.",
+      "Cancellation or expiry can close an open task before receipt.",
+      "The Result status determines whether the recorded terminal outcome is completed or unresolved."
+    ],
+    "prohibited_inferences": [
+      "Relative duration or frequency from path length or position.",
+      "Simultaneous selection of all task outcomes.",
+      "Task completion implies delivery acknowledgement.",
+      "A terminal task record proves an external effect occurred.",
+      "All drawn transitions are enabled under every run configuration."
+    ]
+  },
+  "inputs": [
+    {
+      "id": "delivery",
+      "url": "https://github.com/emmett08/mas/blob/a61b3da98ef3ef11996dd79b4a3a048ed6c98ce1/rust-protocol/src/store.rs",
+      "status": "derived",
+      "source_reference": "Store receive and ack implementations, retained message identity in send, and reconcile_transaction expiry. Inspected source lines 41\u201350, 200\u2013245 and 248\u2013299."
+    },
+    {
+      "id": "tasks",
+      "url": "https://github.com/emmett08/mas/blob/a61b3da98ef3ef11996dd79b4a3a048ed6c98ce1/rust-protocol/src/tasks.rs",
+      "status": "derived",
+      "source_reference": "validate_prior checks exact request correlation, participants, open state and receipt, lines 23\u201360. record_transition maps Result, Failure and Cancel to retained states, lines 63\u201379."
+    },
+    {
+      "id": "caption",
+      "path": "figures/states.caption.tex",
+      "status": "derived",
+      "source_reference": "Proposed caption reviewed with the vector figure."
+    }
+  ],
+  "constructions": [
+    {
+      "id": "delivery-transitions",
+      "kind": "topology",
+      "definition": "A directed path Accepted \u2192 Received \u2192 Acknowledged, with a self-loop at Received for another receive. The same message identity and history survive every shown transition.",
+      "method": "Reconstruct changes to received and acked fields from receive and ack. Check identity preservation against send deduplication.",
+      "input_ids": [
+        "delivery"
+      ]
+    },
+    {
+      "id": "task-transitions",
+      "kind": "topology",
+      "definition": "Five alternative directed transitions originate in the same Open task value. Result with completed status selects completed. Result with unresolved status selects unresolved. Failure selects failed. Cancel selects cancelled. Reconciliation selects expired_outcome_unknown, displayed as Expired, outcome unknown. Result and Failure require recorded request receipt. Cancel comes from the requester. Cancellation and expiry may precede receipt. The transaction admits the first terminal transition while state is open.",
+      "method": "Enumerate accepted kinds and payload statuses from validate_prior and record_transition. Add the expiry state from reconcile_transaction.",
+      "input_ids": [
+        "delivery",
+        "tasks"
+      ]
+    }
+  ],
+  "encodings": [
+    {
+      "id": "delivery-paths",
+      "marks": "Directed lines with state and operation labels",
+      "mark_role": "annotation",
+      "channel": "incidence",
+      "represents": "Permitted delivery transitions and repeated receipt.",
+      "interpretation": "relational",
+      "construction_ids": [
+        "delivery-transitions"
+      ],
+      "scale_or_mapping": {
+        "type": "explicit",
+        "definition": "Arrow tails and heads identify source and destination states. The returning path starts and ends at Received. Label position and edge length have no temporal scale."
+      }
+    },
+    {
+      "id": "task-paths",
+      "marks": "Five aligned directed lines with state, event, status and receipt labels",
+      "mark_role": "annotation",
+      "channel": "incidence",
+      "represents": "Alternative terminal transitions from the open task.",
+      "interpretation": "relational",
+      "construction_ids": [
+        "task-transitions"
+      ],
+      "scale_or_mapping": {
+        "type": "explicit",
+        "definition": "Each row repeats Open to represent an alternative transition of the same task. The event label gives the message kind and any required Result status, with receipt requirements included on the same edge. The endpoint identifies the recorded terminal state. Equal arrow lengths organise the alternatives without encoding elapsed time or likelihood. The caption states first-commit selection and distinguishes expiry before receipt."
+      }
+    },
+    {
+      "id": "records",
+      "marks": "Panel labels and separating rule",
+      "mark_role": "annotation",
+      "channel": "position",
+      "represents": "Two separately retained state records for the same request.",
+      "interpretation": "relational",
+      "construction_ids": [
+        "delivery-transitions",
+        "task-transitions"
+      ],
+      "scale_or_mapping": {
+        "type": "nonmetric",
+        "definition": "The upper panel contains delivery state and the lower panel alternative transitions of the same task state. Their separation records distinct storage fields, while text identifies receipt-dependent task guards."
+      }
+    }
+  ],
+  "target": {
+    "width_mm": 140,
+    "width_mode": "maximum",
+    "min_text_pt": 9,
+    "min_math_script_pt": 6,
+    "min_stroke_pt": 0.4,
+    "colour_intent": "greyscale",
+    "expected_labels": [
+      "Delivery record",
+      "Alternative transitions for one open task",
+      "Accepted",
+      "Received",
+      "Acknowledged",
+      "receive again",
+      "Open",
+      "Result: completed, after receipt",
+      "Result: unresolved, after receipt",
+      "Failure, after receipt",
+      "Cancel from requester",
+      "Observed expiry",
+      "Completed",
+      "Unresolved",
+      "Failed",
+      "Cancelled",
+      "Expired, outcome unknown"
+    ]
+  },
+  "build": {
+    "renderer": "tikz",
+    "engine": "pdflatex",
+    "source": "figures/states.tikz.tex",
+    "recipe": [
+      [
+        "python3",
+        "/path/to/design-evidence-visualisation/scripts/render_tikz.py",
+        "figures/states.tikz.tex",
+        "--spec",
+        "states.spec.json",
+        "--audit",
+        "figures/states.audit.json"
+      ]
+    ],
+    "outputs": {
+      "pdf": "figures/states.pdf",
+      "audit": "figures/states.audit.json",
+      "review": "figures/states.review.json"
+    },
+    "dependencies": [
+      "figures/states.caption.tex"
+    ]
+  }
+}

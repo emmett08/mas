@@ -1,15 +1,1 @@
-\begin{tikzpicture}[x=1cm,y=1cm]
-\node[font=\bfseries\small] at (-3,4.5) {Message delivery};
-\node[box] (q) at (-3,3.7) {Accepted};
-\node[box] (r) at (-3,1.8) {Received};
-\node[box] (k) at (-3,-.1) {Acknowledged};
-\draw[flow] (q)--node[right,note]{receive}(r);
-\draw[flow] (r)--node[right,note]{acknowledge}(k);
-\draw[flow] (r.west) to[out=150,in=210,looseness=5] node[left,note]{receive\\again}(r.west);
-\node[note,text width=4cm,below=4mm of k] {Identity retained after acknowledgement};
-\node[font=\bfseries\small] at (3,4.5) {Task state};
-\node[box,fill=blue!6] (o) at (3,3.7) {Open};
-\node[box,text width=4.5cm,minimum height=2.3cm,font=\small] (t) at (3,.5) {One terminal outcome:\\completed or unresolved\\failed\\cancelled\\expired outcome unknown};
-\draw[flow] (o)--node[right,note,text width=2.3cm]{first terminal\\commit}(t);
-\node[note,text width=5cm,below=4mm of t] {Result and failure\\require receipt.\\Cancellation and expiry\\may precede receipt.};
-\end{tikzpicture}
+\input{figures/states.tikz.tex}

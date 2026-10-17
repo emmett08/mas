@@ -1,0 +1,34 @@
+% Required packages: tikz, tikz-cd, amsmath
+% Required TikZ libraries: arrows.meta
+% Target width: 140 mm maximum
+% Minimum text size: 9 pt
+% Colour/greyscale intent: greyscale
+\begin{tikzpicture}[x=1mm,y=1mm,
+  every node/.style={font=\fontsize{9}{11}\selectfont,inner sep=0pt},
+  heading/.style={font=\fontsize{9}{11}\selectfont\bfseries},
+  edge/.style={-{Latex[length=1.6mm,width=1.2mm]},line width=.5pt}]
+\node[heading,anchor=west] at (0,12) {(a) Delivery record};
+\node (accepted) at (13,0) {Accepted};
+\node (received) at (63,0) {Received};
+\node (acknowledged) at (119,0) {Acknowledged};
+\draw[edge] (25,0) -- (51,0);
+\node at (38,4) {receive};
+\draw[edge] (75,0) -- (103,0);
+\node at (89,4) {acknowledge};
+\draw[edge] (58,-3) -- (58,-8) -- (68,-8) -- (68,-3);
+\node[anchor=west] at (72,-8) {receive again};
+\draw[line width=.4pt,black!45] (0,-14) -- (135,-14);
+\node[heading,anchor=west] at (0,-22) {(b) Alternative transitions for one open task};
+\node[anchor=north west] at (2,-28) {\begin{tikzcd}[
+  ampersand replacement=\&,row sep=5mm,column sep=58mm,
+  cells={font=\fontsize{9}{11}\selectfont},
+  arrows={shorten <=1.8mm,shorten >=1.8mm,line width=.5pt,-{Latex[length=1.6mm,width=1.2mm]}},
+  labels={font=\fontsize{9}{11}\selectfont},
+  every label/.append style={inner sep=1mm}]
+\textnormal{Open} \arrow[r,"\textnormal{Result: completed, after receipt}"] \& \textnormal{\makebox[43mm][l]{Completed}} \\
+\textnormal{Open} \arrow[r,"\textnormal{Result: unresolved, after receipt}"] \& \textnormal{\makebox[43mm][l]{Unresolved}} \\
+\textnormal{Open} \arrow[r,"\textnormal{Failure, after receipt}"] \& \textnormal{\makebox[43mm][l]{Failed}} \\
+\textnormal{Open} \arrow[r,"\textnormal{Cancel from requester}"] \& \textnormal{\makebox[43mm][l]{Cancelled}} \\
+\textnormal{Open} \arrow[r,"\textnormal{Observed expiry}"] \& \textnormal{\makebox[43mm][l]{Expired, outcome unknown}}
+\end{tikzcd}};
+\end{tikzpicture}
