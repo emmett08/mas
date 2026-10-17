@@ -434,8 +434,12 @@ class CursorBridgeLifecycleTests(unittest.TestCase):
 
                         def handle(context, request):
                             client = _launch_client(workspace)
-                            marker.write_text(json.dumps({"bridge": client._owned_bridge.process.pid,
+                            pending = marker.with_suffix(".pending")
+                            pending.write_text(json.dumps({"bridge": client._owned_bridge.process.pid,
                                 "guardian": os.getppid(), "worker": os.getpid()}))
+                            # Existence signals readiness only after the complete
+                            # identity record has been closed and published.
+                            pending.replace(marker)
                             time.sleep(30)
 
                         execute(SimpleNamespace(handle=handle),
