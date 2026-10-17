@@ -64,7 +64,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: emmett08/mas-host-examples
-          ref: 62e5c8dae24e2a8fb3d309ad8192e06192e782c4
+          ref: 6899cceb6314e0191070d6f5a0ae8d4100b4c6a0
           path: .consumers/examples
           persist-credentials: false
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
