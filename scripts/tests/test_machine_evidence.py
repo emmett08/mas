@@ -172,6 +172,25 @@ class GuestJobEvidenceTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             jobs.completed_result(observed, launch)
 
+    def test_completion_published_after_absent_read_is_observed_on_next_inspection(self):
+        with patch.object(jobs.subprocess, 'Popen'):
+            launch = jobs.launch_job(self.directory, 'partition', self.nonce, ['fixture-supervisor'])
+        completion = {**launch, 'finished_ns': launch['started_ns'], 'return_code': 0,
+            'timed_out': False, 'stdout_valid': True, 'worker_result': {'receipt_stored': True},
+            'stderr': '', 'error': None}
+        read = jobs._read
+        def publish_after_absent_read(path, *args):
+            try:
+                return read(path, *args)
+            except FileNotFoundError:
+                self.assertEqual(path, self.directory/'result.json')
+                jobs._publish(self.directory, 'result.json', completion)
+                raise
+        with patch.object(jobs, '_read', side_effect=publish_after_absent_read):
+            pending = jobs.inspect_job(self.directory, self.nonce)
+        self.assertIsNone(pending['completion'])
+        self.assertEqual(jobs.inspect_job(self.directory, self.nonce)['completion'], completion)
+
     def test_child_timeout_is_retained_and_fails_the_gate(self):
         # Leave ample startup time for a loaded architecture runner; the guest
         # production limit remains sixty seconds.
