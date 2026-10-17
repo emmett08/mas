@@ -1,44 +1,51 @@
-# MAS: AI agent communication in Rust
+# Nehemiah: bounded agent communication in Rust
 
-The [assessment contract](docs/assessment-contract.md) binds criterion-level
-findings to exact candidates, evaluators, rubrics, evidence and revision feedback
-using existing message envelopes. Its [SPIN model](formal/assessment-revision-notes.md)
-checks identity, authority, immutable history and bounded feedback handling.
+Nehemiah defines bounded message, task and assessment exchanges for LLM agents,
+deterministic agents, tools and human adapters. This `mas` repository provides
+its Rust/nom codec, durable mailbox and formal models. **The name changes; the
+wire format does not.**
+Repository names, Rust crate names, the `mas` command, envelope version `1`,
+`agent-task/1` and `assessment.v1` remain compatible.
 
-The [bridge guide](docs/bridges.md) covers authenticated MCP and A2A endpoints,
-durable remote tasks, Temporal/LangGraph connectors and mixed-provider deployments.
-
-The [host service guide](docs/host-service-evolution.md) covers immutable workflow
-versions, unified leaf/plan access, concurrent dispatch, human pauses and durable
-recovery. [Operations diagnostics and the console](docs/host-observability.md)
-provide progress polling, configuration checks and bounded metrics. The
-[implementation record](docs/host-evolution-plan.md) distinguishes delivered
-source profiles from outstanding roadmap work and deployment acceptance.
-
-The [composable workflow guide](docs/composable-workflows.md) covers named
-star/mesh/tree groups, reusable bounded plans, concurrent branches, arbitrary
-model roles, versioned operation contracts and result acceptance. Two offline
-applications demonstrate these features through the existing Rust gateway.
-
-The [generic Cursor and OpenAI providers](docs/providers.md#reusable-model-adapters)
-accept application-defined instructions and JSON schemas. Invoice calculation
-is one example adapter; model transport, workflow execution and recovery are
-shared across applications.
-
-A Rust/nom protocol and durable SQLite mailbox for agent, tool and human-adapter
-messages, with SPIN/Promela models and executable workflow examples. The protocol
-runtime and CLI are native Rust. A reusable Python host connects model and tool
-adapters to the Rust gateway. The formal verification runner is Rust; SPIN
-generates the C model checker.
+Use the separate Rust [mas-host](https://github.com/emmett08/mas-host) for new
+applications. It hosts native functions, executable tools, model adapters and
+composed workflows. Maintained application examples live in
+[mas-host-examples](https://github.com/emmett08/mas-host-examples).
+The Python `host/` in this repository is transitional: its existing examples,
+bridges and recovery tests remain available while those responsibilities move
+to the Rust host. Python application handlers remain supported by the Rust host.
 
 The design separates **who may communicate**, **delivery state**, **task state**
 and **whether a result is correct**. A capability gateway binds agent requests to
-registered identities and durably limits attempted operations. Runtime-owned
-expiry closes still-open tasks even when their mailbox or message budget is full.
-It supports star, mesh and tree graphs plus
-review loops, peer handoffs, pipelines, routing and parallel work. See the
-[design comparison and protocol specification](docs/design.md) and
-[pattern examples](docs/examples.md).
+registered identities and durably limits attempted operations. Observed expiry
+closes still-open tasks even when their mailbox or message budget is full.
+Star, mesh and tree describe logical permissions over a shared authority;
+the same envelope serves mixed deterministic and LLM participants.
+See the [design specification](docs/design.md) and
+[Nehemiah/A2A responsibilities](docs/nehemiah-a2a.md).
+
+A2A supplies an external interoperability interface. Its Agent Card describes a
+service; the Nehemiah host still decides membership, routes, budgets and effect
+permissions. The [bridge guide](docs/bridges.md) describes the existing
+transitional Python integration. The optional
+[native Rust A2A service](https://github.com/emmett08/mas-host/blob/main/docs/a2a.md)
+publishes configured operations with scoped cards and durable request identities.
+Local protocol runs need no network discovery service.
+
+The [assessment contract](docs/assessment-contract.md) binds findings to exact
+candidates, evaluators, rubrics, evidence and revision feedback. Its
+[SPIN model](formal/assessment-revision-notes.md) checks identity, authority,
+immutable history and bounded feedback handling. The
+[paper](paper/mas-protocol.pdf) reports a pinned historical implementation and
+scripted rehearsal; its retained results do not qualify later host or gateway
+changes.
+
+The remaining host guides in this repository describe the transitional Python
+implementation: [workflow service](docs/host-service-evolution.md),
+[composable workflows](docs/composable-workflows.md),
+[providers](docs/providers.md#reusable-model-adapters),
+[diagnostics](docs/host-observability.md) and
+[implementation status](docs/host-evolution-plan.md).
 
 ## Example uses
 
@@ -59,7 +66,7 @@ mathematical research, data analysis, infrastructure changes and service
 remediation. It identifies existing demonstrations, required integrations,
 acceptance criteria and simpler alternatives.
 
-## Start with Docker Compose
+## Run the transitional Python examples
 
 Run the mixed-agent mesh locally, with no API key required:
 
@@ -97,11 +104,11 @@ local execution ends. A submission receipt is not a completed remote task.
 See [providers and durable jobs](docs/providers.md) for credentials, complete
 commands, recovery and the different execution guarantees.
 
-## Deployment scope
+## Transitional Python host deployment
 
-The supported host target is a bounded, single-host Linux deployment with trusted
-Python adapters. It provides durable workflow checkpoints, supervised local
-execution, shared call and spending reservations, independent reconciliation,
+The Python host in this repository targets a bounded, single-host Linux deployment
+with trusted adapters. The separate Rust host documents its own supported profile.
+The Python host provides durable workflow checkpoints, supervised local execution, shared call and spending reservations, independent reconciliation,
 retention and audit-only backup restore. Uncertain provider outcomes require
 explicit reconciliation; remote effects and actual billing remain outside the
 protocol guarantee. See [operations](docs/operations.md),
@@ -192,8 +199,9 @@ CLI outside agent access. The host privately routes each gateway response to its
 caller. Reserve a call before execution, honour `actionable: false` on closed
 requests, and record actual execution evidence with `finish`. Payloads never grant
 tools or permissions. The gateway uses local standard input/output; it is not a
-remote connector. The optional [Python host](docs/host-runner.md) supplies model
-launching and application scheduling through this interface.
+remote connector. The transitional [Python host](docs/host-runner.md) supplies model
+launching and application scheduling through this interface. New applications use
+the separate Rust [mas-host](https://github.com/emmett08/mas-host).
 
 Run `mas reconcile DB RUN` to record expired open tasks as
 `expired_outcome_unknown`. Ordinary run operations and status inspection also
@@ -216,8 +224,10 @@ Deliberate defects must be detected. A result that exceeds time, memory or depth
 limits is incomplete. See [model contract](formal/README.md),
 [verification results](docs/verification.md) and [independent review](docs/independent-review.md).
 
-The bounded progress checks require no weak scheduler fairness. Separate safety
-checks permit indefinitely repeated modelled faults. Retained counterexamples
+The bounded progress checks require no weak scheduler fairness because their
+one-shot transitions exclude unrelated infinite computation and permanently
+stopped service callers. A finite fault budget alone does not establish progress.
+Separate safety checks permit indefinitely repeated modelled faults. Retained counterexamples
 show why endless faults still prevent eventual delivery, even with weak fairness.
 Additional models cover transaction failures and expiry races. All models retain
 finite identities and participants; none proves arbitrary-scale delivery, truth

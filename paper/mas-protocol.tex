@@ -36,10 +36,10 @@
 \tikzset{box/.style={draw,rounded corners=2pt,align=center,font=\small,minimum height=9mm,inner sep=5pt},flow/.style={-{Latex[length=2mm]},thick},note/.style={font=\footnotesize,align=center}}
 \begin{document}
 \begin{frontmatter}
-\title{MAS: A durable communication protocol for auditable multi-agent workflows}
+\title{Nehemiah: A durable communication protocol for auditable multi-agent workflows}
 \author{Emmett Miller}
 \begin{abstract}
-MAS is an open-source Rust implementation of a bounded communication protocol for multi-agent workflows. A versioned envelope, durable mailbox and task profile separate message receipt from task completion. An assessment profile binds findings to exact candidates, evaluators, rubrics and evidence. The implementation provides identity-preserving retries, explicit routes, resource limits and observed expiry. Executable tests and finite-state verification support these controls under stated storage, host and model assumptions. An incident-analysis rehearsal compares host-managed revision with two generation procedures across 108 completed runs with scripted providers. Retained candidate and assessment records expose the feedback used in each revision. Source, models and reproduction scripts are available.
+Nehemiah is a bounded communication protocol for multi-agent workflows with an open-source Rust implementation. A versioned envelope, durable mailbox and task profile separate message receipt from task completion. An assessment profile binds findings to exact candidates, evaluators, rubrics and evidence. The implementation provides identity-preserving retries, explicit routes, resource limits and observed expiry. Executable tests and finite-state verification support these controls under stated storage, host and model assumptions. A scripted incident-analysis rehearsal exercises revision and two generation procedures across 108 runs, checking retained references, feedback paths and replay behaviour. Retained candidate and assessment records expose the feedback used in each revision. Source, models and reproduction scripts are available.
 \end{abstract}
 \begin{keyword}
 multi-agent systems \sep communication protocol \sep durable messaging \sep model checking \sep auditable assessment
@@ -64,13 +64,32 @@ C8 & Support channel & \url{https://github.com/emmett08/mas/issues} \\
 
 \linenumbers
 \section{Motivation and significance}
-An agent workflow needs to distinguish an accepted message, a completed task and a correct result. After losing a response, the caller must distinguish delivery, execution and reassessment before choosing a retry. MAS provides explicit records for these different questions. Its contribution is a reusable implementation combining bounded admission, durable identity retention, task correlation and content-bound assessments, with executable tests and finite-state models.
+An agent workflow needs to distinguish an accepted message, a completed task and a correct result. After losing a response, the caller must distinguish delivery, execution and reassessment before choosing a retry. Nehemiah provides explicit records for these different questions. Its contribution is a reusable implementation combining bounded admission, durable identity retention, task correlation and content-bound assessments, with executable tests and finite-state models. Nehemiah names the protocol previously described as MAS. Repository names, crate names, command names and schema identifiers remain unchanged.
 
-Agent2Agent (A2A) defines interoperable agent tasks, messages, artefacts and discovery. The Model Context Protocol (MCP) connects hosts to tools, resources and prompts~\citep{a2a,mcp}. MAS addresses the local admission and retention of workflow exchanges. A2A extensions and application-specific MCP services can carry these workflow contracts. Their deployment must supply the corresponding persistence and recovery behaviour. MAS complements those interoperability interfaces with explicit local state transitions.
+Agent2Agent (A2A) defines interoperable agent tasks, messages, artefacts and discovery. The Model Context Protocol (MCP) connects hosts to tools, resources and prompts~\citep{a2a,mcp}. Nehemiah addresses the local admission and retention of workflow exchanges. A2A extensions and application-specific MCP services can carry these workflow contracts. Their deployment must supply the corresponding persistence and recovery behaviour. Nehemiah complements those interoperability interfaces with explicit local state transitions.
+
+\begin{table}[htbp]
+\centering\small
+\caption{Protocol responsibilities. The Nehemiah column describes the evaluated local profile. A2A refers to the cited interoperability specification.}
+\label{tab:a2a-comparison}
+\begin{tabularx}{\textwidth}{@{}>{\raggedright\arraybackslash}p{.19\textwidth}>{\raggedright\arraybackslash}X>{\raggedright\arraybackslash}X@{}}
+\toprule
+Concern & Nehemiah local profile & A2A external interface \\
+\midrule
+Participants & Host-configured membership and directed routes & Agent Cards describe agent services and advertised capabilities \\
+Task records & Local task correlation and transaction-ordered terminal transitions & Exchanged task, message, status and artefact representations \\
+Recovery & Retained message identities and durable acknowledgement history & Remote task retrieval and supported update mechanisms \\
+Authority & Host-bound capabilities and local admission checks & Declared security requirements and endpoint authentication \\
+Compatibility & A selected version and application profile & Advertised interfaces, protocol versions and content modes \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+An Agent Card describes a service. Admission determines whether a caller may use it. A host can construct a fixed local run from trusted configuration without network discovery. An external gateway benefits from a card generated from its configured operations and supported interface. Such a gateway must validate remote inputs, bind the caller to a local actor and preserve the distinction between remote task state and locally observed effects. The native gateway integration is outside this article's evaluated implementation. Table~\ref{tab:a2a-comparison} assigns these responsibilities without treating one protocol as a replacement for the other.
 
 \section{Software description}
 \subsection{Protocol design}
-Holzmann specifies a protocol through five elements: its service, execution environment, message vocabulary, encoding and exchange rules~\citep[Section~2.2, p.~21]{holzmann1991}. MAS gives each element a distinct role in its communication contract.
+Holzmann specifies a protocol through five elements: its service, execution environment, message vocabulary, encoding and exchange rules~\citep[Section~2.2, p.~21]{holzmann1991}. Nehemiah gives each element a distinct role in its communication contract.
 
 The service defines the observable mailbox behaviour. A send atomically inserts an accepted message identity and its content. An identical retry recovers the original acceptance. Receive returns addressed, unacknowledged messages in insertion order and records receipt. Acknowledgement removes a received message from the pending set while preserving its identity and history. These operations give callers a stable recovery contract across retries.
 
@@ -85,6 +104,8 @@ The exchange rules relate each operation to retained history. Replies identify a
 \subsection{Software architecture}
 The examined revision~\citep{masSoftware} implements the codec, SQLite repository, task transitions and capability gateway in Rust. The \code{nom} parser recognises the complete envelope before values enter the repository. The optional Python host delegates mailbox operations to the Rust boundary. The evaluation concerns this native implementation with its default SQLite backend. Optional PostgreSQL support and other host integrations provide further deployment choices.
 
+The Python host in this repository is transitional. The separate Rust \href{https://github.com/emmett08/mas-host}{\code{mas-host}} is the primary host for new applications. Its later development and external gateway are outside the frozen evaluation reported here.
+
 Figure~\ref{fig:architecture} separates logical communication permission from physical transport. A directed graph determines which registered participants may exchange messages. Star, mesh and tree configurations use the same central repository. A mesh permits peer-addressed messages through that repository. The gateway derives the run and actor from host-provisioned capabilities. Direct repository and administrative CLI calls trust the supplied actor, so the host must restrict database and administrative access to trusted components.
 
 \begin{figure}[htbp]
@@ -93,7 +114,7 @@ Figure~\ref{fig:architecture} separates logical communication permission from ph
 \caption[Logical routes and local implementation]{\protect\input{figures/architecture.caption.tex}}\label{fig:architecture}
 \end{figure}
 
-Local interprocess communication (IPC) carries repository operations. The capability gateway uses JSON-line requests over standard input and output. The persistent trusted-host interface has a JSON header and length-delimited body. The MAS envelope supplies the message representation carried by these operation interfaces. Host-provisioned capabilities bind gateway operations to an actor and run.
+Local interprocess communication (IPC) carries repository operations. The capability gateway uses JSON-line requests over standard input and output. The persistent trusted-host interface has a JSON header and length-delimited body. The Nehemiah envelope supplies the message representation carried by these operation interfaces. Host-provisioned capabilities bind gateway operations to an actor and run.
 
 \subsection{Software functionalities}
 \subsubsection{Representation and identity}
@@ -104,7 +125,7 @@ Figure~\ref{fig:wire} groups the envelope fields in their required order. Their 
 \begin{figure}[htbp]
 \centering
 \input{figures/wire.tex}
-\caption{MAS envelope structure and canonical example. The six leading values are quoted strings, followed by a JSON object payload. Fields appear in the displayed order. Box widths indicate logical grouping. Encoded field lengths depend on their values, up to 65,536 UTF-8 bytes for the entire envelope. \aifigure}\label{fig:wire}
+\caption{Nehemiah envelope structure and canonical example. The six leading values are quoted strings, followed by a JSON object payload. Fields appear in the displayed order. Box widths indicate logical grouping. Encoded field lengths depend on their values, up to 65,536 UTF-8 bytes for the entire envelope. \aifigure}\label{fig:wire}
 \end{figure}
 
 \subsubsection{Admission, delivery and task state}
@@ -203,7 +224,7 @@ The supplied star fixture registers a hub, proposer and checker. In a minimal su
 The repository's fixtures execute Rust parsing and SQLite exchanges locally. Their synthetic inputs and deterministic participants make the examples reproducible. The recovery example reopens storage and observes deadline expiry. The capability-gateway example challenges sender spoofing and retains attempt limits across restart. Table~\ref{tab:runtime-examples} reports the observed outcomes. Commands and exact output records accompany the paper.
 
 \subsection{Incident analysis with bounded revision}
-A separate host integration applies the assessment profile to incident analysis~\citep{incidentRevision}. The host manages candidate generation, assessment and revision, using the MAS assessment profile to represent candidate, rubric and feedback references. The example compares one-pass generation, draft--assess--revise--assess, and four independent generations with selection of the fourth candidate. Each procedure has a four-call upper limit. The last procedure allocates every call to generation. In the rehearsal, revision allocates two calls to generation and two to assessment (Figure~\ref{fig:incident-rehearsal}).
+A separate host integration applies the assessment profile to incident analysis~\citep{incidentRevision}. The host manages candidate generation, assessment and revision, using the Nehemiah assessment profile to represent candidate, rubric and feedback references. The example compares one-pass generation, draft--assess--revise--assess, and four fresh-context generations with selection of the fourth candidate (the resampling procedure). Each procedure has a four-call upper limit. The last procedure allocates every call to generation. In the rehearsal, revision allocates two calls to generation and two to assessment (Figure~\ref{fig:incident-rehearsal}).
 
 The retained rehearsal covers 12 synthetic incidents in six families, with three repetitions per procedure. Its scripted provider always requests further evidence, and its critic returns inconclusive assessments. All 108 procedure runs completed, comprising 324 provider calls. Across 36 revision runs, the host retained 72 candidates and 72 assessments. Each assessment references its candidate and rubric, and each revised candidate references its parent and supplied feedback. Initial revision and one-pass inputs matched in all 36 paired comparisons. The execution receipt records completed-job reuse, an unchanged report and zero additional provider calls. These observations characterise the recorded host's bounded execution and permitted feedback path.
 
@@ -213,33 +234,33 @@ The retained rehearsal covers 12 synthetic incidents in six families, with three
 \caption[Recorded incident procedures]{\protect\input{figures/incident-revision.caption.tex}}\label{fig:incident-rehearsal}
 \end{figure}
 
-Outcome measurement follows generation. A deterministic scorer compares each selected output with frozen reference labels for exact diagnosis-code agreement, listed hazardous-action proposals and the abstention decision. The worker inputs contain the incident evidence and permitted feedback. The measurement stage reads the reference answers after all provider calls finish. The fixture's scripted responses give equal outcomes across the three procedures. The six incident families define the specified live pilot's paired analysis units, with cases and repetitions averaged within family. Empirical evaluation requires independently adjudicated reference labels and an allocation justified for the chosen quality and resource margins. Archived records support reconstruction of the execution counts and outcome summaries.
+Outcome measurement follows generation. A deterministic scorer compares each selected output with frozen reference labels for exact diagnosis-code agreement, listed hazardous-action proposals and the abstention decision. The worker inputs contain the incident evidence and permitted feedback. The measurement stage reads the reference answers after all provider calls finish. Each procedure produced 12 diagnosis-code matches, zero listed hazardous-action proposals and 12 appropriate abstentions among 36 outputs. The always-abstaining fixture matched the reference answers only in the missing-evidence and conflicting-evidence families. Repeating each incident three times checks execution behaviour and supplies no additional independent diagnostic cases. The six incident families define the specified live pilot's paired analysis units, with cases and repetitions averaged within family. Empirical evaluation requires independently adjudicated reference labels and an allocation justified for the chosen quality and resource margins. Archived records support reconstruction of the execution counts and outcome summaries.
 
 \subsection{Verification and reproducibility}
 The evaluation freezes revision \code{a61b3da} and combines implementation tests with selected executable abstractions. The reproduction script records source hashes, tool versions, commands and raw logs. The selected default-feature Rust tests exercise codecs, repository operations, gateway controls, observation and assessments against the local SQLite implementation.
 
-SPIN checks assertions and temporal properties on finite Promela models~\citep{holzmann1997}. Transport checks distinguish finite fault budgets from indefinitely recurring faults. Safety concerns routing, identity, capacity and receipt order. Progress means eventual acknowledgement of each accepted message under a finite fault budget. Task, transaction and expiry models cover conflicting terminal outcomes and recovery boundaries. Assessment checks use two candidate identities, two assessment identities, two content values, two evaluators, three delivery attempts and two revision reservations. The model abstracts committed host transitions and digest values. Its disclosure and revision properties specify obligations for host integrations.
+SPIN checks assertions and temporal properties on finite Promela models~\citep{holzmann1997}. Transport checks distinguish finite fault budgets from indefinitely recurring faults. Safety concerns routing, identity, capacity and receipt order. Progress means eventual acknowledgement of each accepted message within the bounded service model. Task, transaction and expiry models cover conflicting terminal outcomes and recovery boundaries. Assessment checks use two candidate identities, two assessment identities, two content values, two evaluators, three delivery attempts and two revision reservations. The model abstracts committed host transitions and digest values. Its disclosure and revision properties specify obligations for host integrations.
 
 For each message identity $i$ in the transport model, the progress requirement is
 \begin{equation}
 \mathsf{G}\bigl(\mathrm{accepted}_i\Rightarrow\mathsf{F}\,\mathrm{acknowledged}_i\bigr),
 \label{eq:message-progress}
 \end{equation}
-where $\mathsf{G}$ means always and $\mathsf{F}$ means eventually. Equation~\ref{eq:message-progress} states eventual acknowledgement of accepted messages under the model's assumptions. The checked star has three participants, two message identities and two content values, with capacities one and two. The bounded model permits each message one lost acknowledgement and one restart. The unlimited-fault variant permits recurring faults. Table~\ref{tab:verification-results} separates successful searches from expected counterexamples.
+where $\mathsf{G}$ means always and $\mathsf{F}$ means eventually. Equation~\ref{eq:message-progress} states eventual acknowledgement of accepted messages within the model. Each service or fault transition advances a one-shot flag, so the finite set of remaining transitions is exhausted. The model includes neither unrelated infinite computation nor a worker that permanently stops calling the service. These restrictions, together with the checked absence of invalid terminal states, support the progress result without a scheduler-fairness assumption. A finite fault budget alone would not establish implementation liveness. The checked star has three participants, two message identities and two content values, with capacities one and two. The bounded model permits each message one lost acknowledgement and one restart. The unlimited-fault variant permits recurring faults. Table~\ref{tab:verification-results} separates successful searches from expected counterexamples.
 
 \input{evidence/results.tex}
 
 Negative controls introduce isolated defects into model copies. Their intended assertions or acceptance cycles must be detected and replayed. Reachability witnesses establish that accepted assessments and successful revision paths are possible. Witness failures are deliberately constructed observations, distinct from successful safety searches. Searches that exceed a resource bound are inconclusive. Selected implementation tests supply correspondence evidence between Rust behaviour and the models. Model state counts quantify the explored abstract state spaces.
 
 \section{Impact}
-MAS provides an experimental substrate for comparing agent workflows while retaining who sent each result, its task correlation and the assessment context. Researchers can vary logical routes while preserving envelope semantics and can distinguish a delivery failure from a rejected substantive answer. The incident example shows how exact candidate and feedback references support comparisons with a common call cap and separate outcome measurement. Its host controls the revision procedure, while the protocol gives the resulting records a shared representation. Empirical comparisons require independent outcome measures, frozen evaluators and protected held-out cases.
+Nehemiah provides an experimental substrate for comparing agent workflows while retaining who sent each result, its task correlation and the assessment context. Researchers can vary logical routes while preserving envelope semantics and can distinguish a delivery failure from a rejected substantive answer. The incident example shows how exact candidate and feedback references support comparisons with a common call cap and separate outcome measurement. Its host controls the revision procedure, while the protocol gives the resulting records a shared representation. Empirical comparisons require independent outcome measures, frozen evaluators and protected held-out cases.
 
 The implementation is appropriate when bounded work, durable retries and inspectable task histories justify a central authority. A direct function call is simpler for one synchronous trusted component. A conventional queue may suffice when task correlation and assessment records already exist elsewhere. A2A is relevant when independently hosted agents need a standard external interface. MCP is relevant when clients need standard tool access. The required communication and authority boundaries determine the integration choice.
 
 Storage durability, trusted-host isolation and correct adapter behaviour remain premises. Cancellation closes the protocol task. External effects require application-specific observation and, where applicable, compensation. The present evidence covers the selected local implementation, finite models and retained host rehearsal. Deployment qualification addresses scale, remote security, long-duration availability and comparative throughput.
 
 \section{Conclusions}
-MAS separates communication permission, durable delivery, task closure and assessment validity. Its Rust implementation makes retries and terminal transitions explicit, while its assessment profile binds findings to exact retained context. Executable tests and model checking of finite abstractions support these controls within stated assumptions. The incident rehearsal demonstrates their use in a host-managed revision procedure with retained candidate and assessment histories. These records support reproducible comparisons of fixed revision and generation procedures.
+Nehemiah separates communication permission, durable delivery, task closure and assessment validity. Its Rust implementation makes retries and terminal transitions explicit, while its assessment profile binds findings to exact retained context. Executable tests and model checking of finite abstractions support these controls within stated assumptions. The incident rehearsal demonstrates their use in a host-managed revision procedure with retained candidate and assessment histories. These records support reproducible comparisons of fixed revision and generation procedures.
 
 \section*{Data and software availability}
 The source revision in the metadata table contains the implementation, tests and Promela models. The accompanying \code{paper/} directory contains the manuscript, vector figure sources, reproduction scripts and retained verification evidence. The external incident archive~\citep{incidentRevision} preserves its frozen configuration, invocation records, reports and executable hashes. Its figure and execution counts are reproducible from those records. The fixtures use synthetic inputs and deterministic participants.

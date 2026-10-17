@@ -1,4 +1,4 @@
-# MAS protocol article
+# Nehemiah protocol article
 
 [Read the PDF](mas-protocol.pdf) · [LaTeX source](mas-protocol.tex) · [Verification evidence](evidence/README.md)
 
@@ -7,6 +7,12 @@ implemented research-software contribution: durable communication and assessment
 records with reproducible implementation tests and finite-state verification.
 The reported results concern the selected local implementation, finite models
 and a retained incident-analysis rehearsal with scripted providers.
+
+Nehemiah is the protocol name; MAS repository, command and schema identifiers
+remain unchanged. The primary application host is now the separate Rust
+`mas-host`; this repository's Python host is transitional. The paper's A2A table
+compares responsibilities and identifies the native gateway integration as outside its
+evaluation.
 
 The examined software revision is
 `a61b3da98ef3ef11996dd79b4a3a048ed6c98ce1`. The manuscript and its evidence are
@@ -107,15 +113,15 @@ LaTeX template was inspected in a
 [third-party mirror](https://github.com/yongyin-leon/CubeScope/blob/main/docs/softwarex-template/softwarex-osp-template.tex),
 blob `c77c095a372789b9490ec20c6f61898bb5ac786f`. That copy specifies 4,000 words,
 up to six figures, approximately 100 abstract words and the five section
-headings used here. The expanded article follows that template's 4,000-word
-and six-figure limits. Older indexed guidance gives a 3,000-word limit.
+headings used here. The article follows that template's six-figure limit; its current word count is
+recorded below. Older indexed guidance gives a 3,000-word limit.
 Current submission-portal requirements still require confirmation.
 
 | Requirement | Disposition |
 |---|---|
 | Motivation, software description, illustrative examples, impact and conclusions | Present in the required order |
 | Elsevier source format and numbered references | `elsarticle`, 12-point A4 single column, `elsarticle-num` and review line numbers |
-| Length | 103-word abstract. TeXcount reports 3,424 text, heading and caption words, excluding references, diagram labels and mathematical counters |
+| Length | TeXcount reports 3,689 text, heading and caption words after the Nehemiah and A2A revisions, excluding references, diagram labels and mathematical counters |
 | Architecture and other visual explanations | Six vector figures: architecture, bytefield envelope structure, state transitions, two `pgf-umlsd` sequences and the recorded incident procedures |
 | Faithful algorithms | Two `algorithm`/`algpseudocode` procedures checked against Rust source |
 | Example and empirical evaluation | Three executed offline fixtures, 79 passing Rust tests, 41 classified formal checks and an independently inspected archive of 108 scripted-provider incident runs |
@@ -163,6 +169,13 @@ prevents ambiguity. Identifiers, official titles, mathematics and LaTeX syntax
 are protected. No chapter counter or published List of Algorithms is used in
 this article class.
 
+The Nehemiah revision preserves the historical verification and rehearsal
+records, adds the A2A responsibility comparison, states the liveness model's
+one-shot-transition premise, and reports the fixture's 12/36 diagnosis-code
+matches and appropriate abstentions. Repeated deterministic runs are not new
+independent diagnostic cases. The field schematic is compacted without changing
+its exact 76-octet example.
+
 The revised prose states supported properties, their assumptions and application
 responsibilities positively. Semicolons are reserved for the actual MAS
 terminator and source-code syntax. The five-element design explanation connects
@@ -178,8 +191,10 @@ The identical-content/changed-content comparison has the same identity as its
 explicit comparator. Long scanner spans across metadata and pseudocode are
 markup artefacts.
 
-The algorithm style checker passes. The manuscript is compiled with settled
-references and inspected as rendered pages. Overfull boxes and overlapping
+The algorithm style checker passes. The 17-page Nehemiah manuscript is compiled with settled references and no
+LaTeX warnings. The revised comparison table, field schematic, incident counts
+and progress qualifications are inspected on their rendered pages. The
+76-octet wire example is byte-identical to the previous revision. Overfull boxes and overlapping
 diagram labels are corrected. The exact byte example passes the native parse
 and canonical-encode checks. BibTeX entries are used in the manuscript and
 identify primary sources. FIPA was omitted because its original specification

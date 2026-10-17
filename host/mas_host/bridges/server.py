@@ -252,7 +252,7 @@ class _Handler(BaseHTTPRequestHandler):
         # Singletons are enforced before routing or authentication. Duplicate
         # values, transfer encodings and request smuggling are never tolerated.
         for key in ("Host", "Authorization", "Origin", "Content-Length", "Content-Type",
-                    "MCP-Protocol-Version", "MCP-Method", "MCP-Name", "A2A-Version"):
+                    "MCP-Protocol-Version", "MCP-Method", "MCP-Name", "A2A-Version", "A2A-Extensions"):
             if len(self.headers.get_all(key, [])) > 1:
                 raise ServiceError("duplicate_header")
         if (self.headers.get("Host", "").lower() not in self.server.allowed_hosts
@@ -410,7 +410,8 @@ class _Handler(BaseHTTPRequestHandler):
                 return self._send(202 if value is None else http_status(value), value)
             if self.path == "/a2a" and self.server.a2a_bridge is not None:
                 from .a2a import error_response, validate_request
-                a2a_headers = {"a2a-version": self.headers.get("A2A-Version", "")}
+                a2a_headers = {"a2a-version": self.headers.get("A2A-Version", ""),
+                               "a2a-extensions": self.headers.get("A2A-Extensions", "")}
                 try:
                     validate_request(payload, a2a_headers)
                     scope = _a2a_scope(payload)
@@ -418,7 +419,10 @@ class _Handler(BaseHTTPRequestHandler):
                     return self._send(200, error_response(payload.get("id"), error))
                 principal.require({scope})
                 value = self.server.a2a_bridge.handle(principal.name, payload, a2a_headers)
-                return self._send(200, value)
+                selected = a2a_headers['a2a-extensions']
+                headers = ({'A2A-Extensions': ','.join(item.strip() for item in selected.split(','))}
+                           if selected and 'result' in value else None)
+                return self._send(200, value, headers=headers)
             raise ServiceError("not_found")
         except AuthenticationError as exc:
             self._challenge(exc)

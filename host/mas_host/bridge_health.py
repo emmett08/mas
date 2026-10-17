@@ -60,11 +60,12 @@ def ingress_health(state_dir: Path, config: dict, port: int = 8765) -> dict:
     health = _state_health(state_dir, config)
     public_url = config.get("public_url", "http://127.0.0.1:8765")
     from .bridges.a2a import A2ABridge
-    expected = A2ABridge(None, endpoint=public_url + "/a2a",
+    from .task_service import DurableTaskService
+    # All CLI task-service implementations expose the same public discovery
+    # capabilities. Inspect the class surface without constructing a service,
+    # querying private registrations, or provisioning state during a probe.
+    expected = A2ABridge(DurableTaskService, endpoint=public_url + "/a2a",
                          allow_http=public_url.startswith("http:")).agent_card()
-    # CLI ingress always serves the durable task-service discovery profile.
-    # The card-only constructor above has no service from which to infer it.
-    expected["capabilities"]["extendedAgentCard"] = True
     connection = http.client.HTTPConnection("127.0.0.1", port, timeout=3)
     try:
         connection.request("GET", "/.well-known/agent-card.json",

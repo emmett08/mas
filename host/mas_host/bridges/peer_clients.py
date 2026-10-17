@@ -90,13 +90,14 @@ class A2ATaskServiceClient(_ProfileClient):
     path = '/a2a'
 
     def _rpc(self, principal, method, params):
-        from .a2a import A2AError, VERSION
+        from .a2a import A2AError, VERSION, SERVICE_PROFILE, BOUNDED_PROFILE
         self._principal(principal)
         request_id = uuid.uuid4().hex
         status, headers, body = http_exchange(self.endpoint,
             body=integer_json({'jsonrpc': '2.0', 'id': request_id, 'method': method, 'params': params}, 65536).encode(),
             headers={'Authorization': 'Bearer ' + self.token_provider(),
-                     'Content-Type': 'application/json', 'Accept': 'application/json', 'A2A-Version': VERSION},
+                     'Content-Type': 'application/json', 'Accept': 'application/json', 'A2A-Version': VERSION,
+                     'A2A-Extensions': SERVICE_PROFILE + ',' + BOUNDED_PROFILE},
             timeout_seconds=self.timeout_seconds, max_response_bytes=65536,
             allow_loopback_http=self.allow_loopback_http, transport_policy=self.transport_policy)
         if status != 200 or headers.get('content-type', '').split(';')[0].strip().lower() != 'application/json':
