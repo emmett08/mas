@@ -56,7 +56,7 @@ def render_results(report, path):
     counts.update(report["assessment"]["checks_by_category"])
     native = report["native_tests"]
     rows = [
-        ("Executed Rust tests", f"{native['passed']} passed; {native['failed']} failed"),
+        ("Executed Rust tests", f"{native['passed']} passed, {native['failed']} failed"),
         ("Ignored Rust model-suite entrypoints", str(native["ignored"])),
         ("Offline executable fixtures", f"{len(report['runtime_examples'])} completed"),
         ("Complete model searches with zero errors", str(counts["positive"])),
@@ -79,23 +79,24 @@ def render_results(report, path):
     content.extend([r"\bottomrule", r"\end{tabularx}", r"\end{table}"])
     star, recovery, gateway = (report["runtime_examples"][name]["observations"] for name in ("star", "recovery", "gateway"))
     content.extend([r"\begin{table}[htbp]", r"\centering\small",
-                    r"\caption{Observed offline fixture outcomes. Participants are deterministic; no model provider is called.}",
+                    r"\caption{Observed offline fixture outcomes with deterministic local participants.}",
                     r"\label{tab:runtime-examples}", r"\begin{tabularx}{\textwidth}{@{}lX@{}}", r"\toprule",
                     r"Fixture & Recorded observation \\", r"\midrule",
-                    "Star & " + f"{star['messages']} accepted messages; {star['bytes']} charged bytes; "
-                    f"{star['calls']} call reservations. All messages acknowledged; checker accepted the proposed sum." + r" \\",
-                    "Recovery & " + f"{recovery['messages_charged']} charged message; {recovery['tasks']} task expired with unknown outcome. "
-                    f"Delivery non-actionable; identical retry retained sequence {recovery['retained_sequence']}." + r" \\",
+                    "Star & " + f"{star['messages']} accepted messages, {star['bytes']} charged bytes and "
+                    f"{star['calls']} call reservations. All messages acknowledged. Checker accepted the proposed sum." + r" \\",
+                    "Recovery & " + f"{recovery['messages_charged']} charged message and {recovery['tasks']} task expired with unknown outcome. "
+                    f"Historical delivery marked non-actionable. Identical retry retained sequence {recovery['retained_sequence']}." + r" \\",
                     "Gateway & " + f"{gateway['attempts_including_rejection']} charged attempts, including a rejected sender forgery. "
-                    "Message received and acknowledged after restart; restart preserved the exhausted attempt budget." + r" \\",
+                    "Message received and acknowledged after restart. Restart preserved the exhausted attempt budget." + r" \\",
                     r"\bottomrule", r"\end{tabularx}", r"\end{table}",
                     f"The {date} run used Rust/Cargo {rust}, SPIN {spin} and GCC {compiler}. "
                     f"Each model command had a {limits['seconds_per_core_command']}-second, "
                     f"{limits['memory_mib']}-MiB limit and depth {limits['search_depth']:,}. "
-                    "Positive results concern complete full-state searches of finite abstractions. "
-                    "Defect counterexamples demonstrate detection of specified faults; the unlimited-fault counterexample refutes unconditional progress. "
-                    "Witnesses establish reachability. These results support the declared controls, with implementation tests supplying correspondence evidence. "
-                    "They establish neither unrestricted implementation refinement nor improved answer quality."])
+                    "Successful verification searches exhaustively explored the specified finite abstractions. "
+                    "Defect counterexamples demonstrate detection of the introduced faults. "
+                    "Under indefinitely recurring faults, the transport model contains an execution in which an accepted message remains pending indefinitely. "
+                    "Witnesses establish reachability. These results support the declared communication and assessment controls, "
+                    "with selected implementation tests supplying correspondence evidence."])
     path.write_text("\n".join(content) + "\n")
 
 
