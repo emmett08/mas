@@ -1,0 +1,35 @@
+% Generated from verification.json by reproduce-evidence.py; do not edit.
+\begin{table}[htbp]
+\centering\small
+\caption{Recorded verification outcomes. Counterexamples and witnesses are distinct from positive searches.}
+\label{tab:verification-results}
+\begin{tabularx}{\textwidth}{@{}Xr@{}}
+\toprule
+Evidence category & Result \\
+\midrule
+Executed Rust tests & 79 passed; 0 failed \\
+Ignored Rust model-suite entrypoints & 3 \\
+Offline executable fixtures & 3 completed \\
+Complete model searches with zero errors & 17 \\
+Replayed assertion-defect counterexamples & 19 \\
+Replayed liveness-defect counterexamples & 2 \\
+Unlimited-fault progress counterexample & 1 \\
+Replayed reachability witnesses & 2 \\
+\bottomrule
+\end{tabularx}
+\end{table}
+\begin{table}[htbp]
+\centering\small
+\caption{Observed offline fixture outcomes. Participants are deterministic; no model provider is called.}
+\label{tab:runtime-examples}
+\begin{tabularx}{\textwidth}{@{}lX@{}}
+\toprule
+Fixture & Recorded observation \\
+\midrule
+Star & 4 accepted messages; 748 charged bytes; 0 call reservations. All messages acknowledged; checker accepted the proposed sum. \\
+Recovery & 1 charged message; 1 task expired with unknown outcome. Delivery non-actionable; identical retry retained sequence 1. \\
+Gateway & 4 charged attempts, including a rejected sender forgery. Message received and acknowledged after restart; restart preserved the exhausted attempt budget. \\
+\bottomrule
+\end{tabularx}
+\end{table}
+The 17 October 2026 run used Rust/Cargo 1.99.0, SPIN 6.5.2 and GCC 13.3.0. Each model command had a 30-second, 512-MiB limit and depth 100,000. Positive results concern complete full-state searches of finite abstractions. Defect counterexamples demonstrate detection of specified faults; the unlimited-fault counterexample refutes unconditional progress. Witnesses establish reachability. These results support the declared controls, with implementation tests supplying correspondence evidence. They establish neither unrestricted implementation refinement nor improved answer quality.

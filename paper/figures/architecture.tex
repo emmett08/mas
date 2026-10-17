@@ -1,0 +1,19 @@
+\begin{tikzpicture}
+\node[box,fill=blue!7] (a) at (-4,2.8) {Hub};
+\node[box,fill=blue!7] (b) at (0,2.8) {Proposer};
+\node[box,fill=blue!7] (c) at (4,2.8) {Checker};
+\draw[<->,dashed,thick] (a)--(b);
+\draw[<->,dashed,thick] (b)--(c);
+\draw[<->,dashed,thick] (a.north) to[bend left=22] node[above,note]{Example mesh policy} (c.north);
+\node[box,text width=10cm] (h) at (0,1.1) {Trusted host\\Schedule work, provision capabilities and route replies};
+\draw[flow] (a.south)--(h.north -| a.south);
+\draw[flow] (b.south)--(h.north);
+\draw[flow] (c.south)--(h.north -| c.south);
+\node[box,fill=green!6,text width=10cm] (g) at (0,-.3) {Local IPC\\Capability gateway or trusted-host interface};
+\node[box,fill=green!6,text width=10cm] (p) at (0,-1.6) {Rust\\Envelope codec, admission rules and task transitions};
+\node[box,fill=green!6,text width=10cm] (s) at (0,-2.9) {SQLite\\Message identities, receipts, task state and budgets};
+\draw[flow] (h)--(g); \draw[flow] (g)--(p); \draw[flow] (p)--(s);
+\begin{scope}[on background layer]
+\node[draw,densely dotted,inner sep=6pt,fit=(g)(p)(s)] {};
+\end{scope}
+\end{tikzpicture}
