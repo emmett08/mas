@@ -54,7 +54,7 @@ jobs:
           test "$DOWNSTREAM_RESULT" = success
           test "$REFERENCE_RESULT" = success
   reference-host:
-    uses: emmett08/mas-reference-host/.github/workflows/check.yml@cffd4ba2a5634b7f3e737ac674c8fd42c59ea48b
+    uses: emmett08/mas-reference-host/.github/workflows/check.yml@11351c72675732214ee29c2b7c18755bcd5071f6
     with:
-      reference_host_ref: cffd4ba2a5634b7f3e737ac674c8fd42c59ea48b
+      reference_host_ref: 11351c72675732214ee29c2b7c18755bcd5071f6
       protocol_ref: ${{ github.sha }}
