@@ -90,6 +90,22 @@ class BridgeHealthTests(unittest.TestCase):
             ingress_health(missing, self.config, self.port)
         self.assertFalse(missing.exists())
 
+    def test_cli_service_types_share_public_readiness_card_without_construction(self):
+        from mas_host.bridges.a2a import A2ABridge
+        from mas_host.task_service import DurableTaskService
+        from mas_host.unified_service import UnifiedTaskService
+        from mas_host.shared_task_service import SharedTaskService
+        from mas_host.shared_service import SharedTaskFacade
+        endpoint = self.config["public_url"] + "/a2a"
+        expected = A2ABridge(self.service, endpoint=endpoint, allow_http=True).agent_card()
+        for service_type in (DurableTaskService, UnifiedTaskService,
+                             SharedTaskService, SharedTaskFacade):
+            with self.subTest(service=service_type.__name__), \
+                    patch.object(service_type, "__init__", side_effect=AssertionError("probe constructed service")), \
+                    patch.object(service_type, "discover", side_effect=AssertionError("probe read private registrations")):
+                actual = A2ABridge(service_type, endpoint=endpoint, allow_http=True).agent_card()
+                self.assertEqual(actual, expected)
+
     def test_shared_health_reads_native_authority_without_local_provision_or_renewal(self):
         calls = []
         class Authority:
