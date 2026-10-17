@@ -25,6 +25,9 @@ class SharedTaskService:
     def __init__(self, authority, cache_dir, workflows, grants, *, workflow_versions=None,
                  max_pending=1000, max_tasks=10000, max_revisions=32, supervised=True,
                  scheduler_policy=None, principal_quotas=None, gateway_bin=None):
+        registered = [*workflows.values(), *(value for versions in (workflow_versions or {}).values() for value in versions)]
+        if any(getattr(workflow, 'assessment_policies', None) for workflow in registered):
+            raise ServiceError('assessment_profile_requires_local_journal')
         self.authority = self.operations = authority
         self.state_dir = Path(cache_dir).absolute()
         self.state_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -289,6 +292,8 @@ class SharedTaskService:
 
     def execute_assignment(self, workflow, execution, *, ancestors=(), cancelled=None):
         """Execute a stable task or composition run through shared admission."""
+        if workflow.assessment_policies:
+            raise ServiceError('assessment_profile_requires_local_journal')
         from .executable_worker import ProfileExecutor
         workflow.verify_implementation()
         run_id = execution['run_id']

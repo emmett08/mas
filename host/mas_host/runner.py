@@ -66,7 +66,7 @@ class Context:
     never put API keys, credentials, sensitive prompts or raw exceptions there.
     """
 
-    def __init__(self, runner: Runner, actor: str, request_id: str):
+    def __init__(self, runner: Runner, actor: str, request_id: str, input: dict | None = None):
         self._runner = runner
         self._actor = actor
         self._request_id = request_id
@@ -76,6 +76,11 @@ class Context:
         self._recovery_required = False
         self._pending_invocation_id = None
         self._last_known_call = None
+        # Inline adapters receive the TaskRequest object directly. Preserve the
+        # original before their code can mutate that independently owned input.
+        assessment_enabled = actor in getattr(runner, "_assessment_policies", {})
+        self._assessment_input = json.loads(_json(input)) if assessment_enabled and input is not None else None
+        self._assessment_session = None
 
     @property
     def actor(self) -> str:
@@ -121,6 +126,33 @@ class Context:
         except RecoveryRequired:
             self._recovery_required = True
             raise
+
+    def assessment(self, operation: str, data: dict) -> dict:
+        """Validate and retain assessment records under registered host authority."""
+        self._check()
+        policy = self._runner._assessment_policies.get(self.actor)
+        if policy is None:
+            raise RunnerError("actor has no registered assessment authority")
+        runner = self._runner
+        inputs = json.loads(_json({"operation": operation, "data": data}))
+        key = self._step_key()
+        cached = runner._journal.step(key, "assessment_operation", inputs, {})
+        if cached:
+            return cached
+        self._bind_assessment()
+        result = self._assessment_session.execute(operation, data)
+        runner._journal.set_step(key, result)
+        return result
+
+    def _bind_assessment(self):
+        """Freeze nominated data in the parent before dispatching evaluator code."""
+        runner = self._runner
+        policy = runner._assessment_policies.get(self.actor)
+        if policy is not None and self._assessment_session is None:
+            from .assessment_journal import AssessmentJournal
+            self._assessment_session = AssessmentJournal(runner._journal, runner._command, runner._mas,
+                scope={"run_id": runner.run_id, "actor": self.actor, "request_id": self._request_id},
+                policy=policy, input=self._assessment_input, deadline=runner._assessment_deadline)
 
     def prepare_invocation(self, *, input: dict | None = None,
                            reservation_microusd: int | None = None,
@@ -373,8 +405,11 @@ class Runner:
                  protocol_client: ProtocolTransport | None = None, _resume_dir: Path | None = None,
                  execution_deadline: float | None = None, protocol_strategy: str = "command",
                  retry_policy: RetryPolicy | dict | None = None, circuit_breakers: dict | None = None,
-                 event_sink: Callable[[dict], None] | None = None, session_factory=None):
+                 event_sink: Callable[[dict], None] | None = None, session_factory=None,
+                 assessment_policies: dict | None = None):
         from .operations import DeploymentLedger
+        from .assessment_journal import assessment_policies as checked_assessment_policies
+        self._assessment_policies = checked_assessment_policies(assessment_policies, adapters)
         self._retry_policy = load_retry_policy(retry_policy)
         if event_sink is not None and not callable(event_sink):
             raise RunnerError("event sink must be callable")
@@ -440,6 +475,9 @@ class Runner:
             self._journal = self._session.journal
             self._tokens = self._session.tokens
             snapshot = self._session.snapshot
+            from .assessment_journal import freeze_assessment_policies
+            freeze_assessment_policies(self._journal, self._command, self._mas, self._assessment_policies)
+            self._assessment_deadline = int(snapshot["deadline"] * 1000)
             # Rust's persisted wall deadline is never renewed by restart. A
             # monotonic deadline additionally bounds this host process.
             self._deadline = time.monotonic() + max(0, snapshot["deadline"] - time.time())
@@ -641,11 +679,12 @@ class Runner:
         payload = message["payload"]
         request = TaskRequest(message["sender"], actor, payload["operation"], payload["input"],
                               payload["task_id"], request_id)
-        context = Context(self, actor, request_id)
+        context = Context(self, actor, request_id, request.input)
         self._active.append(request_id)
         try:
             terminal_id = "message-" + uuid.uuid4().hex
             try:
+                context._bind_assessment()
                 outcome = self._executor.execute(self._adapters[actor], context, request,
                                                  deadline=self._deadline, tick=self.status)
                 if context._recovery_required or context._pending_invocation_id is not None:
@@ -653,6 +692,8 @@ class Runner:
                 if (not isinstance(outcome, Outcome) or type(outcome.output) is not dict
                         or outcome.status not in ("completed", "unresolved")):
                     raise AdapterError("adapter returned an invalid outcome")
+                if context._assessment_session is not None:
+                    outcome = Outcome(context._assessment_session.final_result(outcome.output, outcome.status), outcome.status)
                 if context._ordinal != self._journal.child_count(request_id):
                     raise JournalError("workflow replay omitted recorded steps")
                 terminal_payload = {"task_id": request.task_id, "reply_to": request_id,

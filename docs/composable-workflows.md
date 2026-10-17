@@ -404,6 +404,138 @@ media type, size, content hash and explicit readers. Link references before
 handoff so live or unresolved work prevents pruning. See the complete
 [artefact API, access and retention contract](artifacts.md).
 
+## Candidate-bound agreement
+
+An existing quorum join counts branch outputs satisfying its versioned
+`acceptance.condition`. Opt in to candidate agreement when the reviewers must
+judge the same candidate against the same context:
+
+```json
+{
+  "mode": "quorum",
+  "minimum": 2,
+  "acceptance": {
+    "id": "incident-review", "version": "2",
+    "condition": {"path": ["accepted"], "equals": true}
+  },
+  "agreement": {
+    "version": "mas-candidate-quorum/1",
+    "candidate": {"path": ["candidate"], "type": "object"},
+    "context": {"path": ["review_context"], "type": "object"}
+  }
+}
+```
+
+The expected candidate is an exact `{"id":"…","sha256":"…"}` record
+reference. The context is a nonempty object containing the rubric, criteria,
+evidence references and other versions required by the application. Both are
+resolved from the parallel node's original input before branch allocation.
+Each completed branch must return `accepted:true`, that exact `candidate` and
+that exact `context`, in addition to satisfying the acceptance condition.
+Missing, foreign, stale or malformed values contribute no vote. JSON booleans
+and integers remain distinct.
+
+Agreement branches must be direct registered tasks with distinct recipient
+actors. Two workflow names targeting the same actor cannot contribute two
+votes. A configuration binding identifies each trusted workflow and target;
+workers cannot claim another voter identity in result JSON. Accepted winners
+use the existing immutable join decision and cancellation/drain mechanism.
+The result's `join.agreement` contains the resolved candidate, context,
+minimum and `binding_sha256`; `join.selected` identifies the retained branches.
+The journal also retains nonwinning task results. An old join without
+`agreement` keeps its original source identity and predicate-count semantics.
+
+Agreement is an application decision rule. Evaluator independence, factual
+correctness and permission to execute remediation require their own contracts.
+
+## Durable assessment and bounded revision in the Python host
+
+Register `Runner(assessment_policies={actor: policy})` or the equivalent optional
+`Workflow.assessment_policies` in trusted application code. The registration
+uses the local SQLite journal. Shared PostgreSQL runners, task services and
+composition services reject this profile before task/call admission; they never
+silently omit its assessment policy. The registration contains:
+
+```python
+policy = {
+    "format": "mas-assessment-policy/1",
+    "evaluator": {"id": "reviewer", "version": "checker-1", "kind": "deterministic"},
+    "rubric": rubric_record,
+    "candidate": {"path": ["candidate"], "type": "object"},
+    "evidence": {"path": ["evidence"], "type": "array"},
+    "max_revisions": 1,
+    "feedback_visibility": "full",
+    "max_feedback": 4,
+    "max_feedback_bytes": 12000,
+}
+```
+
+The selectors nominate the complete candidate and evidence records from the
+original request input. Before dispatching evaluator code, the parent
+validates those records through the Rust `mas assessment -` command and retains
+the frozen invocation. Evaluation authority comes from registration, including
+the full evaluator version and rubric. It never comes from a worker's result.
+An existing run with admitted requests cannot gain assessment authority during
+recovery, and changing retained registration rejects recovery.
+
+A registered evaluator must return `Outcome({"assessment": exact_reference})`
+or include that `assessment` reference alongside its other output fields. The
+parent resolves the retained Assessment and revalidates its complete frozen
+context before permitting the terminal Result. Skipping assessment, fabricating
+a reference or supplying a contradictory `accepted`/`passes` value fails the
+task. The host derives `accepted`, `passes`, candidate, rubric and evidence
+references, and marks the resulting output `profile:"mas-assessment-result/1"`.
+This is a host receipt, distinct from standard `assessment.v1` carriage that
+also requires the envelope's message and sender identities to match the record.
+The final reference, task status and receipt are immutable in the run journal;
+restart cannot replace a retained evaluator error with another final judgement.
+A completed assessment cannot be returned with an unresolved outer task.
+
+By default the receipt's `context` contains the exact rubric and evidence
+references. An optional registered `context` selector can nominate a nonempty
+object from the original input when an application also needs experiment or
+criterion versions for agreement. The parent freezes that value and rejects a
+worker-supplied replacement. It retains the authoritative rubric and evidence
+references separately, so application context fields cannot change them.
+
+Adapters call `context.assessment(operation, data)` through the same parent-owned
+IPC boundary as other host operations:
+
+| Operation | Data | Retained result |
+|---|---|---|
+| `candidate` | Original nominated candidate record | Exact reference; identical insertion is idempotent. |
+| `evidence` | One originally nominated evidence record | Exact reference; worker-selected replacements are rejected. |
+| `assess` | `assessment.v1` Assessment record | Contextually validated reference and `passes` judgement. |
+| `reserve_revision` | `{"request_key":"revision-1","parent": exact_reference}` | Frozen revision input containing original input, parent, selected feedback, policy, original `deadline_ms` and revision ordinal. |
+| `complete_revision` | `{"request_key":"revision-1","candidate": revised_record}` | Exact revised reference bound to that reservation's parent and feedback. |
+
+The host seeds the original candidate/evidence automatically. It accepts
+assessments only for that candidate or a completed reserved revision in the
+same lineage. Rust validates rubric coverage, evaluator authority, every exact
+candidate/rubric/evidence reference, error status and revision feedback links.
+SQLite `BEGIN IMMEDIATE` protects validation-dependent reads, immutable history
+insertion and revision allocation within the existing run journal. A conflicting
+record under an existing identity is rejected; distinct assessment identities
+preserve conflicting findings. Completed, inconclusive and evaluator-error
+records use the same durable replay path.
+
+`feedback_visibility:"withheld"` supplies no assessment records to revision.
+`"full"` supplies all retained assessments for the selected parent within the
+declared count and byte limits; exceeding a limit rejects the reservation rather
+than silently dropping a finding. Identical reservation replay returns the exact
+original context even when later assessments exist. A revised candidate must
+reference exactly the disclosed feedback. Withheld-feedback resampling therefore
+has no feedback links. The count limit cannot be reset by restarting the host.
+
+Use `context.invoke(generate, input=frozen_revision_input, ...)` for the actual
+generation effect, then `complete_revision` for its candidate. The existing
+prepared/executing/unknown invocation journal, inherited budgets and original
+run deadline still control execution. A lost provider response requires explicit
+reconciliation; a revision reservation does not authorise another dispatch.
+Feedback changes neither task routes nor call limits nor remediation permission.
+Disclosure concerns host-assembled inputs under the existing trusted-worker
+boundary; it does not isolate shared files or provider memory.
+
 ## Compatibility and evidence
 
 These features leave the Rust wire format unchanged. Topology composition is

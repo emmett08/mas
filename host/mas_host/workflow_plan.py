@@ -79,7 +79,7 @@ def _join(value: object, branches: int) -> None:
     if branches > 32:
         raise ServiceError("workflow_join_branch_limit")
     _fields(value, {"mode", "acceptance"}, "invalid_workflow_join",
-            optional=frozenset({"minimum"}))
+            optional=frozenset({"minimum", "agreement"}))
     if value["mode"] not in ("all", "quorum", "first-accepted"):
         raise ServiceError("invalid_workflow_join")
     acceptance = value["acceptance"]
@@ -93,6 +93,14 @@ def _join(value: object, branches: int) -> None:
         _integer(value.get("minimum"), 1, branches)
     elif "minimum" in value:
         raise ServiceError("invalid_workflow_join")
+    if "agreement" in value:
+        from .workflow_agreement import AGREEMENT_VERSION
+        agreement = value["agreement"]
+        _fields(agreement, {"version", "candidate", "context"}, "invalid_workflow_agreement")
+        if value["mode"] != "quorum" or agreement["version"] != AGREEMENT_VERSION:
+            raise ServiceError("invalid_workflow_agreement")
+        _selector(agreement["candidate"], result_type="object")
+        _selector(agreement["context"], result_type="object")
 
 
 def _path(path: object, code: str) -> None:
@@ -212,6 +220,9 @@ def _validate_node(node: object, depth: int = 1) -> int:
             _name(name)
         if "join" in node:
             _join(node["join"], len(branches))
+            if "agreement" in node["join"] and any(type(child) is not dict or child.get("kind") != "task"
+                                                   for child in branches.values()):
+                raise ServiceError("workflow_agreement_requires_tasks")
         return 1 + sum(_validate_node(child, depth + 1) for child in branches.values())
     if kind == "recover":
         _fields(node, {"kind", "body", "on_failure"}, optional=frozenset({"compensation"}))
@@ -388,6 +399,12 @@ def _registry(plans: Mapping[str, WorkflowPlan], workflows: Mapping[str, Workflo
         if kind == "sequence":
             children = [node_expansion(child) for child in node["steps"]]
         elif kind == "parallel":
+            if "agreement" in node.get("join", {}):
+                recipients = [workflows[child["workflow"]].recipient
+                              for child in node["branches"].values()
+                              if child["workflow"] in workflows]
+                if len(set(recipients)) != len(recipients):
+                    raise ServiceError("workflow_agreement_requires_distinct_actors")
             children = [node_expansion(child) for child in node["branches"].values()]
         elif kind == "recover":
             children = [node_expansion(node["body"]), node_expansion(node["on_failure"])]
