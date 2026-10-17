@@ -22,6 +22,7 @@ from .remote_http import BoundedJSONHTTP, endpoint_url
 VERSION = '1.0'
 SERVICE_PROFILE = 'urn:mas:task-service:1'
 LIFECYCLE_PROFILE = 'urn:mas:lifecycle-inspection:1'
+BOUNDED_PROFILE = 'urn:mas:bounded-json:1'
 LIFECYCLE_METHODS = {
     'mas/ListTaskPage': ('list_task_page', set(), {'page_size', 'after', 'state', 'metadata', 'updated_after'}),
     'mas/InspectTask': ('inspect_task', {'task_id', 'path'}, {'revision'}),
@@ -147,19 +148,55 @@ def _parts(value, *, application=False):
 class A2ABridge:
     def __init__(self, service: TaskService, *, endpoint: str = 'https://localhost/a2a',
                  workflow: str = 'default', name: str = 'MAS', wait_seconds: int = 20,
-                 allow_http: bool = False):
+                 allow_http: bool = False, required_extensions=()):
         self.service, self.endpoint = service, endpoint_url(endpoint, allow_http=allow_http)
         self.workflow, self.name = workflow, name
         if type(wait_seconds) is not int or not 1 <= wait_seconds <= 60:
             raise ServiceError('invalid_wait_timeout')
         self.wait_seconds = wait_seconds
+        if (type(required_extensions) not in (tuple, list, set, frozenset)
+                or any(type(value) is not str for value in required_extensions)
+                or len(set(required_extensions)) != len(required_extensions)
+                or not set(required_extensions) <= self._supported_extensions()):
+            raise ServiceError('invalid_required_extensions')
+        self.required_extensions = frozenset(required_extensions)
+
+    def _supported_extensions(self):
+        supported = {BOUNDED_PROFILE}
+        if callable(getattr(self.service, 'discover', None)):
+            supported.add(SERVICE_PROFILE)
+            if any(callable(getattr(self.service, target, None))
+                   for target, _, _ in LIFECYCLE_METHODS.values()):
+                supported.add(LIFECYCLE_PROFILE)
+        return supported
+
+    def _extensions(self, metadata):
+        headers = {k.lower(): v for k, v in (metadata or {}).items()}
+        raw = headers.get('a2a-extensions', '')
+        if type(raw) is not str or len(raw) > 4096:
+            raise A2AError(-32602, 'invalid_extensions')
+        requested = [value.strip() for value in raw.split(',')] if raw else []
+        if (len(requested) > 8 or len(set(requested)) != len(requested)
+                or any(not value or len(value) > 512 or
+                       any(ord(c) < 33 or ord(c) > 126 for c in value) for value in requested)):
+            raise A2AError(-32602, 'invalid_extensions')
+        if not set(requested) <= self._supported_extensions():
+            raise A2AError(-32004, 'extension_not_supported')
+        if not self.required_extensions <= set(requested):
+            raise A2AError(-32008, 'extension_support_required')
 
     def agent_card(self) -> dict:
         return {'name': self.name, 'description': 'Bounded durable MAS workflows. Send one JSON data part with workflow and input; use returnImmediately for polling.',
                 'version': '1.0.0',
                 'supportedInterfaces': [{'url': self.endpoint, 'protocolBinding': 'JSONRPC', 'protocolVersion': VERSION}],
                 'capabilities': {'streaming': False, 'pushNotifications': False,
-                                 'extendedAgentCard': callable(getattr(self.service, 'discover', None))},
+                                 'extendedAgentCard': callable(getattr(self.service, 'discover', None)),
+                                 'extensions': [dict(uri=uri, required=uri in self.required_extensions,
+                                     **({'params': {'format': 'mas-bounded-json/1', 'inputParts': 1,
+                                         'mediaType': 'application/json', 'numbers': 'exact-integers',
+                                         'maxRequestBytes': 65536, 'unknownOutcome': 'reconcile-original-identity'}}
+                                        if uri == BOUNDED_PROFILE else {}))
+                                     for uri in sorted(self._supported_extensions())]},
                 'securitySchemes': {'bearer': {'httpAuthSecurityScheme': {'scheme': 'Bearer'}}},
                 'securityRequirements': [{'schemes': {'bearer': {'list': []}}}],
                 'defaultInputModes': ['application/json'], 'defaultOutputModes': ['application/json'],
@@ -173,13 +210,25 @@ class A2ABridge:
         if not callable(discover):
             raise A2AError(-32004, 'operation_not_supported')
         card = self.agent_card()
-        card['capabilities']['extensions'] = [{'uri': SERVICE_PROFILE, 'required': False,
+        discovered = discover(principal)
+        card['skills'].extend({'id': 'registration:' + item['name'], 'name': item['name'],
+            'description': 'Authorised registered ' + item.get('kind', 'workflow') +
+                           '; submit its name in the workflow field.',
+            'tags': ['nehemiah', 'registered-workflow', 'integer-json'],
+            'inputModes': ['application/json'], 'outputModes': ['application/json']}
+            for item in discovered.get('registrations', []) if item.get('available') is True)
+        card['capabilities']['extensions'] = [item for item in card['capabilities']['extensions']
+                                              if item['uri'] == BOUNDED_PROFILE]
+        card['capabilities']['extensions'].append({'uri': SERVICE_PROFILE,
+            'required': SERVICE_PROFILE in self.required_extensions,
             'description': 'MAS pinned durable task-service lifecycle, version 1.',
-            'params': {'service': discover(principal)}}]
-        card['capabilities']['extensions'].append({'uri': LIFECYCLE_PROFILE, 'required': False,
-            'description': 'MAS bounded graph, leaf and event inspection and evidence-resolved recovery.',
-            'params': {'methods': sorted(name for name, (target, _, _) in LIFECYCLE_METHODS.items()
-                                         if callable(getattr(self.service, target, None)))}})
+            'params': {'service': discovered}})
+        if LIFECYCLE_PROFILE in self._supported_extensions():
+            card['capabilities']['extensions'].append({'uri': LIFECYCLE_PROFILE,
+                'required': LIFECYCLE_PROFILE in self.required_extensions,
+                'description': 'MAS bounded graph, leaf and event inspection and evidence-resolved recovery.',
+                'params': {'methods': sorted(name for name, (target, _, _) in LIFECYCLE_METHODS.items()
+                                             if callable(getattr(self.service, target, None)))}})
         return card
 
     def _lifecycle(self, principal, method, params):
@@ -331,6 +380,7 @@ class A2ABridge:
         request_id = message.get('id') if type(message) is dict else None
         try:
             method, params = validate_request(message, metadata)
+            self._extensions(metadata)
             if method in LIFECYCLE_METHODS:
                 result = self._lifecycle(principal, method, params)
             elif method == 'SendMessage':

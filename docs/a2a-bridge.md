@@ -1,5 +1,11 @@
 # A2A 1.0 bridge
 
+This is the transitional Python-host bridge for the **Nehemiah protocol**
+(existing MAS wire and package identifiers are unchanged). New host development
+belongs in [mas-host](https://github.com/emmett08/mas-host). The Python host will
+be removed only after its required integrations have migrated; this guide does
+not imply feature parity between the two hosts.
+
 The bridge implements the A2A **1.0 JSON-RPC polling binding**, checked against
 the v1.0.1 specification and its published generated schema. It uses
 `SendMessage`, `GetTask`, `ListTasks` and `CancelTask`, `ROLE_USER`/`ROLE_AGENT`,
@@ -9,10 +15,29 @@ uses `A2A-Version: 1.0`; caller authentication and operation scopes are enforced
 by the HTTP boundary before a bridge method runs.
 
 The card advertises JSON input/output, bearer authentication, one JSON-RPC
-interface, and **no streaming, push notifications or extended card**. It uses
+interface, and **no streaming or push notifications**. An authenticated extended
+card is available when the task service implements discovery. It uses
 the normative `securityRequirements` field; some prose examples in the A2A
 website still show the older `security` field. The frozen upstream schema tests
 reject that older field.
+
+The public card describes the service without listing private registrations.
+The extended card derives standard `AgentSkill` entries from the caller's
+available registrations; complete pinned contracts remain in the service
+extension. A skill description grants no permission and does not attest output
+quality. The existing service rechecks grants during invocation.
+
+`urn:mas:bounded-json:1` describes the single JSON data part, exact-integer
+numeric profile, request bound and reconciliation rule. The service and lifecycle
+extensions retain their existing URIs. Clients select supported versions with
+`A2A-Extensions`; unknown versions fail before task dispatch. Successful HTTP
+responses acknowledge the selected extensions. Managed MAS peers send their
+pinned service and bounded-JSON profiles. Optional profiles preserve existing calls
+without this header. An embedding application may pass `required_extensions`
+to `A2ABridge`; those extensions are marked required in both cards and missing
+support produces A2A error `-32008`. Public card retrieval remains available
+before negotiation. Do not make an optional profile required in an existing
+deployment without migrating its callers.
 
 ## Inbound use
 

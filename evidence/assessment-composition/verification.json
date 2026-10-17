@@ -1,0 +1,162 @@
+{
+  "schema": "mas-assessment-composition-evidence/1",
+  "status": "FINITE_MODELS_AND_SELECTED_NATIVE_TRACES_CHECKED",
+  "source_commit": "06c78031c38fb1d3f88dd01bf1678918de20dad5",
+  "completed_utc": "2026-10-17T11:38:40.557592+00:00",
+  "formal_cases": 24,
+  "formal_checks": 26,
+  "purposes": {
+    "standalone_safety_and_bounded_progress": 2,
+    "deliberate_defect": 11,
+    "reachability_witness": 4,
+    "shared_implementation_trace": 7
+  },
+  "positive_searches": [
+    {
+      "property": "safety",
+      "partial_order_reduction": true,
+      "status": "COMPLETE_NO_ERRORS",
+      "stored_states": 17854
+    },
+    {
+      "property": "assessment_composition_settles",
+      "partial_order_reduction": true,
+      "status": "COMPLETE_NO_ERRORS",
+      "stored_states": 11182
+    },
+    {
+      "property": "safety",
+      "partial_order_reduction": false,
+      "status": "COMPLETE_NO_ERRORS",
+      "stored_states": 17854
+    },
+    {
+      "property": "assessment_composition_settles",
+      "partial_order_reduction": false,
+      "status": "COMPLETE_NO_ERRORS",
+      "stored_states": 11182
+    }
+  ],
+  "native_trace_count": 7,
+  "native_commands": [
+    {
+      "command": [
+        "/root/.cargo/bin/cargo",
+        "test",
+        "--locked",
+        "--offline",
+        "--manifest-path",
+        "rust-protocol/Cargo.toml",
+        "--test",
+        "assessment_composition"
+      ],
+      "returncode": 0,
+      "log": "native-traces.log",
+      "log_sha256": "aa21de0eab44eea8d11a14c00f38ed6be66021060dac2c5725133b2604aa1440"
+    },
+    {
+      "command": [
+        "/root/.cargo/bin/cargo",
+        "test",
+        "--locked",
+        "--offline",
+        "--manifest-path",
+        "rust-protocol/Cargo.toml",
+        "--bin",
+        "verify"
+      ],
+      "returncode": 0,
+      "log": "verifier-unit.log",
+      "log_sha256": "b709fe02af435fba7d5ab9473028c26a2f35430e91a2d10706588c4fc09352b7"
+    }
+  ],
+  "contract": {
+    "assumptions": [
+      "Atomic durable repository and host journal commits; exact typed equality and collision-free digests",
+      "Finite participant actions and provider responses, or terminal unknown after restart; no physical deadline claim",
+      "Cancellation is a host workflow stop signal as well as an attempted task cancellation",
+      "A valid assessment is retained evidence, not permission for another call or external effect",
+      "Native shared traces check Store and assessment APIs; dispatch and cancellation policy remain explicit host-adapter obligations, not whole-system refinement"
+    ],
+    "bounds": {
+      "actors": 2,
+      "candidate_values": 2,
+      "evaluation_calls": 1,
+      "request_identities": 1,
+      "restart": 1,
+      "revision_calls": 1,
+      "same_identity_retry": 1,
+      "scoped_observations": 2
+    },
+    "corpus_sha256": "462ac3dc3f799cc5c34c8e9e8fade4e3aa62e68ea33988ee58580f8b11ffa95e",
+    "correspondence": "formal/assessment-composition-notes.md",
+    "model_sha256": "0d3d54f2dd2081ab9be64169752279a8046785d0124f4dc9a96565603f06d903",
+    "runner_module_sha256": "857f3ee98724faf49de569af0bf90f3158f863b847f6d76ab72a4d1861be9fc0",
+    "schema": "mas-assessment-composition-verification/1"
+  },
+  "limits": {
+    "depth": 100000,
+    "memory_mb": 512,
+    "seconds_per_command": 30
+  },
+  "source_sha256": {
+    "formal/assessment-composition-traces.json": "462ac3dc3f799cc5c34c8e9e8fade4e3aa62e68ea33988ee58580f8b11ffa95e",
+    "formal/assessment-composition.pml": "0d3d54f2dd2081ab9be64169752279a8046785d0124f4dc9a96565603f06d903",
+    "rust-protocol/Cargo.lock": "946062c2180e1fcc949e1e1c2f2662e1507b3dc89b6a690a52bf591d59e1eaf3",
+    "rust-protocol/Cargo.toml": "ef4b93a1cf6ed310000e15535e198c7abdd5f081972be69e09904c9b7f12b25b",
+    "rust-protocol/src/admission.rs": "75f32786f657ea4c4809f85b523d98ab8eab6ded7d4967ee68b802c5a41610dd",
+    "rust-protocol/src/assessment/helpers.rs": "2a4ba86fd9d37091d71eeafc6d15e923f7492d51773aa19cb6b7bd0a9b0df81a",
+    "rust-protocol/src/assessment/history.rs": "e3ed90a89304ef775bf46619e0baff5f8c3103eaf8a1ca343631741c631e2ec1",
+    "rust-protocol/src/assessment/records.rs": "f99a9a313251b9351888246ecb11a7745ba7ea05ad4e30e61fd252ffef0045ff",
+    "rust-protocol/src/assessment/validation.rs": "e832c7b0710b0b97c3f598f5f7f048688f9d5d472ad0a3757d5617c67e8e14e4",
+    "rust-protocol/src/assessment.rs": "caef9b0e074366c1b20b3f030f31b8cb2ee13e1b9f5044a5c91fb7b0380d4c1a",
+    "rust-protocol/src/bin/mas/assessment.rs": "73ca17c4e43202388654c9920fc05054e7570a83a0f1438ac1567c2bf67a318c",
+    "rust-protocol/src/bin/mas-gateway.rs": "0878bc72b0df3cbfbe18972b01f303096fef8822fb0b9a0b1caa532323f345ce",
+    "rust-protocol/src/bin/mas-shared.rs": "0cbcf04dedae67340fa3d334dc98e872e551a9d53c838362d4fd6d7d771940ae",
+    "rust-protocol/src/bin/mas.rs": "8eadc1fe167d9c145dd50883c449c7c82517f218caa8a5a446f8e0aa670a1ba0",
+    "rust-protocol/src/bin/verify/assessments.rs": "19d5219050a8792ad4deb01417b7e0f88c1e00a8dafef188b2bacecd4c09b272",
+    "rust-protocol/src/bin/verify/authority.rs": "7f8204ba1e2b13fc006b41c4b5f7698f24303b9876c8f871bf9830a2366992dd",
+    "rust-protocol/src/bin/verify/composition.rs": "857f3ee98724faf49de569af0bf90f3158f863b847f6d76ab72a4d1861be9fc0",
+    "rust-protocol/src/bin/verify/hybrid.rs": "ad9d649b6b2e5a93794fc10c721637177d132db8a9146ab1cd003d2937d122f8",
+    "rust-protocol/src/bin/verify/operations.rs": "cd54c876775b7349e5a05e10f0e7bc99e71ccd59ab1e0a59bd7b789765e344d6",
+    "rust-protocol/src/bin/verify.rs": "ffd8a8232738cd4e6c403ef73a9493bc82e87167248a50adfcdcd56e6e7f8c13",
+    "rust-protocol/src/examples.rs": "e8cd24c0f477820129e1f4893aa22a8cbca8c509acee633813db61fd5e097e25",
+    "rust-protocol/src/gateway.rs": "b43aa698943567b0c7ccc604a2e8e1c7ef3c9e59f18ce90f50be983aac468b52",
+    "rust-protocol/src/gateway_checked.rs": "9192344fd336b8ae721097dd20b1454a434efcbd07b718e5e6ba7308e1eda14c",
+    "rust-protocol/src/host_ipc.rs": "51fa08ccd20724ce93e07c1e6efeb1b66662e8ebdbac5a80de0d2a4eb8397ddc",
+    "rust-protocol/src/lib.rs": "adcc37d27e714e477e63b4766f142f81ec03da625a64b72219b552cb305577cc",
+    "rust-protocol/src/main.rs": "8e09c0ddd8a930d21a118ccf901cf74d66ae77b988ad0fe4fc3f777a169c101d",
+    "rust-protocol/src/observation.rs": "1c4b2327243df136620a85ed5b40a0b7863f4e164a41cc617049ae8e8eacaffb",
+    "rust-protocol/src/postgres_repository.rs": "e676050e2f5d562da6aae864521e29a011cfac1e8bdfec0175462be1a1d035b5",
+    "rust-protocol/src/repository.rs": "63d104ce64ebff8d0b2cc09899399609950d01095671cd54ff5b260b7839170c",
+    "rust-protocol/src/shared_accounting.rs": "748e274f326993b7d604d0454fd77574a154d5e360a8694888d688e970af1aae",
+    "rust-protocol/src/shared_archive.rs": "191157df8abda358f4040c92c1886dc09138026704a2e08e7d1b35da56ebd4e2",
+    "rust-protocol/src/shared_artifacts.rs": "2f2de0cf6d3950cd85b707b1bd80bc15b831206ae21ba86107da8d1270de8d59",
+    "rust-protocol/src/shared_backup.rs": "37fa996cadbcecda878b59c9f3259adb1dde494a6b39a6a2be425cf631508cf5",
+    "rust-protocol/src/shared_commands.rs": "36df7141c90c4cee31020b041cde01d2a411d5feaf0b72a7700cf2c27095572a",
+    "rust-protocol/src/shared_composition.rs": "947d30793584601b50cbcd4a682e11fff1e483a2a30e8bfc034d31c807993e09",
+    "rust-protocol/src/shared_control.rs": "5131058a0233eecfa9b95f76abc2d7e6fb990a3aec0cd54544ee866f990255c7",
+    "rust-protocol/src/shared_host.rs": "3b442f6299c9bd2c9c9d71e2a5378f756f4d44aa7c04e154bbe885469d254606",
+    "rust-protocol/src/shared_jobs.rs": "95dbc570ddf84e7b8e323cf66ce586e2a0f102fe438295a1743a42ed9adb9ffe",
+    "rust-protocol/src/shared_leadership.rs": "d0a915ddd68d321dcd5c0647f1a73bf99aeb5452e47f4bd60a04db1dac90dd45",
+    "rust-protocol/src/shared_remote.rs": "98c074c88e637ee280b5e9d004cf13de7ed5cb652329eff506763e464d4cffb5",
+    "rust-protocol/src/shared_tasks.rs": "a804d1f161a53929549b06c9f806ef8392c121b97647dde7e65ae2449c7f9aaf",
+    "rust-protocol/src/shared_timing.rs": "4ff6fb37d23bc5c9c904fd71b586a1d6308ba4e212e102f9bd05f54a37200d28",
+    "rust-protocol/src/shared_transfers.rs": "1820cbde8e0eabb767e920e9a9188f4c48c925ec6f38ea7ee6745328a5237a97",
+    "rust-protocol/src/store.rs": "3f6e2bc91de309dd4cd90de0b3b12fd4fa97632f57b1d54619170423ee744516",
+    "rust-protocol/src/store_schema.rs": "e4058ffe04efc9885ed9c3b0299be360f25acd68ddd3626ee11da6078bb6fb1b",
+    "rust-protocol/src/tasks.rs": "2ffab4245972b860a04ea8c068f1baaf6589bafa5b70292639b174e0dd615f8a",
+    "rust-protocol/src/worker_supervisor.rs": "70f0629158563078cd19ff92ab815bf2e764324d61f803880220fe84d703b4d8",
+    "rust-protocol/tests/assessment_composition.rs": "e0664967745f9349b0723c5aead83bfd823140262f13458e24a3f627856fdb60"
+  },
+  "raw_evidence": {
+    "path": "spin-checks.zip",
+    "sha256": "425b864748daa2d064e424a6c89cafac3bf2e2a781ee1d34b56d63204851666a"
+  },
+  "limitations": [
+    "Complete finite model under declared atomicity and finite-response assumptions; no unrestricted Rust/Python refinement.",
+    "Seven native traces cover selected Store/assessment boundaries, with host dispatch and workflow-stop policy represented by an explicit test adapter.",
+    "No real provider calls, measured diagnosis improvement, network-security or physical-deadline claim."
+  ],
+  "independent_review": "Root agent independently reviewed the model/property boundary and requested the added post-completion workflow-stop trace."
+}

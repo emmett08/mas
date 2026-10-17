@@ -1,0 +1,163 @@
+{
+  "schema": "mas-assessment-composition-traces/1",
+  "traces": [
+    {
+      "name": "absent-before-late-commit-and-exact-retry",
+      "actions": [
+        "Observe",
+        "Commit",
+        "Resume",
+        "ForeignObserve",
+        "Receive",
+        "Reserve",
+        "Dispatch",
+        "Assess",
+        "Reply",
+        "Revise",
+        "RevDispatch",
+        "RevComplete",
+        "Restart"
+      ],
+      "expected": {
+        "stored": true,
+        "received": true,
+        "terminal": 1,
+        "reserved": true,
+        "assessment": true,
+        "revision": true,
+        "unknown": false
+      }
+    },
+    {
+      "name": "restart-after-dispatch-preserves-unknown-reservation",
+      "actions": [
+        "Commit",
+        "Receive",
+        "Reserve",
+        "Dispatch",
+        "Restart"
+      ],
+      "expected": {
+        "stored": true,
+        "received": true,
+        "terminal": 0,
+        "reserved": true,
+        "assessment": false,
+        "revision": false,
+        "unknown": true
+      }
+    },
+    {
+      "name": "cancel-before-assessment-retains-evidence-without-terminal-overwrite",
+      "actions": [
+        "Commit",
+        "Receive",
+        "Reserve",
+        "Dispatch",
+        "Cancel",
+        "Assess",
+        "Reply",
+        "Revise"
+      ],
+      "expected": {
+        "stored": true,
+        "received": true,
+        "terminal": 2,
+        "reserved": true,
+        "assessment": true,
+        "revision": false,
+        "unknown": false
+      }
+    },
+    {
+      "name": "expiry-before-reply-and-revision",
+      "actions": [
+        "Commit",
+        "Receive",
+        "Reserve",
+        "Dispatch",
+        "Assess",
+        "Expire",
+        "Reply",
+        "Revise",
+        "Resume"
+      ],
+      "expected": {
+        "stored": true,
+        "received": true,
+        "terminal": 3,
+        "reserved": true,
+        "assessment": true,
+        "revision": false,
+        "unknown": false
+      }
+    },
+    {
+      "name": "restart-reuses-retained-assessment",
+      "actions": [
+        "Commit",
+        "Receive",
+        "Reserve",
+        "Dispatch",
+        "Assess",
+        "Restart",
+        "Reply",
+        "Revise"
+      ],
+      "expected": {
+        "stored": true,
+        "received": true,
+        "terminal": 1,
+        "reserved": true,
+        "assessment": true,
+        "revision": true,
+        "unknown": false
+      }
+    },
+    {
+      "name": "expiry-after-revision-reservation-before-dispatch",
+      "actions": [
+        "Commit",
+        "Receive",
+        "Reserve",
+        "Dispatch",
+        "Assess",
+        "Reply",
+        "Revise",
+        "Expire",
+        "Restart"
+      ],
+      "expected": {
+        "stored": true,
+        "received": true,
+        "terminal": 1,
+        "reserved": true,
+        "assessment": true,
+        "revision": true,
+        "unknown": true
+      }
+    },
+    {
+      "name": "workflow-stop-after-task-completed",
+      "actions": [
+        "Commit",
+        "Receive",
+        "Reserve",
+        "Dispatch",
+        "Assess",
+        "Reply",
+        "Cancel",
+        "Revise"
+      ],
+      "expected": {
+        "stored": true,
+        "received": true,
+        "terminal": 1,
+        "reserved": true,
+        "assessment": true,
+        "revision": false,
+        "unknown": false
+      }
+    }
+  ]
+}
