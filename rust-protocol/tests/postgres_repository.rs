@@ -182,6 +182,50 @@ fn typed_admission_and_read_only_observation_agree_across_backends() {
 
 #[test]
 #[ignore = "requires MAS_TEST_POSTGRES_DSN and an actual PostgreSQL server"]
+fn hybrid_return_routes_and_scoped_identity_observations_agree_across_backends() {
+    fn contract<R: ProtocolRepository>(repository: &mut R) -> Vec<Value> {
+        let mut one_way=configuration(); one_way["edges"]=json!([["a","b"]]);
+        repository.create_run("r",&one_way).unwrap();
+        let mut output=vec![repository.send_checked(&request(),"a").unwrap_err().to_value()];
+        let untouched=repository.observe("r",false).unwrap();
+        assert_eq!(untouched["run"]["usage"],json!({"messages":0,"bytes":0,"calls":0}));
+        assert_eq!(untouched["messages"],json!([])); assert_eq!(untouched["tasks"],json!([])); assert_eq!(untouched["calls"],json!([]));
+        one_way["application"]=Value::Null;
+        repository.create_run("generic",&one_way).unwrap();
+        let mut notice=request(); notice.run_id="generic".into(); notice.kind="Notice".into();
+        output.push(repository.send_checked(&notice,"a").unwrap());
+        output.push(repository.reconcile_message("generic","a","q").unwrap());
+        output.push(repository.reconcile_message("generic","b","q").unwrap());
+        output.push(repository.reconcile_message("r","a","q").unwrap());
+        repository.receive("generic","b",1).unwrap(); repository.ack("generic","q","b").unwrap();
+        output.push(repository.reconcile_message("generic","a","q").unwrap());
+        output
+    }
+    let fixture=Fixture::new();
+    let path=std::env::temp_dir().join(format!("mas-pg-hybrid-{}.sqlite",std::process::id()));
+    let mut local=Store::open(&path).unwrap();
+    assert_eq!(contract(&mut local),contract(&mut fixture.open()));
+    drop(local); std::fs::remove_file(path).unwrap();
+}
+
+#[test]
+#[ignore = "requires MAS_TEST_POSTGRES_DSN and an actual PostgreSQL server"]
+fn retained_postgres_one_way_request_remains_idempotent_without_migration() {
+    let fixture=Fixture::new(); let mut repository=fixture.open();
+    let mut one_way=configuration(); one_way["edges"]=json!([["a","b"]]);
+    repository.create_run("r",&one_way).unwrap();
+    let content=request().to_value().to_string();
+    let mut admin=fixture.admin();
+    let sequence:i64=admin.query_one("INSERT INTO messages(run,id,sender,recipient,content) VALUES('r','q','a','b',$1) RETURNING seq",&[&content]).unwrap().get(0);
+    admin.execute("INSERT INTO tasks(run,id,request_id) VALUES('r','task','q')",&[]).unwrap();
+    admin.execute("UPDATE runs SET message_count=1,byte_count=$1 WHERE id='r'",&[&(content.len() as i64)]).unwrap();
+    assert_eq!(repository.send_checked(&request(),"a").unwrap(),json!({"accepted":true,"duplicate":true,"sequence":sequence}));
+    let mut fresh=request(); fresh.message_id="fresh".into(); fresh.payload["task_id"]=json!("fresh");
+    assert_eq!(repository.send_checked(&fresh,"a").unwrap_err().code,mas_protocol_codec::admission::AdmissionCode::ForbiddenRoute);
+}
+
+#[test]
+#[ignore = "requires MAS_TEST_POSTGRES_DSN and an actual PostgreSQL server"]
 fn postgres_observation_retains_expiry_and_enforces_authority_and_lease() {
     let fixture=Fixture::new(); let mut repository=fixture.open();
     repository.create_run("r",&configuration()).unwrap();

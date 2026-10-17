@@ -1,4 +1,6 @@
 //! Administrative local adapter. Agent inputs belong at the authenticated gateway.
+#[path = "mas/assessment.rs"]
+mod assessment;
 use mas_protocol_codec::{encode_message, parse_message, MAX_BYTES, MAX_DEPTH};
 use mas_protocol_codec::store::Store;
 use serde_json::{json, Value};
@@ -31,7 +33,8 @@ fn execute(args: &[String]) -> Result<Value, String> {
             "mas finish DB RUN ACTOR CALL_ID EVIDENCE.json",
             "mas demo TOPOLOGY.json [OUTPUT.json]",
             "mas parse MESSAGE.txt",
-            "mas encode MESSAGE.json"
+            "mas encode MESSAGE.json",
+            "mas assessment COMMAND.json"
         ], "db": "absolute SQLite path", "stdin": "use - as input filename", "identity": "actor is a trusted local host assertion, not authentication"}));
     }
     if command == "parse" {
@@ -41,6 +44,10 @@ fn execute(args: &[String]) -> Result<Value, String> {
     if command == "encode" {
         if args.len()!=2 { return Err("encode needs one file".into()); }
         return encode_message(&read(arg(args,1)?)?, MAX_BYTES, MAX_DEPTH).map(|s|json!({"text":s})).map_err(|e|e.message);
+    }
+    if command == "assessment" {
+        if args.len()!=2 { return Err("assessment needs one file".into()); }
+        return assessment::execute(&read(arg(args,1)?)?);
     }
     if command == "demo" {
         if !(2..=3).contains(&args.len()) { return Err("demo needs topology and optional output".into()); }

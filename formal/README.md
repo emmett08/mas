@@ -40,6 +40,14 @@ assessment identity, evaluator authority, immutable findings, two-world input
 disclosure, replay and bounded revision checks. Use `--assessments-only` for
 this subset; the default verifier also includes it.
 
+The [hybrid-host contract model](hybrid-contracts-notes.md) checks new-request
+reply-route preflight, typed private gateway outcomes and scoped read-only
+reconciliation, distinct-actor candidate/context quorum, and durable assessment
+replay without authority escalation or redispatch. Use
+`--hybrid-contracts-only`; the default verifier also includes these cases.
+Its four independently selected finite services do not establish cross-service
+concurrency or unrestricted implementation refinement.
+
 ## Reproduce
 
 Install SPIN, a C compiler and Linux utilities `sh` and `sha256sum`, then run

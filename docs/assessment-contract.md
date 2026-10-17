@@ -128,3 +128,33 @@ cargo test --locked --manifest-path rust-protocol/Cargo.toml --test assessment
 cargo run --locked --manifest-path rust-protocol/Cargo.toml --bin verify -- \
   --assessments-only --out formal/evidence/assessments
 ```
+
+## Pure validation for host adapters
+
+`mas assessment COMMAND.json` (or `mas assessment -` with stdin) exposes the same
+Rust validators to hosts that do not link the crate. It performs no database
+operation, invocation, admission, disclosure or permission change. Its input is
+one strict integer-JSON object, with a total 65,536-byte and 32-container limit.
+Invalid input produces a fixed diagnostic without echoing its contents. The
+normal administrative response is `{"ok":true,"result":...}`.
+
+| `operation` | Exact additional fields | Result |
+| --- | --- | --- |
+| `record` | `kind`, `record` | Structurally validated `record` and full-record `reference` |
+| `assessment` | `assessment`, `candidate`, `rubric`, `evidence`, `authority` | Contextually validated assessment `reference` and Boolean `passes` |
+| `revision` | `candidate`, `parent`, `feedback` | Contextually validated candidate `reference` |
+| `digest` | `value` | Canonical `sha256` of the bounded integer-JSON value |
+
+Record kinds are `candidate`, `rubric`, `evidence`, `evaluator` and `assessment`.
+`parent` is a complete retained candidate or null; evidence and feedback are
+arrays of complete records. Unknown command fields are rejected. Structural
+record validation alone does not resolve references or authorise an evaluator.
+A host must supply `authority` from its frozen invocation registration, resolve
+records from its own retained history, and commit validated history and its
+decision atomically. Passing an evaluator's claimed identity back as authority
+does not establish authority. The host's feedback and revision policies remain
+responsible for permission, disclosure and budget enforcement.
+
+`assessment_cli.rs` exercises the actual administrative process, exact integers,
+foreign authority, changed evidence, feedback mismatch, error assessments,
+duplicate JSON fields and bounded input rejection.

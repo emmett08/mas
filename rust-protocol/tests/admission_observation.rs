@@ -138,4 +138,5 @@ fn legacy_repository_implementers_keep_conservative_defaults() {
     let mut legacy=Legacy;
     assert_eq!(legacy.send_checked(&request("one"),"a").unwrap_err().disposition,Disposition::Unknown);
     assert!(legacy.observe("r",false).unwrap_err().contains("not supported"));
+    assert_eq!(legacy.reconcile_message("r","a","one").unwrap_err().disposition,Disposition::Unknown);
 }

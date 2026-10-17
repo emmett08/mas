@@ -1,0 +1,3326 @@
+{
+  "cases": [
+    {
+      "capacity": 2,
+      "checks": [
+        {
+          "command": [
+            "./pan-safety",
+            "-b",
+            "-m100000",
+            "-w20"
+          ],
+          "counterexample_kind": "none_or_other",
+          "elapsed_seconds": 0.010390896,
+          "expected_assertion_id": null,
+          "expected_ltl_property": null,
+          "log": "check-safety.log",
+          "log_sha256": "d9bd51b3d9326f545c89dcd639cdce91c2bdc9fe07eb1ea2287a2ed922bbcd30",
+          "property": "safety",
+          "returncode": 0,
+          "status": "COMPLETE_NO_ERRORS",
+          "timeout": false
+        },
+        {
+          "command": [
+            "./pan-ltl",
+            "-b",
+            "-m100000",
+            "-w20",
+            "-a",
+            "-N",
+            "hybrid_contract_settles"
+          ],
+          "counterexample_kind": "none_or_other",
+          "elapsed_seconds": 0.010329245,
+          "expected_assertion_id": null,
+          "expected_ltl_property": null,
+          "log": "check-hybrid_contract_settles.log",
+          "log_sha256": "a9dafed31d2653596010027db6bee2ea9688e100478a2b716eb69aba0a5593fb",
+          "property": "hybrid_contract_settles",
+          "returncode": 0,
+          "status": "COMPLETE_NO_ERRORS",
+          "timeout": false
+        }
+      ],
+      "commands": [
+        {
+          "command": [
+            "spin",
+            "-n17",
+            "-u10000",
+            "-p",
+            "-g",
+            "-l",
+            "hybrid-contracts.pml"
+          ],
+          "elapsed_seconds": 0.020383373,
+          "log": "simulation-17.log",
+          "log_sha256": "49857ff65290630a13d3128f7aebc549011d5796c810def6afd0dfe302dfd326",
+          "returncode": 0,
+          "seed": 17,
+          "status": "SAMPLED_COMPLETE",
+          "timeout": false
+        },
+        {
+          "command": [
+            "spin",
+            "-n29",
+            "-u10000",
+            "-p",
+            "-g",
+            "-l",
+            "hybrid-contracts.pml"
+          ],
+          "elapsed_seconds": 0.020468598,
+          "log": "simulation-29.log",
+          "log_sha256": "6d4609f8e995d8b5fad9b04341687892bc31de0bfb781c690664ebae3a56c590",
+          "returncode": 0,
+          "seed": 29,
+          "status": "SAMPLED_COMPLETE",
+          "timeout": false
+        },
+        {
+          "command": [
+            "spin",
+            "-n53",
+            "-u10000",
+            "-p",
+            "-g",
+            "-l",
+            "hybrid-contracts.pml"
+          ],
+          "elapsed_seconds": 0.022288506,
+          "log": "simulation-53.log",
+          "log_sha256": "3448e0db6c91e85a511b9df15cca4948db50b0c259cf4976f8f7732a6aaf2303",
+          "returncode": 0,
+          "seed": 53,
+          "status": "SAMPLED_COMPLETE",
+          "timeout": false
+        },
+        {
+          "command": [
+            "spin",
+            "-a",
+            "hybrid-contracts.pml"
+          ],
+          "elapsed_seconds": 0.021820733,
+          "log": "generate.log",
+          "log_sha256": "68a85e104aea692efdb80ff9774b9d21cb9398f0623565d47e6f300c6633cbfd",
+          "returncode": 0,
+          "timeout": false
+        },
+        {
+          "command": [
+            "cc",
+            "-O2",
+            "-DMEMLIM=480",
+            "-DSAFETY",
+            "-DNOCLAIM",
+            "-o",
+            "pan-safety",
+            "pan.c"
+          ],
+          "elapsed_seconds": 1.726264047,
+          "log": "compile-safety.log",
+          "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "returncode": 0,
+          "timeout": false
+        },
+        {
+          "command": [
+            "./pan-safety",
+            "-b",
+            "-m100000",
+            "-w20"
+          ],
+          "elapsed_seconds": 0.010390896,
+          "log": "check-safety.log",
+          "log_sha256": "d9bd51b3d9326f545c89dcd639cdce91c2bdc9fe07eb1ea2287a2ed922bbcd30",
+          "returncode": 0,
+          "timeout": false
+        },
+        {
+          "command": [
+            "cc",
+            "-O2",
+            "-DMEMLIM=480",
+            "-o",
+            "pan-ltl",
+            "pan.c"
+          ],
+          "elapsed_seconds": 1.472354875,
+          "log": "compile-ltl.log",
+          "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "returncode": 0,
+          "timeout": false
+        },
+        {
+          "command": [
+            "./pan-ltl",
+            "-b",
+            "-m100000",
+            "-w20",
+            "-a",
+            "-N",
+            "hybrid_contract_settles"
+          ],
+          "elapsed_seconds": 0.010329245,
+          "log": "check-hybrid_contract_settles.log",
+          "log_sha256": "a9dafed31d2653596010027db6bee2ea9688e100478a2b716eb69aba0a5593fb",
+          "returncode": 0,
+          "timeout": false
+        }
+      ],
+      "defect": null,
+      "definitions": [],
+      "expectation_met": true,
+      "expected_result": "COMPLETE_NO_ERRORS",
+      "fault_repetition": "bounded_or_not_applicable",
+      "model_sha256": "b24deeefdaa6a8f6563b84a7459c672fa1d0be6cebd3e28a4d880c6278fd0fa8",
+      "partial_order_reduction": true,
+      "purpose": "standalone_safety_and_bounded_progress",
+      "source_sha256": "b24deeefdaa6a8f6563b84a7459c672fa1d0be6cebd3e28a4d880c6278fd0fa8",
+      "status": "PASS",
+      "topology": "hybrid-contracts.pml",
+      "weak_process_fairness": false
+    },
+    {
+      "capacity": 2,
+      "checks": [
+        {
+          "command": [
+            "./pan-safety",
+            "-b",
+            "-m100000",
+            "-w20"
+          ],
+          "counterexample_kind": "none_or_other",
+          "elapsed_seconds": 0.020617136,
+          "expected_assertion_id": null,
+          "expected_ltl_property": null,
+          "log": "check-safety.log",
+          "log_sha256": "67bbb740c728f4c53ef509b1a89cb94dd16860f11c7cbe179fad9bcddd7d60a4",
+          "property": "safety",
+          "returncode": 0,
+          "status": "COMPLETE_NO_ERRORS",
+          "timeout": false
+        },
+        {
+          "command": [
+            "./pan-ltl",
+            "-b",
+            "-m100000",
+            "-w20",
+            "-a",
+            "-N",
+            "hybrid_contract_settles"
+          ],
+          "counterexample_kind": "none_or_other",
+          "elapsed_seconds": 0.010311332,
+          "expected_assertion_id": null,
+          "expected_ltl_property": null,
+          "log": "check-hybrid_contract_settles.log",
+          "log_sha256": "1ebbd217053c6f20a4787bbce85496a65752d3cfb740098fe2d3bf9ba75b6c3f",
+          "property": "hybrid_contract_settles",
+          "returncode": 0,
+          "status": "COMPLETE_NO_ERRORS",
+          "timeout": false
+        }
+      ],
+      "commands": [
+        {
+          "command": [
+            "spin",
+            "-n17",
+            "-u10000",
+            "-p",
+            "-g",
+            "-l",
+            "hybrid-contracts.pml"
+          ],
+          "elapsed_seconds": 0.020700918,
+          "log": "simulation-17.log",
+          "log_sha256": "49857ff65290630a13d3128f7aebc549011d5796c810def6afd0dfe302dfd326",
+          "returncode": 0,
+          "seed": 17,
+          "status": "SAMPLED_COMPLETE",
+          "timeout": false
+        },
+        {
+          "command": [
+            "spin",
+            "-n29",
+            "-u10000",
+            "-p",
+            "-g",
+            "-l",
+            "hybrid-contracts.pml"
+          ],
+          "elapsed_seconds": 0.021232743,
+          "log": "simulation-29.log",
+          "log_sha256": "6d4609f8e995d8b5fad9b04341687892bc31de0bfb781c690664ebae3a56c590",
+          "returncode": 0,
+          "seed": 29,
+          "status": "SAMPLED_COMPLETE",
+          "timeout": false
+        },
+        {
+          "command": [
+            "spin",
+            "-n53",
+            "-u10000",
+            "-p",
+            "-g",
+            "-l",
+            "hybrid-contracts.pml"
+          ],
+          "elapsed_seconds": 0.021043146,
+          "log": "simulation-53.log",
+          "log_sha256": "3448e0db6c91e85a511b9df15cca4948db50b0c259cf4976f8f7732a6aaf2303",
+          "returncode": 0,
+          "seed": 53,
+          "status": "SAMPLED_COMPLETE",
+          "timeout": false
+        },
+        {
+          "command": [
+            "spin",
+            "-a",
+            "hybrid-contracts.pml"
+          ],
+          "elapsed_seconds": 0.020482967,
+          "log": "generate.log",
+          "log_sha256": "68a85e104aea692efdb80ff9774b9d21cb9398f0623565d47e6f300c6633cbfd",
+          "returncode": 0,
+          "timeout": false
+        },
+        {
+          "command": [
+            "cc",
+            "-O2",
+            "-DMEMLIM=480",
+            "-DNOREDUCE",
+            "-DSAFETY",
+            "-DNOCLAIM",
+            "-o",
+            "pan-safety",
+            "pan.c"
+          ],
+          "elapsed_seconds": 1.21514167,
+          "log": "compile-safety.log",
+          "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "returncode": 0,
+          "timeout": false
+        },
+        {
+          "command": [
+            "./pan-safety",
+            "-b",
+            "-m100000",
+            "-w20"
+          ],
+          "elapsed_seconds": 0.020617136,
+          "log": "check-safety.log",
+          "log_sha256": "67bbb740c728f4c53ef509b1a89cb94dd16860f11c7cbe179fad9bcddd7d60a4",
+          "returncode": 0,
+          "timeout": false
+        },
+        {
+          "command": [
+            "cc",
+            "-O2",
+            "-DMEMLIM=480",
+            "-DNOREDUCE",
+            "-o",
+            "pan-ltl",
+            "pan.c"
+          ],
+          "elapsed_seconds": 1.39904677,
+          "log": "compile-ltl.log",
+          "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "returncode": 0,
+          "timeout": false
+        },
+        {
+          "command": [
+            "./pan-ltl",
+            "-b",
+            "-m100000",
+            "-w20",
+            "-a",
+            "-N",
+            "hybrid_contract_settles"
+          ],
+          "elapsed_seconds": 0.010311332,
+          "log": "check-hybrid_contract_settles.log",
+          "log_sha256": "1ebbd217053c6f20a4787bbce85496a65752d3cfb740098fe2d3bf9ba75b6c3f",
+          "returncode": 0,
+          "timeout": false
+        }
+      ],
+      "defect": null,
+      "definitions": [],
+      "expectation_met": true,
+      "expected_result": "COMPLETE_NO_ERRORS",
+      "fault_repetition": "bounded_or_not_applicable",
+      "model_sha256": "b24deeefdaa6a8f6563b84a7459c672fa1d0be6cebd3e28a4d880c6278fd0fa8",
+      "partial_order_reduction": false,
+      "purpose": "standalone_safety_and_bounded_progress",
+      "source_sha256": "b24deeefdaa6a8f6563b84a7459c672fa1d0be6cebd3e28a4d880c6278fd0fa8",
+      "status": "PASS",
+      "topology": "hybrid-contracts.pml",
+      "weak_process_fairness": false
+    },
+    {
+      "capacity": 2,
+      "checks": [
+        {
+          "command": [
+            "./pan-safety",
+            "-b",
+            "-m100000",
+            "-w20"
+          ],
+          "counterexample_kind": "assertion",
+          "elapsed_seconds": 0.020842111,
+          "expected_assertion_id": "REQUEST_REPLY_ROUTE_PREFLIGHT",
+          "expected_ltl_property": null,
+          "log": "check-safety.log",
+          "log_sha256": "cf5135460e853f4d28726b1db09513fbd97ddb94924e7f81325107dd8e34fa0a",
+          "property": "safety",
+          "replay": {
+            "command": [
+              "spin",
+              "-DBUG_REPLY_PREFLIGHT",
+              "-t",
+              "-k",
+              "safety.trail",
+              "-p",
+              "-g",
+              "-l",
+              "hybrid-contracts.pml"
+            ],
+            "elapsed_seconds": 0.020504279,
+            "log": "replay-safety.log",
+            "log_sha256": "cff20ac8726d13f874d0b97e10e97f98f3eb1f2468d192617006fe02b01851b0",
+            "returncode": 0,
+            "timeout": false
+          },
+          "replayed_assertion_id": "REQUEST_REPLY_ROUTE_PREFLIGHT",
+          "replayed_ltl_property": null,
+          "returncode": 0,
+          "status": "COUNTEREXAMPLE",
+          "timeout": false,
+          "trail": "safety.trail",
+          "trail_sha256": "fb4e405216943724c1a1aee6a1cc343708f701ea4f00d74250aad675d889d5af"
+        }
+      ],
+      "commands": [
+        {
+          "command": [
+            "spin",
+            "-DBUG_REPLY_PREFLIGHT",
+            "-a",
+            "hybrid-contracts.pml"
+          ],
+          "elapsed_seconds": 0.032199218,
+          "log": "generate.log",
+          "log_sha256": "68a85e104aea692efdb80ff9774b9d21cb9398f0623565d47e6f300c6633cbfd",
+          "returncode": 0,
+          "timeout": false
+        },
+        {
+          "command": [
+            "cc",
+            "-O2",
+            "-DMEMLIM=480",
+            "-DSAFETY",
+            "-DNOCLAIM",
+            "-o",
+            "pan-safety",
+            "pan.c"
+          ],
+          "elapsed_seconds": 1.274023725,
+          "log": "compile-safety.log",
+          "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "returncode": 0,
+          "timeout": false
+        },
+        {
+          "command": [
+            "./pan-safety",
+            "-b",
+            "-m100000",
+            "-w20"
+          ],
+          "elapsed_seconds": 0.020842111,
+          "log": "check-safety.log",
+          "log_sha256": "cf5135460e853f4d28726b1db09513fbd97ddb94924e7f81325107dd8e34fa0a",
+          "returncode": 0,
+          "timeout": false
+        },
+        {
+          "command": [
+            "spin",
+            "-DBUG_REPLY_PREFLIGHT",
+            "-t",
+            "-k",
+            "safety.trail",
+            "-p",
+            "-g",
+            "-l",
+            "hybrid-contracts.pml"
+          ],
+          "elapsed_seconds": 0.020504279,
+          "log": "replay-safety.log",
+          "log_sha256": "cff20ac8726d13f874d0b97e10e97f98f3eb1f2468d192617006fe02b01851b0",
+          "returncode": 0,
+          "timeout": false
+        }
+      ],
+      "defect": "BUG_REPLY_PREFLIGHT",
+      "definitions": [],
+      "expectation_met": true,
+      "expected_result": "COUNTEREXAMPLE",
+      "fault_repetition": "bounded_or_not_applicable",
+      "model_sha256": "b24deeefdaa6a8f6563b84a7459c672fa1d0be6cebd3e28a4d880c6278fd0fa8",
+      "partial_order_reduction": true,
+      "purpose": "deliberate_defect",
+      "source_sha256": "b24deeefdaa6a8f6563b84a7459c672fa1d0be6cebd3e28a4d880c6278fd0fa8",
+      "status": "PASS",
+      "topology": "hybrid-contracts.pml",
+      "weak_process_fairness": false
+    },
+    {
+      "capacity": 2,
+      "checks": [
+        {
+          "command": [
+            "./pan-safety",
+            "-b",
+            "-m100000",
+            "-w20"
+          ],
+          "counterexample_kind": "assertion",
+          "elapsed_seconds": 0.010286706,
+          "expected_assertion_id": "GATEWAY_CLASSIFICATION_PRESERVED",
+          "expected_ltl_property": null,
+          "log": "check-safety.log",
+          "log_sha256": "6a9444f1df8afbf5a5b48f72a60b8cefb4db35298ac50944b609a2699d41e542",
+          "property": "safety",
+          "replay": {
+            "command": [
+              "spin",
+              "-DBUG_GATEWAY_CLASSIFICATION",
+              "-t",
+              "-k",
+              "safety.trail",
+              "-p",
+              "-g",
+              "-l",
+              "hybrid-contracts.pml"
+            ],
+            "elapsed_seconds": 0.020465574,
+            "log": "replay-safety.log",
+            "log_sha256": "bad7bd82120db6b98592dbe7effe0510314ffb4657b98a6a35b083df105800b2",
+            "returncode": 0,
+            "timeout": false
+          },
+          "replayed_assertion_id": "GATEWAY_CLASSIFICATION_PRESERVED",
+          "replayed_ltl_property": null,
+          "returncode": 0,
+          "status": "COUNTEREXAMPLE",
+          "timeout": false,
+          "trail": "safety.trail",
+          "trail_sha256": "adea3cce0b70a3989a412a77702576511936faa539c506d7026b4382421abc59"
+        }
+      ],
+      "commands": [
+        {
+          "command": [
+            "spin",
+            "-DBUG_GATEWAY_CLASSIFICATION",
+            "-a",
+            "hybrid-contracts.pml"
+          ],
+          "elapsed_seconds": 0.020405872,
+          "log": "generate.log",
+          "log_sha256": "68a85e104aea692efdb80ff9774b9d21cb9398f0623565d47e6f300c6633cbfd",
+          "returncode": 0,
+          "timeout": false
+        },
+        {
+          "command": [
+            "cc",
+            "-O2",
+            "-DMEMLIM=480",
+            "-DSAFETY",
+            "-DNOCLAIM",
+            "-o",
+            "pan-safety",
+            "pan.c"
+          ],
+          "elapsed_seconds": 1.306061248,
+          "log": "compile-safety.log",
+          "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "returncode": 0,
+          "timeout": false
+        },
+        {
+          "command": [
+            "./pan-safety",
+            "-b",
+            "-m100000",
+            "-w20"
+          ],
+          "elapsed_seconds": 0.010286706,
+          "log": "check-safety.log",
+          "log_sha256": "6a9444f1df8afbf5a5b48f72a60b8cefb4db35298ac50944b609a2699d41e542",
+          "returncode": 0,
+          "timeout": false
+        },
+        {
+          "command": [
+            "spin",
+            "-DBUG_GATEWAY_CLASSIFICATION",
+            "-t",
+            "-k",
+            "safety.trail",
+            "-p",
+            "-g",
+            "-l",
+            "hybrid-contracts.pml"
+          ],
+          "elapsed_seconds": 0.020465574,
+          "log": "replay-safety.log",
+          "log_sha256": "bad7bd82120db6b98592dbe7effe0510314ffb4657b98a6a35b083df105800b2",
+          "returncode": 0,
+          "timeout": false
+        }
+      ],
+      "defect": "BUG_GATEWAY_CLASSIFICATION",
+      "definitions": [],
+      "expectation_met": true,
+      "expected_result": "COUNTEREXAMPLE",
+      "fault_repetition": "bounded_or_not_applicable",
+      "model_sha256": "b24deeefdaa6a8f6563b84a7459c672fa1d0be6cebd3e28a4d880c6278fd0fa8",
+      "partial_order_reduction": true,
+      "purpose": "deliberate_defect",
+      "source_sha256": "b24deeefdaa6a8f6563b84a7459c672fa1d0be6cebd3e28a4d880c6278fd0fa8",
+      "status": "PASS",
+      "topology": "hybrid-contracts.pml",
+      "weak_process_fairness": false
+    },
+    {
+      "capacity": 2,
+      "checks": [
+        {
+          "command": [
+            "./pan-safety",
+            "-b",
+            "-m100000",
+            "-w20"
+          ],
+          "counterexample_kind": "assertion",
+          "elapsed_seconds": 0.010290522,
+          "expected_assertion_id": "GATEWAY_UNKNOWN_PRESERVED",
+          "expected_ltl_property": null,
+          "log": "check-safety.log",
+          "log_sha256": "c6771417ac255b52ba2153961eaf596b8b2bb51637f8839c5d504a3a0fc6a4f4",
+          "property": "safety",
+          "replay": {
+            "command": [
+              "spin",
+              "-DBUG_GATEWAY_UNKNOWN",
+              "-t",
+              "-k",
+              "safety.trail",
+              "-p",
+              "-g",
+              "-l",
+              "hybrid-contracts.pml"
+            ],
+            "elapsed_seconds": 0.020407257,
+            "log": "replay-safety.log",
+            "log_sha256": "49f584462c10a159a0fa7dc90bcd17404eefb79115ff8ac90a54d689f74d6668",
+            "returncode": 0,
+            "timeout": false
+          },
+          "replayed_assertion_id": "GATEWAY_UNKNOWN_PRESERVED",
+          "replayed_ltl_property": null,
+          "returncode": 0,
+          "status": "COUNTEREXAMPLE",
+          "timeout": false,
+          "trail": "safety.trail",
+          "trail_sha256": "d6f6aefe259153db18cf4b66ba4c5ab5a49c42a6cff372831b101b020a218668"
+        }
+      ],
+      "commands": [
+        {
+          "command": [
+            "spin",
+            "-DBUG_GATEWAY_UNKNOWN",
+            "-a",
+            "hybrid-contracts.pml"
+          ],
+          "elapsed_seconds": 0.020367247,
+          "log": "generate.log",
+          "log_sha256": "68a85e104aea692efdb80ff9774b9d21cb9398f0623565d47e6f300c6633cbfd",
+          "returncode": 0,
+          "timeout": false
+        },
+        {
+          "command": [
+            "cc",
+            "-O2",
+            "-DMEMLIM=480",
+            "-DSAFETY",
+            "-DNOCLAIM",
+            "-o",
+            "pan-safety",
+            "pan.c"
+          ],
+          "elapsed_seconds": 1.570809959,
+          "log": "compile-safety.log",
+          "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "returncode": 0,
+          "timeout": false
+        },
+        {
+          "command": [
+            "./pan-safety",
+            "-b",
+            "-m100000",
+            "-w20"
+          ],
+          "elapsed_seconds": 0.010290522,
+          "log": "check-safety.log",
+          "log_sha256": "c6771417ac255b52ba2153961eaf596b8b2bb51637f8839c5d504a3a0fc6a4f4",
+          "returncode": 0,
+          "timeout": false
+        },
+        {
+          "command": [
+            "spin",
+            "-DBUG_GATEWAY_UNKNOWN",
+            "-t",
+            "-k",
+            "safety.trail",
+            "-p",
+            "-g",
+            "-l",
+            "hybrid-contracts.pml"
+          ],
+          "elapsed_seconds": 0.020407257,
+          "log": "replay-safety.log",
+          "log_sha256": "49f584462c10a159a0fa7dc90bcd17404eefb79115ff8ac90a54d689f74d6668",
+          "returncode": 0,
+          "timeout": false
+        }
+      ],
+      "defect": "BUG_GATEWAY_UNKNOWN",
+      "definitions": [],
+      "expectation_met": true,
+      "expected_result": "COUNTEREXAMPLE",
+      "fault_repetition": "bounded_or_not_applicable",
+      "model_sha256": "b24deeefdaa6a8f6563b84a7459c672fa1d0be6cebd3e28a4d880c6278fd0fa8",
+      "partial_order_reduction": true,
+      "purpose": "deliberate_defect",
+      "source_sha256": "b24deeefdaa6a8f6563b84a7459c672fa1d0be6cebd3e28a4d880c6278fd0fa8",
+      "status": "PASS",
+      "topology": "hybrid-contracts.pml",
+      "weak_process_fairness": false
+    },
+    {
+      "capacity": 2,
+      "checks": [
+        {
+          "command": [
+            "./pan-safety",
+            "-b",
+            "-m100000",
+            "-w20"
+          ],
+          "counterexample_kind": "assertion",
+          "elapsed_seconds": 0.010299658,
+          "expected_assertion_id": "GATEWAY_DIAGNOSTIC_WITHHELD",
+          "expected_ltl_property": null,
+          "log": "check-safety.log",
+          "log_sha256": "234a01d4a48dccf25e2709e2b597262499acb41a1b024ccc601513d304f1011a",
+          "property": "safety",
+          "replay": {
+            "command": [
+              "spin",
+              "-DBUG_GATEWAY_DISCLOSURE",
+              "-t",
+              "-k",
+              "safety.trail",
+              "-p",
+              "-g",
+              "-l",
+              "hybrid-contracts.pml"
+            ],
+            "elapsed_seconds": 0.020817266,
+            "log": "replay-safety.log",
+            "log_sha256": "c65d62c392906286a0874fabf4b5da8b4489a32c8dd9382ab0f010e8f002e513",
+            "returncode": 0,
+            "timeout": false
+          },
+          "replayed_assertion_id": "GATEWAY_DIAGNOSTIC_WITHHELD",
+          "replayed_ltl_property": null,
+          "returncode": 0,
+          "status": "COUNTEREXAMPLE",
+          "timeout": false,
+          "trail": "safety.trail",
+          "trail_sha256": "ef75695909a3988387f0937a1f617bab273e1720109f232a0117c07101fd3278"
+        }
+      ],
+      "commands": [
+        {
+          "command": [
+            "spin",
+            "-DBUG_GATEWAY_DISCLOSURE",
+            "-a",
+            "hybrid-contracts.pml"
+          ],
+          "elapsed_seconds": 0.020478947,
+          "log": "generate.log",
+          "log_sha256": "68a85e104aea692efdb80ff9774b9d21cb9398f0623565d47e6f300c6633cbfd",
+          "returncode": 0,
+          "timeout": false
+        },
+        {
+          "command": [
+            "cc",
+            "-O2",
+            "-DMEMLIM=480",
+            "-DSAFETY",
+            "-DNOCLAIM",
+            "-o",
+            "pan-safety",
+            "pan.c"
+          ],
+          "elapsed_seconds": 1.273868483,
+          "log": "compile-safety.log",
+          "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "returncode": 0,
+          "timeout": false
+        },
+        {
+          "command": [
+            "./pan-safety",
+            "-b",
+            "-m100000",
+            "-w20"
+          ],
+          "elapsed_seconds": 0.010299658,
+          "log": "check-safety.log",
+          "log_sha256": "234a01d4a48dccf25e2709e2b597262499acb41a1b024ccc601513d304f1011a",
+          "returncode": 0,
+          "timeout": false
+        },
+        {
+          "command": [
+            "spin",
+            "-DBUG_GATEWAY_DISCLOSURE",
+            "-t",
+            "-k",
+            "safety.trail",
+            "-p",
+            "-g",
+            "-l",
+            "hybrid-contracts.pml"
+          ],
+          "elapsed_seconds": 0.020817266,
+          "log": "replay-safety.log",
+          "log_sha256": "c65d62c392906286a0874fabf4b5da8b4489a32c8dd9382ab0f010e8f002e513",
+          "returncode": 0,
+          "timeout": false
+        }
+      ],
+      "defect": "BUG_GATEWAY_DISCLOSURE",
+      "definitions": [],
+      "expectation_met": true,
+      "expected_result": "COUNTEREXAMPLE",
+      "fault_repetition": "bounded_or_not_applicable",
+      "model_sha256": "b24deeefdaa6a8f6563b84a7459c672fa1d0be6cebd3e28a4d880c6278fd0fa8",
+      "partial_order_reduction": true,
+      "purpose": "deliberate_defect",
+      "source_sha256": "b24deeefdaa6a8f6563b84a7459c672fa1d0be6cebd3e28a4d880c6278fd0fa8",
+      "status": "PASS",
+      "topology": "hybrid-contracts.pml",
+      "weak_process_fairness": false
+    },
+    {
+      "capacity": 2,
+      "checks": [
+        {
+          "command": [
+            "./pan-safety",
+            "-b",
+            "-m100000",
+            "-w20"
+          ],
+          "counterexample_kind": "assertion",
+          "elapsed_seconds": 0.010308955,
+          "expected_assertion_id": "GATEWAY_OBSERVATION_SCOPED",
+          "expected_ltl_property": null,
+          "log": "check-safety.log",
+          "log_sha256": "70cd88de6afed6663dd158a77a67460282a8f82f9c633064d99338ac67a22f38",
+          "property": "safety",
+          "replay": {
+            "command": [
+              "spin",
+              "-DBUG_GATEWAY_ACTOR_SCOPE",
+              "-t",
+              "-k",
+              "safety.trail",
+              "-p",
+              "-g",
+              "-l",
+              "hybrid-contracts.pml"
+            ],
+            "elapsed_seconds": 0.020357218,
+            "log": "replay-safety.log",
+            "log_sha256": "a244f8ffaca3e3f8d094113b9f3c54ad90d76dd411e99b91848d43c1501eb701",
+            "returncode": 0,
+            "timeout": false
+          },
+          "replayed_assertion_id": "GATEWAY_OBSERVATION_SCOPED",
+          "replayed_ltl_property": null,
+          "returncode": 0,
+          "status": "COUNTEREXAMPLE",
+          "timeout": false,
+          "trail": "safety.trail",
+          "trail_sha256": "b63385354a9334f0994cc3f36b98e4534a1666f3cbd8ddc2136e0a670cdc0df6"
+        }
+      ],
+      "commands": [
+        {
+          "command": [
+            "spin",
+            "-DBUG_GATEWAY_ACTOR_SCOPE",
+            "-a",
+            "hybrid-contracts.pml"
+          ],
+          "elapsed_seconds": 0.023075696,
+          "log": "generate.log",
+          "log_sha256": "68a85e104aea692efdb80ff9774b9d21cb9398f0623565d47e6f300c6633cbfd",
+          "returncode": 0,
+          "timeout": false
+        },
+        {
+          "command": [
+            "cc",
+            "-O2",
+            "-DMEMLIM=480",
+            "-DSAFETY",
+            "-DNOCLAIM",
+            "-o",
+            "pan-safety",
+            "pan.c"
+          ],
+          "elapsed_seconds": 1.593014314,
+          "log": "compile-safety.log",
+          "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "returncode": 0,
+          "timeout": false
+        },
+        {
+          "command": [
+            "./pan-safety",
+            "-b",
+            "-m100000",
+            "-w20"
+          ],
+          "elapsed_seconds": 0.010308955,
+          "log": "check-safety.log",
+          "log_sha256": "70cd88de6afed6663dd158a77a67460282a8f82f9c633064d99338ac67a22f38",
+          "returncode": 0,
+          "timeout": false
+        },
+        {
+          "command": [
+            "spin",
+            "-DBUG_GATEWAY_ACTOR_SCOPE",
+            "-t",
+            "-k",
+            "safety.trail",
+            "-p",
+            "-g",
+            "-l",
+            "hybrid-contracts.pml"
+          ],
+          "elapsed_seconds": 0.020357218,
+          "log": "replay-safety.log",
+          "log_sha256": "a244f8ffaca3e3f8d094113b9f3c54ad90d76dd411e99b91848d43c1501eb701",
+          "returncode": 0,
+          "timeout": false
+        }
+      ],
+      "defect": "BUG_GATEWAY_ACTOR_SCOPE",
+      "definitions": [],
+      "expectation_met": true,
+      "expected_result": "COUNTEREXAMPLE",
+      "fault_repetition": "bounded_or_not_applicable",
+      "model_sha256": "b24deeefdaa6a8f6563b84a7459c672fa1d0be6cebd3e28a4d880c6278fd0fa8",
+      "partial_order_reduction": true,
+      "purpose": "deliberate_defect",
+      "source_sha256": "b24deeefdaa6a8f6563b84a7459c672fa1d0be6cebd3e28a4d880c6278fd0fa8",
+      "status": "PASS",
+      "topology": "hybrid-contracts.pml",
+      "weak_process_fairness": false
+    },
+    {
+      "capacity": 2,
+      "checks": [
+        {
+          "command": [
+            "./pan-safety",
+            "-b",
+            "-m100000",
+            "-w20"
+          ],
+          "counterexample_kind": "assertion",
+          "elapsed_seconds": 0.020382787,
+          "expected_assertion_id": "GATEWAY_OBSERVATION_SCOPED",
+          "expected_ltl_property": null,
+          "log": "check-safety.log",
+          "log_sha256": "f9eff79ac7b2845761dce78a34741b0a6d017e0bd238757213cf7cbdb6608404",
+          "property": "safety",
+          "replay": {
+            "command": [
+              "spin",
+              "-DBUG_GATEWAY_RUN_SCOPE",
+              "-t",
+              "-k",
+              "safety.trail",
+              "-p",
+              "-g",
+              "-l",
+              "hybrid-contracts.pml"
+            ],
+            "elapsed_seconds": 0.020379867,
+            "log": "replay-safety.log",
+            "log_sha256": "2c04919a513eca872aabda4919e1878643cd34e6bec60a3c935fd0e1c1d53f96",
+            "returncode": 0,
+            "timeout": false
+          },
+          "replayed_assertion_id": "GATEWAY_OBSERVATION_SCOPED",
+          "replayed_ltl_property": null,
+          "returncode": 0,
+          "status": "COUNTEREXAMPLE",
+          "timeout": false,
+          "trail": "safety.trail",
+          "trail_sha256": "0820c5521f9305c6f7a47518ce16040601b89afd007f21375236deb244043984"
+        }
+      ],
+      "commands": [
+        {
+          "command": [
+            "spin",
+            "-DBUG_GATEWAY_RUN_SCOPE",
+            "-a",
+            "hybrid-contracts.pml"
+          ],
+          "elapsed_seconds": 0.020946128,
+          "log": "generate.log",
+          "log_sha256": "68a85e104aea692efdb80ff9774b9d21cb9398f0623565d47e6f300c6633cbfd",
+          "returncode": 0,
+          "timeout": false
+        },
+        {
+          "command": [
+            "cc",
+            "-O2",
+            "-DMEMLIM=480",
+            "-DSAFETY",
+            "-DNOCLAIM",
+            "-o",
+            "pan-safety",
+            "pan.c"
+          ],
+          "elapsed_seconds": 1.6780888900000002,
+          "log": "compile-safety.log",
+          "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "returncode": 0,
+          "timeout": false
+        },
+        {
+          "command": [
+            "./pan-safety",
+            "-b",
+            "-m100000",
+            "-w20"
+          ],
+          "elapsed_seconds": 0.020382787,
+          "log": "check-safety.log",
+          "log_sha256": "f9eff79ac7b2845761dce78a34741b0a6d017e0bd238757213cf7cbdb6608404",
+          "returncode": 0,
+          "timeout": false
+        },
+        {
+          "command": [
+            "spin",
+            "-DBUG_GATEWAY_RUN_SCOPE",
+            "-t",
+            "-k",
+            "safety.trail",
+            "-p",
+            "-g",
+            "-l",
+            "hybrid-contracts.pml"
+          ],
+          "elapsed_seconds": 0.020379867,
+          "log": "replay-safety.log",
+          "log_sha256": "2c04919a513eca872aabda4919e1878643cd34e6bec60a3c935fd0e1c1d53f96",
+          "returncode": 0,
+          "timeout": false
+        }
+      ],
+      "defect": "BUG_GATEWAY_RUN_SCOPE",
+      "definitions": [],
+      "expectation_met": true,
+      "expected_result": "COUNTEREXAMPLE",
+      "fault_repetition": "bounded_or_not_applicable",
+      "model_sha256": "b24deeefdaa6a8f6563b84a7459c672fa1d0be6cebd3e28a4d880c6278fd0fa8",
+      "partial_order_reduction": true,
+      "purpose": "deliberate_defect",
+      "source_sha256": "b24deeefdaa6a8f6563b84a7459c672fa1d0be6cebd3e28a4d880c6278fd0fa8",
+      "status": "PASS",
+      "topology": "hybrid-contracts.pml",
+      "weak_process_fairness": false
+    },
+    {
+      "capacity": 2,
+      "checks": [
+        {
+          "command": [
+            "./pan-safety",
+            "-b",
+            "-m100000",
+            "-w20"
+          ],
+          "counterexample_kind": "assertion",
+          "elapsed_seconds": 0.01033843,
+          "expected_assertion_id": "GATEWAY_OBSERVATION_READ_ONLY",
+          "expected_ltl_property": null,
+          "log": "check-safety.log",
+          "log_sha256": "5a16b93079380f15974d048679612e0bfb80aa9d7d113f7edcd8e7a1db61370f",
+          "property": "safety",
+          "replay": {
+            "command": [
+              "spin",
+              "-DBUG_GATEWAY_OBSERVER_WRITE",
+              "-t",
+              "-k",
+              "safety.trail",
+              "-p",
+              "-g",
+              "-l",
+              "hybrid-contracts.pml"
+            ],
+            "elapsed_seconds": 0.020427951,
+            "log": "replay-safety.log",
+            "log_sha256": "7546c0b9d137183c1dd80e010aa3424999338e9454f0d47bbca0213109fb450f",
+            "returncode": 0,
+            "timeout": false
+          },
+          "replayed_assertion_id": "GATEWAY_OBSERVATION_READ_ONLY",
+          "replayed_ltl_property": null,
+          "returncode": 0,
+          "status": "COUNTEREXAMPLE",
+          "timeout": false,
+          "trail": "safety.trail",
+          "trail_sha256": "48291576a1a3a8c2923bf7121690030662b5b9d3592371881dbb849b1be7b29a"
+        }
+      ],
+      "commands": [
+        {
+          "command": [
+            "spin",
+            "-DBUG_GATEWAY_OBSERVER_WRITE",
+            "-a",
+            "hybrid-contracts.pml"
+          ],
+          "elapsed_seconds": 0.020499023,
+          "log": "generate.log",
+          "log_sha256": "68a85e104aea692efdb80ff9774b9d21cb9398f0623565d47e6f300c6633cbfd",
+          "returncode": 0,
+          "timeout": false
+        },
+        {
+          "command": [
+            "cc",
+            "-O2",
+            "-DMEMLIM=480",
+            "-DSAFETY",
+            "-DNOCLAIM",
+            "-o",
+            "pan-safety",
+            "pan.c"
+          ],
+          "elapsed_seconds": 1.8798282309999998,
+          "log": "compile-safety.log",
+          "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "returncode": 0,
+          "timeout": false
+        },
+        {
+          "command": [
+            "./pan-safety",
+            "-b",
+            "-m100000",
+            "-w20"
+          ],
+          "elapsed_seconds": 0.01033843,
+          "log": "check-safety.log",
+          "log_sha256": "5a16b93079380f15974d048679612e0bfb80aa9d7d113f7edcd8e7a1db61370f",
+          "returncode": 0,
+          "timeout": false
+        },
+        {
+          "command": [
+            "spin",
+            "-DBUG_GATEWAY_OBSERVER_WRITE",
+            "-t",
+            "-k",
+            "safety.trail",
+            "-p",
+            "-g",
+            "-l",
+            "hybrid-contracts.pml"
+          ],
+          "elapsed_seconds": 0.020427951,
+          "log": "replay-safety.log",
+          "log_sha256": "7546c0b9d137183c1dd80e010aa3424999338e9454f0d47bbca0213109fb450f",
+          "returncode": 0,
+          "timeout": false
+        }
+      ],
+      "defect": "BUG_GATEWAY_OBSERVER_WRITE",
+      "definitions": [],
+      "expectation_met": true,
+      "expected_result": "COUNTEREXAMPLE",
+      "fault_repetition": "bounded_or_not_applicable",
+      "model_sha256": "b24deeefdaa6a8f6563b84a7459c672fa1d0be6cebd3e28a4d880c6278fd0fa8",
+      "partial_order_reduction": true,
+      "purpose": "deliberate_defect",
+      "source_sha256": "b24deeefdaa6a8f6563b84a7459c672fa1d0be6cebd3e28a4d880c6278fd0fa8",
+      "status": "PASS",
+      "topology": "hybrid-contracts.pml",
+      "weak_process_fairness": false
+    },
+    {
+      "capacity": 2,
+      "checks": [
+        {
+          "command": [
+            "./pan-safety",
+            "-b",
+            "-m100000",
+            "-w20"
+          ],
+          "counterexample_kind": "assertion",
+          "elapsed_seconds": 0.020418343,
+          "expected_assertion_id": "QUORUM_CANDIDATE_BOUND",
+          "expected_ltl_property": null,
+          "log": "check-safety.log",
+          "log_sha256": "5695d72230e24bbc8c8855d9e47e3e68f5d6295555efe7931b57a37f37c8f50d",
+          "property": "safety",
+          "replay": {
+            "command": [
+              "spin",
+              "-DBUG_QUORUM_CANDIDATE",
+              "-t",
+              "-k",
+              "safety.trail",
+              "-p",
+              "-g",
+              "-l",
+              "hybrid-contracts.pml"
+            ],
+            "elapsed_seconds": 0.020359202,
+            "log": "replay-safety.log",
+            "log_sha256": "73c8fcab38cb3e467e8d1f4cbae2e04bd2b15ed44dde756daec276c154c8a7d5",
+            "returncode": 0,
+            "timeout": false
+          },
+          "replayed_assertion_id": "QUORUM_CANDIDATE_BOUND",
+          "replayed_ltl_property": null,
+          "returncode": 0,
+          "status": "COUNTEREXAMPLE",
+          "timeout": false,
+          "trail": "safety.trail",
+          "trail_sha256": "510fbde7720f49be390aa0144453ba7905376a874a1e7face044fcf0990ba80e"
+        }
+      ],
+      "commands": [
+        {
+          "command": [
+            "spin",
+            "-DBUG_QUORUM_CANDIDATE",
+            "-a",
+            "hybrid-contracts.pml"
+          ],
+          "elapsed_seconds": 0.020418724,
+          "log": "generate.log",
+          "log_sha256": "68a85e104aea692efdb80ff9774b9d21cb9398f0623565d47e6f300c6633cbfd",
+          "returncode": 0,
+          "timeout": false
+        },
+        {
+          "command": [
+            "cc",
+            "-O2",
+            "-DMEMLIM=480",
+            "-DSAFETY",
+            "-DNOCLAIM",
+            "-o",
+            "pan-safety",
+            "pan.c"
+          ],
+          "elapsed_seconds": 1.643761397,
+          "log": "compile-safety.log",
+          "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "returncode": 0,
+          "timeout": false
+        },
+        {
+          "command": [
+            "./pan-safety",
+            "-b",
+            "-m100000",
+            "-w20"
+          ],
+          "elapsed_seconds": 0.020418343,
+          "log": "check-safety.log",
+          "log_sha256": "5695d72230e24bbc8c8855d9e47e3e68f5d6295555efe7931b57a37f37c8f50d",
+          "returncode": 0,
+          "timeout": false
+        },
+        {
+          "command": [
+            "spin",
+            "-DBUG_QUORUM_CANDIDATE",
+            "-t",
+            "-k",
+            "safety.trail",
+            "-p",
+            "-g",
+            "-l",
+            "hybrid-contracts.pml"
+          ],
+          "elapsed_seconds": 0.020359202,
+          "log": "replay-safety.log",
+          "log_sha256": "73c8fcab38cb3e467e8d1f4cbae2e04bd2b15ed44dde756daec276c154c8a7d5",
+          "returncode": 0,
+          "timeout": false
+        }
+      ],
+      "defect": "BUG_QUORUM_CANDIDATE",
+      "definitions": [],
+      "expectation_met": true,
+      "expected_result": "COUNTEREXAMPLE",
+      "fault_repetition": "bounded_or_not_applicable",
+      "model_sha256": "b24deeefdaa6a8f6563b84a7459c672fa1d0be6cebd3e28a4d880c6278fd0fa8",
+      "partial_order_reduction": true,
+      "purpose": "deliberate_defect",
+      "source_sha256": "b24deeefdaa6a8f6563b84a7459c672fa1d0be6cebd3e28a4d880c6278fd0fa8",
+      "status": "PASS",
+      "topology": "hybrid-contracts.pml",
+      "weak_process_fairness": false
+    },
+    {
+      "capacity": 2,
+      "checks": [
+        {
+          "command": [
+            "./pan-safety",
+            "-b",
+            "-m100000",
+            "-w20"
+          ],
+          "counterexample_kind": "assertion",
+          "elapsed_seconds": 0.010918279,
+          "expected_assertion_id": "QUORUM_CONTEXT_BOUND",
+          "expected_ltl_property": null,
+          "log": "check-safety.log",
+          "log_sha256": "5734c5c8bca1843df12979f342621e1fb938fa3cfee9589262a703241128ce5c",
+          "property": "safety",
+          "replay": {
+            "command": [
+              "spin",
+              "-DBUG_QUORUM_CONTEXT",
+              "-t",
+              "-k",
+              "safety.trail",
+              "-p",
+              "-g",
+              "-l",
+              "hybrid-contracts.pml"
+            ],
+            "elapsed_seconds": 0.02121022,
+            "log": "replay-safety.log",
+            "log_sha256": "1f827dccd6e7df2f69899c414dbcefa8f71deabaae2dbc425dc9a3eb6b79d3b4",
+            "returncode": 0,
+            "timeout": false
+          },
+          "replayed_assertion_id": "QUORUM_CONTEXT_BOUND",
+          "replayed_ltl_property": null,
+          "returncode": 0,
+          "status": "COUNTEREXAMPLE",
+          "timeout": false,
+          "trail": "safety.trail",
+          "trail_sha256": "9dbcd87d9b8aacef038aac2800d8906a29d94073e3c3c0cdf63060db7e45d77a"
+        }
+      ],
+      "commands": [
+        {
+          "command": [
+            "spin",
+            "-DBUG_QUORUM_CONTEXT",
+            "-a",
+            "hybrid-contracts.pml"
+          ],
+          "elapsed_seconds": 0.021759693,
+          "log": "generate.log",
+          "log_sha256": "68a85e104aea692efdb80ff9774b9d21cb9398f0623565d47e6f300c6633cbfd",
+          "returncode": 0,
+          "timeout": false
+        },
+        {
+          "command": [
+            "cc",
+            "-O2",
+            "-DMEMLIM=480",
+            "-DSAFETY",
+            "-DNOCLAIM",
+            "-o",
+            "pan-safety",
+            "pan.c"
+          ],
+          "elapsed_seconds": 1.64030688,
+          "log": "compile-safety.log",
+          "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "returncode": 0,
+          "timeout": false
+        },
+        {
+          "command": [
+            "./pan-safety",
+            "-b",
+            "-m100000",
+            "-w20"
+          ],
+          "elapsed_seconds": 0.010918279,
+          "log": "check-safety.log",
+          "log_sha256": "5734c5c8bca1843df12979f342621e1fb938fa3cfee9589262a703241128ce5c",
+          "returncode": 0,
+          "timeout": false
+        },
+        {
+          "command": [
+            "spin",
+            "-DBUG_QUORUM_CONTEXT",
+            "-t",
+            "-k",
+            "safety.trail",
+            "-p",
+            "-g",
+            "-l",
+            "hybrid-contracts.pml"
+          ],
+          "elapsed_seconds": 0.02121022,
+          "log": "replay-safety.log",
+          "log_sha256": "1f827dccd6e7df2f69899c414dbcefa8f71deabaae2dbc425dc9a3eb6b79d3b4",
+          "returncode": 0,
+          "timeout": false
+        }
+      ],
+      "defect": "BUG_QUORUM_CONTEXT",
+      "definitions": [],
+      "expectation_met": true,
+      "expected_result": "COUNTEREXAMPLE",
+      "fault_repetition": "bounded_or_not_applicable",
+      "model_sha256": "b24deeefdaa6a8f6563b84a7459c672fa1d0be6cebd3e28a4d880c6278fd0fa8",
+      "partial_order_reduction": true,
+      "purpose": "deliberate_defect",
+      "source_sha256": "b24deeefdaa6a8f6563b84a7459c672fa1d0be6cebd3e28a4d880c6278fd0fa8",
+      "status": "PASS",
+      "topology": "hybrid-contracts.pml",
+      "weak_process_fairness": false
+    },
+    {
+      "capacity": 2,
+      "checks": [
+        {
+          "command": [
+            "./pan-safety",
+            "-b",
+            "-m100000",
+            "-w20"
+          ],
+          "counterexample_kind": "assertion",
+          "elapsed_seconds": 0.010590924,
+          "expected_assertion_id": "QUORUM_EVIDENCE_BOUND",
+          "expected_ltl_property": null,
+          "log": "check-safety.log",
+          "log_sha256": "31e60fd57dc42c07fb408a4bc7e62ccb149ddf8ab56f1c54460d77dfe8acdd86",
+          "property": "safety",
+          "replay": {
+            "command": [
+              "spin",
+              "-DBUG_QUORUM_EVIDENCE",
+              "-t",
+              "-k",
+              "safety.trail",
+              "-p",
+              "-g",
+              "-l",
+              "hybrid-contracts.pml"
+            ],
+            "elapsed_seconds": 0.020405257,
+            "log": "replay-safety.log",
+            "log_sha256": "6361a6f0732416af82cc67029336a3967d9b9efa91503c1ab673ac32fd5e92d8",
+            "returncode": 0,
+            "timeout": false
+          },
+          "replayed_assertion_id": "QUORUM_EVIDENCE_BOUND",
+          "replayed_ltl_property": null,
+          "returncode": 0,
+          "status": "COUNTEREXAMPLE",
+          "timeout": false,
+          "trail": "safety.trail",
+          "trail_sha256": "bd80c1b083714fef24530c3dcdade5c768f102adaf2ec9170a162e44db7b01f7"
+        }
+      ],
+      "commands": [
+        {
+          "command": [
+            "spin",
+            "-DBUG_QUORUM_EVIDENCE",
+            "-a",
+            "hybrid-contracts.pml"
+          ],
+          "elapsed_seconds": 0.020545019,
+          "log": "generate.log",
+          "log_sha256": "68a85e104aea692efdb80ff9774b9d21cb9398f0623565d47e6f300c6633cbfd",
+          "returncode": 0,
+          "timeout": false
+        },
+        {
+          "command": [
+            "cc",
+            "-O2",
+            "-DMEMLIM=480",
+            "-DSAFETY",
+            "-DNOCLAIM",
+            "-o",
+            "pan-safety",
+            "pan.c"
+          ],
+          "elapsed_seconds": 1.27138918,
+          "log": "compile-safety.log",
+          "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "returncode": 0,
+          "timeout": false
+        },
+        {
+          "command": [
+            "./pan-safety",
+            "-b",
+            "-m100000",
+            "-w20"
+          ],
+          "elapsed_seconds": 0.010590924,
+          "log": "check-safety.log",
+          "log_sha256": "31e60fd57dc42c07fb408a4bc7e62ccb149ddf8ab56f1c54460d77dfe8acdd86",
+          "returncode": 0,
+          "timeout": false
+        },
+        {
+          "command": [
+            "spin",
+            "-DBUG_QUORUM_EVIDENCE",
+            "-t",
+            "-k",
+            "safety.trail",
+            "-p",
+            "-g",
+            "-l",
+            "hybrid-contracts.pml"
+          ],
+          "elapsed_seconds": 0.020405257,
+          "log": "replay-safety.log",
+          "log_sha256": "6361a6f0732416af82cc67029336a3967d9b9efa91503c1ab673ac32fd5e92d8",
+          "returncode": 0,
+          "timeout": false
+        }
+      ],
+      "defect": "BUG_QUORUM_EVIDENCE",
+      "definitions": [],
+      "expectation_met": true,
+      "expected_result": "COUNTEREXAMPLE",
+      "fault_repetition": "bounded_or_not_applicable",
+      "model_sha256": "b24deeefdaa6a8f6563b84a7459c672fa1d0be6cebd3e28a4d880c6278fd0fa8",
+      "partial_order_reduction": true,
+      "purpose": "deliberate_defect",
+      "source_sha256": "b24deeefdaa6a8f6563b84a7459c672fa1d0be6cebd3e28a4d880c6278fd0fa8",
+      "status": "PASS",
+      "topology": "hybrid-contracts.pml",
+      "weak_process_fairness": false
+    },
+    {
+      "capacity": 2,
+      "checks": [
+        {
+          "command": [
+            "./pan-safety",
+            "-b",
+            "-m100000",
+            "-w20"
+          ],
+          "counterexample_kind": "assertion",
+          "elapsed_seconds": 0.020389508,
+          "expected_assertion_id": "QUORUM_DISTINCT_EVALUATORS",
+          "expected_ltl_property": null,
+          "log": "check-safety.log",
+          "log_sha256": "c2222662e2ecc124ce05e2accdb50dbeffe6d13ca3209c77212282e8b2488327",
+          "property": "safety",
+          "replay": {
+            "command": [
+              "spin",
+              "-DBUG_QUORUM_DISTINCT",
+              "-t",
+              "-k",
+              "safety.trail",
+              "-p",
+              "-g",
+              "-l",
+              "hybrid-contracts.pml"
+            ],
+            "elapsed_seconds": 0.021111995,
+            "log": "replay-safety.log",
+            "log_sha256": "7920d8b6dab246dbd6f50ade06433bda886addae40c4b113f103983f22d25de7",
+            "returncode": 0,
+            "timeout": false
+          },
+          "replayed_assertion_id": "QUORUM_DISTINCT_EVALUATORS",
+          "replayed_ltl_property": null,
+          "returncode": 0,
+          "status": "COUNTEREXAMPLE",
+          "timeout": false,
+          "trail": "safety.trail",
+          "trail_sha256": "2c50f1d9dfc173a845bd1649d31cbf29dbfd7bcb09ef0e5d20bc7e592214e248"
+        }
+      ],
+      "commands": [
+        {
+          "command": [
+            "spin",
+            "-DBUG_QUORUM_DISTINCT",
+            "-a",
+            "hybrid-contracts.pml"
+          ],
+          "elapsed_seconds": 0.020548772,
+          "log": "generate.log",
+          "log_sha256": "68a85e104aea692efdb80ff9774b9d21cb9398f0623565d47e6f300c6633cbfd",
+          "returncode": 0,
+          "timeout": false
+        },
+        {
+          "command": [
+            "cc",
+            "-O2",
+            "-DMEMLIM=480",
+            "-DSAFETY",
+            "-DNOCLAIM",
+            "-o",
+            "pan-safety",
+            "pan.c"
+          ],
+          "elapsed_seconds": 2.262937511,
+          "log": "compile-safety.log",
+          "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "returncode": 0,
+          "timeout": false
+        },
+        {
+          "command": [
+            "./pan-safety",
+            "-b",
+            "-m100000",
+            "-w20"
+          ],
+          "elapsed_seconds": 0.020389508,
+          "log": "check-safety.log",
+          "log_sha256": "c2222662e2ecc124ce05e2accdb50dbeffe6d13ca3209c77212282e8b2488327",
+          "returncode": 0,
+          "timeout": false
+        },
+        {
+          "command": [
+            "spin",
+            "-DBUG_QUORUM_DISTINCT",
+            "-t",
+            "-k",
+            "safety.trail",
+            "-p",
+            "-g",
+            "-l",
+            "hybrid-contracts.pml"
+          ],
+          "elapsed_seconds": 0.021111995,
+          "log": "replay-safety.log",
+          "log_sha256": "7920d8b6dab246dbd6f50ade06433bda886addae40c4b113f103983f22d25de7",
+          "returncode": 0,
+          "timeout": false
+        }
+      ],
+      "defect": "BUG_QUORUM_DISTINCT",
+      "definitions": [],
+      "expectation_met": true,
+      "expected_result": "COUNTEREXAMPLE",
+      "fault_repetition": "bounded_or_not_applicable",
+      "model_sha256": "b24deeefdaa6a8f6563b84a7459c672fa1d0be6cebd3e28a4d880c6278fd0fa8",
+      "partial_order_reduction": true,
+      "purpose": "deliberate_defect",
+      "source_sha256": "b24deeefdaa6a8f6563b84a7459c672fa1d0be6cebd3e28a4d880c6278fd0fa8",
+      "status": "PASS",
+      "topology": "hybrid-contracts.pml",
+      "weak_process_fairness": false
+    },
+    {
+      "capacity": 2,
+      "checks": [
+        {
+          "command": [
+            "./pan-safety",
+            "-b",
+            "-m100000",
+            "-w20"
+          ],
+          "counterexample_kind": "assertion",
+          "elapsed_seconds": 0.010636286,
+          "expected_assertion_id": "DURABLE_ASSESSMENT_IMMUTABLE",
+          "expected_ltl_property": null,
+          "log": "check-safety.log",
+          "log_sha256": "222870242db93b764f93f8f3ba18bf81b3d0b35a245b71b0b497a36f07376265",
+          "property": "safety",
+          "replay": {
+            "command": [
+              "spin",
+              "-DBUG_DURABLE_HISTORY",
+              "-t",
+              "-k",
+              "safety.trail",
+              "-p",
+              "-g",
+              "-l",
+              "hybrid-contracts.pml"
+            ],
+            "elapsed_seconds": 0.020371574,
+            "log": "replay-safety.log",
+            "log_sha256": "8625148f09018232506a93d52cfb2bb2ec10d7d832bfe19838791e6411701ece",
+            "returncode": 0,
+            "timeout": false
+          },
+          "replayed_assertion_id": "DURABLE_ASSESSMENT_IMMUTABLE",
+          "replayed_ltl_property": null,
+          "returncode": 0,
+          "status": "COUNTEREXAMPLE",
+          "timeout": false,
+          "trail": "safety.trail",
+          "trail_sha256": "5764e7a0d19ed3f93107f3214680987557974016bf21f7ee348873a9dddb303c"
+        }
+      ],
+      "commands": [
+        {
+          "command": [
+            "spin",
+            "-DBUG_DURABLE_HISTORY",
+            "-a",
+            "hybrid-contracts.pml"
+          ],
+          "elapsed_seconds": 0.020716028,
+          "log": "generate.log",
+          "log_sha256": "68a85e104aea692efdb80ff9774b9d21cb9398f0623565d47e6f300c6633cbfd",
+          "returncode": 0,
+          "timeout": false
+        },
+        {
+          "command": [
+            "cc",
+            "-O2",
+            "-DMEMLIM=480",
+            "-DSAFETY",
+            "-DNOCLAIM",
+            "-o",
+            "pan-safety",
+            "pan.c"
+          ],
+          "elapsed_seconds": 1.8329130139999998,
+          "log": "compile-safety.log",
+          "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "returncode": 0,
+          "timeout": false
+        },
+        {
+          "command": [
+            "./pan-safety",
+            "-b",
+            "-m100000",
+            "-w20"
+          ],
+          "elapsed_seconds": 0.010636286,
+          "log": "check-safety.log",
+          "log_sha256": "222870242db93b764f93f8f3ba18bf81b3d0b35a245b71b0b497a36f07376265",
+          "returncode": 0,
+          "timeout": false
+        },
+        {
+          "command": [
+            "spin",
+            "-DBUG_DURABLE_HISTORY",
+            "-t",
+            "-k",
+            "safety.trail",
+            "-p",
+            "-g",
+            "-l",
+            "hybrid-contracts.pml"
+          ],
+          "elapsed_seconds": 0.020371574,
+          "log": "replay-safety.log",
+          "log_sha256": "8625148f09018232506a93d52cfb2bb2ec10d7d832bfe19838791e6411701ece",
+          "returncode": 0,
+          "timeout": false
+        }
+      ],
+      "defect": "BUG_DURABLE_HISTORY",
+      "definitions": [],
+      "expectation_met": true,
+      "expected_result": "COUNTEREXAMPLE",
+      "fault_repetition": "bounded_or_not_applicable",
+      "model_sha256": "b24deeefdaa6a8f6563b84a7459c672fa1d0be6cebd3e28a4d880c6278fd0fa8",
+      "partial_order_reduction": true,
+      "purpose": "deliberate_defect",
+      "source_sha256": "b24deeefdaa6a8f6563b84a7459c672fa1d0be6cebd3e28a4d880c6278fd0fa8",
+      "status": "PASS",
+      "topology": "hybrid-contracts.pml",
+      "weak_process_fairness": false
+    },
+    {
+      "capacity": 2,
+      "checks": [
+        {
+          "command": [
+            "./pan-safety",
+            "-b",
+            "-m100000",
+            "-w20"
+          ],
+          "counterexample_kind": "assertion",
+          "elapsed_seconds": 0.022510954,
+          "expected_assertion_id": "DURABLE_ASSESSMENT_IMMUTABLE",
+          "expected_ltl_property": null,
+          "log": "check-safety.log",
+          "log_sha256": "3e99268e65b4dd25022b49a94d2eb8beab6dc8f47f1e0dd3560a0fbedb746ea8",
+          "property": "safety",
+          "replay": {
+            "command": [
+              "spin",
+              "-DBUG_DURABLE_HISTORY_LOSS",
+              "-t",
+              "-k",
+              "safety.trail",
+              "-p",
+              "-g",
+              "-l",
+              "hybrid-contracts.pml"
+            ],
+            "elapsed_seconds": 0.020499812,
+            "log": "replay-safety.log",
+            "log_sha256": "15225cb0dfda7da070b474730e368b6fa1a900ac689a466854a6d483602b81da",
+            "returncode": 0,
+            "timeout": false
+          },
+          "replayed_assertion_id": "DURABLE_ASSESSMENT_IMMUTABLE",
+          "replayed_ltl_property": null,
+          "returncode": 0,
+          "status": "COUNTEREXAMPLE",
+          "timeout": false,
+          "trail": "safety.trail",
+          "trail_sha256": "0056fbb4b289d218362fa9eb9202c46942232356754e9be38c854c1c9b042010"
+        }
+      ],
+      "commands": [
+        {
+          "command": [
+            "spin",
+            "-DBUG_DURABLE_HISTORY_LOSS",
+            "-a",
+            "hybrid-contracts.pml"
+          ],
+          "elapsed_seconds": 0.020724371,
+          "log": "generate.log",
+          "log_sha256": "68a85e104aea692efdb80ff9774b9d21cb9398f0623565d47e6f300c6633cbfd",
+          "returncode": 0,
+          "timeout": false
+        },
+        {
+          "command": [
+            "cc",
+            "-O2",
+            "-DMEMLIM=480",
+            "-DSAFETY",
+            "-DNOCLAIM",
+            "-o",
+            "pan-safety",
+            "pan.c"
+          ],
+          "elapsed_seconds": 1.386809356,
+          "log": "compile-safety.log",
+          "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "returncode": 0,
+          "timeout": false
+        },
+        {
+          "command": [
+            "./pan-safety",
+            "-b",
+            "-m100000",
+            "-w20"
+          ],
+          "elapsed_seconds": 0.022510954,
+          "log": "check-safety.log",
+          "log_sha256": "3e99268e65b4dd25022b49a94d2eb8beab6dc8f47f1e0dd3560a0fbedb746ea8",
+          "returncode": 0,
+          "timeout": false
+        },
+        {
+          "command": [
+            "spin",
+            "-DBUG_DURABLE_HISTORY_LOSS",
+            "-t",
+            "-k",
+            "safety.trail",
+            "-p",
+            "-g",
+            "-l",
+            "hybrid-contracts.pml"
+          ],
+          "elapsed_seconds": 0.020499812,
+          "log": "replay-safety.log",
+          "log_sha256": "15225cb0dfda7da070b474730e368b6fa1a900ac689a466854a6d483602b81da",
+          "returncode": 0,
+          "timeout": false
+        }
+      ],
+      "defect": "BUG_DURABLE_HISTORY_LOSS",
+      "definitions": [],
+      "expectation_met": true,
+      "expected_result": "COUNTEREXAMPLE",
+      "fault_repetition": "bounded_or_not_applicable",
+      "model_sha256": "b24deeefdaa6a8f6563b84a7459c672fa1d0be6cebd3e28a4d880c6278fd0fa8",
+      "partial_order_reduction": true,
+      "purpose": "deliberate_defect",
+      "source_sha256": "b24deeefdaa6a8f6563b84a7459c672fa1d0be6cebd3e28a4d880c6278fd0fa8",
+      "status": "PASS",
+      "topology": "hybrid-contracts.pml",
+      "weak_process_fairness": false
+    },
+    {
+      "capacity": 2,
+      "checks": [
+        {
+          "command": [
+            "./pan-safety",
+            "-b",
+            "-m100000",
+            "-w20"
+          ],
+          "counterexample_kind": "assertion",
+          "elapsed_seconds": 0.020428351,
+          "expected_assertion_id": "DURABLE_RESERVATION_RESTORED",
+          "expected_ltl_property": null,
+          "log": "check-safety.log",
+          "log_sha256": "d0309bdcc675a072a608bed8fea87fa38bfcb54dcf10aab2498eb7182fbec0e6",
+          "property": "safety",
+          "replay": {
+            "command": [
+              "spin",
+              "-DBUG_DURABLE_RESERVATION",
+              "-t",
+              "-k",
+              "safety.trail",
+              "-p",
+              "-g",
+              "-l",
+              "hybrid-contracts.pml"
+            ],
+            "elapsed_seconds": 0.020425697,
+            "log": "replay-safety.log",
+            "log_sha256": "c1fc12a71172e833ad9d27a345d682b91f0ab978af144f454ae5198e0ccbde48",
+            "returncode": 0,
+            "timeout": false
+          },
+          "replayed_assertion_id": "DURABLE_RESERVATION_RESTORED",
+          "replayed_ltl_property": null,
+          "returncode": 0,
+          "status": "COUNTEREXAMPLE",
+          "timeout": false,
+          "trail": "safety.trail",
+          "trail_sha256": "a31d62776a71fbd9dbf477746c5f34f6913fc97cacd5132aa01283f20e8c5a26"
+        }
+      ],
+      "commands": [
+        {
+          "command": [
+            "spin",
+            "-DBUG_DURABLE_RESERVATION",
+            "-a",
+            "hybrid-contracts.pml"
+          ],
+          "elapsed_seconds": 0.021803978,
+          "log": "generate.log",
+          "log_sha256": "68a85e104aea692efdb80ff9774b9d21cb9398f0623565d47e6f300c6633cbfd",
+          "returncode": 0,
+          "timeout": false
+        },
+        {
+          "command": [
+            "cc",
+            "-O2",
+            "-DMEMLIM=480",
+            "-DSAFETY",
+            "-DNOCLAIM",
+            "-o",
+            "pan-safety",
+            "pan.c"
+          ],
+          "elapsed_seconds": 2.665750573,
+          "log": "compile-safety.log",
+          "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "returncode": 0,
+          "timeout": false
+        },
+        {
+          "command": [
+            "./pan-safety",
+            "-b",
+            "-m100000",
+            "-w20"
+          ],
+          "elapsed_seconds": 0.020428351,
+          "log": "check-safety.log",
+          "log_sha256": "d0309bdcc675a072a608bed8fea87fa38bfcb54dcf10aab2498eb7182fbec0e6",
+          "returncode": 0,
+          "timeout": false
+        },
+        {
+          "command": [
+            "spin",
+            "-DBUG_DURABLE_RESERVATION",
+            "-t",
+            "-k",
+            "safety.trail",
+            "-p",
+            "-g",
+            "-l",
+            "hybrid-contracts.pml"
+          ],
+          "elapsed_seconds": 0.020425697,
+          "log": "replay-safety.log",
+          "log_sha256": "c1fc12a71172e833ad9d27a345d682b91f0ab978af144f454ae5198e0ccbde48",
+          "returncode": 0,
+          "timeout": false
+        }
+      ],
+      "defect": "BUG_DURABLE_RESERVATION",
+      "definitions": [],
+      "expectation_met": true,
+      "expected_result": "COUNTEREXAMPLE",
+      "fault_repetition": "bounded_or_not_applicable",
+      "model_sha256": "b24deeefdaa6a8f6563b84a7459c672fa1d0be6cebd3e28a4d880c6278fd0fa8",
+      "partial_order_reduction": true,
+      "purpose": "deliberate_defect",
+      "source_sha256": "b24deeefdaa6a8f6563b84a7459c672fa1d0be6cebd3e28a4d880c6278fd0fa8",
+      "status": "PASS",
+      "topology": "hybrid-contracts.pml",
+      "weak_process_fairness": false
+    },
+    {
+      "capacity": 2,
+      "checks": [
+        {
+          "command": [
+            "./pan-safety",
+            "-b",
+            "-m100000",
+            "-w20"
+          ],
+          "counterexample_kind": "assertion",
+          "elapsed_seconds": 0.0218138,
+          "expected_assertion_id": "DURABLE_UNKNOWN_NOT_REDISPATCHED",
+          "expected_ltl_property": null,
+          "log": "check-safety.log",
+          "log_sha256": "f949d078468ad1d695fc5054da11d9f18cd8dafa282dd33f60af90cc40870014",
+          "property": "safety",
+          "replay": {
+            "command": [
+              "spin",
+              "-DBUG_DURABLE_UNKNOWN_REPLAY",
+              "-t",
+              "-k",
+              "safety.trail",
+              "-p",
+              "-g",
+              "-l",
+              "hybrid-contracts.pml"
+            ],
+            "elapsed_seconds": 0.030622427,
+            "log": "replay-safety.log",
+            "log_sha256": "b7d64f2d29891a3b9a23349eccd90653e668b2c5054cb6fb01cf445dba2af5a3",
+            "returncode": 0,
+            "timeout": false
+          },
+          "replayed_assertion_id": "DURABLE_UNKNOWN_NOT_REDISPATCHED",
+          "replayed_ltl_property": null,
+          "returncode": 0,
+          "status": "COUNTEREXAMPLE",
+          "timeout": false,
+          "trail": "safety.trail",
+          "trail_sha256": "38af701964b332a64106b699007ddd701dc2b314f3866701121e7f84f09de091"
+        }
+      ],
+      "commands": [
+        {
+          "command": [
+            "spin",
+            "-DBUG_DURABLE_UNKNOWN_REPLAY",
+            "-a",
+            "hybrid-contracts.pml"
+          ],
+          "elapsed_seconds": 0.020827528,
+          "log": "generate.log",
+          "log_sha256": "68a85e104aea692efdb80ff9774b9d21cb9398f0623565d47e6f300c6633cbfd",
+          "returncode": 0,
+          "timeout": false
+        },
+        {
+          "command": [
+            "cc",
+            "-O2",
+            "-DMEMLIM=480",
+            "-DSAFETY",
+            "-DNOCLAIM",
+            "-o",
+            "pan-safety",
+            "pan.c"
+          ],
+          "elapsed_seconds": 1.4458178130000001,
+          "log": "compile-safety.log",
+          "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "returncode": 0,
+          "timeout": false
+        },
+        {
+          "command": [
+            "./pan-safety",
+            "-b",
+            "-m100000",
+            "-w20"
+          ],
+          "elapsed_seconds": 0.0218138,
+          "log": "check-safety.log",
+          "log_sha256": "f949d078468ad1d695fc5054da11d9f18cd8dafa282dd33f60af90cc40870014",
+          "returncode": 0,
+          "timeout": false
+        },
+        {
+          "command": [
+            "spin",
+            "-DBUG_DURABLE_UNKNOWN_REPLAY",
+            "-t",
+            "-k",
+            "safety.trail",
+            "-p",
+            "-g",
+            "-l",
+            "hybrid-contracts.pml"
+          ],
+          "elapsed_seconds": 0.030622427,
+          "log": "replay-safety.log",
+          "log_sha256": "b7d64f2d29891a3b9a23349eccd90653e668b2c5054cb6fb01cf445dba2af5a3",
+          "returncode": 0,
+          "timeout": false
+        }
+      ],
+      "defect": "BUG_DURABLE_UNKNOWN_REPLAY",
+      "definitions": [],
+      "expectation_met": true,
+      "expected_result": "COUNTEREXAMPLE",
+      "fault_repetition": "bounded_or_not_applicable",
+      "model_sha256": "b24deeefdaa6a8f6563b84a7459c672fa1d0be6cebd3e28a4d880c6278fd0fa8",
+      "partial_order_reduction": true,
+      "purpose": "deliberate_defect",
+      "source_sha256": "b24deeefdaa6a8f6563b84a7459c672fa1d0be6cebd3e28a4d880c6278fd0fa8",
+      "status": "PASS",
+      "topology": "hybrid-contracts.pml",
+      "weak_process_fairness": false
+    },
+    {
+      "capacity": 2,
+      "checks": [
+        {
+          "command": [
+            "./pan-safety",
+            "-b",
+            "-m100000",
+            "-w20"
+          ],
+          "counterexample_kind": "assertion",
+          "elapsed_seconds": 0.010279447,
+          "expected_assertion_id": "DURABLE_AUTHORITY_FROZEN",
+          "expected_ltl_property": null,
+          "log": "check-safety.log",
+          "log_sha256": "a421aa1bcfb2410947fb3aae00251c0ef85851e5ae0382fa3dd508254c4814a6",
+          "property": "safety",
+          "replay": {
+            "command": [
+              "spin",
+              "-DBUG_DURABLE_AUTHORITY",
+              "-t",
+              "-k",
+              "safety.trail",
+              "-p",
+              "-g",
+              "-l",
+              "hybrid-contracts.pml"
+            ],
+            "elapsed_seconds": 0.02057948,
+            "log": "replay-safety.log",
+            "log_sha256": "6fdc14cd3213e1da678ddc1f027f9abd1480a4de751146986b5fef280ad8ea4e",
+            "returncode": 0,
+            "timeout": false
+          },
+          "replayed_assertion_id": "DURABLE_AUTHORITY_FROZEN",
+          "replayed_ltl_property": null,
+          "returncode": 0,
+          "status": "COUNTEREXAMPLE",
+          "timeout": false,
+          "trail": "safety.trail",
+          "trail_sha256": "e09799f2cd92ba00ce26d7082a443ea0fc76fc6afdb7a462087c654f21f22480"
+        }
+      ],
+      "commands": [
+        {
+          "command": [
+            "spin",
+            "-DBUG_DURABLE_AUTHORITY",
+            "-a",
+            "hybrid-contracts.pml"
+          ],
+          "elapsed_seconds": 0.030786505,
+          "log": "generate.log",
+          "log_sha256": "68a85e104aea692efdb80ff9774b9d21cb9398f0623565d47e6f300c6633cbfd",
+          "returncode": 0,
+          "timeout": false
+        },
+        {
+          "command": [
+            "cc",
+            "-O2",
+            "-DMEMLIM=480",
+            "-DSAFETY",
+            "-DNOCLAIM",
+            "-o",
+            "pan-safety",
+            "pan.c"
+          ],
+          "elapsed_seconds": 1.353953276,
+          "log": "compile-safety.log",
+          "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "returncode": 0,
+          "timeout": false
+        },
+        {
+          "command": [
+            "./pan-safety",
+            "-b",
+            "-m100000",
+            "-w20"
+          ],
+          "elapsed_seconds": 0.010279447,
+          "log": "check-safety.log",
+          "log_sha256": "a421aa1bcfb2410947fb3aae00251c0ef85851e5ae0382fa3dd508254c4814a6",
+          "returncode": 0,
+          "timeout": false
+        },
+        {
+          "command": [
+            "spin",
+            "-DBUG_DURABLE_AUTHORITY",
+            "-t",
+            "-k",
+            "safety.trail",
+            "-p",
+            "-g",
+            "-l",
+            "hybrid-contracts.pml"
+          ],
+          "elapsed_seconds": 0.02057948,
+          "log": "replay-safety.log",
+          "log_sha256": "6fdc14cd3213e1da678ddc1f027f9abd1480a4de751146986b5fef280ad8ea4e",
+          "returncode": 0,
+          "timeout": false
+        }
+      ],
+      "defect": "BUG_DURABLE_AUTHORITY",
+      "definitions": [],
+      "expectation_met": true,
+      "expected_result": "COUNTEREXAMPLE",
+      "fault_repetition": "bounded_or_not_applicable",
+      "model_sha256": "b24deeefdaa6a8f6563b84a7459c672fa1d0be6cebd3e28a4d880c6278fd0fa8",
+      "partial_order_reduction": true,
+      "purpose": "deliberate_defect",
+      "source_sha256": "b24deeefdaa6a8f6563b84a7459c672fa1d0be6cebd3e28a4d880c6278fd0fa8",
+      "status": "PASS",
+      "topology": "hybrid-contracts.pml",
+      "weak_process_fairness": false
+    },
+    {
+      "capacity": 2,
+      "checks": [
+        {
+          "command": [
+            "./pan-safety",
+            "-b",
+            "-m100000",
+            "-w20"
+          ],
+          "counterexample_kind": "assertion",
+          "elapsed_seconds": 0.020468958,
+          "expected_assertion_id": "ASSESSMENT_NOT_EXECUTION_AUTHORITY",
+          "expected_ltl_property": null,
+          "log": "check-safety.log",
+          "log_sha256": "4915c164633ca4165c9b502892c8f0ec807876837ae2b1c5d83b669bb09cd22c",
+          "property": "safety",
+          "replay": {
+            "command": [
+              "spin",
+              "-DBUG_ASSESSMENT_AUTHORISES_EFFECT",
+              "-t",
+              "-k",
+              "safety.trail",
+              "-p",
+              "-g",
+              "-l",
+              "hybrid-contracts.pml"
+            ],
+            "elapsed_seconds": 0.020883111,
+            "log": "replay-safety.log",
+            "log_sha256": "41afa9f5bccdad5dfe64330c6d49607de66d6fbf4b5f9dbec9402738e0b9aad8",
+            "returncode": 0,
+            "timeout": false
+          },
+          "replayed_assertion_id": "ASSESSMENT_NOT_EXECUTION_AUTHORITY",
+          "replayed_ltl_property": null,
+          "returncode": 0,
+          "status": "COUNTEREXAMPLE",
+          "timeout": false,
+          "trail": "safety.trail",
+          "trail_sha256": "a9d4abd2c5b99df8bde3df36fc20b46ec6d03ef4c79dd42dacf3172f8cae692c"
+        }
+      ],
+      "commands": [
+        {
+          "command": [
+            "spin",
+            "-DBUG_ASSESSMENT_AUTHORISES_EFFECT",
+            "-a",
+            "hybrid-contracts.pml"
+          ],
+          "elapsed_seconds": 0.021005695,
+          "log": "generate.log",
+          "log_sha256": "68a85e104aea692efdb80ff9774b9d21cb9398f0623565d47e6f300c6633cbfd",
+          "returncode": 0,
+          "timeout": false
+        },
+        {
+          "command": [
+            "cc",
+            "-O2",
+            "-DMEMLIM=480",
+            "-DSAFETY",
+            "-DNOCLAIM",
+            "-o",
+            "pan-safety",
+            "pan.c"
+          ],
+          "elapsed_seconds": 1.347757315,
+          "log": "compile-safety.log",
+          "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "returncode": 0,
+          "timeout": false
+        },
+        {
+          "command": [
+            "./pan-safety",
+            "-b",
+            "-m100000",
+            "-w20"
+          ],
+          "elapsed_seconds": 0.020468958,
+          "log": "check-safety.log",
+          "log_sha256": "4915c164633ca4165c9b502892c8f0ec807876837ae2b1c5d83b669bb09cd22c",
+          "returncode": 0,
+          "timeout": false
+        },
+        {
+          "command": [
+            "spin",
+            "-DBUG_ASSESSMENT_AUTHORISES_EFFECT",
+            "-t",
+            "-k",
+            "safety.trail",
+            "-p",
+            "-g",
+            "-l",
+            "hybrid-contracts.pml"
+          ],
+          "elapsed_seconds": 0.020883111,
+          "log": "replay-safety.log",
+          "log_sha256": "41afa9f5bccdad5dfe64330c6d49607de66d6fbf4b5f9dbec9402738e0b9aad8",
+          "returncode": 0,
+          "timeout": false
+        }
+      ],
+      "defect": "BUG_ASSESSMENT_AUTHORISES_EFFECT",
+      "definitions": [],
+      "expectation_met": true,
+      "expected_result": "COUNTEREXAMPLE",
+      "fault_repetition": "bounded_or_not_applicable",
+      "model_sha256": "b24deeefdaa6a8f6563b84a7459c672fa1d0be6cebd3e28a4d880c6278fd0fa8",
+      "partial_order_reduction": true,
+      "purpose": "deliberate_defect",
+      "source_sha256": "b24deeefdaa6a8f6563b84a7459c672fa1d0be6cebd3e28a4d880c6278fd0fa8",
+      "status": "PASS",
+      "topology": "hybrid-contracts.pml",
+      "weak_process_fairness": false
+    },
+    {
+      "capacity": 2,
+      "checks": [
+        {
+          "command": [
+            "./pan-ltl",
+            "-b",
+            "-m100000",
+            "-w20",
+            "-a",
+            "-N",
+            "hybrid_contract_settles"
+          ],
+          "counterexample_kind": "acceptance_cycle",
+          "elapsed_seconds": 0.010336276,
+          "expected_assertion_id": null,
+          "expected_ltl_property": "hybrid_contract_settles",
+          "log": "check-hybrid_contract_settles.log",
+          "log_sha256": "03262adb7d818c009d25249b2d16198401166d6fb6ef2c173c4534aa2c65012b",
+          "property": "hybrid_contract_settles",
+          "replay": {
+            "command": [
+              "spin",
+              "-DBUG_HYBRID_STALL",
+              "-t",
+              "-k",
+              "hybrid_contract_settles.trail",
+              "-p",
+              "-g",
+              "-l",
+              "hybrid-contracts.pml"
+            ],
+            "elapsed_seconds": 0.020369698,
+            "log": "replay-hybrid_contract_settles.log",
+            "log_sha256": "dc87c305a0f1489364cbf98aad3e98d5a195b4de3bea2eb67b26406873fe9c28",
+            "returncode": 0,
+            "timeout": false
+          },
+          "replayed_assertion_id": null,
+          "replayed_ltl_property": "hybrid_contract_settles",
+          "returncode": 0,
+          "status": "COUNTEREXAMPLE",
+          "timeout": false,
+          "trail": "hybrid_contract_settles.trail",
+          "trail_sha256": "12f1817720585ed282c0ec2a520cf469a123a5f4b2f078af5a38173364a9a729"
+        }
+      ],
+      "commands": [
+        {
+          "command": [
+            "spin",
+            "-DBUG_HYBRID_STALL",
+            "-a",
+            "hybrid-contracts.pml"
+          ],
+          "elapsed_seconds": 0.02255957,
+          "log": "generate.log",
+          "log_sha256": "68a85e104aea692efdb80ff9774b9d21cb9398f0623565d47e6f300c6633cbfd",
+          "returncode": 0,
+          "timeout": false
+        },
+        {
+          "command": [
+            "cc",
+            "-O2",
+            "-DMEMLIM=480",
+            "-o",
+            "pan-ltl",
+            "pan.c"
+          ],
+          "elapsed_seconds": 1.58461597,
+          "log": "compile-ltl.log",
+          "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "returncode": 0,
+          "timeout": false
+        },
+        {
+          "command": [
+            "./pan-ltl",
+            "-b",
+            "-m100000",
+            "-w20",
+            "-a",
+            "-N",
+            "hybrid_contract_settles"
+          ],
+          "elapsed_seconds": 0.010336276,
+          "log": "check-hybrid_contract_settles.log",
+          "log_sha256": "03262adb7d818c009d25249b2d16198401166d6fb6ef2c173c4534aa2c65012b",
+          "returncode": 0,
+          "timeout": false
+        },
+        {
+          "command": [
+            "spin",
+            "-DBUG_HYBRID_STALL",
+            "-t",
+            "-k",
+            "hybrid_contract_settles.trail",
+            "-p",
+            "-g",
+            "-l",
+            "hybrid-contracts.pml"
+          ],
+          "elapsed_seconds": 0.020369698,
+          "log": "replay-hybrid_contract_settles.log",
+          "log_sha256": "dc87c305a0f1489364cbf98aad3e98d5a195b4de3bea2eb67b26406873fe9c28",
+          "returncode": 0,
+          "timeout": false
+        }
+      ],
+      "defect": "BUG_HYBRID_STALL",
+      "definitions": [],
+      "expectation_met": true,
+      "expected_result": "COUNTEREXAMPLE",
+      "fault_repetition": "bounded_or_not_applicable",
+      "model_sha256": "b24deeefdaa6a8f6563b84a7459c672fa1d0be6cebd3e28a4d880c6278fd0fa8",
+      "partial_order_reduction": true,
+      "purpose": "deliberate_defect",
+      "source_sha256": "b24deeefdaa6a8f6563b84a7459c672fa1d0be6cebd3e28a4d880c6278fd0fa8",
+      "status": "PASS",
+      "topology": "hybrid-contracts.pml",
+      "weak_process_fairness": false
+    },
+    {
+      "capacity": 2,
+      "checks": [
+        {
+          "command": [
+            "./pan-safety",
+            "-b",
+            "-m100000",
+            "-w20"
+          ],
+          "counterexample_kind": "assertion",
+          "elapsed_seconds": 0.010317584,
+          "expected_assertion_id": "REACH_ROUTABLE_REQUEST",
+          "expected_ltl_property": null,
+          "log": "check-safety.log",
+          "log_sha256": "d7fe4b327869a3927f4e5b45090acc5545d87f49a1c226240e4b030ac5583c5a",
+          "property": "safety",
+          "replay": {
+            "command": [
+              "spin",
+              "-DWITNESS_REPLY_REQUEST",
+              "-t",
+              "-k",
+              "safety.trail",
+              "-p",
+              "-g",
+              "-l",
+              "hybrid-contracts.pml"
+            ],
+            "elapsed_seconds": 0.020356653,
+            "log": "replay-safety.log",
+            "log_sha256": "2fb30da369379b4402c54df764bbc119e7627c9236bdb44852e6affe315a15b7",
+            "returncode": 0,
+            "timeout": false
+          },
+          "replayed_assertion_id": "REACH_ROUTABLE_REQUEST",
+          "replayed_ltl_property": null,
+          "returncode": 0,
+          "status": "COUNTEREXAMPLE",
+          "timeout": false,
+          "trail": "safety.trail",
+          "trail_sha256": "25f13ab16a8e5954be459ffbcd1f527ea9517c995d4bdad2113a9b1f9f9d86a4"
+        }
+      ],
+      "commands": [
+        {
+          "command": [
+            "spin",
+            "-DWITNESS_REPLY_REQUEST",
+            "-a",
+            "hybrid-contracts.pml"
+          ],
+          "elapsed_seconds": 0.02084741,
+          "log": "generate.log",
+          "log_sha256": "68a85e104aea692efdb80ff9774b9d21cb9398f0623565d47e6f300c6633cbfd",
+          "returncode": 0,
+          "timeout": false
+        },
+        {
+          "command": [
+            "cc",
+            "-O2",
+            "-DMEMLIM=480",
+            "-DSAFETY",
+            "-DNOCLAIM",
+            "-o",
+            "pan-safety",
+            "pan.c"
+          ],
+          "elapsed_seconds": 1.224789866,
+          "log": "compile-safety.log",
+          "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "returncode": 0,
+          "timeout": false
+        },
+        {
+          "command": [
+            "./pan-safety",
+            "-b",
+            "-m100000",
+            "-w20"
+          ],
+          "elapsed_seconds": 0.010317584,
+          "log": "check-safety.log",
+          "log_sha256": "d7fe4b327869a3927f4e5b45090acc5545d87f49a1c226240e4b030ac5583c5a",
+          "returncode": 0,
+          "timeout": false
+        },
+        {
+          "command": [
+            "spin",
+            "-DWITNESS_REPLY_REQUEST",
+            "-t",
+            "-k",
+            "safety.trail",
+            "-p",
+            "-g",
+            "-l",
+            "hybrid-contracts.pml"
+          ],
+          "elapsed_seconds": 0.020356653,
+          "log": "replay-safety.log",
+          "log_sha256": "2fb30da369379b4402c54df764bbc119e7627c9236bdb44852e6affe315a15b7",
+          "returncode": 0,
+          "timeout": false
+        }
+      ],
+      "defect": "WITNESS_REPLY_REQUEST",
+      "definitions": [],
+      "expectation_met": true,
+      "expected_result": "COUNTEREXAMPLE",
+      "fault_repetition": "bounded_or_not_applicable",
+      "model_sha256": "b24deeefdaa6a8f6563b84a7459c672fa1d0be6cebd3e28a4d880c6278fd0fa8",
+      "partial_order_reduction": true,
+      "purpose": "reachability_witness",
+      "source_sha256": "b24deeefdaa6a8f6563b84a7459c672fa1d0be6cebd3e28a4d880c6278fd0fa8",
+      "status": "PASS",
+      "topology": "hybrid-contracts.pml",
+      "weak_process_fairness": false
+    },
+    {
+      "capacity": 2,
+      "checks": [
+        {
+          "command": [
+            "./pan-safety",
+            "-b",
+            "-m100000",
+            "-w20"
+          ],
+          "counterexample_kind": "assertion",
+          "elapsed_seconds": 0.010340547,
+          "expected_assertion_id": "REACH_ONE_WAY_NOTICE",
+          "expected_ltl_property": null,
+          "log": "check-safety.log",
+          "log_sha256": "1ddf4b04005ab900dcf977f3a942b6388a84f33744a33c89fa6c49ce5aaa3c83",
+          "property": "safety",
+          "replay": {
+            "command": [
+              "spin",
+              "-DWITNESS_ONE_WAY_NOTICE",
+              "-t",
+              "-k",
+              "safety.trail",
+              "-p",
+              "-g",
+              "-l",
+              "hybrid-contracts.pml"
+            ],
+            "elapsed_seconds": 0.020498714,
+            "log": "replay-safety.log",
+            "log_sha256": "0931018283099ed46f41cea6cdf0a3a88e313cd099fd36c6a9c7d1971ececd10",
+            "returncode": 0,
+            "timeout": false
+          },
+          "replayed_assertion_id": "REACH_ONE_WAY_NOTICE",
+          "replayed_ltl_property": null,
+          "returncode": 0,
+          "status": "COUNTEREXAMPLE",
+          "timeout": false,
+          "trail": "safety.trail",
+          "trail_sha256": "b9e425d00a838dc0345f70d0bd926215033b8fa0b61a46f1b6e33da37614eab8"
+        }
+      ],
+      "commands": [
+        {
+          "command": [
+            "spin",
+            "-DWITNESS_ONE_WAY_NOTICE",
+            "-a",
+            "hybrid-contracts.pml"
+          ],
+          "elapsed_seconds": 0.020429746,
+          "log": "generate.log",
+          "log_sha256": "68a85e104aea692efdb80ff9774b9d21cb9398f0623565d47e6f300c6633cbfd",
+          "returncode": 0,
+          "timeout": false
+        },
+        {
+          "command": [
+            "cc",
+            "-O2",
+            "-DMEMLIM=480",
+            "-DSAFETY",
+            "-DNOCLAIM",
+            "-o",
+            "pan-safety",
+            "pan.c"
+          ],
+          "elapsed_seconds": 1.223513384,
+          "log": "compile-safety.log",
+          "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "returncode": 0,
+          "timeout": false
+        },
+        {
+          "command": [
+            "./pan-safety",
+            "-b",
+            "-m100000",
+            "-w20"
+          ],
+          "elapsed_seconds": 0.010340547,
+          "log": "check-safety.log",
+          "log_sha256": "1ddf4b04005ab900dcf977f3a942b6388a84f33744a33c89fa6c49ce5aaa3c83",
+          "returncode": 0,
+          "timeout": false
+        },
+        {
+          "command": [
+            "spin",
+            "-DWITNESS_ONE_WAY_NOTICE",
+            "-t",
+            "-k",
+            "safety.trail",
+            "-p",
+            "-g",
+            "-l",
+            "hybrid-contracts.pml"
+          ],
+          "elapsed_seconds": 0.020498714,
+          "log": "replay-safety.log",
+          "log_sha256": "0931018283099ed46f41cea6cdf0a3a88e313cd099fd36c6a9c7d1971ececd10",
+          "returncode": 0,
+          "timeout": false
+        }
+      ],
+      "defect": "WITNESS_ONE_WAY_NOTICE",
+      "definitions": [],
+      "expectation_met": true,
+      "expected_result": "COUNTEREXAMPLE",
+      "fault_repetition": "bounded_or_not_applicable",
+      "model_sha256": "b24deeefdaa6a8f6563b84a7459c672fa1d0be6cebd3e28a4d880c6278fd0fa8",
+      "partial_order_reduction": true,
+      "purpose": "reachability_witness",
+      "source_sha256": "b24deeefdaa6a8f6563b84a7459c672fa1d0be6cebd3e28a4d880c6278fd0fa8",
+      "status": "PASS",
+      "topology": "hybrid-contracts.pml",
+      "weak_process_fairness": false
+    },
+    {
+      "capacity": 2,
+      "checks": [
+        {
+          "command": [
+            "./pan-safety",
+            "-b",
+            "-m100000",
+            "-w20"
+          ],
+          "counterexample_kind": "assertion",
+          "elapsed_seconds": 0.020351532,
+          "expected_assertion_id": "REACH_COMMITTED_UNKNOWN_RECONCILED",
+          "expected_ltl_property": null,
+          "log": "check-safety.log",
+          "log_sha256": "cc0d351133de46a5d25b102afdb1d1bc2aae05e98e45c442baa3937b3c39ceaf",
+          "property": "safety",
+          "replay": {
+            "command": [
+              "spin",
+              "-DWITNESS_GATEWAY_COMMITTED_UNKNOWN",
+              "-t",
+              "-k",
+              "safety.trail",
+              "-p",
+              "-g",
+              "-l",
+              "hybrid-contracts.pml"
+            ],
+            "elapsed_seconds": 0.020382241,
+            "log": "replay-safety.log",
+            "log_sha256": "fc389140288038ad25f817d6704933aa7597c7ea549ebdacae312170f59e0e2b",
+            "returncode": 0,
+            "timeout": false
+          },
+          "replayed_assertion_id": "REACH_COMMITTED_UNKNOWN_RECONCILED",
+          "replayed_ltl_property": null,
+          "returncode": 0,
+          "status": "COUNTEREXAMPLE",
+          "timeout": false,
+          "trail": "safety.trail",
+          "trail_sha256": "658409cd9f13ad7e52f16d050d668fc6a284a165a59a5597a39ecd93574621db"
+        }
+      ],
+      "commands": [
+        {
+          "command": [
+            "spin",
+            "-DWITNESS_GATEWAY_COMMITTED_UNKNOWN",
+            "-a",
+            "hybrid-contracts.pml"
+          ],
+          "elapsed_seconds": 0.030551401,
+          "log": "generate.log",
+          "log_sha256": "68a85e104aea692efdb80ff9774b9d21cb9398f0623565d47e6f300c6633cbfd",
+          "returncode": 0,
+          "timeout": false
+        },
+        {
+          "command": [
+            "cc",
+            "-O2",
+            "-DMEMLIM=480",
+            "-DSAFETY",
+            "-DNOCLAIM",
+            "-o",
+            "pan-safety",
+            "pan.c"
+          ],
+          "elapsed_seconds": 1.8154258049999998,
+          "log": "compile-safety.log",
+          "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "returncode": 0,
+          "timeout": false
+        },
+        {
+          "command": [
+            "./pan-safety",
+            "-b",
+            "-m100000",
+            "-w20"
+          ],
+          "elapsed_seconds": 0.020351532,
+          "log": "check-safety.log",
+          "log_sha256": "cc0d351133de46a5d25b102afdb1d1bc2aae05e98e45c442baa3937b3c39ceaf",
+          "returncode": 0,
+          "timeout": false
+        },
+        {
+          "command": [
+            "spin",
+            "-DWITNESS_GATEWAY_COMMITTED_UNKNOWN",
+            "-t",
+            "-k",
+            "safety.trail",
+            "-p",
+            "-g",
+            "-l",
+            "hybrid-contracts.pml"
+          ],
+          "elapsed_seconds": 0.020382241,
+          "log": "replay-safety.log",
+          "log_sha256": "fc389140288038ad25f817d6704933aa7597c7ea549ebdacae312170f59e0e2b",
+          "returncode": 0,
+          "timeout": false
+        }
+      ],
+      "defect": "WITNESS_GATEWAY_COMMITTED_UNKNOWN",
+      "definitions": [],
+      "expectation_met": true,
+      "expected_result": "COUNTEREXAMPLE",
+      "fault_repetition": "bounded_or_not_applicable",
+      "model_sha256": "b24deeefdaa6a8f6563b84a7459c672fa1d0be6cebd3e28a4d880c6278fd0fa8",
+      "partial_order_reduction": true,
+      "purpose": "reachability_witness",
+      "source_sha256": "b24deeefdaa6a8f6563b84a7459c672fa1d0be6cebd3e28a4d880c6278fd0fa8",
+      "status": "PASS",
+      "topology": "hybrid-contracts.pml",
+      "weak_process_fairness": false
+    },
+    {
+      "capacity": 2,
+      "checks": [
+        {
+          "command": [
+            "./pan-safety",
+            "-b",
+            "-m100000",
+            "-w20"
+          ],
+          "counterexample_kind": "assertion",
+          "elapsed_seconds": 0.01066786,
+          "expected_assertion_id": "REACH_BOUND_DISTINCT_QUORUM",
+          "expected_ltl_property": null,
+          "log": "check-safety.log",
+          "log_sha256": "beef3ae3672294be17bcbd206e7849bc9d5c54437cac593652a5f07d329a7357",
+          "property": "safety",
+          "replay": {
+            "command": [
+              "spin",
+              "-DWITNESS_BOUND_QUORUM",
+              "-t",
+              "-k",
+              "safety.trail",
+              "-p",
+              "-g",
+              "-l",
+              "hybrid-contracts.pml"
+            ],
+            "elapsed_seconds": 0.020706252,
+            "log": "replay-safety.log",
+            "log_sha256": "63b813bd49203b80ac74b0981766323becaca7a902fe0a3e559ecd2572b09090",
+            "returncode": 0,
+            "timeout": false
+          },
+          "replayed_assertion_id": "REACH_BOUND_DISTINCT_QUORUM",
+          "replayed_ltl_property": null,
+          "returncode": 0,
+          "status": "COUNTEREXAMPLE",
+          "timeout": false,
+          "trail": "safety.trail",
+          "trail_sha256": "7b6f9adcc690b52928206c54364e6c0b24b152310f9ded99b716b90951e3289f"
+        }
+      ],
+      "commands": [
+        {
+          "command": [
+            "spin",
+            "-DWITNESS_BOUND_QUORUM",
+            "-a",
+            "hybrid-contracts.pml"
+          ],
+          "elapsed_seconds": 0.02041616,
+          "log": "generate.log",
+          "log_sha256": "68a85e104aea692efdb80ff9774b9d21cb9398f0623565d47e6f300c6633cbfd",
+          "returncode": 0,
+          "timeout": false
+        },
+        {
+          "command": [
+            "cc",
+            "-O2",
+            "-DMEMLIM=480",
+            "-DSAFETY",
+            "-DNOCLAIM",
+            "-o",
+            "pan-safety",
+            "pan.c"
+          ],
+          "elapsed_seconds": 1.633393455,
+          "log": "compile-safety.log",
+          "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "returncode": 0,
+          "timeout": false
+        },
+        {
+          "command": [
+            "./pan-safety",
+            "-b",
+            "-m100000",
+            "-w20"
+          ],
+          "elapsed_seconds": 0.01066786,
+          "log": "check-safety.log",
+          "log_sha256": "beef3ae3672294be17bcbd206e7849bc9d5c54437cac593652a5f07d329a7357",
+          "returncode": 0,
+          "timeout": false
+        },
+        {
+          "command": [
+            "spin",
+            "-DWITNESS_BOUND_QUORUM",
+            "-t",
+            "-k",
+            "safety.trail",
+            "-p",
+            "-g",
+            "-l",
+            "hybrid-contracts.pml"
+          ],
+          "elapsed_seconds": 0.020706252,
+          "log": "replay-safety.log",
+          "log_sha256": "63b813bd49203b80ac74b0981766323becaca7a902fe0a3e559ecd2572b09090",
+          "returncode": 0,
+          "timeout": false
+        }
+      ],
+      "defect": "WITNESS_BOUND_QUORUM",
+      "definitions": [],
+      "expectation_met": true,
+      "expected_result": "COUNTEREXAMPLE",
+      "fault_repetition": "bounded_or_not_applicable",
+      "model_sha256": "b24deeefdaa6a8f6563b84a7459c672fa1d0be6cebd3e28a4d880c6278fd0fa8",
+      "partial_order_reduction": true,
+      "purpose": "reachability_witness",
+      "source_sha256": "b24deeefdaa6a8f6563b84a7459c672fa1d0be6cebd3e28a4d880c6278fd0fa8",
+      "status": "PASS",
+      "topology": "hybrid-contracts.pml",
+      "weak_process_fairness": false
+    },
+    {
+      "capacity": 2,
+      "checks": [
+        {
+          "command": [
+            "./pan-safety",
+            "-b",
+            "-m100000",
+            "-w20"
+          ],
+          "counterexample_kind": "assertion",
+          "elapsed_seconds": 0.020415054,
+          "expected_assertion_id": "REACH_DURABLE_REVISION_SUCCESS",
+          "expected_ltl_property": null,
+          "log": "check-safety.log",
+          "log_sha256": "72c36e6d4212f62d9b2d2122af9b691dc5b8912ba4721c4ce9b109eccd70e6df",
+          "property": "safety",
+          "replay": {
+            "command": [
+              "spin",
+              "-DWITNESS_DURABLE_REVISION",
+              "-t",
+              "-k",
+              "safety.trail",
+              "-p",
+              "-g",
+              "-l",
+              "hybrid-contracts.pml"
+            ],
+            "elapsed_seconds": 0.020342684,
+            "log": "replay-safety.log",
+            "log_sha256": "93879738544abdacb49b04b85ffce4aa07337d8301f3d90e13856a5437c4db10",
+            "returncode": 0,
+            "timeout": false
+          },
+          "replayed_assertion_id": "REACH_DURABLE_REVISION_SUCCESS",
+          "replayed_ltl_property": null,
+          "returncode": 0,
+          "status": "COUNTEREXAMPLE",
+          "timeout": false,
+          "trail": "safety.trail",
+          "trail_sha256": "7069c216b9d7b16fd1acc900685df020ec0d029b10b175d51493b041b6c13ab9"
+        }
+      ],
+      "commands": [
+        {
+          "command": [
+            "spin",
+            "-DWITNESS_DURABLE_REVISION",
+            "-a",
+            "hybrid-contracts.pml"
+          ],
+          "elapsed_seconds": 0.020379951,
+          "log": "generate.log",
+          "log_sha256": "68a85e104aea692efdb80ff9774b9d21cb9398f0623565d47e6f300c6633cbfd",
+          "returncode": 0,
+          "timeout": false
+        },
+        {
+          "command": [
+            "cc",
+            "-O2",
+            "-DMEMLIM=480",
+            "-DSAFETY",
+            "-DNOCLAIM",
+            "-o",
+            "pan-safety",
+            "pan.c"
+          ],
+          "elapsed_seconds": 1.56385848,
+          "log": "compile-safety.log",
+          "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "returncode": 0,
+          "timeout": false
+        },
+        {
+          "command": [
+            "./pan-safety",
+            "-b",
+            "-m100000",
+            "-w20"
+          ],
+          "elapsed_seconds": 0.020415054,
+          "log": "check-safety.log",
+          "log_sha256": "72c36e6d4212f62d9b2d2122af9b691dc5b8912ba4721c4ce9b109eccd70e6df",
+          "returncode": 0,
+          "timeout": false
+        },
+        {
+          "command": [
+            "spin",
+            "-DWITNESS_DURABLE_REVISION",
+            "-t",
+            "-k",
+            "safety.trail",
+            "-p",
+            "-g",
+            "-l",
+            "hybrid-contracts.pml"
+          ],
+          "elapsed_seconds": 0.020342684,
+          "log": "replay-safety.log",
+          "log_sha256": "93879738544abdacb49b04b85ffce4aa07337d8301f3d90e13856a5437c4db10",
+          "returncode": 0,
+          "timeout": false
+        }
+      ],
+      "defect": "WITNESS_DURABLE_REVISION",
+      "definitions": [],
+      "expectation_met": true,
+      "expected_result": "COUNTEREXAMPLE",
+      "fault_repetition": "bounded_or_not_applicable",
+      "model_sha256": "b24deeefdaa6a8f6563b84a7459c672fa1d0be6cebd3e28a4d880c6278fd0fa8",
+      "partial_order_reduction": true,
+      "purpose": "reachability_witness",
+      "source_sha256": "b24deeefdaa6a8f6563b84a7459c672fa1d0be6cebd3e28a4d880c6278fd0fa8",
+      "status": "PASS",
+      "topology": "hybrid-contracts.pml",
+      "weak_process_fairness": false
+    },
+    {
+      "capacity": 2,
+      "checks": [
+        {
+          "command": [
+            "./pan-safety",
+            "-b",
+            "-m100000",
+            "-w20"
+          ],
+          "counterexample_kind": "assertion",
+          "elapsed_seconds": 0.020386376,
+          "expected_assertion_id": "REACH_DURABLE_ASSESSMENT_REPLAY",
+          "expected_ltl_property": null,
+          "log": "check-safety.log",
+          "log_sha256": "5b72f4292b7d7c1d67a9b4300b466729176ab9ac1f407b36eb6e5333ad7f5492",
+          "property": "safety",
+          "replay": {
+            "command": [
+              "spin",
+              "-DWITNESS_DURABLE_ASSESSMENT_REPLAY",
+              "-t",
+              "-k",
+              "safety.trail",
+              "-p",
+              "-g",
+              "-l",
+              "hybrid-contracts.pml"
+            ],
+            "elapsed_seconds": 0.020444223,
+            "log": "replay-safety.log",
+            "log_sha256": "128c6e884781da3f5163e1b5b1fc0bbbd03d450a120990c5dc0e70a619d65ce2",
+            "returncode": 0,
+            "timeout": false
+          },
+          "replayed_assertion_id": "REACH_DURABLE_ASSESSMENT_REPLAY",
+          "replayed_ltl_property": null,
+          "returncode": 0,
+          "status": "COUNTEREXAMPLE",
+          "timeout": false,
+          "trail": "safety.trail",
+          "trail_sha256": "9a76a6f7ead6eee33854dbfadf8692b43c00680c20b7a7f01aad01034608630d"
+        }
+      ],
+      "commands": [
+        {
+          "command": [
+            "spin",
+            "-DWITNESS_DURABLE_ASSESSMENT_REPLAY",
+            "-a",
+            "hybrid-contracts.pml"
+          ],
+          "elapsed_seconds": 0.020343239,
+          "log": "generate.log",
+          "log_sha256": "68a85e104aea692efdb80ff9774b9d21cb9398f0623565d47e6f300c6633cbfd",
+          "returncode": 0,
+          "timeout": false
+        },
+        {
+          "command": [
+            "cc",
+            "-O2",
+            "-DMEMLIM=480",
+            "-DSAFETY",
+            "-DNOCLAIM",
+            "-o",
+            "pan-safety",
+            "pan.c"
+          ],
+          "elapsed_seconds": 1.240857592,
+          "log": "compile-safety.log",
+          "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "returncode": 0,
+          "timeout": false
+        },
+        {
+          "command": [
+            "./pan-safety",
+            "-b",
+            "-m100000",
+            "-w20"
+          ],
+          "elapsed_seconds": 0.020386376,
+          "log": "check-safety.log",
+          "log_sha256": "5b72f4292b7d7c1d67a9b4300b466729176ab9ac1f407b36eb6e5333ad7f5492",
+          "returncode": 0,
+          "timeout": false
+        },
+        {
+          "command": [
+            "spin",
+            "-DWITNESS_DURABLE_ASSESSMENT_REPLAY",
+            "-t",
+            "-k",
+            "safety.trail",
+            "-p",
+            "-g",
+            "-l",
+            "hybrid-contracts.pml"
+          ],
+          "elapsed_seconds": 0.020444223,
+          "log": "replay-safety.log",
+          "log_sha256": "128c6e884781da3f5163e1b5b1fc0bbbd03d450a120990c5dc0e70a619d65ce2",
+          "returncode": 0,
+          "timeout": false
+        }
+      ],
+      "defect": "WITNESS_DURABLE_ASSESSMENT_REPLAY",
+      "definitions": [],
+      "expectation_met": true,
+      "expected_result": "COUNTEREXAMPLE",
+      "fault_repetition": "bounded_or_not_applicable",
+      "model_sha256": "b24deeefdaa6a8f6563b84a7459c672fa1d0be6cebd3e28a4d880c6278fd0fa8",
+      "partial_order_reduction": true,
+      "purpose": "reachability_witness",
+      "source_sha256": "b24deeefdaa6a8f6563b84a7459c672fa1d0be6cebd3e28a4d880c6278fd0fa8",
+      "status": "PASS",
+      "topology": "hybrid-contracts.pml",
+      "weak_process_fairness": false
+    }
+  ],
+  "contract": {
+    "assumptions": [
+      "Separate independent service scenarios; no cross-service concurrency property",
+      "Exact typed equality and collision-free whole-record digests",
+      "Durable storage and atomic repository, journal and reservation commits",
+      "Operational error may occur before or after commit; reconciliation is one snapshot only",
+      "Restart conservatively marks an incomplete reservation unknown without redispatch",
+      "Finite responses and continued host execution; cancellation and expiry are observed events",
+      "No LLM quality, measured improvement, real-time, unrestricted exactly-once or refinement claim"
+    ],
+    "bounds": {
+      "actors": 2,
+      "assessment_identities": 1,
+      "candidate_values": 2,
+      "context_values": 2,
+      "evidence_values": 2,
+      "history_values": 2,
+      "quorum_deliveries": 3,
+      "quorum_minimum": 2,
+      "request_identities": 1,
+      "restart": 1,
+      "revision_reservations": 2,
+      "runs": 2,
+      "service_choices": 4,
+      "services_per_trace": 1
+    },
+    "correspondence": "formal/hybrid-contracts-notes.md",
+    "model_sha256": "b24deeefdaa6a8f6563b84a7459c672fa1d0be6cebd3e28a4d880c6278fd0fa8",
+    "runner_module_sha256": "ad9d649b6b2e5a93794fc10c721637177d132db8a9146ab1cd003d2937d122f8",
+    "schema": "mas-hybrid-contract-verification/1"
+  },
+  "limits": {
+    "depth": 100000,
+    "memory_mb": 512,
+    "seconds_per_command": 30
+  },
+  "status": "PASS",
+  "versions": [
+    {
+      "command": [
+        "spin",
+        "-V"
+      ],
+      "elapsed_seconds": 0.002861653,
+      "log": "spin-version.log",
+      "log_sha256": "0e33568f71b5f96e47174d7f84b266a24c7f1b692cd6ecb654c65a158db28b26",
+      "returncode": 0,
+      "timeout": false
+    },
+    {
+      "command": [
+        "cc",
+        "--version"
+      ],
+      "elapsed_seconds": 0.010302522,
+      "log": "compiler-version.log",
+      "log_sha256": "e412d6c932acaaea35c743bc158d4ba2400ca0e3df66df406a872b2ce0f8601b",
+      "returncode": 0,
+      "timeout": false
+    }
+  ],
+  "source_manifest": {
+    "formal/hybrid-contracts.pml": "b24deeefdaa6a8f6563b84a7459c672fa1d0be6cebd3e28a4d880c6278fd0fa8",
+    "rust-protocol/src/bin/verify.rs": "ea150ba9cedea2f364b5e9bd2c5c7ff368e584d2ae50fe3d704426e2c5384a13",
+    "rust-protocol/src/bin/verify/hybrid.rs": "ad9d649b6b2e5a93794fc10c721637177d132db8a9146ab1cd003d2937d122f8"
+  }
+}

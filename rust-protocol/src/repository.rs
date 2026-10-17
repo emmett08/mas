@@ -29,6 +29,11 @@ pub trait ProtocolRepository {
     fn send_checked(&mut self, message: &Message, actor: &str) -> AdmissionResult<Value> {
         self.send(message, actor).map_err(AdmissionError::unknown)
     }
+    /// Observe the bound actor's sent identity without delivery, expiry or
+    /// payload disclosure. Absence never authorises a new external effect.
+    fn reconcile_message(&self, _id: &str, _actor: &str, _message_id: &str) -> AdmissionResult<Value> {
+        Err(AdmissionError::unknown("actor-scoped message reconciliation is not supported by this repository"))
+    }
     fn receive(&mut self, id: &str, actor: &str, limit: usize) -> RepositoryResult<Value>;
     fn ack(&mut self, id: &str, message_id: &str, actor: &str) -> RepositoryResult<Value>;
     fn reserve_call(&mut self, id: &str, actor: &str, call_id: &str) -> RepositoryResult<Value>;
@@ -72,6 +77,9 @@ impl ProtocolRepository for Store {
     }
     fn send_checked(&mut self, message: &Message, actor: &str) -> AdmissionResult<Value> {
         Store::send_checked(self, message, actor)
+    }
+    fn reconcile_message(&self, id: &str, actor: &str, message_id: &str) -> AdmissionResult<Value> {
+        Store::reconcile_message(self, id, actor, message_id)
     }
     fn receive(&mut self, id: &str, actor: &str, limit: usize) -> RepositoryResult<Value> {
         Store::receive(self, id, actor, limit)
