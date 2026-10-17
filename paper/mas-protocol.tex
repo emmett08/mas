@@ -1,0 +1,252 @@
+\documentclass[preprint,12pt,a4paper]{elsarticle}
+\usepackage[T1]{fontenc}
+\usepackage[british]{babel}
+\usepackage{lmodern,microtype,amsmath,amssymb,booktabs,tabularx,array}
+\usepackage{algorithm,algpseudocode,capt-of}
+% elsarticle loads natbib; do not load a competing bibliography package.
+\usepackage{natbib,xurl}
+\usepackage{tikz,tikz-cd,bytefield,pgf-umlsd}
+\usetikzlibrary{arrows.meta,positioning,fit,backgrounds,calc}
+\usepackage[colorlinks=true,linkcolor=blue!45!black,citecolor=blue!45!black,urlcolor=blue!45!black]{hyperref}
+\usepackage{listings}
+\usepackage{placeins}
+\usepackage[switch]{lineno}
+\modulolinenumbers[5]
+\journal{SoftwareX}
+\makeatletter
+\def\ps@pprintTitle{\let\@oddhead\@empty\let\@evenhead\@empty
+  \def\@oddfoot{\hfil\thepage\hfil}
+  \let\@evenfoot\@oddfoot}
+\makeatother
+\renewcommand{\topfraction}{0.9}
+\renewcommand{\bottomfraction}{0.8}
+\renewcommand{\textfraction}{0.08}
+\renewcommand{\floatpagefraction}{0.8}
+\brokenpenalty=10000
+\biboptions{numbers,sort&compress}
+\newcommand{\code}[1]{\texttt{#1}}
+\newcommand{\sourcecommit}{a61b3da98ef3ef11996dd79b4a3a048ed6c98ce1}
+\newcommand{\aifigure}{Diagram source prepared with ChatGPT (OpenAI, model version unavailable).}
+\newcommand{\algorithmicrequiretext}{Input:}
+\algrenewcommand\algorithmicrequire{\textbf{Input:}}
+\algrenewcommand\algorithmicensure{\textbf{Output:}}
+\algrenewcommand\alglinenumber[1]{\scriptsize #1:}
+\providecommand{\algorithmautorefname}{Algorithm}
+\lstset{basicstyle=\small\ttfamily,columns=fullflexible,breaklines=true,keepspaces=true,showstringspaces=false,frame=single,rulecolor=\color{black!25}}
+\tikzset{box/.style={draw,rounded corners=2pt,align=center,font=\small,minimum height=9mm,inner sep=5pt},flow/.style={-{Latex[length=2mm]},thick},note/.style={font=\footnotesize,align=center}}
+\begin{document}
+\begin{frontmatter}
+\title{MAS: A durable communication protocol for auditable multi-agent workflows}
+\author{Emmett Miller}
+\begin{abstract}
+MAS is an open-source Rust implementation of a bounded communication protocol for multi-agent workflows. A versioned envelope, durable mailbox and task profile separate message receipt from task completion. An assessment profile binds findings to exact candidates, evaluators, rubrics and evidence. The implementation provides identity-preserving retries, explicit routes, resource limits and observed expiry. Executable tests and finite-state verification support these controls under stated storage, host and model assumptions. An incident-analysis rehearsal compares host-managed revision with two generation procedures across 108 completed runs with scripted providers. Retained candidate and assessment records expose the feedback used in each revision. Source, models and reproduction scripts are available.
+\end{abstract}
+\begin{keyword}
+multi-agent systems \sep communication protocol \sep durable messaging \sep model checking \sep auditable assessment
+\end{keyword}
+\end{frontmatter}
+
+\section*{Code metadata}
+\noindent\begin{tabularx}{\textwidth}{@{}p{.055\textwidth}>{\raggedright\arraybackslash}p{.31\textwidth}>{\raggedright\arraybackslash}X@{}}
+\toprule
+ & Description & Value \\
+\midrule
+C1 & Current code version & Package 0.1.0. Examined revision \nolinkurl{a61b3da98ef3ef11996dd79b4a3a048ed6c98ce1} \\
+C2 & Permanent link to code & \url{https://github.com/emmett08/mas/tree/a61b3da98ef3ef11996dd79b4a3a048ed6c98ce1} \\
+C3 & Legal code licence & GPL-3.0-only with third-party notices \\
+C4 & Versioning system & Git \\
+C5 & Languages, tools and services & Rust, nom and SQLite. Promela/SPIN and a C compiler support verification. Python supports optional host integration. \\
+C6 & Compilation and environment & Pinned Rust 1.99.0, Cargo.lock and bundled SQLite. The verification harness runs on Linux. Optional PostgreSQL support is feature-gated. \\
+C7 & Developer documentation & \url{https://github.com/emmett08/mas/blob/a61b3da98ef3ef11996dd79b4a3a048ed6c98ce1/README.md} \\
+C8 & Support channel & \url{https://github.com/emmett08/mas/issues} \\
+\bottomrule
+\end{tabularx}
+
+\linenumbers
+\section{Motivation and significance}
+An agent workflow needs to distinguish an accepted message, a completed task and a correct result. After losing a response, the caller must distinguish delivery, execution and reassessment before choosing a retry. MAS provides explicit records for these different questions. Its contribution is a reusable implementation combining bounded admission, durable identity retention, task correlation and content-bound assessments, with executable tests and finite-state models.
+
+Agent2Agent (A2A) defines interoperable agent tasks, messages, artefacts and discovery. The Model Context Protocol (MCP) connects hosts to tools, resources and prompts~\citep{a2a,mcp}. MAS addresses the local admission and retention of workflow exchanges. A2A extensions and application-specific MCP services can carry these workflow contracts. Their deployment must supply the corresponding persistence and recovery behaviour. MAS complements those interoperability interfaces with explicit local state transitions.
+
+\section{Software description}
+\subsection{Protocol design}
+Holzmann specifies a protocol through five elements: its service, execution environment, message vocabulary, encoding and exchange rules~\citep[Section~2.2, p.~21]{holzmann1991}. MAS gives each element a distinct role in its communication contract.
+
+The service defines the observable mailbox behaviour. A send atomically inserts an accepted message identity and its content. An identical retry recovers the original acceptance. Receive returns addressed, unacknowledged messages in insertion order and records receipt. Acknowledgement removes a received message from the pending set while preserving its identity and history. These operations give callers a stable recovery contract across retries.
+
+The environment specifies the premises supporting that contract. SQLite durability depends on functioning filesystem locks and flushes. Protected credentials and host isolation support actor binding. Deadline observation requires a host clock and continued execution. Within those premises, the gateway derives the actor from a capability, while the store enforces membership, routes, budgets and mailbox capacity. Separating environmental premises from enforced checks identifies which component must sustain each property.
+
+The vocabulary identifies admissible message meanings. The envelope's \code{kind} field permits application-defined names. The \code{agent-task/1} profile selects \code{Request}, \code{Result}, \code{Failure} and \code{Cancel}, with specified payloads. The operations \code{send}, \code{receive} and \code{ack} belong to the mailbox service and the gateway's command vocabulary. Their distinct representations preserve the difference between delivering a message and reporting a task outcome.
+
+The encoding represents messages as bounded UTF-8 text with seven ordered fields and a JSON object payload whose numeric values are integers. Complete-input parsing checks syntax, identifiers, unique object keys and size limits. Canonical content provides a stable comparison for retries across equivalent accepted spellings. The application profile then assigns task meaning to the decoded values.
+
+The exchange rules relate each operation to retained history. Replies identify an exact request and reverse its participants. Result and failure require recorded receipt, and a terminal transition requires an open task. Validation, insertion and the task update share a write transaction, which orders concurrent terminal proposals by committed state. Parser tests therefore examine representation, repository tests exercise admission, and finite models explore exchanges under explicit fault assumptions. This division makes dependencies separately inspectable, following Holzmann's modular design argument~\citep[Section~2.7, pp.~36--37]{holzmann1991}.
+
+\subsection{Software architecture}
+The examined revision~\citep{masSoftware} implements the codec, SQLite repository, task transitions and capability gateway in Rust. The \code{nom} parser recognises the complete envelope before values enter the repository. The optional Python host delegates mailbox operations to the Rust boundary. The evaluation concerns this native implementation with its default SQLite backend. Optional PostgreSQL support and other host integrations provide further deployment choices.
+
+Figure~\ref{fig:architecture} separates logical communication permission from physical transport. A directed graph determines which registered participants may exchange messages. Star, mesh and tree configurations use the same central repository. A mesh permits peer-addressed messages through that repository. The gateway derives the run and actor from host-provisioned capabilities. Direct repository and administrative CLI calls trust the supplied actor, so the host must restrict database and administrative access to trusted components.
+
+\begin{figure}[htbp]
+\centering
+\input{figures/architecture.tex}
+\caption[Logical routes and local implementation]{\protect\input{figures/architecture.caption.tex}}\label{fig:architecture}
+\end{figure}
+
+Local interprocess communication (IPC) carries repository operations. The capability gateway uses JSON-line requests over standard input and output. The persistent trusted-host interface has a JSON header and length-delimited body. The MAS envelope supplies the message representation carried by these operation interfaces. Host-provisioned capabilities bind gateway operations to an actor and run.
+
+\subsection{Software functionalities}
+\subsubsection{Representation and identity}
+Version 1 uses seven ordered fields: message identifier, run identifier, sender, recipient, version, kind and payload. The payload is a JSON object with an exact-integer subset of JSON's number syntax~\citep{rfc8259}. The parser rejects trailing input, duplicate decoded keys, malformed Unicode, fractions and exponent notation. Limits are 65,536 UTF-8 bytes per envelope, 32 container levels and 1,024 decimal digits per integer. Applications can represent fractions as declared rational records or decimal strings.
+
+Figure~\ref{fig:wire} groups the envelope fields in their required order. Their encoded lengths vary with their values. Keywords, spaces, quotation marks and the final semicolon delimit the canonical text. The canonical encoder normalises whitespace and object-key order. Message identity is the pair $(r,i)$ of run and message identifiers. The repository retains the complete canonical envelope representation. Equal content under an existing identity is an identical retry, whereas changed content is a conflict. The identity remains retained after acknowledgement.
+
+\begin{figure}[htbp]
+\centering
+\input{figures/wire.tex}
+\caption{MAS envelope structure and canonical example. The six leading values are quoted strings, followed by a JSON object payload. Fields appear in the displayed order. Box widths indicate logical grouping. Encoded field lengths depend on their values, up to 65,536 UTF-8 bytes for the entire envelope. \aifigure}\label{fig:wire}
+\end{figure}
+
+\subsubsection{Admission, delivery and task state}
+A run freezes membership, routes, application profile, mailbox capacity, communication and call budgets, and a deadline. \autoref{alg:admit-message} summarises SQLite admission. Identical retries retain their original acceptance even after the deadline or when the mailbox is full. New sends charge the byte budget using the stored JSON envelope representation. The text-wire length limit applies separately. A full mailbox retains accepted messages and rejects new admissions for later retry.
+
+\begin{algorithm}[htbp]
+\caption{Admit a message into the SQLite repository}\label{alg:admit-message}
+\begin{algorithmic}[1]
+\Require Typed message $m$, host-bound actor $a$, repository $D$
+\Ensure Original receipt, new receipt, or typed admission error
+\State Require an existing run and reconcile observed expiry
+\State Encode and reparse $m$ to derive canonical stored content $c$
+\State Begin an immediate write transaction and load frozen run $r$
+\State Require registered $a=m.\mathrm{sender}$ and recipient, with an allowed route
+\If{$D$ contains $(m.\mathrm{run},m.\mathrm{id})$}
+  \State Require retained content $=c$
+  \State Commit and \Return original sequence with duplicate flag
+\EndIf
+\State Reconcile the deadline again under the write transaction
+\If{the run has expired}
+  \State Commit expiry and \Return deadline rejection
+\EndIf
+\State Require active version, remaining message/byte budgets and mailbox space
+\If{the run uses the task profile}
+  \State Require a valid transition from the retained task state
+\EndIf
+\State Insert $c$, record any task transition and charge budgets
+\State Commit and \Return new sequence with duplicate flag cleared
+\end{algorithmic}
+\end{algorithm}
+
+The pseudocode's requirements return errors on failure. An uncommitted write transaction rolls back. Independent expiry reconciliation and gateway attempt accounting can already have committed. Database failures yield an unknown admission outcome in the typed Rust API. The caller must reconcile the original identity because an outstanding operation may commit after an observation. These semantics rely on SQLite's transaction and storage assumptions~\citep{sqliteAtomic,sqliteWal}.
+
+Receive returns addressed, unacknowledged messages in insertion order and records receipt. Repeated receive can return the same message until acknowledgement. The optional \code{agent-task/1} profile additionally correlates each result or failure with one received request, reverses its participants and requires an open task. A Result reports either \code{completed} or \code{unresolved}. Both close the task and record a worker-reported outcome. Application checks assess output correctness. Cancellation comes from the requester. Result, failure, cancellation and observed expiry compete for the first committed terminal transition (Figure~\ref{fig:states}). Receipt permits a reply before acknowledgement.
+
+\begin{figure}[htbp]
+\centering
+\input{figures/states.tex}
+\caption[Delivery and task transitions]{\protect\input{figures/states.caption.tex}}\label{fig:states}
+\end{figure}
+
+Expiry reconciliation closes open tasks as \code{expired\_outcome\_unknown}, even when message capacity is exhausted. Its observation time depends on host activity and clock and database availability. A closed request can remain in the mailbox as history with \code{actionable:false}, a snapshot of task state at receipt. Hosts must arbitrate concurrent execution and derive permissions from trusted configuration. Applications establish external-effect outcomes through their own execution and observation controls. This division follows the end-to-end distinction between lower-level delivery and application-level completion~\citep{saltzer1984}.
+
+\subsubsection{Auditable assessments}
+The \code{assessment.v1} profile adds typed payload records within the version-1 grammar. Candidate, evidence, rubric and assessment records have explicit identities and schema versions. References bind both an identifier and a SHA-256 digest of the complete referenced record. Separate output and evidence-content digests bind the contained values. Canonicalisation preserves exact integers, array order and Unicode sequences, and sorts object keys by Unicode scalar value. This profile-specific form differs from RFC~8785, which uses ECMAScript number serialisation and UTF-16 code-unit key order~\citep{rfc8785}.
+
+The contextual validator in \autoref{alg:validate-assessment} checks authority and reference resolution after structural decoding. A completed assessment can contain failed criteria. An inconclusive finding carries a null score. An evaluator error carries an empty findings list. Scores are signed 64-bit integers within rubric bounds. The rubric and evaluator define their interpretation, including any acceptance threshold. The host must supply evaluator authority from its frozen invocation configuration, independently of the assessment payload.
+
+\begin{algorithm}[htbp]
+\caption{Validate an assessment against retained context}\label{alg:validate-assessment}
+\begin{algorithmic}[1]
+\Require Assessment $A$, candidate $C$, rubric $R$, evidence set $E$,
+\Statex \hspace{\algorithmicindent}host-authorised evaluator $V$
+\Ensure Contextual validity or a specific validation error
+\State Revalidate the structures of $A,C,R,V$
+\State Require $A.\mathrm{evaluator}=V$
+\State Resolve $A$'s candidate and rubric references against $C,R$
+\State Require unique evidence identifiers and revalidate each record in $E$
+\If{$A.\mathrm{status}\ne\mathrm{error}$}
+  \State Require one finding per rubric criterion
+\EndIf
+\ForAll{findings $f$ in $A$}
+  \State Resolve criterion $k$ in $R$ and require $k.\mathrm{measurement}=V.\mathrm{kind}$
+  \State Require each present score to lie within $k$'s bounds
+  \ForAll{evidence references $e$ in $f$}
+    \State Resolve $e$ against $E$ and compare its complete-record digest
+  \EndFor
+\EndFor
+\State \Return valid
+\end{algorithmic}
+\end{algorithm}
+
+An assessment travels inside the existing task Result's \code{output}. Its identity and evaluator must match the envelope's message identifier and sender. Revision validation requires a distinct candidate identity, an exact parent reference and precisely the supplied feedback references. An empty feedback set permits a resampling control. The in-memory \code{AssessmentHistory} deduplicates equal records and rejects changed content under the same identity. Durable revision reservations, disclosure policy and execution belong to a host integration. The protocol retains the supplied assessment and its references. Host disclosure controls govern evaluator access, while independent outcome checks assess judgement quality.
+
+\section{Illustrative examples}
+\subsection{Retries and task closure}
+Figure~\ref{fig:delivery-sequence} shows how a sender resolves uncertainty after losing an acceptance response. The insertion has committed, so an identical retry returns its existing sequence. The recipient then receives and acknowledges the retained message. These are host-level API interactions. An integration may forward them through the capability gateway, whose attempt budget also counts retries.
+
+\begin{figure}[htbp]
+\centering
+\input{figures/delivery-sequence.tex}
+\caption{Recovery from a lost send response. The cross marks a response lost after commit. An identical retry returns the original sequence and preserves the original message and byte totals. The recipient's first receive remains a first delivery. Solid arrows show requests. Dashed arrows show responses. \aifigure}\label{fig:delivery-sequence}
+\end{figure}
+
+Task closure depends on the first committed terminal transition. In Figure~\ref{fig:task-sequence}, the worker receives a request and sends a completed Result before acknowledging that request. The Result closes the task. The later acknowledgement releases mailbox capacity. A subsequent Cancel is rejected. If cancellation commits first, a later Result is rejected instead. Application observations determine whether external work occurred.
+
+\begin{figure}[htbp]
+\centering
+\input{figures/task-sequence.tex}
+\caption{Task closure and delivery acknowledgement. The accepted request is $q$, the worker's completed Result is $z$, and $c$ is a subsequent cancellation attempt. The exchange assumes authorised routes, available budgets and an unexpired run. Receipt permits the reply. Acknowledgement releases mailbox capacity. \aifigure}\label{fig:task-sequence}
+\end{figure}
+
+\subsection{Executed examples}
+The supplied star fixture registers a hub, proposer and checker. In a minimal sum exchange, the hub sends a request containing an operation and integer input. The worker receives it and returns a result correlated by \code{reply\_to}. Restarting after receipt but before acknowledgement permits redelivery of the original request. An identical retry retains the original message record. Separate transition tests reject a different result attempting to close the same terminal task. The application checker compares the proposed sum with independently calculated arithmetic.
+
+The repository's fixtures execute Rust parsing and SQLite exchanges locally. Their synthetic inputs and deterministic participants make the examples reproducible. The recovery example reopens storage and observes deadline expiry. The capability-gateway example challenges sender spoofing and retains attempt limits across restart. Table~\ref{tab:runtime-examples} reports the observed outcomes. Commands and exact output records accompany the paper.
+
+\subsection{Incident analysis with bounded revision}
+A separate host integration applies the assessment profile to incident analysis~\citep{incidentRevision}. The host manages candidate generation, assessment and revision, using the MAS assessment profile to represent candidate, rubric and feedback references. The example compares one-pass generation, draft--assess--revise--assess, and four independent generations with selection of the fourth candidate. Each procedure has a four-call upper limit. The last procedure allocates every call to generation. In the rehearsal, revision allocates two calls to generation and two to assessment (Figure~\ref{fig:incident-rehearsal}).
+
+The retained rehearsal covers 12 synthetic incidents in six families, with three repetitions per procedure. Its scripted provider always requests further evidence, and its critic returns inconclusive assessments. All 108 procedure runs completed, comprising 324 provider calls. Across 36 revision runs, the host retained 72 candidates and 72 assessments. Each assessment references its candidate and rubric, and each revised candidate references its parent and supplied feedback. Initial revision and one-pass inputs matched in all 36 paired comparisons. The execution receipt records completed-job reuse, an unchanged report and zero additional provider calls. These observations characterise the recorded host's bounded execution and permitted feedback path.
+
+\begin{figure}[htbp]
+\centering
+\input{figures/incident-revision.tikz.tex}
+\caption[Recorded incident procedures]{\protect\input{figures/incident-revision.caption.tex}}\label{fig:incident-rehearsal}
+\end{figure}
+
+Outcome measurement follows generation. A deterministic scorer compares each selected output with frozen reference labels for exact diagnosis-code agreement, listed hazardous-action proposals and the abstention decision. The worker inputs contain the incident evidence and permitted feedback. The measurement stage reads the reference answers after all provider calls finish. The fixture's scripted responses give equal outcomes across the three procedures. The six incident families define the specified live pilot's paired analysis units, with cases and repetitions averaged within family. Empirical evaluation requires independently adjudicated reference labels and an allocation justified for the chosen quality and resource margins. Archived records support reconstruction of the execution counts and outcome summaries.
+
+\subsection{Verification and reproducibility}
+The evaluation freezes revision \code{a61b3da} and combines implementation tests with selected executable abstractions. The reproduction script records source hashes, tool versions, commands and raw logs. The selected default-feature Rust tests exercise codecs, repository operations, gateway controls, observation and assessments against the local SQLite implementation.
+
+SPIN checks assertions and temporal properties on finite Promela models~\citep{holzmann1997}. Transport checks distinguish finite fault budgets from indefinitely recurring faults. Safety concerns routing, identity, capacity and receipt order. Progress means eventual acknowledgement of each accepted message under a finite fault budget. Task, transaction and expiry models cover conflicting terminal outcomes and recovery boundaries. Assessment checks use two candidate identities, two assessment identities, two content values, two evaluators, three delivery attempts and two revision reservations. The model abstracts committed host transitions and digest values. Its disclosure and revision properties specify obligations for host integrations.
+
+For each message identity $i$ in the transport model, the progress requirement is
+\begin{equation}
+\mathsf{G}\bigl(\mathrm{accepted}_i\Rightarrow\mathsf{F}\,\mathrm{acknowledged}_i\bigr),
+\label{eq:message-progress}
+\end{equation}
+where $\mathsf{G}$ means always and $\mathsf{F}$ means eventually. Equation~\ref{eq:message-progress} states eventual acknowledgement of accepted messages under the model's assumptions. The checked star has three participants, two message identities and two content values, with capacities one and two. The bounded model permits each message one lost acknowledgement and one restart. The unlimited-fault variant permits recurring faults. Table~\ref{tab:verification-results} separates successful searches from expected counterexamples.
+
+\input{evidence/results.tex}
+
+Negative controls introduce isolated defects into model copies. Their intended assertions or acceptance cycles must be detected and replayed. Reachability witnesses establish that accepted assessments and successful revision paths are possible. Witness failures are deliberately constructed observations, distinct from successful safety searches. Searches that exceed a resource bound are inconclusive. Selected implementation tests supply correspondence evidence between Rust behaviour and the models. Model state counts quantify the explored abstract state spaces.
+
+\section{Impact}
+MAS provides an experimental substrate for comparing agent workflows while retaining who sent each result, its task correlation and the assessment context. Researchers can vary logical routes while preserving envelope semantics and can distinguish a delivery failure from a rejected substantive answer. The incident example shows how exact candidate and feedback references support comparisons with a common call cap and separate outcome measurement. Its host controls the revision procedure, while the protocol gives the resulting records a shared representation. Empirical comparisons require independent outcome measures, frozen evaluators and protected held-out cases.
+
+The implementation is appropriate when bounded work, durable retries and inspectable task histories justify a central authority. A direct function call is simpler for one synchronous trusted component. A conventional queue may suffice when task correlation and assessment records already exist elsewhere. A2A is relevant when independently hosted agents need a standard external interface. MCP is relevant when clients need standard tool access. The required communication and authority boundaries determine the integration choice.
+
+Storage durability, trusted-host isolation and correct adapter behaviour remain premises. Cancellation closes the protocol task. External effects require application-specific observation and, where applicable, compensation. The present evidence covers the selected local implementation, finite models and retained host rehearsal. Deployment qualification addresses scale, remote security, long-duration availability and comparative throughput.
+
+\section{Conclusions}
+MAS separates communication permission, durable delivery, task closure and assessment validity. Its Rust implementation makes retries and terminal transitions explicit, while its assessment profile binds findings to exact retained context. Executable tests and model checking of finite abstractions support these controls within stated assumptions. The incident rehearsal demonstrates their use in a host-managed revision procedure with retained candidate and assessment histories. These records support reproducible comparisons of fixed revision and generation procedures.
+
+\section*{Data and software availability}
+The source revision in the metadata table contains the implementation, tests and Promela models. The accompanying \code{paper/} directory contains the manuscript, vector figure sources, reproduction scripts and retained verification evidence. The external incident archive~\citep{incidentRevision} preserves its frozen configuration, invocation records, reports and executable hashes. Its figure and execution counts are reproducible from those records. The fixtures use synthetic inputs and deterministic participants.
+
+\section*{Declaration of generative AI and AI-assisted technologies in the manuscript preparation process}
+ChatGPT (OpenAI, model version unavailable) assisted with source inspection, literature searches, manuscript drafting and editing, diagram preparation and reproduction-script development.
+
+\bibliographystyle{elsarticle-num}
+\bibliography{references}
+\end{document}

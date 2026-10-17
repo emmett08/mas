@@ -1,0 +1,31 @@
+\begingroup
+\footnotesize
+\begin{sequencediagram}
+\renewcommand{\unitfactor}{0.51}
+\tikzset{inststyle/.style={rectangle,draw,anchor=west,minimum height=.7cm,
+  minimum width=2.35cm,fill=white,font=\footnotesize}}
+\newinst[0]{requester}{Requester host}
+\newinst[1.7]{repository}{Repository}
+\newinst[1.7]{worker}{Worker host}
+
+\postlevel
+\node[font=\scriptsize,fill=white,inner sep=2pt]
+  at ($(repository)+(0,-.7)$)
+  {Request $q$ accepted, task open};
+\begin{call}{worker}{receive request}{repository}{$q$, actionable}
+\end{call}
+\begin{call}[2]{worker}{send Result $z$, reply to $q$}{repository}{accepted}
+  \node[anchor=north east,align=right,font=\scriptsize]
+    at ([xshift=-1.5mm,yshift=-1.5mm]ct1)
+    {Commit $z$, task completed.\\Request $q$ still unacknowledged.};
+\end{call}
+\begin{call}{worker}{acknowledge $q$}{repository}{acknowledged}
+\end{call}
+\begin{call}{requester}{send Cancel $c$, reply to $q$}{repository}{rejected, task already closed}
+\end{call}
+\begin{call}{requester}{receive result}{repository}{$z$, first delivery}
+\end{call}
+\begin{call}{requester}{acknowledge $z$}{repository}{acknowledged}
+\end{call}
+\end{sequencediagram}
+\endgroup

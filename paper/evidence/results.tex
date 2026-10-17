@@ -1,0 +1,35 @@
+% Generated from verification.json by reproduce-evidence.py; do not edit.
+\begin{table}[htbp]
+\centering\small
+\caption{Recorded verification outcomes. Counterexamples and witnesses are distinct from positive searches.}
+\label{tab:verification-results}
+\begin{tabularx}{\textwidth}{@{}Xr@{}}
+\toprule
+Evidence category & Result \\
+\midrule
+Executed Rust tests & 79 passed, 0 failed \\
+Ignored Rust model-suite entrypoints & 3 \\
+Offline executable fixtures & 3 completed \\
+Complete model searches with zero errors & 17 \\
+Replayed assertion-defect counterexamples & 19 \\
+Replayed liveness-defect counterexamples & 2 \\
+Unlimited-fault progress counterexample & 1 \\
+Replayed reachability witnesses & 2 \\
+\bottomrule
+\end{tabularx}
+\end{table}
+\begin{table}[htbp]
+\centering\small
+\caption{Observed offline fixture outcomes with deterministic local participants.}
+\label{tab:runtime-examples}
+\begin{tabularx}{\textwidth}{@{}lX@{}}
+\toprule
+Fixture & Recorded observation \\
+\midrule
+Star & 4 accepted messages, 748 charged bytes and 0 call reservations. All messages acknowledged. Checker accepted the proposed sum. \\
+Recovery & 1 charged message and 1 task expired with unknown outcome. Historical delivery marked non-actionable. Identical retry retained sequence 1. \\
+Gateway & 4 charged attempts, including a rejected sender forgery. Message received and acknowledged after restart. Restart preserved the exhausted attempt budget. \\
+\bottomrule
+\end{tabularx}
+\end{table}
+The 17 October 2026 run used Rust/Cargo 1.99.0, SPIN 6.5.2 and GCC 13.3.0. Each model command had a 30-second, 512-MiB limit and depth 100,000. Successful verification searches exhaustively explored the specified finite abstractions. Defect counterexamples demonstrate detection of the introduced faults. Under indefinitely recurring faults, the transport model contains an execution in which an accepted message remains pending indefinitely. Witnesses establish reachability. These results support the declared communication and assessment controls, with selected implementation tests supplying correspondence evidence.

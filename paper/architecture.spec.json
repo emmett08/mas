@@ -1,0 +1,161 @@
+{
+  "schema_version": "1.0",
+  "figure_id": "architecture",
+  "purpose": {
+    "reader_question": "How do logical route permissions relate to the shared local implementation and its authority and storage roles?",
+    "expected_reading": "The illustrative mesh permits all six directions among three participants. Operation calls use the trusted host and local IPC to access the same central Rust service and SQLite storage. The host controls scheduling and capabilities, while repository transactions govern mailbox and task state.",
+    "claim": "A fully connected allowed-route graph is compatible with a shared local service, storage and distinct host authority.",
+    "scope": "The default SQLite implementation at examined revision a61b3da, with an illustrative three-participant mesh.",
+    "permitted_inferences": [
+      "Allowed actor pairs and directions in the illustrative mesh",
+      "Host, operation interface, admission and storage responsibilities in the local architecture"
+    ],
+    "prohibited_inferences": [
+      "A direct peer-to-peer network transport",
+      "Deployment latency or distance encoded by arrow length",
+      "Every application using precisely these three participant roles",
+      "Network authentication supplied by direct repository calls"
+    ]
+  },
+  "inputs": [
+    {
+      "id": "store",
+      "status": "observed",
+      "source_reference": "Store configuration, send_checked, receive and ack implement routes and transactional mailbox/task admission. Store::open uses SQLite.",
+      "url": "https://github.com/emmett08/mas/blob/a61b3da98ef3ef11996dd79b4a3a048ed6c98ce1/rust-protocol/src/store.rs"
+    },
+    {
+      "id": "gateway",
+      "status": "observed",
+      "source_reference": "Gateway handle_charged_frame and execute bind a run and actor from a capability before repository operations.",
+      "url": "https://github.com/emmett08/mas/blob/a61b3da98ef3ef11996dd79b4a3a048ed6c98ce1/rust-protocol/src/gateway.rs"
+    },
+    {
+      "id": "host",
+      "status": "observed",
+      "source_reference": "Host responsibilities and local gateway/trusted-host integration are described in the frozen native host guide.",
+      "url": "https://github.com/emmett08/mas/blob/a61b3da98ef3ef11996dd79b4a3a048ed6c98ce1/docs/host-runner.md"
+    },
+    {
+      "id": "mesh",
+      "status": "illustrative",
+      "source_reference": "The frozen mesh example supplies the complete directed three-participant route relation. Names are replaced by illustrative hub, proposer and checker roles used in the manuscript.",
+      "url": "https://github.com/emmett08/mas/blob/a61b3da98ef3ef11996dd79b4a3a048ed6c98ce1/examples/mesh.json"
+    }
+  ],
+  "constructions": [
+    {
+      "id": "route-relation",
+      "kind": "topology",
+      "definition": "Vertices are Hub, Proposer and Checker. There is a directed permitted-route edge between each ordered pair of distinct vertices. Three double-headed dashed lines encode all six edges.",
+      "method": "Instantiate the complete three-participant mesh relation with manuscript role names. Align the three vertices and curve the outer pair edge above them, exposing all three actor pairs without crossings.",
+      "input_ids": [
+        "mesh",
+        "store"
+      ]
+    },
+    {
+      "id": "request-path",
+      "kind": "other",
+      "definition": "The trusted host calls the local IPC interface. The interface dispatches operations into the Rust service. The Rust service uses SQLite to persist and inspect retained protocol state. The local interface may be the capability gateway or trusted-host interface.",
+      "method": "Summarise the host, gateway and store responsibility boundaries in four labelled stages. Position represents the direction of calls across implementation boundaries.",
+      "input_ids": [
+        "store",
+        "gateway",
+        "host"
+      ]
+    }
+  ],
+  "encodings": [
+    {
+      "id": "permissions",
+      "marks": "Participant text labels and double-headed dashed arrows",
+      "mark_role": "annotation",
+      "channel": "incidence",
+      "represents": "The permitted directed actor pairs",
+      "interpretation": "relational",
+      "construction_ids": [
+        "route-relation"
+      ],
+      "scale_or_mapping": {
+        "type": "explicit",
+        "definition": "A dashed arrowhead at a participant grants the incoming direction from the opposite labelled participant. Each double-headed line represents two directed edges."
+      }
+    },
+    {
+      "id": "implementation",
+      "marks": "Component names, responsibility labels and rightward solid arrows",
+      "mark_role": "annotation",
+      "channel": "incidence",
+      "represents": "The direction of implementation calls and responsibilities",
+      "interpretation": "relational",
+      "construction_ids": [
+        "request-path"
+      ],
+      "scale_or_mapping": {
+        "type": "explicit",
+        "definition": "The solid arrows indicate the direction of operation calls through interfaces and storage APIs. Adjacent text names each component and its responsibility."
+      }
+    },
+    {
+      "id": "panels",
+      "marks": "Panel titles and separated rows",
+      "mark_role": "annotation",
+      "channel": "position",
+      "represents": "Distinct logical permission and physical implementation views",
+      "interpretation": "relational",
+      "construction_ids": [
+        "route-relation",
+        "request-path"
+      ],
+      "scale_or_mapping": {
+        "type": "explicit",
+        "definition": "Panel (a) describes allowed exchanges. Panel (b) describes the shared implementation serving those exchanges."
+      }
+    }
+  ],
+  "target": {
+    "width_mm": 140,
+    "width_mode": "maximum",
+    "min_text_pt": 9,
+    "min_math_script_pt": 6,
+    "min_stroke_pt": 0.4,
+    "colour_intent": "greyscale",
+    "expected_labels": [
+      "Allowed exchanges",
+      "Shared implementation",
+      "Hub",
+      "Proposer",
+      "Checker",
+      "Example mesh",
+      "Trusted host",
+      "Local IPC",
+      "Rust service",
+      "SQLite"
+    ]
+  },
+  "build": {
+    "renderer": "tikz",
+    "engine": "pdflatex",
+    "source": "figures/architecture.tikz.tex",
+    "recipe": [
+      [
+        "python3",
+        "/path/to/design-evidence-visualisation/scripts/render_tikz.py",
+        "figures/architecture.tikz.tex",
+        "--spec",
+        "architecture.spec.json",
+        "--audit",
+        "figures/architecture.audit.json"
+      ]
+    ],
+    "outputs": {
+      "pdf": "figures/architecture.pdf",
+      "audit": "figures/architecture.audit.json",
+      "review": "figures/architecture.review.json"
+    },
+    "dependencies": [
+      "figures/architecture.caption.tex"
+    ]
+  }
+}

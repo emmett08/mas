@@ -1,0 +1,26 @@
+% Required packages: tikz
+% Required TikZ libraries: arrows.meta
+% Target width: 140 mm
+% Minimum text size: 9 pt
+% Colour/greyscale intent: greyscale
+\begin{tikzpicture}[x=1mm,y=1mm,font=\fontsize{9.2}{11}\selectfont,
+  part/.style={font=\fontsize{10}{12}\selectfont\bfseries,anchor=west},
+  path/.style={-{Stealth[length=1.6mm,width=1.2mm]},line width=.5pt},
+  permission/.style={{Stealth[length=1.5mm,width=1.1mm]}-{Stealth[length=1.5mm,width=1.1mm]},dash pattern=on 1.8mm off 1.2mm,line width=.5pt}]
+\node[part] at (0,0) {(a) Allowed exchanges};
+\node (hub) at (20,-15) {Hub};
+\node (proposer) at (70,-15) {Proposer};
+\node (checker) at (117,-15) {Checker};
+\draw[permission] (hub)--(proposer);
+\draw[permission] (proposer)--(checker);
+\draw[permission] (hub.north) to[bend left=18] (checker.north);
+\node[fill=white,inner sep=1.5pt] at (70,-7) {Example mesh};
+\node[part] at (0,-30) {(b) Shared implementation};
+\node[align=center] (host) at (14,-45) {\textbf{Trusted host}\\Scheduling and\\capabilities};
+\node[align=center] (ipc) at (52,-45) {\textbf{Local IPC}\\Gateway or\\trusted host interface};
+\node[align=center] (repo) at (92,-45) {\textbf{Rust service}\\Admission and\\task transitions};
+\node[align=center] (db) at (123,-45) {\textbf{SQLite}\\Messages, tasks\\and budgets};
+\draw[path] (host.east)--(ipc.west);
+\draw[path] (ipc.east)--(repo.west);
+\draw[path] (repo.east)--(db.west);
+\end{tikzpicture}

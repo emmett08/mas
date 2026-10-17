@@ -1,0 +1,197 @@
+{
+  "schema_version": "1.0",
+  "figure_id": "incident-revision",
+  "purpose": {
+    "reader_question": "How do the three recorded procedures allocate a common four-call cap, pass feedback and select an output?",
+    "expected_reading": "One pass generates once. Revision alternates generation and critique, reusing the first candidate and critique in its second generation. Resampling generates four times from the same incident input. The last generation is selected in each procedure.",
+    "claim": "All 36 completed runs per procedure share the displayed call roles, dependencies and selection positions in the retained scripted rehearsal.",
+    "scope": "108 completed scripted-provider runs at the pinned incident-revision freeze. Twelve held-out authored incident cases, three repetitions and three procedures.",
+    "permitted_inferences": [
+      "Observed call allocation under the common cap",
+      "Candidate and feedback dependencies in the recorded revision path",
+      "Fixed final-candidate selection in the retained complete runs"
+    ],
+    "prohibited_inferences": [
+      "Live-model quality improvement",
+      "Elapsed time proportional to horizontal distance",
+      "Statistical independence of repetitions",
+      "Quality-aware selection among resampled candidates"
+    ]
+  },
+  "inputs": [
+    {
+      "id": "rehearsal",
+      "path": "evidence/incident-rehearsal.json",
+      "status": "derived",
+      "sha256": "65e5754ec8f88598fbf50fe5c17ad9b3ecc789d178f6786867047a5da77f6df3",
+      "source_reference": "Deterministic audit of the pinned scripted execution archive and receipt",
+      "url": "https://github.com/emmett08/mas-host-examples/tree/f086e3e51d4c18c2ff851a00b70422bdbfd8aa50/experiments/incident-revision/evidence"
+    },
+    {
+      "id": "archive",
+      "status": "observed",
+      "source_reference": "Retained synthetic-provider execution records at freeze 7136b51c2e57138d0ea553bbfb88a1d0a57adf02227e439b6b65cff9e8ee640c",
+      "url": "https://github.com/emmett08/mas-host-examples/tree/f086e3e51d4c18c2ff851a00b70422bdbfd8aa50/experiments/incident-revision/evidence/fixture-rehearsal.tar.xz",
+      "sha256": "7d453439ac8d521a526e34377cae9b26f4abb4c9098762fefd21bc1cb2f8c1be"
+    }
+  ],
+  "quantities": [
+    {
+      "id": "call-counts",
+      "label": "Provider calls per completed run",
+      "unit": "calls/run",
+      "definition": "Generation and critique invocation totals divided by completed runs, with uniformity verified for every retained run.",
+      "input_ids": [
+        "rehearsal"
+      ],
+      "transformation": "Per-arm generation and assessment totals divided by 36 completed runs. One pass 1+0, revision 2+2, resample 4+0.",
+      "statistical_role": "derived",
+      "missingness": {
+        "state": "complete",
+        "treatment": "All 108 retained runs complete."
+      },
+      "uncertainty": {
+        "kind": "not_applicable",
+        "definition": "Exact counts for this retained scripted rehearsal."
+      }
+    }
+  ],
+  "constructions": [
+    {
+      "id": "workflow",
+      "kind": "other",
+      "definition": "Three rows of call roles in ordinal invocation order. Candidate-output edges connect generation to its critique. Revision additionally passes the prior candidate and critique into generation at call 3. Underlines mark the selected generation at calls 1, 3 and 4 respectively.",
+      "method": "Read call roles and selected_call_index from observed_procedures. The archive audit checks identical non-revision inputs and content-bound revision contexts for every run.",
+      "input_ids": [
+        "rehearsal",
+        "archive"
+      ]
+    }
+  ],
+  "encodings": [
+    {
+      "id": "calls",
+      "marks": "Text labels",
+      "mark_role": "annotation",
+      "channel": "position",
+      "represents": "Call ordinal within a procedure",
+      "interpretation": "relational",
+      "construction_ids": [
+        "workflow"
+      ],
+      "scale_or_mapping": {
+        "type": "ordinal",
+        "definition": "Columns 1 through 4 show invocation order with equal spacing independent of elapsed time.",
+        "domain": [
+          "Call 1",
+          "Call 2",
+          "Call 3",
+          "Call 4"
+        ]
+      }
+    },
+    {
+      "id": "data-edges",
+      "marks": "Directed lines",
+      "mark_role": "annotation",
+      "channel": "incidence",
+      "represents": "Candidate output or critique passed into a subsequent call",
+      "interpretation": "relational",
+      "construction_ids": [
+        "workflow"
+      ],
+      "scale_or_mapping": {
+        "type": "explicit",
+        "definition": "Arrows join each generation to its critique, the first critique to the revised generation and the first candidate to the revised generation."
+      }
+    },
+    {
+      "id": "selection",
+      "marks": "Underline and Selected label",
+      "mark_role": "annotation",
+      "channel": "text",
+      "represents": "Selected candidate",
+      "interpretation": "relational",
+      "construction_ids": [
+        "workflow"
+      ],
+      "scale_or_mapping": {
+        "type": "explicit",
+        "definition": "Underline the generation at the verified selected_call_index."
+      }
+    },
+    {
+      "id": "denominators",
+      "marks": "Text labels",
+      "mark_role": "annotation",
+      "channel": "text",
+      "represents": "Run denominator and observed calls per run",
+      "interpretation": "quantitative",
+      "quantity_ids": [
+        "call-counts"
+      ],
+      "scale_or_mapping": {
+        "type": "explicit",
+        "definition": "Exact integer denominators and call totals are printed per row."
+      }
+    }
+  ],
+  "target": {
+    "width_mm": 145,
+    "width_mode": "maximum",
+    "min_text_pt": 9,
+    "min_math_script_pt": 6,
+    "min_stroke_pt": 0.4,
+    "colour_intent": "greyscale",
+    "expected_labels": [
+      "Call 1",
+      "Call 2",
+      "Call 3",
+      "Call 4",
+      "One pass",
+      "Revision",
+      "Resample",
+      "feedback",
+      "prior candidate",
+      "Selected",
+      "Selected after call 4"
+    ]
+  },
+  "build": {
+    "renderer": "tikz",
+    "engine": "pdflatex",
+    "source": "figures/incident-revision.tikz.tex",
+    "recipe": [
+      [
+        "python3",
+        "scripts/analyse-incident-rehearsal.py",
+        "/path/to/pinned/mas-host-examples"
+      ],
+      [
+        "python3",
+        "scripts/generate-incident-figure.py",
+        "--prototype-source",
+        "/tmp/incident-bars.tikz.tex"
+      ],
+      [
+        "python3",
+        "/path/to/design-evidence-visualisation/scripts/render_tikz.py",
+        "figures/incident-revision.tikz.tex",
+        "--spec",
+        "incident-revision.spec.json",
+        "--audit",
+        "figures/incident-revision.audit.json"
+      ]
+    ],
+    "outputs": {
+      "pdf": "figures/incident-revision.pdf",
+      "audit": "figures/incident-revision.audit.json",
+      "review": "figures/incident-revision.review.json"
+    },
+    "dependencies": [
+      "scripts/generate-incident-figure.py",
+      "scripts/analyse-incident-rehearsal.py",
+      "figures/incident-revision.caption.tex"
+    ]
+  }
+}

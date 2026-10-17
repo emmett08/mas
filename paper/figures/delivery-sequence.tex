@@ -1,0 +1,32 @@
+\begingroup
+\footnotesize
+\begin{sequencediagram}
+\renewcommand{\unitfactor}{0.55}
+\tikzset{inststyle/.style={rectangle,draw,anchor=west,minimum height=.7cm,
+  minimum width=2.35cm,fill=white,font=\footnotesize}}
+\newinst[0]{sender}{Sender host}
+\newinst[1.7]{repository}{Repository}
+\newinst[1.7]{recipient}{Recipient host}
+\coordinate (lost) at ($(sender)!0.35!(repository)$);
+
+\mess{sender}{send m}{repository}
+\node[anchor=north west,align=left,font=\scriptsize]
+  at ([xshift=1.5mm,yshift=-1.5mm]mess to)
+  {Commit message and budget charge.\\Assign sequence $s$.};
+\postlevel
+\begin{scope}[dashed]
+\mess{repository}{accepted, s}{lost}
+\end{scope}
+\node[fill=white,inner sep=.5pt] at (mess to) {$\times$};
+\node[anchor=north,font=\scriptsize]
+  at ([yshift=-1mm]mess to) {response lost};
+\postlevel
+
+\begin{call}{sender}{send identical $m$}{repository}{duplicate, same sequence $s$}
+\end{call}
+\begin{call}{recipient}{receive}{repository}{$m$, first delivery}
+\end{call}
+\begin{call}{recipient}{acknowledge $m$}{repository}{acknowledged}
+\end{call}
+\end{sequencediagram}
+\endgroup
