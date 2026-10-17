@@ -1,0 +1,318 @@
+{
+  "schema_version": "mas-paper-incident-rehearsal/1",
+  "repository": "https://github.com/emmett08/mas-host-examples",
+  "revision": "f086e3e51d4c18c2ff851a00b70422bdbfd8aa50",
+  "experiment_path": "experiments/incident-revision",
+  "evidence_url": "https://github.com/emmett08/mas-host-examples/tree/f086e3e51d4c18c2ff851a00b70422bdbfd8aa50/experiments/incident-revision/evidence",
+  "receipt_sha256": "5e2ebf193b7afa2f7702dbadb21db9e93d695573d69631b3eb690d1987d2ae16",
+  "archive_sha256": "7d453439ac8d521a526e34377cae9b26f4abb4c9098762fefd21bc1cb2f8c1be",
+  "archive_bytes": 162384,
+  "archive_members": 1085,
+  "manifest_sha256": "8074568fb936b1fdc4a87c8c447183eca34018f1fbd19c11b107fb8c3602d182",
+  "verified_manifest_files": 1084,
+  "freeze_id": "7136b51c2e57138d0ea553bbfb88a1d0a57adf02227e439b6b65cff9e8ee640c",
+  "frozen_at_utc": "2026-10-16T20:55:44.759486+00:00",
+  "host_sha256": "2d9cb2a2716e3fdc30bd2562eca8e533055b59a4ca5cad67b0067c3cb8311479",
+  "bundle_sha256": "446bdd5f9448b8fac22041788cc10bc9b4095973cc6249752dc02a74316c0bc2",
+  "repository_host_pin": {
+    "revision": "bfcd27444f81e2323739e5abfbc30bfa3e672b0a",
+    "path": "host-revision.txt",
+    "sha256": "6b5561e01d080286a8ba046aab3896637b0f159fe9662078e1325c89f6c393a7",
+    "scope": "Source pin of the cited examples checkout. The freeze identifies its executed host by the separate executable SHA256."
+  },
+  "source_sha256": {
+    "INV-MAS-INCIDENT-001.json": "45543ff6b797ec51ca60f93b240ccfa32d86214a88fb906b7080db59074d8718",
+    "answers.json": "9d436fd3f8782df8938550a3c3ac4e93eb65cb29468bd6a279480d6865108e70",
+    "incidents.json": "4be92a9b8d687f584190f62bcbd63bc31243969c104074b3fb367206f22c095c",
+    "plan.json": "b19f11e9a8f5cf2da47bfebfe0a290ce1772360a9c3657c03132c9afa2ed17d4",
+    "project/agents.toml": "d257dfc2701715a67628fd03ad7b9cd54bab1ea04666675217c9a125e5f694b4",
+    "project/connections.fixture.toml": "83bd95d0f948e32b6b4252404d2ee89efde29697c32ecaa108fb208a74cb698f",
+    "project/fixture_provider.py": "956afe995e1d7ac69150194a17adc1778a9eea35e11a0f3f604495d8e746c522",
+    "project/prompts/critic.md": "d1af155c01493664a159c013e9a91f561bab3c5449dac16f981915ed592bfc4b",
+    "project/prompts/diagnose.md": "a47335f0994402aed800a9d7d43d0606fb3a631077e5891e264ad4e0365b480f",
+    "project/revision.json": "92f22a07603d431ea970af60c2576d967adce27d01a6f1fbbc0608dd1883b3a4",
+    "project/schemas/candidate.json": "7cfb482f0939dd22de8e3987d5930626125bc5f4b32f90db601aaf52ee752ec7",
+    "project/schemas/critique.json": "73cf30e6f9cbd97bf19098e01e850059b94ccf9f849d2094aebd0f5e7d6afdb9",
+    "project/topology.yaml": "79872e0118952a525ab1549d6a979140f1ee9f64f9734d1df1f79bb04f19b70a",
+    "run.py": "52aca09ddd8ffe2ae4cf5ec71a1c1a873bbcb43f974274b974497b580f894574"
+  },
+  "verified_source_files": 14,
+  "verification": {
+    "arm_runs": 108,
+    "complete_arm_runs": 108,
+    "provider_effects": 324,
+    "revision_runs": 36,
+    "revision_candidates": 72,
+    "revision_assessments": 72,
+    "bound_revision_records": 288,
+    "revision_contexts": 144,
+    "matched_revision_and_one_pass_initial_contexts": 36,
+    "failed_or_missing_arm_runs": 0,
+    "retained_host_invocations": 216
+  },
+  "held_out_cases": 12,
+  "diagnostic_families": 6,
+  "repetitions_per_case_arm": 3,
+  "by_arm": {
+    "one_pass": {
+      "runs": 36,
+      "diagnosis_correct": 12,
+      "unsafe_proposal": 0,
+      "appropriate_abstention": 12,
+      "missing_output": 0,
+      "generation_effects": 36,
+      "assessment_effects": 0,
+      "provider_effects": 36
+    },
+    "revision": {
+      "runs": 36,
+      "diagnosis_correct": 12,
+      "unsafe_proposal": 0,
+      "appropriate_abstention": 12,
+      "missing_output": 0,
+      "generation_effects": 72,
+      "assessment_effects": 72,
+      "provider_effects": 144
+    },
+    "resample": {
+      "runs": 36,
+      "diagnosis_correct": 12,
+      "unsafe_proposal": 0,
+      "appropriate_abstention": 12,
+      "missing_output": 0,
+      "generation_effects": 144,
+      "assessment_effects": 0,
+      "provider_effects": 144
+    }
+  },
+  "by_family": {
+    "one_pass": {
+      "conflicting": {
+        "runs": 6,
+        "diagnosis_correct": 6,
+        "unsafe_proposal": 0,
+        "appropriate_abstention": 6
+      },
+      "dns": {
+        "runs": 6,
+        "diagnosis_correct": 0,
+        "unsafe_proposal": 0,
+        "appropriate_abstention": 0
+      },
+      "image": {
+        "runs": 6,
+        "diagnosis_correct": 0,
+        "unsafe_proposal": 0,
+        "appropriate_abstention": 0
+      },
+      "missing": {
+        "runs": 6,
+        "diagnosis_correct": 6,
+        "unsafe_proposal": 0,
+        "appropriate_abstention": 6
+      },
+      "oom": {
+        "runs": 6,
+        "diagnosis_correct": 0,
+        "unsafe_proposal": 0,
+        "appropriate_abstention": 0
+      },
+      "probe": {
+        "runs": 6,
+        "diagnosis_correct": 0,
+        "unsafe_proposal": 0,
+        "appropriate_abstention": 0
+      }
+    },
+    "revision": {
+      "conflicting": {
+        "runs": 6,
+        "diagnosis_correct": 6,
+        "unsafe_proposal": 0,
+        "appropriate_abstention": 6
+      },
+      "dns": {
+        "runs": 6,
+        "diagnosis_correct": 0,
+        "unsafe_proposal": 0,
+        "appropriate_abstention": 0
+      },
+      "image": {
+        "runs": 6,
+        "diagnosis_correct": 0,
+        "unsafe_proposal": 0,
+        "appropriate_abstention": 0
+      },
+      "missing": {
+        "runs": 6,
+        "diagnosis_correct": 6,
+        "unsafe_proposal": 0,
+        "appropriate_abstention": 6
+      },
+      "oom": {
+        "runs": 6,
+        "diagnosis_correct": 0,
+        "unsafe_proposal": 0,
+        "appropriate_abstention": 0
+      },
+      "probe": {
+        "runs": 6,
+        "diagnosis_correct": 0,
+        "unsafe_proposal": 0,
+        "appropriate_abstention": 0
+      }
+    },
+    "resample": {
+      "conflicting": {
+        "runs": 6,
+        "diagnosis_correct": 6,
+        "unsafe_proposal": 0,
+        "appropriate_abstention": 6
+      },
+      "dns": {
+        "runs": 6,
+        "diagnosis_correct": 0,
+        "unsafe_proposal": 0,
+        "appropriate_abstention": 0
+      },
+      "image": {
+        "runs": 6,
+        "diagnosis_correct": 0,
+        "unsafe_proposal": 0,
+        "appropriate_abstention": 0
+      },
+      "missing": {
+        "runs": 6,
+        "diagnosis_correct": 6,
+        "unsafe_proposal": 0,
+        "appropriate_abstention": 6
+      },
+      "oom": {
+        "runs": 6,
+        "diagnosis_correct": 0,
+        "unsafe_proposal": 0,
+        "appropriate_abstention": 0
+      },
+      "probe": {
+        "runs": 6,
+        "diagnosis_correct": 0,
+        "unsafe_proposal": 0,
+        "appropriate_abstention": 0
+      }
+    }
+  },
+  "observed_procedures": {
+    "one_pass": {
+      "call_roles": [
+        "generation"
+      ],
+      "selected_call_index": 1,
+      "generation_calls_per_run": 1,
+      "assessment_calls_per_run": 0,
+      "provider_call_cap": 4,
+      "verified_runs": 36,
+      "invariant_across_retained_runs": true
+    },
+    "revision": {
+      "call_roles": [
+        "generation",
+        "assessment",
+        "generation",
+        "assessment"
+      ],
+      "selected_call_index": 3,
+      "generation_calls_per_run": 2,
+      "assessment_calls_per_run": 2,
+      "revised_candidate_parent_and_feedback_bound": true,
+      "provider_call_cap": 4,
+      "verified_runs": 36,
+      "invariant_across_retained_runs": true
+    },
+    "resample": {
+      "call_roles": [
+        "generation",
+        "generation",
+        "generation",
+        "generation"
+      ],
+      "selected_call_index": 4,
+      "generation_calls_per_run": 4,
+      "assessment_calls_per_run": 0,
+      "same_task_for_all_calls": true,
+      "provider_call_cap": 4,
+      "verified_runs": 36,
+      "invariant_across_retained_runs": true
+    }
+  },
+  "contrasts": [
+    {
+      "comparator": "one_pass",
+      "outcome": "diagnosis_correct",
+      "difference": 0.0,
+      "interval": [
+        -1,
+        1
+      ]
+    },
+    {
+      "comparator": "one_pass",
+      "outcome": "unsafe_proposal",
+      "difference": 0.0,
+      "interval": [
+        -1,
+        1
+      ]
+    },
+    {
+      "comparator": "one_pass",
+      "outcome": "appropriate_abstention",
+      "difference": 0.0,
+      "interval": [
+        -1,
+        1
+      ]
+    },
+    {
+      "comparator": "resample",
+      "outcome": "diagnosis_correct",
+      "difference": 0.0,
+      "interval": [
+        -1,
+        1
+      ]
+    },
+    {
+      "comparator": "resample",
+      "outcome": "unsafe_proposal",
+      "difference": 0.0,
+      "interval": [
+        -1,
+        1
+      ]
+    },
+    {
+      "comparator": "resample",
+      "outcome": "appropriate_abstention",
+      "difference": 0.0,
+      "interval": [
+        -1,
+        1
+      ]
+    }
+  ],
+  "conditional_simultaneous_radius": 1.351621115961865,
+  "report_numeric_fields_recomputed": true,
+  "replay_report_identical": true,
+  "replay_additional_provider_effects_receipt_claim": 0,
+  "scope": {
+    "execution": "Retained scripted-provider rehearsal through the MAS host",
+    "verification": "Archive integrity, lineage and disclosure, paired initial inputs, observed effect counts and descriptive scoring",
+    "replay": "Both retained reports are identical. The receipt records reuse with zero additional effects. The archive contains the final effect records.",
+    "quality": "Deterministic always-abstaining fixture scored against authored reference labels",
+    "disclosure": "Public incident projection and the permitted feedback path, with wildcard readers on retained records",
+    "resources": "Provider usage and prices are unavailable. Four concurrent fixture workers produced the retained timing observations.",
+    "host_identity": "The retained executable digest identifies the host used. Executable bytes and SQLite journals are excluded from the archive.",
+    "interval": "Family-level Hoeffding bounds conditional on independent families. The six-family radius exceeds one.",
+    "new_execution": "This analysis reads retained records and makes zero provider invocations."
+  }
+}

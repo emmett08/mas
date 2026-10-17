@@ -5,7 +5,8 @@
 **Target:** SoftwareX, Original Software Publication. The article describes an
 implemented research-software contribution: durable communication and assessment
 records with reproducible implementation tests and finite-state verification.
-The reported results concern the selected local implementation and finite models.
+The reported results concern the selected local implementation, finite models
+and a retained incident-analysis rehearsal with scripted providers.
 
 The examined software revision is
 `a61b3da98ef3ef11996dd79b4a3a048ed6c98ce1`. The manuscript and its evidence are
@@ -57,6 +58,29 @@ acknowledgement. They describe protocol behaviour. The separate executed-example
 table reports observations. Gateway forwarding and external work are omitted
 from the sequence diagrams.
 
+The sixth figure compares the recorded one-pass, revision and resampling
+procedures in the external incident-analysis example. It shows call order,
+candidate selection and feedback dependencies. The scripted-provider rehearsal
+contains 108 completed procedure runs and 324 provider calls. The revision
+procedure retains 72 candidate records and 72 assessment records.
+
+To verify and regenerate these observations, check out the cited examples
+revision and run the read-only analysis:
+
+```sh
+git clone https://github.com/emmett08/mas-host-examples.git /tmp/mas-host-examples
+git -C /tmp/mas-host-examples checkout f086e3e51d4c18c2ff851a00b70422bdbfd8aa50
+python3 paper/scripts/analyse-incident-rehearsal.py /tmp/mas-host-examples
+python3 paper/scripts/generate-incident-figure.py
+```
+
+The analysis verifies the archived file manifest, frozen source identities,
+invocation inputs, candidate and assessment references, effect counts and report
+calculations. It reads retained records and makes zero provider calls. The
+external archive remains at its pinned source URL. The paper retains the derived
+summary and figure sources. See [the evidence record](evidence/README.md) for
+the distinction between archive inspection and the original host execution.
+
 ## Journal fit and submission checks
 
 SoftwareX's [official scope](https://www.elsevier.com/researcher/author/tools-and-resources/research-elements-journals)
@@ -75,18 +99,18 @@ LaTeX template was inspected in a
 [third-party mirror](https://github.com/yongyin-leon/CubeScope/blob/main/docs/softwarex-template/softwarex-osp-template.tex),
 blob `c77c095a372789b9490ec20c6f61898bb5ac786f`. That copy specifies 4,000 words,
 up to six figures, approximately 100 abstract words and the five section
-headings used here. The manuscript adopts a stricter 3,000-word preparation
-target because older indexed guidance gives that limit. Current submission-portal
-requirements still require confirmation.
+headings used here. The expanded article follows that template's 4,000-word
+and six-figure limits. Older indexed guidance gives a 3,000-word limit.
+Current submission-portal requirements still require confirmation.
 
 | Requirement | Disposition |
 |---|---|
 | Motivation, software description, illustrative examples, impact and conclusions | Present in the required order |
 | Elsevier source format and numbered references | `elsarticle`, 12-point A4 single column, `elsarticle-num` and review line numbers |
-| Length | 106-word abstract. TeXcount reports 2,936 text, heading and caption words, excluding references and diagram labels |
-| Architecture and other visual explanations | Five vector figures: architecture, bytefield envelope structure, state transitions and two `pgf-umlsd` sequences |
+| Length | 103-word abstract. TeXcount reports 3,387 text, heading and caption words, excluding references, diagram labels and mathematical counters |
+| Architecture and other visual explanations | Six vector figures: architecture, bytefield envelope structure, state transitions, two `pgf-umlsd` sequences and the recorded incident procedures |
 | Faithful algorithms | Two `algorithm`/`algpseudocode` procedures checked against Rust source |
-| Example and empirical evaluation | Three executed offline fixtures, 79 passing Rust tests and 41 classified formal checks |
+| Example and empirical evaluation | Three executed offline fixtures, 79 passing Rust tests, 41 classified formal checks and an independently inspected archive of 108 scripted-provider incident runs |
 | Code metadata C1–C8 | C8 gives the public support channel. The required support email awaits author confirmation |
 | Open source and documentation | Root `LICENSE`, `THIRD_PARTY_LICENSE.txt`, `README.md` and linked guides. Confirm that the portal accepts `LICENSE` where the mirrored template says `Licence.txt` |
 | AI disclosure | Concise provenance remains in the formal declaration and figure captions, as required by the [current Elsevier policy](https://www.elsevier.com/about/policies-and-standards/generative-ai-policies-for-journals). Final author oversight and responsibility wording awaits confirmation |
@@ -118,6 +142,7 @@ multi-agent contribution than the present implementation evidence establishes.
 | In-memory history and revision limits | `rust-protocol/src/assessment/history.rs`. `formal/assessment-revision-notes.md` explicitly identifies cross-repository obligations |
 | Offline observations | Star demo, `rust-protocol/examples/recovery.rs` and `gateway.rs`. Output JSON in `evidence/raw-checks.zip` |
 | Model assumptions and progress | `formal/protocol.pml.in`, task/transaction/expiry models, assessment model. `evidence/verification.json` |
+| Incident revision integration | Pinned `mas-host-examples` source and rehearsal archive. `evidence/incident-rehearsal.json` derives counts and checks lineage, inputs and report calculations |
 
 ## Editorial profile and verification
 
@@ -136,7 +161,7 @@ terminator and source-code syntax. The five-element design explanation connects
 service operations, environmental premises, message meanings, encoding and
 transaction-ordered exchange rules to their respective verification checks.
 
-Review covers the manuscript, five figures, generated results and bibliography.
+Review covers the manuscript, six figures, generated results and bibliography.
 Forward and reverse editorial passes checked meaning and terminology. An
 independent source review checked the algorithms and substantive claims.
 Scanner findings in LaTeX commands/dimensions are controlled exceptions.

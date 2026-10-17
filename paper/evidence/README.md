@@ -74,9 +74,63 @@ manuscript. It keeps native tests, executable fixtures, positive model searches,
 deliberate defects, assumption counterexamples and reachability witnesses
 separate. The command `make -C paper verify` runs the same reproduction script.
 
-PostgreSQL integration, the separate host/examples repositories, deployment,
-external effects and answer quality were not evaluated. Model checks establish
-properties of the declared finite abstractions. Implementation tests support
-correspondence; they do not prove that every implementation execution refines
-those models. In particular, retained message identity does not establish
-exactly-once external effects or improved agent answers.
+These implementation checks cover the default SQLite backend and the selected
+finite abstractions. Implementation tests supply correspondence evidence for
+the exercised behaviours. Deployment, PostgreSQL integration and external-effect
+control require their own qualification. Application outcome measures assess
+answer quality separately.
+
+## Incident-analysis integration
+
+The article also uses the retained scripted-provider rehearsal from
+[`mas-host-examples` revision `f086e3e`](https://github.com/emmett08/mas-host-examples/tree/f086e3e51d4c18c2ff851a00b70422bdbfd8aa50/experiments/incident-revision).
+Its execution was recorded on 16 October 2026. The article's analysis inspects
+that archive and recomputes its counts. The original execution and this later
+archive inspection remain separately identified.
+
+`incident-rehearsal.json` records the immutable source, archive and receipt
+identities and the output of `scripts/analyse-incident-rehearsal.py`.
+The verifier reads archive members in memory. It checks all 1,084 manifest
+entries, 14 frozen source hashes, the allocation of 108 jobs, invocation inputs
+and outputs, 324 provider effects, 288 retained revision records and their
+references, and the descriptive report calculations. All 36 revision draft
+inputs match their paired one-pass inputs.
+
+| Procedure | Completed runs | Generation calls | Assessment calls | Selected candidate |
+|---|---:|---:|---:|---|
+| One pass | 36 | 36 | 0 | First |
+| Revision | 36 | 72 | 72 | Revised candidate |
+| Resampling | 36 | 144 | 0 | Fourth |
+
+Every procedure had the same four-call upper limit. The scripted generator
+always requested further evidence and the critic returned inconclusive findings.
+The quality scores therefore describe the authored cases and scripted responses.
+The figure displays the observed procedures and their information dependencies.
+The full outcome counts remain in the derived JSON for inspection.
+
+The two archived reports are identical. The execution receipt records
+completed-job reuse with zero additional provider effects. This analysis
+verifies report equality against the retained final snapshot. The receipt
+supplies the original replay observation.
+
+The cited examples checkout pins host source revision
+`bfcd27444f81e2323739e5abfbc30bfa3e672b0a`. That source pins protocol revision
+`239e85c5ad1ab4f25df958365c50019c8b91fe15`. The original rehearsal identifies
+its executed host by SHA-256
+`2d9cb2a2716e3fdc30bd2562eca8e533055b59a4ca5cad67b0067c3cb8311479`.
+The archive preserves executable hashes and invocation records. The external
+source workflow rebuilds the omitted binaries and SQLite journals. These
+identities preserve the distinction from the core checks at `a61b3da`.
+
+The permitted feedback path uses wildcard readers in this fixture. The scorer
+compares exact diagnosis codes, a case-specific list of hazardous actions and
+the reference abstention decision after generation. Usage and prices remain
+unavailable. Timing reflects four concurrent fixture workers. These observations
+support the bounded integration example in the article.
+
+The experiment's 13 unit tests passed during this review. Its schema-1.2
+investigation record validates with zero errors and zero warnings at status
+`specified`. The scientific review retains the six incident families as the
+paired analysis units. A principal empirical comparison requires independently
+adjudicated labels and an allocation justified for its quality and resource
+margins. A quality-aware resampling selector would define a further comparator.

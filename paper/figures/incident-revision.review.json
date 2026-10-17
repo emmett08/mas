@@ -1,0 +1,122 @@
+{
+  "schema_version": "1.0",
+  "figure_id": "incident-revision",
+  "spec_sha256": "590737895f30fc920c3f7bf3230965333791c25bfb84028ee0ad5f198db009d7",
+  "audit_sha256": "2b01cc1c3976c133be931ada618295fe73c828901fda21870d8ecbe23d979f84",
+  "artifacts": [
+    {
+      "role": "final_pdf",
+      "path": "figures/incident-revision.pdf",
+      "sha256": "ff0e2c715c537adda71b607824869edb45c98a7cb77adeb66a4115e643cfdf3d"
+    },
+    {
+      "role": "prototype",
+      "path": "figures/incident-revision.pdf",
+      "sha256": "ff0e2c715c537adda71b607824869edb45c98a7cb77adeb66a4115e643cfdf3d"
+    },
+    {
+      "role": "prototype",
+      "path": "figures/incident-revision-bars.pdf",
+      "sha256": "2546c4c7b4290c23ceb895388bbef61c89d43aa77e3571770a8fe1d6671755e3"
+    }
+  ],
+  "reviewer": {
+    "id": "independent incident_visual_review agent",
+    "kind": "agent",
+    "independence_declared": true,
+    "scope": "agent_screening"
+  },
+  "candidates": [
+    {
+      "id": "workflow",
+      "prototype": "figures/incident-revision.pdf",
+      "observations": {
+        "reading": "The revision arrows attract attention after the title and bold row labels. Call columns recover invocation order, two distinct input edges recover feedback and prior-candidate dependence, and underlines recover the selected generation. Exact counts and denominators remain visible.",
+        "annotation_burden": "Direct Generate and Critique labels need no key. The scripted-rehearsal title and explicit Selected after call 4 label resolve the two initial interpretation concerns. The caption supplies original-incident inputs and completion timing.",
+        "reproduction": "Inspected at 133.25 by 82.50 mm with 9.00002 pt text. Full-size, colour, greyscale and thumbnail renders preserve arrows and selected underlines. The integrated elsarticle page 12 keeps the complete figure and caption together."
+      }
+    },
+    {
+      "id": "bars",
+      "prototype": "figures/incident-revision-bars.pdf",
+      "observations": {
+        "reading": "Bars make the 1:4:4 call totals and 2+2 revision composition immediate. The figure answers the narrower question of call allocation.",
+        "annotation_burden": "Direct segment labels and a linear zero-based call axis are sufficient for counts. Feedback routing, call order and selection would require additional annotations to answer the full reader question.",
+        "reproduction": "The rendered alternative has readable direct segment labels and monochrome fills, with a visible zero-based axis at final size."
+      }
+    }
+  ],
+  "selected_candidate": "workflow",
+  "initial_reconstruction": {
+    "claim": "Three recorded 36-run procedures operate under a four-call cap, using respectively 1, 4 and 4 calls per run. Revision passes the first candidate and critique into its second generation. Resampling starts each generation from the same incident input.",
+    "quantities": [
+      "36 completed runs per procedure",
+      "1 call per one-pass run",
+      "4 calls per revision or resample run",
+      "Four ordinal invocation columns",
+      "Selected last-generated candidate"
+    ],
+    "evidence_status": "Caption identifies a scripted provider that always abstains and returns inconclusive critiques. The marks describe procedures and data carriage.",
+    "scope": "Retained procedure runs, with a denominator that can include repeated authored incident cases.",
+    "unintended_inferences": [
+      "In the first render, Selected beneath call 3 could imply selection before call 4, although the caption states selection after completion.",
+      "The first render disclosed scripted evidence in its caption, allowing an isolated graphic to resemble productive model generation."
+    ]
+  },
+  "comparison": {
+    "matches": [
+      "Reconstruction matches the specified scripted procedural claim and all ordinal call positions.",
+      "Observed counts, selected-call positions and dependencies match the summary and its verified archive calculations.",
+      "The archive analysis checks call roles, selected candidate, bound third revision context and unchanged resampling inputs for every retained run.",
+      "Independent review of the final integrated elsarticle page confirms legible labels, arrowheads and caption with clear placement."
+    ],
+    "findings": [
+      {
+        "id": "selection-timing",
+        "severity": "minor",
+        "description": "Initial Selected label at the third revision call could imply early selection.",
+        "disposition": "resolved",
+        "reason": "Final label reads Selected after call 4. The reviewer inspected that revision and recovered the completion timing."
+      },
+      {
+        "id": "standalone-status",
+        "severity": "minor",
+        "description": "Initial evidence status relied on the external caption.",
+        "disposition": "resolved",
+        "reason": "Final graphic title reads Scripted rehearsal: recorded calls, preserving status in isolated reuse."
+      },
+      {
+        "id": "prototype-selection",
+        "severity": "informational",
+        "description": "The bar alternative retains counts while the workflow also displays dependencies and fixed selection.",
+        "disposition": "accepted",
+        "reason": "The workflow answers the complete declared reader question using exact counts and directly labelled relations."
+      },
+      {
+        "id": "manuscript-class",
+        "severity": "informational",
+        "description": "The cropped audit uses standalone with Latin Modern because the exact elsarticle wrapper generates a .spl sidecar unsupported by the audit dependency recogniser.",
+        "disposition": "accepted",
+        "reason": "Source fixes every label at 9 pt and contains its own geometry. The independent reviewer also inspected the exact source integrated in the elsarticle manuscript on page 12."
+      }
+    ],
+    "audit_warning_dispositions": [
+      {
+        "index": 0,
+        "disposition": "accepted",
+        "reason": "Visual inspection confirms that the prior-candidate label has an opaque white background with 1.5 mm horizontal padding. The underlying line stops visibly before the glyphs on both sides, and the data path remains clear."
+      },
+      {
+        "index": 1,
+        "disposition": "accepted",
+        "reason": "Disabled shell escape is an environmental build notice. The figure uses ordinary TikZ, and the completed vector PDF and geometry checks show all intended marks."
+      }
+    ]
+  },
+  "decision": "accept",
+  "limitations": [
+    "Human interpretation benefit remains unmeasured by agent screening.",
+    "The 36 runs per procedure comprise 12 authored incident cases with three repetitions. The figure depicts the retained scripted execution scope.",
+    "Cropped mechanical auditing uses standalone Latin Modern. The integrated elsarticle page supplies the separate manuscript-placement check."
+  ]
+}
