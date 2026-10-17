@@ -95,15 +95,15 @@ class AssessmentJournal:
         self.evidence_refs = [item["reference"] for item in checked_evidence]
         rubric = self._validate(operation="record", kind="rubric", record=policy["rubric"])
         self.rubric_ref = rubric["reference"]
+        self.review_context = {"rubric": self.rubric_ref, "evidence": self.evidence_refs}
         if "context" in policy:
             try:
-                self.review_context = select_value(policy["context"], input)
+                application_context = select_value(policy["context"], input)
             except ServiceError:
                 raise RunnerError("assessment context differs from registration") from None
-            if not self.review_context:
+            if not application_context:
                 raise RunnerError("assessment context must be nonempty")
-        else:
-            self.review_context = {"rubric": self.rubric_ref, "evidence": self.evidence_refs}
+            self.review_context["application"] = application_context
         self.binding = {"scope": scope, "policy": policy, "input": input, "deadline_ms": deadline}
         try:
             self.journal.step(self.prefix + "binding", "assessment_binding", self.binding, {})

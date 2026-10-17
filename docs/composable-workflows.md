@@ -494,9 +494,11 @@ A completed assessment cannot be returned with an unresolved outer task.
 By default the receipt's `context` contains the exact rubric and evidence
 references. An optional registered `context` selector can nominate a nonempty
 object from the original input when an application also needs experiment or
-criterion versions for agreement. The parent freezes that value and rejects a
-worker-supplied replacement. It retains the authoritative rubric and evidence
-references separately, so application context fields cannot change them.
+criterion versions for agreement. The parent freezes that value under
+`context.application`, alongside the authoritative `context.rubric` and
+`context.evidence`, and rejects a worker-supplied replacement. Identical
+application labels therefore cannot hide different rubrics or evidence when
+forming candidate agreement.
 
 Adapters call `context.assessment(operation, data)` through the same parent-owned
 IPC boundary as other host operations:

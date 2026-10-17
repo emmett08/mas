@@ -195,11 +195,40 @@ class AssessmentJournalTests(unittest.TestCase):
         supplied["review_context"]["experiment"] = "changed"
         selected["evaluator"]["version"] = "changed"
         record = session.execute("assess", assessment())
+        expected_context = {"rubric": reference(RUBRIC), "evidence": [reference(EVIDENCE)],
+                            "application": {"experiment": "incident-study-1"}}
         output = session.final_result({"assessment": record["reference"],
-            "context": {"experiment": "incident-study-1"}}, "completed")
-        self.assertEqual(output["context"], {"experiment": "incident-study-1"})
+            "context": expected_context}, "completed")
+        self.assertEqual(output["context"], expected_context)
         self.assertEqual(output["rubric"], reference(RUBRIC))
         self.assertEqual(output["profile"], "mas-assessment-result/1")
+
+    def test_identical_application_context_cannot_hide_different_rubric_or_evidence(self):
+        from mas_host.workflow_agreement import agrees
+        outputs = []
+        for index in (1, 2):
+            selected = policy()
+            selected["context"] = {"path": ["review_context"], "type": "object"}
+            supplied = {**invocation_input(), "review_context": {"experiment": "same-study"}}
+            record = assessment("assessment-" + str(index), verdict="pass")
+            if index == 2:
+                selected["rubric"]["id"] = "rubric-2"
+                supplied["evidence"][0]["id"] = "check-2"
+                supplied["evidence"][0]["content"] = {"expected": 43}
+                supplied["evidence"][0]["content_sha256"] = json_identity({"expected": 43})
+                record["rubric"] = reference(selected["rubric"])
+                record["findings"][0]["evidence"] = [reference(supplied["evidence"][0])]
+            session = AssessmentJournal(self.journal, self.client.command, self.client.mas,
+                scope={"run_id": "run", "actor": "b", "request_id": "agreement-" + str(index)},
+                policy=selected, input=supplied, deadline=12345)
+            checked = session.execute("assess", record)
+            outputs.append(session.final_result({"assessment": checked["reference"]}, "completed"))
+        self.assertEqual(outputs[0]["context"]["application"], outputs[1]["context"]["application"])
+        self.assertNotEqual(outputs[0]["context"]["rubric"], outputs[1]["context"]["rubric"])
+        self.assertNotEqual(outputs[0]["context"]["evidence"], outputs[1]["context"]["evidence"])
+        binding = {"candidate": outputs[0]["candidate"], "context": outputs[0]["context"]}
+        self.assertTrue(agrees(outputs[0], binding))
+        self.assertFalse(agrees(outputs[1], binding))
 
     def test_registered_context_api_operates_through_parent_owned_process_ipc(self):
         def checker(context, _request):
