@@ -350,3 +350,7 @@ restoration and SDK behaviour remain implementation-test obligations. No formal
 refinement proof connects all Python, Rust, SQLite or external peer executions
 to these finite models. See the model contract for the requirement-to-property
 mapping and the limits of this bounded sufficiency claim.
+
+`python3 formal/verify-provider-quota.py` checks the finite fixed-window provider
+allowance abstraction and replays its mechanism mutations and positive witnesses.
+See `docs/provider-quota.md` for the implementation boundary and unproved claims.

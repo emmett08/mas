@@ -29,6 +29,8 @@ jobs:
         run: ./rust-protocol/target/release/verify
       - name: Native dispatch and scheduler finite safety
         run: python3 formal/verify-native-dispatch.py
+      - name: Provider quota finite safety
+        run: python3 formal/verify-provider-quota.py
       - name: Executable examples
         run: make examples
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

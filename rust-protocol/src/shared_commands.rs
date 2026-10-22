@@ -195,6 +195,7 @@ pub(crate) fn class(operation: &str) -> &'static str {
         | "remote.resolve"
         | "cursor_job.complete"
         | "circuit.observe"
+        | "circuit.defer"
         | "peer.revoke"
         | "artifact.complete"
         | "artifact.revoke"

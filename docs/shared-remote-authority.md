@@ -57,3 +57,7 @@ principal namespaces, forged admission rejection, peer handover/revocation and
 concurrent half-open probes. The backend workflow runs these against the pinned
 PostgreSQL image. Tests skip explicitly when no PostgreSQL fixture is provided;
 that skip is not backend acceptance evidence.
+
+The optional [version-two provider quota profile](provider-quota.md) adds retained
+fixed-window request credit, explicit monotone deferral and typed fresh-only
+Rust permission to this same authority. It does not change version-one clients.
