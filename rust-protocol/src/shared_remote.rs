@@ -391,7 +391,7 @@ pub(crate) fn native_provider_eligibility(
 ) -> Result<Option<i64>> {
     let (resource, _, cooldown, _) = circuit_policy(&json!({"policy":policy}))?;
     let allowance = quota::policy(policy)?.ok_or("native provider requires circuit version two")?;
-    let view = query(tx, "circuit.inspect", &json!({"policy":policy}))?;
+    let view = query(tx, "circuit.status", &json!({"policy":policy}))?;
     let timestamp = now(tx)?;
     if tx
         .query_opt("SELECT 1 FROM provider_permits WHERE call_id=$1", &[&call])
