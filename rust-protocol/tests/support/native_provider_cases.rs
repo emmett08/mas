@@ -12,6 +12,11 @@ fn setup(f: &Fixture) -> (PostgresRepository, Value) {
     let mut repo = host_setup(f);
     repo.install_controller_repository().unwrap();
     repo.install_service_repository().unwrap();
+    repo.install_accounting_repository().unwrap();
+    repo.install_recovery_repository().unwrap();
+    repo.install_jobs_repository().unwrap();
+    repo.install_command_repository(None).unwrap();
+    repo.install_retention_repository().unwrap();
     repo.install_provider_quota_index().unwrap();
     repo.renew_authority(3600).unwrap();
     let policy = json!({"format":"mas-provider-circuit/2","resource_key":"registered-provider","failure_threshold":2,"open_seconds":1,"half_open_seconds":1,"window_ms":86_400_000,"max_requests":1});
