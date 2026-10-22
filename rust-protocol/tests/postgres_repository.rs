@@ -1039,3 +1039,6 @@ fn bounded_shared_task_status_uses_owned_record_without_payload_or_reconciliatio
     lock.rollback().unwrap();
     assert_eq!(admin.query_one("SELECT count(*) FROM host_commands",&[]).unwrap().get::<_,i64>(0),before);
 }
+
+#[path="support/queue_admission_cases.rs"]
+mod queue_admission_cases;

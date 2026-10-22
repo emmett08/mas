@@ -327,6 +327,7 @@ pub(crate) fn apply(tx: &mut Transaction<'_>, operation: &str, p: &Value) -> Res
         if !p["input"].is_object() || !p["metadata"].is_object() || !p["binding"].is_object() {
             return Err("invalid composition submission".into());
         }
+        crate::shared_scheduler::queue_admission::composition(tx)?;
         crate::shared_tasks::check_submission(tx, principal)?;
         let count: i64 = tx
             .query_one("SELECT count(*) FROM composition_instances WHERE archived_at IS NULL", &[])

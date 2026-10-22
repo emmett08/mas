@@ -1,4 +1,5 @@
 //! Version scheduler admission allowances while preserving occupied assignments.
+pub(crate) mod queue_admission;
 use crate::postgres_repository::db_error;
 use postgres::Transaction;
 use serde_json::{json, Value};
@@ -24,7 +25,7 @@ pub(crate) fn validate(policy: &Value) -> Result<()> {
     let cap = limit(policy)?;
     let object = policy.as_object().ok_or("invalid_scheduler_policy")?;
     if cap > 256
-        && (object.len() != 6
+        && (object.len() != if object.contains_key("queue_admission") { 7 } else { 6 }
             || object.keys().any(|k| {
                 ![
                     "format",
@@ -33,6 +34,7 @@ pub(crate) fn validate(policy: &Value) -> Result<()> {
                     "max_per_principal",
                     "workflows",
                     "resources",
+                    "queue_admission",
                 ]
                 .contains(&k.as_str())
             }))
@@ -57,6 +59,7 @@ pub(crate) fn validate(policy: &Value) -> Result<()> {
             return Err("invalid_scheduler_policy".into());
         }
     }
+    queue_admission::validate(policy)?;
     Ok(())
 }
 
@@ -108,6 +111,7 @@ pub(crate) fn amend(tx: &mut Transaction<'_>, p: &Value) -> Result<Value> {
     {
         return Err("scheduler_policy_revision_conflict".into());
     }
+    queue_admission::activate(tx,Some(&current),policy)?;
     // Lower allowances govern future admissions. Existing assignments retain
     // their ownership and reservations while occupancy drains naturally.
     let occupied: i64 = tx

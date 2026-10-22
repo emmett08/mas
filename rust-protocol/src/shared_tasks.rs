@@ -142,6 +142,19 @@ pub(crate) fn check_submission(tx:&mut Transaction<'_>,principal:&str)->Result<(
     if rows.get::<_,i64>(0)>=global.get::<_,i64>(1){return Err("queue_full".into());}
     if rows.get::<_,i64>(1)>=policy.get::<_,i64>(1){return Err("principal_pending_limit".into());}Ok(())
 }
+// The authority owns this hint; it never authorises dispatch. Actual native
+// provider admission rechecks its retained allowance when the hint becomes due.
+fn provider_ready(state:&str,error:Option<&str>,now:i64)->bool {
+    if state!="blocked" {return true;}
+    let Some(error)=error.and_then(|v|serde_json::from_str::<Value>(v).ok()) else{return true};
+    if error["code"]!="native_provider_deferred" {return true;}
+    error.as_object().is_some_and(|v|v.len()==2) && error["not_before_ms"].as_i64().is_some_and(|n|n>=0 && n<=now)
+}
+fn validate_provider_defer(error:&Value)->Result<()> {
+    if error["code"]!="native_provider_deferred" {return Ok(());}
+    if !error.as_object().is_some_and(|v|v.len()==2 && v.contains_key("not_before_ms")) || !error["not_before_ms"].as_i64().is_some_and(|n|n>=0) {return Err("invalid_provider_task_deferral".into());}
+    Ok(())
+}
 pub(crate) fn acquire_slot(tx:&mut Transaction<'_>,assignment:&str,principal:&str,workflow:&str,identity:&str,owner:&str)->Result<bool> {
     let epoch=current_epoch(tx)?;
     if let Some(row)=tx.query_opt("SELECT principal,workflow,identity,owner,epoch FROM service_slots WHERE assignment=$1",&[&assignment]).map_err(db_error)?{
@@ -366,7 +379,7 @@ pub fn apply(tx: &mut Transaction<'_>, op: &str, p: &Value) -> Result<Value> {
         "task.configure_scheduler" => {
             let policy=&p["policy"];crate::shared_scheduler::validate(policy)?;
             if let Some(row)=tx.query_opt("SELECT policy FROM service_scheduler WHERE singleton",&[]).map_err(db_error)?{if decode(row.get(0))?!=*policy{return Err("scheduler_policy_changed".into());}}
-            else{tx.execute("INSERT INTO service_scheduler(singleton,policy) VALUES(true,$1)",&[&policy.to_string()]).map_err(db_error)?;}Ok(policy.clone())
+            else{crate::shared_scheduler::queue_admission::activate(tx,None,policy)?;tx.execute("INSERT INTO service_scheduler(singleton,policy) VALUES(true,$1)",&[&policy.to_string()]).map_err(db_error)?;}Ok(policy.clone())
         }
         "task.amend_scheduler" => crate::shared_scheduler::amend(tx,p),
         "task.configure" => {
@@ -406,6 +419,7 @@ pub fn apply(tx: &mut Transaction<'_>, op: &str, p: &Value) -> Result<Value> {
                 return Err("workflow_identity_mismatch".into());
             }
             check_submission(tx,principal)?;
+            crate::shared_scheduler::queue_admission::admit(tx,principal,&p["input"],&def["descriptor"],None)?;
             let t = timestamp(tx)?;
             tx.execute("INSERT INTO service_tasks(id,principal,namespace,epoch,request_key,workflow,identity,state,input,metadata,created,updated) VALUES($1,$2,$3,$4,$5,$6,$7,'queued',$8,$9,$10,$10)",&[&id,&principal,&ns,&ep,&key,&name,&ident,&obj(p,"input")?,&obj(p,"metadata")?,&t]).map_err(db_error)?;
             crate::shared_timing::start(tx,id,"",&def["descriptor"]["timing_policy"])?;
@@ -419,11 +433,12 @@ pub fn apply(tx: &mut Transaction<'_>, op: &str, p: &Value) -> Result<Value> {
             let owner = text(p, "owner")?;
             let requested = p["task"].as_str();
             let epoch = current_epoch(tx)?;
-            let rows=tx.query("SELECT t.id,t.principal,t.workflow,t.identity,e.run,t.state,t.updated,EXISTS(SELECT 1 FROM host_runs h WHERE h.run=e.run) FROM service_tasks t JOIN service_executions e ON e.task=t.id AND e.revision=t.revision WHERE e.state IN ('queued','running','blocked') AND (t.owner IS NULL OR t.owner_epoch<>$1) AND ($2::text IS NULL OR t.id=$2) ORDER BY e.seq LIMIT 1000",&[&epoch,&requested]).map_err(db_error)?;
+            let rows=tx.query("SELECT t.id,t.principal,t.workflow,t.identity,e.run,t.state,t.updated,EXISTS(SELECT 1 FROM host_runs h WHERE h.run=e.run),t.error FROM service_tasks t JOIN service_executions e ON e.task=t.id AND e.revision=t.revision WHERE e.state IN ('queued','running','blocked') AND (t.owner IS NULL OR t.owner_epoch<>$1) AND ($2::text IS NULL OR t.id=$2) ORDER BY e.seq LIMIT 1000",&[&epoch,&requested]).map_err(db_error)?;
             let last:String=tx.query_one("SELECT last_principal FROM service_scheduler WHERE singleton",&[]).map_err(db_error)?.get(0);
             let mut rows=rows;rows.sort_by_key(|row|(row.get::<_,String>(1)<=last,row.get::<_,String>(1)));
             let mut selected=None;
-            for row in rows{if acquire_slot(tx,row.get(4),row.get(1),row.get(2),row.get(3),owner)?{selected=Some(row);break;}}
+            let observed=timestamp(tx)?;
+            for row in rows{if !provider_ready(row.get(5),row.get::<_,Option<&str>>(8),observed){continue;}if acquire_slot(tx,row.get(4),row.get(1),row.get(2),row.get(3),owner)?{selected=Some(row);break;}}
             let Some(r)=selected else{return Ok(Value::Null)};
             let id:String=r.get(0);let principal:String=r.get(1);
             crate::shared_timing::require_open(tx,&id,"")?;
@@ -494,6 +509,7 @@ pub fn apply(tx: &mut Transaction<'_>, op: &str, p: &Value) -> Result<Value> {
             } else {
                 Some(obj(p, "error")?)
             };
+            if state=="blocked" {validate_provider_defer(&p["error"])?;}
             let timing = crate::shared_timing::status(tx,id,"")?;
             if state!="unknown" && timing["expired"].as_array().is_some_and(|v| !v.is_empty()) {
                 state="failed"; error=Some(json!({"code":timing["expired"][0],"expired":timing["expired"]}).to_string());
@@ -584,6 +600,8 @@ pub fn apply(tx: &mut Transaction<'_>, op: &str, p: &Value) -> Result<Value> {
             }
             let run = format!("run-{}", hash(&format!("{id}:{rev}")));
             let input = obj(p, "input")?;
+            let registered=definition(tx,"workflow",saved["workflow"].as_str().ok_or("invalid_workflow")?,saved["workflow_identity"].as_str().ok_or("invalid_workflow")?)?;
+            crate::shared_scheduler::queue_admission::admit(tx,principal,&p["input"],&registered["descriptor"],Some(id))?;
             tx.execute("INSERT INTO service_executions(task,revision,run,input,state) VALUES($1,$2,$3,$4,'queued')",&[&id,&rev,&run,&input]).map_err(db_error)?;
             let t = timestamp(tx)?;
             tx.execute("UPDATE service_tasks SET state='queued',revision=$2,input=$3,result=NULL,error=NULL,updated=$4 WHERE id=$1",&[&id,&rev,&input,&t]).map_err(db_error)?;
@@ -682,8 +700,9 @@ pub fn query(tx: &mut Transaction<'_>, op: &str, p: &Value) -> Result<Value> {
  },
  "task.claimable"=>{
     let epoch=current_epoch(tx)?;let requested=p["task"].as_str();
-    let rows=tx.query("SELECT t.principal,t.workflow,t.identity,s.epoch FROM service_tasks t JOIN service_executions e ON e.task=t.id AND e.revision=t.revision LEFT JOIN service_slots s ON s.assignment=e.run WHERE e.state IN ('queued','running','blocked') AND (t.owner IS NULL OR t.owner_epoch<>$1) AND ($2::text IS NULL OR t.id=$2) ORDER BY e.seq LIMIT 1000",&[&epoch,&requested]).map_err(db_error)?;
-    for row in rows{let owned:Option<i64>=row.get(3);if owned.is_some_and(|old|old!=epoch)||owned.is_none()&&available_resources(tx,row.get(0),row.get(1),row.get(2))?.is_some(){return Ok(json!(true));}}
+    let rows=tx.query("SELECT t.principal,t.workflow,t.identity,s.epoch,t.state,t.error FROM service_tasks t JOIN service_executions e ON e.task=t.id AND e.revision=t.revision LEFT JOIN service_slots s ON s.assignment=e.run WHERE e.state IN ('queued','running','blocked') AND (t.owner IS NULL OR t.owner_epoch<>$1) AND ($2::text IS NULL OR t.id=$2) ORDER BY e.seq LIMIT 1000",&[&epoch,&requested]).map_err(db_error)?;
+    let observed=timestamp(tx)?;
+    for row in rows{if !provider_ready(row.get(4),row.get::<_,Option<&str>>(5),observed){continue;}let owned:Option<i64>=row.get(3);if owned.is_some_and(|old|old!=epoch)||owned.is_none()&&available_resources(tx,row.get(0),row.get(1),row.get(2))?.is_some(){return Ok(json!(true));}}
     Ok(json!(false))
  },
  "definition.inspect"=>definition(tx,text(p,"kind")?,text(p,"name")?,digest(p,"identity")?),
@@ -714,4 +733,20 @@ pub fn query(tx: &mut Transaction<'_>, op: &str, p: &Value) -> Result<Value> {
  "task.executions"=>{let principal=text(p,"principal")?;let id=text(p,"task")?;task(tx,principal,id)?;Ok(json!(tx.query("SELECT revision,run,state FROM service_executions WHERE task=$1 ORDER BY revision",&[&id]).map_err(db_error)?.iter().map(|r|json!({"revision":r.get::<_,i64>(0),"run_id":r.get::<_,String>(1),"state":r.get::<_,String>(2)})).collect::<Vec<_>>()))},
  "epoch.status"=>Ok(tx.query_opt("SELECT reason,authoriser,created,prune FROM service_epochs WHERE principal=$1 AND namespace=$2 AND epoch=$3",&[&text(p,"principal")?,&text(p,"namespace")?,&text(p,"epoch")?]).map_err(db_error)?.map(|r|json!({"principal":p["principal"],"namespace":p["namespace"],"epoch":p["epoch"],"state":"retired","reason":r.get::<_,String>(0),"authoriser":r.get::<_,String>(1),"created":r.get::<_,i64>(2),"prune":r.get::<_,bool>(3)})).unwrap_or(json!({"state":"open"}))),
  _=>Err("unknown_shared_task_query".into())}
+}
+
+#[cfg(test)]
+mod provider_deferral_tests {
+    use super::*;
+    #[test]
+    fn provider_hints_gate_eligibility_without_granting_execution() {
+        let hint=json!({"code":"native_provider_deferred","not_before_ms":100}).to_string();
+        assert!(!provider_ready("blocked",Some(&hint),99));
+        assert!(provider_ready("blocked",Some(&hint),100));
+        assert!(provider_ready("queued",None,0));
+        assert!(provider_ready("blocked",Some("legacy diagnostic"),0));
+        assert!(!provider_ready("blocked",Some(r#"{"code":"native_provider_deferred","not_before_ms":"100"}"#),100));
+        assert!(validate_provider_defer(&json!({"code":"native_provider_deferred","not_before_ms":100})).is_ok());
+        assert!(validate_provider_defer(&json!({"code":"native_provider_deferred","not_before_ms":i64::MAX})).is_ok());
+    }
 }
