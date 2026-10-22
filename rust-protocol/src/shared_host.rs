@@ -389,7 +389,7 @@ impl PostgresRepository {
         // These branches read committed host records only. Keep all other
         // queries on their existing transaction path until separately audited.
         if matches!(operation, "scope" | "metadata" | "invocation" | "step"
-            | "steps" | "invocations" | "command_receipt" | "resolutions") {
+            | "steps" | "invocations" | "command_receipt" | "resolutions" | "task.status") {
             self.read_transaction(query)
         } else {
             self.transaction(query)

@@ -1011,3 +1011,29 @@ fn typed_provider_permission_never_comes_from_replay_or_unknown_response() {
     assert!(matches!(repo.admit_provider_request("typed-deferred", &provider_policy(), "new-call"), ProviderAdmission::Deferred { .. }));
     assert!(matches!(repo.admit_provider_request("typed-uncertain", &json!({}), "unbound-call"), ProviderAdmission::Uncertain { .. }));
 }
+
+#[test]
+#[ignore = "requires MAS_TEST_POSTGRES_DSN and an actual PostgreSQL server"]
+fn bounded_shared_task_status_uses_owned_record_without_payload_or_reconciliation() {
+    let fixture=Fixture::new();
+    let _installed=provider_setup(&fixture,false);
+    let mut client=Client::connect(&fixture.dsn,NoTls).unwrap();
+    client.batch_execute("SET statement_timeout='500ms'").unwrap();
+    let repo=PostgresRepository::open(client,&fixture.schema,fixture.binding.clone()).unwrap();
+    let mut admin=fixture.admin();
+    // Direct trusted fixture insertion isolates this observation contract from
+    // definition registration and scheduler setup, tested in the queue suite.
+    admin.execute("INSERT INTO service_tasks(id,principal,namespace,epoch,request_key,workflow,identity,state,input,metadata,result,created,updated) VALUES('status-task','alice','mas-unified/1','epoch-one','request','workflow',$1,'completed',$2,$3,$2,10,20)", &[&"a".repeat(64),&json!({"privatePayload":"x".repeat(65536)}).to_string(),&json!({"a2a_service":"b".repeat(64),"a2a_agent":"actor"}).to_string()]).unwrap();
+    let before: i64=admin.query_one("SELECT count(*) FROM host_commands",&[]).unwrap().get(0);
+    let mut lock=admin.transaction().unwrap();
+    lock.query_one("SELECT epoch FROM authority WHERE singleton FOR UPDATE",&[]).unwrap();
+    let status=repo.host_query("task.status",&json!({"principal":"alice","task":"status-task"})).unwrap();
+    assert_eq!(status["state"],"completed");
+    assert_eq!(status["updated_at"],20);
+    assert_eq!(status["output_retained"],true);
+    assert_eq!(status["execution_permission"],false);
+    assert!(status.get("input").is_none() && status.get("result").is_none() && status.to_string().len()<2048);
+    assert!(repo.host_query("task.status",&json!({"principal":"bob","task":"status-task"})).is_err());
+    lock.rollback().unwrap();
+    assert_eq!(admin.query_one("SELECT count(*) FROM host_commands",&[]).unwrap().get::<_,i64>(0),before);
+}

@@ -111,3 +111,10 @@ at most 4,096 file entries. Existing Python package semantics remain unchanged.
 The host consumer separately binds the package's bundle digest to its validated
 native bundle. Retaining source and asserted binary identities establishes
 custody, rather than a reproducible build, signature or runtime attestation.
+
+`host_query("task.status", {principal,task})` reads one exact owned shared task
+record in a repeatable-read, read-only transaction. It projects state, revision,
+cancellation, update time, output presence and the small A2A service/agent
+bindings. It does not load application input/result, event or execution history,
+refresh timing, settle work or wait for the authority writer lock. It retains
+current controller/epoch/lease checks and returns `execution_permission:false`.
