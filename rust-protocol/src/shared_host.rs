@@ -650,6 +650,7 @@ fn apply(tx: &mut Transaction<'_>, operation: &str, p: &Value) -> Result<Value> 
                 crate::shared_tasks::admission_open(tx, &r)?;
                 crate::shared_composition::admission_open(tx, &r)?;
             }
+            let provider_quota = crate::shared_native::provider::reserve(tx, &r, c)?;
             let scopes: Value = decoded(
                 tx.query_one("SELECT scopes FROM host_runs WHERE run=$1", &[&r])
                     .map_err(db_error)?
@@ -681,7 +682,11 @@ fn apply(tx: &mut Transaction<'_>, operation: &str, p: &Value) -> Result<Value> 
                 &[&r, &c],
             )
             .map_err(db_error)?;
-            Ok(json!({"call_id":c,"admitted":true}))
+            let mut receipt = json!({"call_id":c,"admitted":true});
+            if let Some(provider_quota) = provider_quota {
+                receipt["provider_quota"] = provider_quota;
+            }
+            Ok(receipt)
         }
         "observe_invocation" => {
             fields(

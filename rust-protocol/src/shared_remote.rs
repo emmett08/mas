@@ -381,6 +381,62 @@ fn circuit_policy(p: &Value) -> Result<(String, i64, i64, i64)> {
         integer(policy, "half_open_seconds", 1, 600)? * 1000,
     ))
 }
+/// Current provider eligibility under the existing authority lock. Reaping an
+/// expired half-open probe records its uncertainty and cooldown; it never
+/// refunds the original request credit or grants a fresh native permission.
+pub(crate) fn native_provider_eligibility(
+    tx: &mut Transaction<'_>,
+    policy: &Value,
+    call: &str,
+) -> Result<Option<i64>> {
+    let (resource, _, cooldown, _) = circuit_policy(&json!({"policy":policy}))?;
+    let allowance = quota::policy(policy)?.ok_or("native provider requires circuit version two")?;
+    let view = query(tx, "circuit.inspect", &json!({"policy":policy}))?;
+    let timestamp = now(tx)?;
+    if tx
+        .query_opt("SELECT 1 FROM provider_permits WHERE call_id=$1", &[&call])
+        .map_err(db_error)?
+        .is_some()
+    {
+        return Err("prepared native provider identity already has credit".into());
+    }
+    let mut until = view["open_until_ms"]
+        .as_i64()
+        .ok_or("invalid provider cooldown")?;
+    if let Some(row) = tx
+        .query_opt(
+            "SELECT probe_call,probe_deadline_ms FROM provider_circuits WHERE resource=$1",
+            &[&resource],
+        )
+        .map_err(db_error)?
+    {
+        if let Some(probe) = row.get::<_, Option<String>>(0) {
+            let deadline = row
+                .get::<_, Option<i64>>(1)
+                .ok_or("invalid provider probe deadline")?;
+            if deadline <= timestamp {
+                until = until.max(
+                    timestamp
+                        .checked_add(cooldown)
+                        .ok_or("provider clock overflow")?,
+                );
+                tx.execute("UPDATE provider_permits SET observation='abandoned',observed_ms=$1 WHERE call_id=$2 AND observation IS NULL", &[&timestamp,&probe]).map_err(db_error)?;
+                tx.execute("UPDATE provider_circuits SET open_until_ms=$1,generation=generation+1,probe_call=NULL,probe_deadline_ms=NULL WHERE resource=$2", &[&until,&resource]).map_err(db_error)?;
+            } else {
+                until = until.max(deadline);
+            }
+        }
+    }
+    let usage = quota::usage(tx, &resource, allowance, timestamp)?;
+    if usage["remaining_requests"] == 0 {
+        until = until.max(
+            usage["window_reset_ms"]
+                .as_i64()
+                .ok_or("invalid provider window")?,
+        );
+    }
+    Ok((until > timestamp).then_some(until))
+}
 fn circuit(tx: &mut Transaction<'_>, op: &str, p: &Value) -> Result<Value> {
     fields(
         p,

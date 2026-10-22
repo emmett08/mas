@@ -5,6 +5,7 @@
 use crate::postgres_repository::{db_error, PostgresRepository};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
+pub(crate) mod provider;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum NativeRejection {
@@ -21,6 +22,7 @@ pub enum NativeRejection {
     ReceiptCapacityExceeded,
     IncompleteDeadline,
     UnsupportedComposition,
+    ProviderDeferred { not_before_ms: i64 },
 }
 impl NativeRejection {
     pub fn as_str(&self) -> &'static str {
@@ -38,6 +40,7 @@ impl NativeRejection {
             Self::ReceiptCapacityExceeded => "receipt_capacity_exceeded",
             Self::IncompleteDeadline => "incomplete_deadline",
             Self::UnsupportedComposition => "unsupported_composition",
+            Self::ProviderDeferred { .. } => "provider_deferred",
         }
     }
 }
@@ -50,6 +53,7 @@ pub struct FreshDispatchPermit {
     run: String,
     call_id: String,
     deadline_ms: i64,
+    provider_policy: Option<Value>,
 }
 impl FreshDispatchPermit {
     pub fn command_id(&self) -> &str {
@@ -63,6 +67,9 @@ impl FreshDispatchPermit {
     }
     pub fn deadline_ms(&self) -> i64 {
         self.deadline_ms
+    }
+    pub fn provider_policy(&self) -> Option<&Value> {
+        self.provider_policy.as_ref()
     }
     pub fn into_call_id(self) -> String {
         self.call_id
@@ -146,6 +153,7 @@ impl PostgresRepository {
                     run: run.into(),
                     call_id: call_id.into(),
                     deadline_ms: reply["receipt"]["deadline_ms"].as_i64().unwrap(),
+                    provider_policy: reply["receipt"]["provider_quota"].get("policy").cloned(),
                 })
             }
             Ok(Ok(reply)) if reply["replayed"] == true => NativeAdmission::Retained {
@@ -286,6 +294,9 @@ fn preflight(
             .get::<_, bool>(0)
     {
         return Ok(Some(R::ReceiptCapacityExceeded));
+    }
+    if let Some(not_before_ms) = provider::check(tx, run, call_id)? {
+        return Ok(Some(R::ProviderDeferred { not_before_ms }));
     }
     Ok(None)
 }

@@ -1,5 +1,7 @@
 #![cfg(feature = "postgres-repository")]
 //! Real backend tests, deliberately opt-in: no mock can qualify PostgreSQL.
+#[path = "support/native_provider_cases.rs"]
+mod native_provider_cases;
 use mas_protocol_codec::{
     gateway::Gateway,
     postgres_repository::{AuthorityBinding, PostgresRepository},
