@@ -206,7 +206,7 @@ impl PostgresRepository {
 
     /// Bound observations share the authority guards but neither lock authority
     /// rows nor reconcile deadlines or renew leases.
-    fn read_transaction<T>(&self, apply: impl FnOnce(&mut Transaction<'_>) -> Result<T>) -> Result<T> {
+    pub(crate) fn read_transaction<T>(&self, apply: impl FnOnce(&mut Transaction<'_>) -> Result<T>) -> Result<T> {
         let mut client = self.client.try_borrow_mut().map_err(|_|"repository transaction already active")?;
         let mut tx = client.build_transaction().read_only(true)
             .isolation_level(postgres::IsolationLevel::RepeatableRead).start().map_err(db_error)?;

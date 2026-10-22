@@ -487,6 +487,89 @@ fn prepare(repo: &mut PostgresRepository, key: &str, call: &str, amount: i64) {
 
 #[test]
 #[ignore = "requires MAS_TEST_POSTGRES_DSN and an actual PostgreSQL server"]
+fn native_typed_admission_never_turns_retained_receipt_into_dispatch() {
+    use mas_protocol_codec::shared_native::{NativeAdmission, NativeRejection};
+    let fixture = Fixture::new();
+    let mut repo = host_setup(&fixture);
+    prepare(&mut repo, "native-step", "native-call", 10);
+    let first=repo.admit_native_invocation("native-admit", "r", "owner-one", "native-call");
+    let NativeAdmission::FreshDispatch(permit)=first else { panic!("expected fresh admission: {first:?}"); };
+    assert_eq!(permit.run(), "r");
+    assert_eq!(permit.command_id(), "native-admit");
+    assert_eq!(permit.into_call_id(), "native-call");
+    assert!(matches!(repo.admit_native_invocation("native-admit", "r", "owner-one", "native-call"),NativeAdmission::Retained{..}));
+    assert!(matches!(repo.admit_native_invocation("replacement", "r", "owner-one", "native-call"),NativeAdmission::Retained{..}));
+    assert!(matches!(repo.admit_native_invocation("native-admit", "r", "owner-one", "other-call"),NativeAdmission::Rejected{code:NativeRejection::IdentityConflict}));
+    assert!(matches!(repo.admit_native_invocation("new-id", "r", "wrong-owner", "native-call"),NativeAdmission::Rejected{code:NativeRejection::StaleOwner}));
+    assert!(matches!(repo.admit_native_invocation("bad id", "r", "owner-one", "native-call"),NativeAdmission::Rejected{code:NativeRejection::InvalidIdentity}));
+    assert_eq!(repo.host_query("scope",&json!({"scope":"deployment"})).unwrap()["calls"],1);
+    drop(repo);
+    let mut reopened=fixture.open();
+    assert!(matches!(reopened.admit_native_invocation("native-admit", "r", "owner-one", "native-call"),NativeAdmission::Retained{..}));
+}
+
+#[test]
+#[ignore = "requires MAS_TEST_POSTGRES_DSN and an actual PostgreSQL server"]
+fn native_typed_admission_reconciles_lost_reply_without_dispatch() {
+    use mas_protocol_codec::shared_native::NativeAdmission;
+    let fixture=Fixture::new(); let mut repo=host_setup(&fixture);
+    prepare(&mut repo,"lost-step","lost-call",10);
+    // The caller loses this actual committed response.
+    repo.host_command("lost-command","admit_invocation",&json!({"run":"r","owner":"owner-one","call_id":"lost-call"})).unwrap();
+    assert!(matches!(repo.admit_native_invocation("lost-command","r","owner-one","lost-call"),NativeAdmission::Retained{..}));
+    let _next=repo.handover("controller-two").unwrap();
+    assert!(matches!(repo.admit_native_invocation("lost-command","r","owner-one","lost-call"),NativeAdmission::Uncertain{..}));
+}
+
+#[test]
+#[ignore = "requires MAS_TEST_POSTGRES_DSN and an actual PostgreSQL server"]
+fn observational_host_query_does_not_wait_for_authority_writer_or_expire_run() {
+    let fixture=Fixture::new(); let _repo=host_setup(&fixture);
+    let mut client=Client::connect(&fixture.dsn,NoTls).unwrap();
+    client.batch_execute("SET statement_timeout='500ms'").unwrap();
+    let repo=PostgresRepository::open(client,&fixture.schema,fixture.binding.clone()).unwrap();
+    let mut admin=fixture.admin();
+    admin.execute("UPDATE runs SET deadline=0,expired=false WHERE id='r'",&[]).unwrap();
+    let mut lock=admin.transaction().unwrap();
+    lock.query_one("SELECT epoch FROM authority WHERE singleton FOR UPDATE",&[]).unwrap();
+    assert_eq!(repo.host_query("scope",&json!({"scope":"deployment"})).unwrap()["calls"],0);
+    assert!(!lock.query_one("SELECT expired FROM runs WHERE id='r'",&[]).unwrap().get::<_,bool>(0));
+    lock.rollback().unwrap();
+}
+
+#[test]
+#[ignore = "requires MAS_TEST_POSTGRES_DSN and an actual PostgreSQL server"]
+fn scheduler_amendment_is_exact_replay_safe_and_preserves_occupied_allowances() {
+    use mas_protocol_codec::shared_scheduler::policy_digest;
+    let fixture=Fixture::new(); let mut repo=host_setup(&fixture);
+    repo.install_controller_repository().unwrap(); repo.install_service_repository().unwrap();
+    let before=json!({"max_workers":16,"max_per_principal":8,"workflows":{},"resources":{"github":2}});
+    repo.host_command("scheduler-initial","task.configure_scheduler",&json!({"policy":before})).unwrap();
+    let after=json!({"format":"mas-scheduler-policy/2","revision":1,"max_workers":512,"max_per_principal":256,"workflows":{},"resources":{"github":4}});
+    let p=json!({"expected_policy_digest":policy_digest(&before),"expected_revision":0,"policy":after,"reason":"qualified capacity increase","authoriser":"operator/alice"});
+    assert_eq!(repo.host_command("scheduler-amend","task.amend_scheduler",&p).unwrap()["replayed"],false);
+    assert_eq!(repo.host_command("scheduler-amend","task.amend_scheduler",&p).unwrap()["replayed"],true);
+    assert!(repo.host_command("scheduler-stale","task.amend_scheduler",&p).is_err());
+    assert_eq!(repo.host_query("task.scheduler",&json!({})).unwrap()["policy"],after);
+    let mut admin=fixture.admin();
+    for assignment in ["slot-a","slot-b"] {
+        admin.execute("INSERT INTO service_slots VALUES($1,'alice','sample',$2,'[\"github\"]','owner',1)",&[&assignment,&"a".repeat(64)]).unwrap();
+    }
+    let smaller=json!({"format":"mas-scheduler-policy/2","revision":2,"max_workers":1,"max_per_principal":1,"workflows":{},"resources":{"github":1}});
+    let p=json!({"expected_policy_digest":policy_digest(&after),"expected_revision":1,"policy":smaller,"reason":"too small","authoriser":"operator/alice"});
+    assert_eq!(repo.host_command("scheduler-lower","task.amend_scheduler",&p).unwrap()["receipt"]["occupied_at_amendment"],2);
+    let state=repo.host_query("task.scheduler",&json!({})).unwrap();
+    assert_eq!(state["policy"],smaller); assert_eq!(state["occupied"],2);
+    // Returning to the same capacity values has a distinct revision/digest.
+    let mut returned=after.clone(); returned["revision"]=json!(3);
+    let p=json!({"expected_policy_digest":policy_digest(&smaller),"expected_revision":2,"policy":returned,"reason":"return capacity","authoriser":"operator/alice"});
+    repo.host_command("scheduler-return","task.amend_scheduler",&p).unwrap();
+    let stale=json!({"expected_policy_digest":policy_digest(&after),"expected_revision":1,"policy":smaller,"reason":"stale before return","authoriser":"operator/alice"});
+    assert!(repo.host_command("scheduler-aba","task.amend_scheduler",&stale).is_err());
+}
+
+#[test]
+#[ignore = "requires MAS_TEST_POSTGRES_DSN and an actual PostgreSQL server"]
 fn shared_host_admission_and_known_observation_are_atomic_and_replay_safe() {
     let fixture = Fixture::new();
     let mut repo = host_setup(&fixture);
@@ -728,4 +811,78 @@ fn controller_drain_blocks_new_admission_but_retains_observation_and_audited_rec
             .unwrap()["state"],
         "resolved"
     );
+}
+
+#[test]
+#[ignore = "requires MAS_TEST_POSTGRES_DSN and an actual PostgreSQL server"]
+fn independent_native_callers_never_both_receive_fresh_dispatch() {
+    use mas_protocol_codec::shared_native::NativeAdmission;
+    for shared_command in [true, false] {
+        let fixture = Fixture::new();
+        let mut setup = host_setup(&fixture);
+        prepare(&mut setup, "race-step", "race-call", 10);
+        drop(setup);
+        let barrier = Arc::new(Barrier::new(3));
+        let mut callers = Vec::new();
+        for index in 0..2 {
+            let dsn = fixture.dsn.clone();
+            let schema = fixture.schema.clone();
+            let binding = fixture.binding.clone();
+            let barrier = Arc::clone(&barrier);
+            callers.push(std::thread::spawn(move || {
+                let mut repo = PostgresRepository::open(
+                    Client::connect(&dsn, NoTls).unwrap(), &schema, binding,
+                ).unwrap();
+                let command = if shared_command { "racing-command".into() }
+                    else { format!("racing-command-{index}") };
+                barrier.wait();
+                match repo.admit_native_invocation(&command, "r", "owner-one", "race-call") {
+                    NativeAdmission::FreshDispatch(permit) => {
+                        assert_eq!(permit.into_call_id(), "race-call");
+                        true
+                    }
+                    NativeAdmission::Retained { .. } => false,
+                    other => panic!("unexpected racing admission: {other:?}"),
+                }
+            }));
+        }
+        barrier.wait();
+        let fresh = callers.into_iter().map(|thread| thread.join().unwrap())
+            .filter(|fresh| *fresh).count();
+        assert_eq!(fresh, 1);
+        let repo = fixture.open();
+        assert_eq!(repo.host_query("scope", &json!({"scope":"deployment"})).unwrap()["calls"], 1);
+        let mut admin = fixture.admin();
+        let receipts: i64 = admin.query_one(
+            "SELECT count(*) FROM host_commands WHERE id LIKE 'racing-command%'", &[],
+        ).unwrap().get(0);
+        assert_eq!(receipts, 1);
+        assert_eq!(repo.host_query("invocation", &json!({"run":"r","call_id":"race-call"})).unwrap()["state"], "executing");
+    }
+}
+
+#[test]
+#[ignore = "requires MAS_TEST_POSTGRES_DSN and an actual PostgreSQL server"]
+fn typed_native_budget_refusals_issue_no_receipt_or_dispatch_charge() {
+    use mas_protocol_codec::shared_native::{NativeAdmission, NativeRejection};
+    for scope_exhausted in [true, false] {
+        let fixture = Fixture::new();
+        let mut repo = host_setup(&fixture);
+        prepare(&mut repo, "budget-step", "budget-call", if scope_exhausted { 101 } else { 10 });
+        let mut admin = fixture.admin();
+        if !scope_exhausted {
+            admin.execute("UPDATE runs SET call_count=(config::jsonb->>'max_calls')::bigint WHERE id='r'", &[]).unwrap();
+        }
+        let outcome = repo.admit_native_invocation("budget-refused", "r", "owner-one", "budget-call");
+        let expected = if scope_exhausted { NativeRejection::ScopeBudgetExceeded }
+            else { NativeRejection::CallBudgetExceeded };
+        assert!(matches!(outcome, NativeAdmission::Rejected { code } if code == expected));
+        assert_eq!(repo.host_query("scope", &json!({"scope":"deployment"})).unwrap()["calls"], 0);
+        assert_eq!(repo.host_query("invocation", &json!({"run":"r","call_id":"budget-call"})).unwrap()["state"], "prepared");
+        let receipts: i64 = admin.query_one("SELECT count(*) FROM host_commands WHERE id='budget-refused'", &[]).unwrap().get(0);
+        assert_eq!(receipts, 0);
+        // An unchanged refusal remains definite on the original identity.
+        assert!(matches!(repo.admit_native_invocation("budget-refused", "r", "owner-one", "budget-call"),
+            NativeAdmission::Rejected { code } if code == expected));
+    }
 }

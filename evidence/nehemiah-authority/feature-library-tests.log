@@ -1,0 +1,46 @@
+    Finished `test` profile [unoptimized] target(s) in 0.10s
+     Running unittests src/lib.rs (rust-protocol/target/debug/deps/mas_protocol_codec-381bc68610118232)
+
+running 39 tests
+test shared_native_package::tests::native_package_binds_exact_file_bytes_and_unique_relative_names ... ok
+test shared_remote::tests::peer_transport_phase_budgets_are_versioned_bounded_and_exact ... ok
+test shared_scheduler::tests::digest_binds_every_limit ... ok
+test shared_remote::tests::peer_transport_binding_rejects_secrets_and_unbounded_options ... ok
+test shared_scheduler::tests::extended_limits_require_explicit_version_and_exact_shape ... ok
+test shared_timing::tests::elapsed_is_distinct_from_worker_sum ... ok
+test shared_timing::tests::terminal_clock_does_not_expire_on_later_inspection ... ok
+test shared_timing::tests::expired_and_backwards_clocks_fail_closed ... ok
+test store::tests::admission_reservations_are_durable_bounded_and_policy_frozen ... ok
+test store::tests::call_evidence_is_bounded_and_integer_exact_before_state_change ... ok
+test examples::tests::malformed_demo_configuration_is_rejected ... ok
+test store::tests::concurrent_expiry_and_late_terminal_have_one_closure ... ok
+test store::tests::deadline_and_budget_admission_preserve_existing_delivery ... ok
+test store::tests::expiry_bypasses_full_mailbox_and_exhausted_budget_and_survives_rejection ... ok
+test store::tests::incompatible_databases_are_rejected_without_schema_changes ... ok
+test store::tests::invalid_native_v1_history_leaves_schema_unmodified ... ok
+test store::tests::mailbox_full_rolls_back_and_ack_releases_capacity ... ok
+test store::tests::gateway_membership_does_not_read_audit_projection_and_still_reconciles ... ok
+test store::tests::native_v1_migration_accepts_maximal_wire_with_larger_json_envelope ... ok
+test examples::tests::nested_tree_reply_retains_parent_correlation ... ok
+test store::tests::persistent_call_budget_and_rejected_configuration ... ok
+test store::tests::restart_redelivery_ack_and_frozen_configuration ... ok
+test store::tests::task_terminal_race_and_concurrent_dedup ... ok
+test store::tests::terminal_acceptance_survives_expiry_and_lost_response_resend ... ok
+test examples::tests::orchestrator_plan_changes_with_input_requirements ... ok
+test store_schema::tests::quoted_literals_and_token_boundaries_are_not_normalised_away ... ok
+test tests::bounds_prevent_unbounded_recursion ... ok
+test tests::direct_library_validate_rejects_noninteger_payload ... ok
+test tests::duplicates_malformed_and_trailing_rejected ... ok
+test tests::empty_depth_boundary_and_unpaired_surrogate ... ok
+test tests::exact_unicode_bigint_and_boolean_types ... ok
+test tests::scalar_integer_at_eof_preserves_every_digit_and_matches_nested_json ... ok
+test store::tests::task_ledger_and_messages_roll_back_together_on_storage_error ... ok
+test store::tests::native_v1_migration_reconstructs_open_and_terminal_tasks ... ok
+test store_schema::tests::native_v1_spelling_compatibility_migrates_without_losing_prior_allocations ... ok
+test store_schema::tests::native_v1_constraints_defaults_and_index_definitions_are_exact ... ok
+test store_schema::tests::native_v2_checks_and_unknown_triggers_are_rejected_before_mutation ... ok
+test examples::tests::parallel_correlation_and_application_decisions_are_explicit ... ok
+test examples::tests::all_patterns_recover_and_ack_wire_messages ... ok
+
+test result: ok. 39 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.46s
+

@@ -168,7 +168,7 @@ fn policy(p: &Value) -> Result<(i64, i64, i64)> {
 }
 pub(crate) fn class(operation: &str) -> &'static str {
     match operation {
-        "command_capacity.amend" => "administration",
+        "command_capacity.amend" | "task.amend_scheduler" => "administration",
         "claim_run"
         | "release_run"
         | "set_step"

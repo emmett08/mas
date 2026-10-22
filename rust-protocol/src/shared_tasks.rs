@@ -156,7 +156,7 @@ pub(crate) fn acquire_slot(tx:&mut Transaction<'_>,assignment:&str,principal:&st
 pub(crate) fn available_resources(tx:&mut Transaction<'_>,principal:&str,workflow:&str,identity:&str)->Result<Option<Vec<Value>>> {
     let row=tx.query_one("SELECT policy FROM service_scheduler WHERE singleton",&[]).map_err(db_error)?;let policy=decode(row.get(0))?;
     let active=tx.query("SELECT principal,workflow,resources FROM service_slots",&[]).map_err(db_error)?;
-    if active.len()>=number(&policy,"max_workers",1,256)? as usize||active.iter().filter(|r|r.get::<_,String>(0)==principal).count()>=number(&policy,"max_per_principal",1,256)? as usize||active.iter().filter(|r|r.get::<_,String>(1)==workflow).count()>=policy["workflows"][workflow].as_i64().unwrap_or(number(&policy,"max_workers",1,256)?) as usize{return Ok(None);}
+    if active.len()>=number(&policy,"max_workers",1,crate::shared_scheduler::limit(&policy)?)? as usize||active.iter().filter(|r|r.get::<_,String>(0)==principal).count()>=number(&policy,"max_per_principal",1,crate::shared_scheduler::limit(&policy)?)? as usize||active.iter().filter(|r|r.get::<_,String>(1)==workflow).count()>=policy["workflows"][workflow].as_i64().unwrap_or(number(&policy,"max_workers",1,crate::shared_scheduler::limit(&policy)?)?) as usize{return Ok(None);}
     let def=definition(tx,"workflow",workflow,identity)?;
     if def.is_null()||def["retired"]==true{return Err("definition_unavailable".into());}
     let resources=def["descriptor"]["resource_keys"].as_array().cloned().unwrap_or_default();
@@ -187,11 +187,24 @@ fn task(tx: &mut Transaction<'_>, p: &str, t: &str) -> Result<Value> {
     value["timing"] = crate::shared_timing::status(tx,t,"")?;
     Ok(value)
 }
-pub(crate) fn admission_open(tx:&mut Transaction<'_>,run:&str)->Result<()> {
+fn admission_state(tx:&mut Transaction<'_>,run:&str)->Result<(bool,Option<String>)> {
     let row=tx.query_opt("SELECT t.id,t.state,t.cancel_requested,t.owner_epoch,e.revision,t.revision,a.epoch FROM service_executions e JOIN service_tasks t ON t.id=e.task CROSS JOIN authority a WHERE e.run=$1 AND a.singleton",&[&run]).map_err(db_error)?;
-    let Some(row)=row else{return Ok(())};
-    if row.get::<_,String>(1)!="running"||row.get::<_,bool>(2)||row.get::<_,Option<i64>>(3)!=Some(row.get(6))||row.get::<_,i64>(4)!=row.get::<_,i64>(5){return Err("task_admission_closed".into());}
-    crate::shared_timing::require_open(tx,row.get(0),"")
+    let Some(row)=row else{return Ok((true,None))};
+    let allowed=row.get::<_,String>(1)=="running"&&!row.get::<_,bool>(2)&&row.get::<_,Option<i64>>(3)==Some(row.get(6))&&row.get::<_,i64>(4)==row.get::<_,i64>(5);
+    Ok((allowed,Some(row.get(0))))
+}
+pub(crate) fn admission_allowed(tx:&mut Transaction<'_>,run:&str)->Result<bool> {
+    let (allowed,task)=admission_state(tx,run)?;
+    if !allowed{return Ok(false);}
+    let Some(task)=task else{return Ok(true)};
+    let clock=crate::shared_timing::status(tx,&task,"")?;
+    Ok(!clock["expired"].as_array().is_some_and(|v|!v.is_empty()))
+}
+pub(crate) fn admission_open(tx:&mut Transaction<'_>,run:&str)->Result<()> {
+    let (allowed,task)=admission_state(tx,run)?;
+    if !allowed{return Err("task_admission_closed".into());}
+    if let Some(task)=task{crate::shared_timing::require_open(tx,&task,"")?;}
+    Ok(())
 }
 fn current_epoch(tx: &mut Transaction<'_>) -> Result<i64> {
     Ok(tx
@@ -271,8 +284,14 @@ pub fn apply(tx: &mut Transaction<'_>, op: &str, p: &Value) -> Result<Value> {
                     return Err("implementation_package_too_large".into());
                 }
             }
-            if hash(&source) != d || decode(&source)?["format"] != "mas-python-implementation/1" {
-                return Err("implementation_digest_mismatch".into());
+            if hash(&source) != d { return Err("implementation_digest_mismatch".into()); }
+            match decode(&source)?["format"].as_str() {
+                Some("mas-python-implementation/1") => {},
+                Some("mas-native-implementation/1") => {
+                    let package=crate::parse_shared_command(&source).map_err(|_|"invalid_native_package")?;
+                    crate::shared_native_package::validate(&package)?;
+                },
+                _ => return Err("implementation_digest_mismatch".into()),
             }
             tx.execute(
                 "INSERT INTO service_manifests VALUES($1,$2) ON CONFLICT(digest) DO NOTHING",
@@ -345,11 +364,11 @@ pub fn apply(tx: &mut Transaction<'_>, op: &str, p: &Value) -> Result<Value> {
             else{tx.execute("INSERT INTO service_principal_limits VALUES($1,$2,$3)",&[&principal,&pending,&total]).map_err(db_error)?;}Ok(json!({"principal":principal}))
         }
         "task.configure_scheduler" => {
-            let policy=&p["policy"];number(policy,"max_workers",1,256)?;number(policy,"max_per_principal",1,256)?;
-            for name in ["workflows","resources"]{let limits=policy[name].as_object().ok_or("invalid_scheduler_policy")?;if limits.len()>256||limits.values().any(|n|n.as_i64().is_none_or(|n|n<1||n>256)){return Err("invalid_scheduler_policy".into());}}
+            let policy=&p["policy"];crate::shared_scheduler::validate(policy)?;
             if let Some(row)=tx.query_opt("SELECT policy FROM service_scheduler WHERE singleton",&[]).map_err(db_error)?{if decode(row.get(0))?!=*policy{return Err("scheduler_policy_changed".into());}}
             else{tx.execute("INSERT INTO service_scheduler(singleton,policy) VALUES(true,$1)",&[&policy.to_string()]).map_err(db_error)?;}Ok(policy.clone())
         }
+        "task.amend_scheduler" => crate::shared_scheduler::amend(tx,p),
         "task.configure" => {
             let total = number(p, "max_tasks", 1, 10000000)?;
             let pending = number(p, "max_pending", 1, 10000000)?;

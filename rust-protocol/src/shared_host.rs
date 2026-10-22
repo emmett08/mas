@@ -73,6 +73,15 @@ fn invocation(tx: &mut Transaction<'_>, r: &str, c: &str) -> Result<Value> {
 fn step(tx: &mut Transaction<'_>, r: &str, k: &str) -> Result<Value> {
     tx.query_opt("SELECT kind,input,data,revision FROM host_steps WHERE run=$1 AND key=$2",&[&r,&k]).map_err(db_error)?.map(|row|Ok(json!({"kind":row.get::<_,String>(0),"input":decoded(row.get::<_,&str>(1))?,"data":decoded(row.get::<_,&str>(2))?,"revision":row.get::<_,i64>(3)}))).unwrap_or(Ok(Value::Null))
 }
+fn validate_command(command_id:&str,parameters:&Value)->Result<()> {
+        if !crate::identity(command_id) {
+            return Err("invalid command identity".into());
+        }
+        let mut bytes = crate::SHARED_COMMAND_BYTES;
+        crate::validate_value(parameters, 0, &mut bytes).map_err(|e| e.message)?;
+        crate::parse_shared_command(&parameters.to_string()).map_err(|e| e.message)?;
+        Ok(())
+}
 impl PostgresRepository {
     /// Explicit additive migration. Older version-one writers reject version 2.
     pub fn install_host_repository(&mut self) -> Result<()> {
@@ -253,12 +262,7 @@ impl PostgresRepository {
         operation: &str,
         parameters: &Value,
     ) -> Result<Value> {
-        if !crate::identity(command_id) {
-            return Err("invalid command identity".into());
-        }
-        let mut bytes = crate::SHARED_COMMAND_BYTES;
-        crate::validate_value(parameters, 0, &mut bytes).map_err(|e| e.message)?;
-        crate::parse_shared_command(&parameters.to_string()).map_err(|e| e.message)?;
+        validate_command(command_id,parameters)?;
         if operation == "admit_invocation" {
             let retained = self.transaction(|tx| {
                 Ok(tx
@@ -270,6 +274,18 @@ impl PostgresRepository {
                 self.reconcile(id(parameters, "run")?)?;
             }
         }
+        self.host_command_checked(command_id,operation,parameters, |_|Ok(None::<()>), |_,receipt|Ok(receipt))?
+            .map_err(|()|"unexpected command refusal".into())
+    }
+    pub(crate) fn host_command_checked<R>(
+        &mut self,
+        command_id: &str,
+        operation: &str,
+        parameters: &Value,
+        preflight: impl FnOnce(&mut Transaction<'_>) -> Result<Option<R>>,
+        decorate: impl FnOnce(&mut Transaction<'_>,Value) -> Result<Value>,
+    ) -> Result<std::result::Result<Value,R>> {
+        validate_command(command_id,parameters)?;
         let digest: String = Sha256::digest(json!([operation, parameters]).to_string().as_bytes())
             .iter()
             .map(|b| format!("{b:02x}"))
@@ -283,6 +299,7 @@ impl PostgresRepository {
             {
                 return Err("shared host repository not installed".into());
             }
+            if let Some(refusal)=preflight(tx)? { return Ok(Err(refusal)); }
             if let Some(row) = tx
                 .query_opt(
                     "SELECT digest,receipt FROM host_commands WHERE id=$1",
@@ -295,7 +312,7 @@ impl PostgresRepository {
                 }
                 let receipt=decoded(row.get::<_,&str>(1))?;
                 if receipt["format"]=="mas-archived-command/1" {return Err("command_result_archived".into());}
-                return Ok(json!({"replayed":true,"receipt":receipt}));
+                return Ok(Ok(json!({"replayed":true,"receipt":receipt})));
             }
             if matches!(
                 operation,
@@ -333,7 +350,8 @@ impl PostgresRepository {
             let version:i64=tx.query_one("SELECT version FROM authority WHERE singleton",&[]).map_err(db_error)?.get(0);
             let class=crate::shared_commands::class(operation);
             if version>=8 {crate::shared_commands::reserve(tx,class)?;}
-            let receipt = apply(tx, operation, parameters)?;
+            let applied=apply(tx, operation, parameters)?;
+            let receipt=decorate(tx,applied)?;
             if version>=10 {
                 let targets=crate::shared_commands::targets(tx,operation,parameters,&receipt)?;
                 let encoded=receipt.to_string();let receipt_digest=crate::shared_archive::digest(encoded.as_bytes());
@@ -341,11 +359,11 @@ impl PostgresRepository {
             }
             else if version>=8 {tx.execute("INSERT INTO host_commands(id,digest,receipt,capacity_class) VALUES($1,$2,$3,$4)",&[&command_id,&digest,&receipt.to_string(),&class]).map_err(db_error)?;}
             else {tx.execute("INSERT INTO host_commands(id,digest,receipt) VALUES($1,$2,$3)",&[&command_id,&digest,&receipt.to_string()]).map_err(db_error)?;}
-            Ok(json!({"replayed":false,"receipt":receipt}))
+            Ok(Ok(json!({"replayed":false,"receipt":receipt})))
         })
     }
     pub fn host_query(&self, operation: &str, p: &Value) -> Result<Value> {
-        self.transaction(|tx|match operation {
+        let query = |tx: &mut Transaction<'_>| match operation {
             "scope"=>{fields(p,&["scope"],&[])?;let row=tx.query_opt("SELECT max_runs,max_calls,max_microusd,runs,calls,microusd FROM host_scopes WHERE id=$1",&[&id(p,"scope")?]).map_err(db_error)?.ok_or("unknown allocation scope")?;Ok(json!({"max_runs":row.get::<_,i64>(0),"max_calls":row.get::<_,i64>(1),"max_microusd":row.get::<_,i64>(2),"runs":row.get::<_,i64>(3),"calls":row.get::<_,i64>(4),"microusd":row.get::<_,i64>(5)}))},
             "metadata"=>{fields(p,&["run"],&[])?;let row=tx.query_opt("SELECT metadata FROM host_runs WHERE run=$1",&[&id(p,"run")?]).map_err(db_error)?.ok_or("unknown host run")?;decoded(row.get::<_,&str>(0))},
             "invocation"=>{fields(p,&["run","call_id"],&[])?;invocation(tx,id(p,"run")?,id(p,"call_id")?)},
@@ -367,7 +385,15 @@ impl PostgresRepository {
             op if op.starts_with("artifact.")=>crate::shared_artifacts::query(tx,op,p),
             op if op.starts_with("worker.") || op.starts_with("event.") || op.starts_with("operator.")=>crate::shared_control::query(tx,op,p),
             _=>Err("unknown shared host query".into())
-        })
+        };
+        // These branches read committed host records only. Keep all other
+        // queries on their existing transaction path until separately audited.
+        if matches!(operation, "scope" | "metadata" | "invocation" | "step"
+            | "steps" | "invocations" | "command_receipt" | "resolutions") {
+            self.read_transaction(query)
+        } else {
+            self.transaction(query)
+        }
     }
 }
 fn apply(tx: &mut Transaction<'_>, operation: &str, p: &Value) -> Result<Value> {
