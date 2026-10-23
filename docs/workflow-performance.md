@@ -1,75 +1,140 @@
 # Workflow performance
 
-The protocol's CI qualifies native behaviour and pinned consumers. Its objectives are earlier feedback, fewer repeated configuration changes and less unnecessary setup, with the existing test and security requirements preserved.
+Protocol CI qualifies native behaviour and pinned consumers. Its objectives are
+earlier feedback, fewer repeated configuration changes and less unnecessary
+setup. The Python reference host is scheduled for retirement, so its
+qualification work is outside the maintained CI scope.
 
 ## Entry points and responsibilities
 
-`.github/workflows/check.yml` owns pull requests, pushes to `main`, manual runs, reusable invocation and the weekly security schedule. Its independent qualification jobs run in parallel. `downstream.yml` groups native-host, application-example and demo compatibility behind `workflow_call`.
+`.github/workflows/check.yml` owns pull requests, pushes to `main`, manual runs,
+reusable invocation and weekly Rust dependency audits. Independent qualification
+jobs run in parallel. `downstream.yml` groups native-host, application-example
+and demo compatibility behind `workflow_call`.
 
-| Configuration | Before consolidation at `76e999f` | Consolidated |
+| Configuration | Before consolidation at `76e999f` | Maintained native graph |
 | --- | ---: | ---: |
 | Workflow files | 8 | 2 |
 | Workflow runs started by one PR update | 7 | 1 |
-| Jobs in a full PR run | 35 | 35 |
-| Workflow/action YAML lines | 489 | 418 |
+| Jobs in a full PR run | 35 | 10 |
+| Workflow/action YAML lines | 489 | 377 |
 
-The client, Compose, PostgreSQL, containment, machine and security wrappers have been removed. Each former wrapper's external workflow call now appears in `check.yml`, with the same reviewed host revision and candidate protocol input. YAML aliases share those input bindings and the identical security status steps. Existing commit-pinned references to historical workflow paths remain available in git.
+Six former client, Compose, PostgreSQL, containment, machine and security wrappers
+have been removed. The seven external reference-host workflow calls and their
+legacy gates have also been retired. This removes out-of-scope Python product
+qualification rather than accelerating equivalent work. The job-count reduction
+must not be reported as a speedup with preserved coverage.
 
-The five protected status names remain `check`, `dependency-audit`, `image-audit` and both architecture-specific `host-and-compose` checks. Their full-run dependencies and success conditions are preserved. Failed, cancelled, skipped or missing prerequisites fail the relevant gate.
+A full run retains protocol tests and SPIN/finite verification, executable Rust
+examples, all 35 actual PostgreSQL admission tests, pinned native consumers and
+a real Rust dependency audit. `check` requires protocol, downstream,
+native-admission and dependency-audit success. Failure, cancellation or skipped
+prerequisites fail the aggregate. The two required status names are `check` and
+`dependency-audit`; adopting the graph requires the matching migration described
+in [reference-host retirement](reference-host-migration.md#required-status-migration).
 
-The Monday security schedule retains cron `17 6 * * 1`. The schedule event executes the external security workflow and its two status gates. Other events execute the full graph. Full-suite and architecture gates are excluded specifically for the schedule event. PR, push, manual and reusable runs receive the complete existing coverage.
-
-One entry-point concurrency group cancels superseded PR runs across the entire graph. Its prefix differs from every pinned reusable workflow's group. Non-PR invocations use their run ID. The separately maintained external workflows retain their own existing concurrency policies. Artefact names from the called workflows are distinct within the consolidated run.
+The Monday schedule retains cron `17 6 * * 1` and executes only the Rust
+dependency audit. Other events execute the full graph. One entry-point
+concurrency group cancels superseded PR runs across the graph. Non-PR invocations
+use their run ID and remain independent.
 
 ## Shared setup and avoided work
 
-`.github/actions/toolchains/action.yml` owns Go and Node versions and reads the Rust version from the root `rust-toolchain.toml`. Each suite requests only the runtimes and optional Rust components used by its commands.
+`.github/actions/toolchains/action.yml` owns Go and Node versions and reads the
+Rust version from the root `rust-toolchain.toml`. Each suite requests only the
+runtimes and optional Rust components used by its commands.
 
-| Local installation requests per full PR run | Before | Consolidated |
+| Installation requests in the existing local suites | Before consolidation | After consolidation |
 | --- | ---: | ---: |
 | Go setup | 5 | 4 |
 | Node setup | 5 | 3 |
 | Extra Rust components | 10 | 4 |
 
-These counts cover jobs configured in this repository. An installation request may reuse a runner's installed component. The counts describe avoided requests rather than guaranteed downloads or seconds saved.
+These counts compare the existing protocol, admission and downstream suites.
+They exclude tooling introduced for the replacement dependency audit. An
+installation request may reuse a runner's installed component. The counts
+describe avoided requests rather than guaranteed downloads or seconds saved.
 
-The incident rehearsal uses the Rust host and Python fixtures. Application checks retain Go, Rust, `rustfmt` and Clippy. Mixed-agent interoperability retains Go and Node. Native-host compatibility retains its existing formatter, linter and SDK tools. The demo retains Go and Node for race tests and pinned Copilot CLI compatibility.
+The incident rehearsal uses the Rust host and Python fixtures. Application
+checks retain Go, Rust, `rustfmt` and Clippy. Mixed-agent interoperability retains
+Go and Node. Native-host compatibility retains its formatter, linter and SDK
+tools. The demo retains Go and Node for race tests and pinned Copilot CLI
+compatibility.
 
-A composite action centralises setup within each isolated job. The reusable workflows continue to own job boundaries, services and runner selection. The example matrix preserves separate generated-worker directories and the consumer Makefile's `.NOTPARALLEL` requirement.
+A composite action centralises setup within each isolated job. The reusable
+workflow owns job boundaries and runner selection. The example matrix preserves
+separate generated-worker directories and the consumer Makefile's
+`.NOTPARALLEL` requirement. Shared configuration does not itself share builds or
+installed tools between runners.
+
+The dependency audit downloads the official `cargo-audit` 0.22.2 Linux binary
+and verifies its pinned SHA-256 before extraction. It checks the complete
+protocol lock, including optional PostgreSQL dependencies, against a freshly
+fetched RustSec advisory database. It needs no Rust installation or compilation.
 
 ## Timing evidence and comparison
 
-[The original baseline](../evidence/workflow-performance/baseline.json) identifies `e1257fb7125cdc971d94e38221c5185818bb577d` and every job in its seven workflow runs. The original examples job ran applications for 410 seconds, interoperability for 299 seconds and the incident rehearsal for 457 seconds, sequentially.
+[The original baseline](../evidence/workflow-performance/baseline.json)
+identifies `e1257fb7125cdc971d94e38221c5185818bb577d` and every job in its seven
+workflow runs. Its examples job ran applications for 410 seconds,
+interoperability for 299 seconds and the incident rehearsal for 457 seconds,
+sequentially.
 
-The first optimisation, at `76e999f7c7e67670eda3b49ff9a5f886750f72f1`, moved those groups into three isolated suites. All original commands and all 108 incident fixture arms remained required.
+The first optimisation, at `76e999f7c7e67670eda3b49ff9a5f886750f72f1`, moved
+those groups into three isolated suites. All original native consumer commands
+and all 108 incident fixture arms remained required.
 
 | Examples measurement | Original | First optimisation |
 | --- | ---: | ---: |
 | Elapsed time through the examples gate | 1,211 s | 533 s |
 | Summed suite/gate runner time | 1,211 runner-s | 1,333 runner-s |
 
-That hosted comparison observed 678 seconds less waiting, a 56.0% reduction, with 122 additional runner-seconds, or 10.1%. It met the pre-run targets of at least 20% less waiting and at most 15% more examples runner time.
+That hosted comparison observed 678 seconds less waiting, a 56.0% reduction,
+with 122 additional runner-seconds, or 10.1%. It met the pre-run targets of at
+least 20% less waiting and at most 15% more examples runner time. This remains a
+comparison of the same examples workload, independent of the later Python
+product retirement.
 
-[The pre-consolidation baseline](../evidence/workflow-performance/pre-consolidation.json) records all 35 jobs at `76e999f`. Its seven runs took 963 seconds from their common start to the last completion and consumed 8,932 summed runner-seconds. Each stage has one observation on fresh hosted runners. Timestamps have one-second resolution.
+[The pre-consolidation baseline](../evidence/workflow-performance/pre-consolidation.json)
+records all 35 jobs at `76e999f`. Its seven runs took 963 seconds from their
+common start to the last completion and consumed 8,932 summed runner-seconds.
+That total includes the retired Python product. It is historical cost evidence,
+not a same-coverage baseline for the native-only graph.
 
-For the consolidation comparison, require the structural reductions above and complete existing full-run coverage. Compare the new run's total elapsed time and summed job durations with that baseline, and compare its examples gate with 533 seconds and 1,333 runner-seconds. Include setup and gate overhead. Record queue delays separately. Variation in unchanged VM and SPIN work belongs in the measurement limits.
+[The pre-retirement observation](../evidence/workflow-performance/pre-retirement.json)
+records the consolidated graph at `2021477`. Its 35 jobs took 859 seconds from
+run start to last completion and consumed 7,733 runner-seconds. All eight retained
+native jobs passed and consumed 1,930 runner-seconds. The new graph also adds a
+real local audit and a stricter aggregate, so those eight jobs alone are not its
+complete runtime estimate.
 
-Moving job definitions into one workflow preserves their execution. The runtime changes in this increment remove unnecessary tool setup. Further hosted observations are needed to estimate the typical timing effect. Runner-seconds differ from billed minutes, which depend on job rounding, runner type, allowances and rates.
-
-## Remaining duplication and alternatives
-
-Both pinned external `check.yml` and `security.yml` execute `python scripts/release-audit.py` against the same reviewed source. Their other obligations differ: the check workflow also validates dependency resolution, while security owns Cargo and image audits. Deduplicating the Python audit requires a supported input or shared result in `mas-reference-host`, revision-bound evidence and a new reviewed workflow pin. That owner change remains separate from this protocol-repository consolidation.
-
-Host tests also run with different database, architecture and container configurations. Those executions retain their separate qualification purposes. Build reuse would require matching target, features, flags and source identities.
-
-Keeping eight workflows preserves more independent entry points. Flattening every job into one file reduces the file count further. The selected design gives one triggered CI run and keeps native-consumer orchestration cohesive in one reusable file. Individual jobs remain available for targeted retries.
-
-The [GitHub reuse documentation](https://docs.github.com/en/actions/how-tos/reuse-automations/reuse-workflows), [composite action documentation](https://docs.github.com/actions/creating-actions/creating-a-composite-action) and [YAML alias documentation](https://docs.github.com/en/actions/concepts/workflows-and-actions/reusing-workflow-configurations) describe the platform facilities used here.
+Each recorded stage has one hosted observation on fresh runners. Timestamps
+have one-second resolution. Further observations are needed to estimate the
+typical timing effect. Compare unchanged native suites individually, including
+setup and aggregate overhead, and record queue delays separately. Unchanged
+SPIN and hosted-runner variability cannot be attributed to setup consolidation.
+Runner-seconds differ from billed minutes, which depend on job rounding, runner
+type, allowances and rates.
 
 ## Validation and rollback
 
-Local validation passes `actionlint` 1.7.12, YAML parsing and `git diff --check`. A differential check confirms all seven external calls retain their exact pins and inputs, all test commands remain present, and the PostgreSQL services, architecture matrix and protected status policies are preserved. The composite's Bash script has been executed with a recording `rustup` substitute to check root-version resolution and exact component arguments from a different working directory.
+Validate workflow and composite syntax with `actionlint`, parse YAML, check the
+exact diff and verify the event graph. Confirm that every retained native
+command, immutable consumer revision and candidate-protocol resolution check
+remains present. The aggregate must fail when any prerequisite fails, is
+cancelled or is skipped. Weekly runs must execute the dependency audit without
+starting full qualification.
 
-The first optimisation passed native protocol/SPIN checks, all examples, all 35 actual PostgreSQL admission tests, shared PostgreSQL shards, portable clients, containment, Host/Compose and machine qualification. External dependency/image audit failures remain recorded as failures. The earlier subscription-isolation failure passed on the first optimisation without changing the pinned host revision.
+The toolchain composite's Bash script has been exercised with a recording
+`rustup` substitute to check root-version resolution and component arguments
+from a different working directory. The first optimisation passed protocol/SPIN
+checks, all examples and all 35 actual PostgreSQL admission tests. The later
+consolidated run also passed these native suites; its failures were in the
+retired Python host and dependency/image qualification. Their failures remain
+part of the historical record and have not been relabelled as successful audits.
 
-Reverting this consolidation restores the six wrappers and per-job setup. Reverting the earlier optimisation also restores sequential examples. Application sources, dependencies, formal models and consumer revisions are preserved.
+Reverting setup consolidation restores per-job installation steps. Reverting
+the example split restores sequential examples. Restoring the retired Python
+qualification would require a new maintenance decision and the matching status
+ruleset. Native application sources, formal models and consumer revisions are
+unchanged by this CI work.

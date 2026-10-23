@@ -1,68 +1,70 @@
-# Python reference host extraction
+# Python reference host retirement
 
-The Python `host/` tree and its supporting containers, release scripts, deployment
-profiles, examples and documentation now belong to
+The Python `host/` tree and its containers, release scripts and deployment
+profiles were extracted into
 [mas-reference-host](https://github.com/emmett08/mas-reference-host).
-The separate native Rust host is still
-[mas-host](https://github.com/emmett08/mas-host).
+That repository is scheduled for retirement and is no longer a maintained
+compatibility target of this repository. Protocol CI does not fetch it or call
+its workflows. No changes to that repository are required for this work.
 
-## Preserved contracts
+The maintained native Rust host is
+[mas-host](https://github.com/emmett08/mas-host). Historical protocol commits and
+tags remain available to existing pinned consumers.
 
-This removal changes no protocol library code, wire format, native CLI, Cargo
-package identity, Rust dependency lock, or downstream dependency pin. The only
-Rust source change moves the verifier's task-service corpus lookup from
-`host/tests/fixtures/task-service-traces.json` to
-`formal/task-service-traces.json`; the corpus bytes are unchanged. Historical
-commits and tags remain available to existing pinned consumers.
+## Native compatibility
 
-| Repository | Existing dependency | Compatibility check on the removal PR |
+The protocol repository owns Rust protocol tests, formal verification,
+executable examples and real PostgreSQL authority/admission tests. The reusable
+`downstream.yml` workflow qualifies these immutable consumer revisions:
+
+| Consumer | Checked-out revision | Compatibility check |
 | --- | --- | --- |
-| `mas-host` | Protocol crate pinned at `fe644bbf3acb3ccc2abaffd54bcc4b367053fe4b` | Native/SDK tests, real application acceptance, provider contract and SPIN checks |
-| `mas-host-examples` | Native host pinned at `2e0ad88354f5fafb78725204648e31fb2c565cc4` | Application tests, documented commands, A2A SDK, mixed-agent conformance and credential-free incident rehearsal |
-| `mas-demo` | Protocol CLI pinned at `9d9845990843f5e3464395da7bd60bb50ffb2dda` | Go race tests/vet/build, credential-free Copilot compatibility and four offline scenarios |
+| `mas-host` | `71e40fe57521aa1048d001dff16c40379a3a3046` | Native/SDK tests, application acceptance, provider contract and SPIN checks |
+| `mas-host-examples` | `6899cceb6314e0191070d6f5a0ae8d4100b4c6a0` | Application tests, documented commands, A2A SDK, mixed-agent conformance and credential-free incident rehearsal |
+| `mas-demo` | `4e0d2f6ff8a9cd20c75f9ae18e0d0bbe4c89b96d` | Go race tests/vet/build, credential-free Copilot compatibility and four offline scenarios |
 
-The downstream workflow checks immutable consumer revisions. In its disposable
-checkout, Cargo replaces only the protocol dependency with the PR's source and
-verifies that resolution through Cargo metadata. Consumer repositories and their
-committed pins are not edited. The demo runs the actual CLI compiled from this
-PR, checking each expected decision, 28 messages and zero provider calls. These
-checks cover credential-free integration; they do not claim a live paid-provider
-or production Kubernetes deployment test.
+In disposable native-host checkouts, Cargo replaces only the protocol dependency
+with the candidate source and verifies that resolution through Cargo metadata.
+The examples retain their own immutable host revision. Consumer repositories and
+their committed dependency pins are not edited. The demo runs the actual CLI
+compiled from the candidate, checking each expected decision, 28 messages and
+zero provider calls.
 
-## Build and verification ownership
+These checks cover credential-free integration. Live paid-provider execution,
+production Kubernetes deployment, database replication and recovery qualification
+require their own evidence.
 
-Use `make check` here for protocol and formal verification. Use `make protocol`
-and `make build` in the reference host repository for host tooling. Its reviewed
-protocol pin defaults to an immutable historical revision; compatibility CI
-overrides it with the candidate protocol commit. Both source identities are
-recorded in new runtime and release provenance. Historical runtime provenance
-remains readable.
-
-This repository calls the migrated host workflows at full commit SHAs. They
-check out that host revision and this PR's protocol revision, so removal is
-tested without the local Python tree. Existing required contexts `check`,
-`dependency-audit`, `image-audit`, and both `host-and-compose` architecture checks
-remain present. Their gates reject failed, cancelled and skipped prerequisites.
-Container release candidates are now prepared in the reference host repository;
-its workflow does not automatically publish releases or move tags.
+## CI and security ownership
 
 `.github/workflows/check.yml` is the entry point for pull requests, pushes to
-`main`, manual runs and weekly security audits. It calls those pinned host
-workflows in parallel and the local reusable `downstream.yml` for native
-consumers. The former client, Compose, PostgreSQL, containment, machine and
-security wrappers have been removed. Weekly runs execute the security audits
-and their status gates. Other events execute the full graph. Historical
-commit-pinned workflow paths remain available in git history.
+`main`, manual runs, reusable invocation and weekly dependency audits. Full runs
+execute protocol verification, native PostgreSQL admission, downstream
+compatibility and a Rust dependency audit. The `check` aggregate requires all
+four to succeed and rejects failed, cancelled or skipped prerequisites. Weekly
+runs execute the dependency audit alone.
 
-## Merge order
+`dependency-audit` checks the protocol's locked Cargo dependency graph against
+RustSec advisories. The Python dependency profiles, Python host tests, container
+images, Compose deployments, portable Python clients and reference-host machine
+and containment suites have been retired from protocol CI with that product.
+Their removal is an explicit change of maintenance scope. It does not establish
+that the old Python dependencies or images are secure.
 
-1. Review and merge the [reference host completion PR](https://github.com/emmett08/mas-reference-host/pull/4).
-2. Require all protocol, migrated host, infrastructure, security and downstream
-   checks on the removal PR to pass. Preserve the required contexts on `mas/main`.
-3. Merge the removal PR. A later protocol-pin update in the reference host should
-   receive its own compatibility review; existing downstream pins need no update.
+Neither the protocol repository nor the checked native host revision publishes a
+container product. The former `image-audit` and architecture-specific
+`host-and-compose` statuses therefore have no product to qualify here. They are
+removed rather than replaced with successful placeholders or unrelated fixture
+image scans.
 
-The migration preserves repository ownership boundaries and existing interfaces.
-It does not assert certification against an external engineering standard. The
-applicable acceptance criteria are the protocol contracts, locked build inputs,
-existing qualification suites and repository review/protection policies.
+## Required status migration
+
+The required status contexts for the maintained graph are `check` and
+`dependency-audit`. The repository ruleset must replace the old five-context
+list with these two names when adopting this graph. Preserve the remaining
+pull-request, review-resolution, strict-status, deletion and force-push rules.
+Until that ruleset migration is applied, GitHub will continue waiting for the
+three retired image/Compose contexts.
+
+Require the candidate's native checks and Rust dependency audit to pass before
+merging. There is no reference-host PR or release prerequisite. Reverting the CI
+retirement also requires restoring the matching required-status list.
