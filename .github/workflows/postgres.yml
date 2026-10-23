@@ -7,6 +7,9 @@ on:
   workflow_call:
 permissions:
   contents: read
+concurrency:
+  group: mas-postgres-${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   reference:
     uses: emmett08/mas-reference-host/.github/workflows/postgres.yml@11351c72675732214ee29c2b7c18755bcd5071f6

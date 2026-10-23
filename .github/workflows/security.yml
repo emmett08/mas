@@ -9,6 +9,9 @@ on:
     - cron: '17 6 * * 1'
 permissions:
   contents: read
+concurrency:
+  group: mas-security-${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   reference:
     uses: emmett08/mas-reference-host/.github/workflows/security.yml@11351c72675732214ee29c2b7c18755bcd5071f6
