@@ -1,12 +1,8 @@
 name: Downstream compatibility
 on:
   workflow_call:
-  workflow_dispatch:
 permissions:
   contents: read
-concurrency:
-  group: mas-downstream-${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 defaults:
   run:
     shell: bash
@@ -29,16 +25,11 @@ jobs:
           ref: 71e40fe57521aa1048d001dff16c40379a3a3046
           path: .consumers/mas-host
           persist-credentials: false
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
+      - uses: ./.github/actions/toolchains
         with:
-          go-version: '1.24.0'
-          cache: false
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
-        with:
-          node-version: '22'
-          package-manager-cache: false
-      - name: Install pinned Rust
-        run: rustup toolchain install 1.99.0 --profile minimal --component rustfmt --component clippy
+          go: 'true'
+          node: 'true'
+          rust-components: rustfmt,clippy
       - uses: ./.github/actions/downstream-protocol
         with:
           directory: .consumers/mas-host
@@ -77,16 +68,11 @@ jobs:
           ref: 6899cceb6314e0191070d6f5a0ae8d4100b4c6a0
           path: .consumers/examples
           persist-credentials: false
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
+      - uses: ./.github/actions/toolchains
         with:
-          go-version: '1.24.0'
-          cache: false
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
-        with:
-          node-version: '22'
-          package-manager-cache: false
-      - name: Install pinned Rust
-        run: rustup toolchain install 1.99.0 --profile minimal --component rustfmt --component clippy
+          go: ${{ matrix.suite != 'incident' }}
+          node: ${{ matrix.suite == 'interoperability' }}
+          rust-components: ${{ matrix.suite == 'applications' && 'rustfmt,clippy' || '' }}
       - name: Read the example repository's unchanged host pin
         id: host
         run: |
@@ -176,16 +162,10 @@ jobs:
           ref: 4e0d2f6ff8a9cd20c75f9ae18e0d0bbe4c89b96d
           path: .consumers/demo
           persist-credentials: false
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
+      - uses: ./.github/actions/toolchains
         with:
-          go-version: '1.24.0'
-          cache: false
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
-        with:
-          node-version: '22'
-          package-manager-cache: false
-      - name: Install pinned Rust
-        run: rustup toolchain install 1.99.0 --profile minimal --component rustfmt --component clippy
+          go: 'true'
+          node: 'true'
       - name: Build candidate protocol CLI
         run: |
           cargo build --release --locked --manifest-path "$GITHUB_WORKSPACE/rust-protocol/Cargo.toml" --bin mas

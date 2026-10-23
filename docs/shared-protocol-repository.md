@@ -74,7 +74,8 @@ cargo test --locked --manifest-path rust-protocol/Cargo.toml --features postgres
 ```
 
 The real PostgreSQL conformance suite is opt-in locally and mandatory in
-`.github/workflows/postgres.yml`. The workflow pins the official PostgreSQL
+the `native-admission` job in `.github/workflows/check.yml`. The shared-backend
+qualification pins the official PostgreSQL
 16.15 image by manifest digest. Set `MAS_TEST_POSTGRES_DSN` to a disposable test
 database whose account can create/drop schemas and terminate its test sessions:
 

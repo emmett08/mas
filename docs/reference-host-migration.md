@@ -46,6 +46,14 @@ remain present. Their gates reject failed, cancelled and skipped prerequisites.
 Container release candidates are now prepared in the reference host repository;
 its workflow does not automatically publish releases or move tags.
 
+`.github/workflows/check.yml` is the entry point for pull requests, pushes to
+`main`, manual runs and weekly security audits. It calls those pinned host
+workflows in parallel and the local reusable `downstream.yml` for native
+consumers. The former client, Compose, PostgreSQL, containment, machine and
+security wrappers have been removed. Weekly runs execute the security audits
+and their status gates. Other events execute the full graph. Historical
+commit-pinned workflow paths remain available in git history.
+
 ## Merge order
 
 1. Review and merge the [reference host completion PR](https://github.com/emmett08/mas-reference-host/pull/4).

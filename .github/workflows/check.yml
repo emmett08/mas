@@ -5,6 +5,8 @@ on:
   pull_request:
   workflow_dispatch:
   workflow_call:
+  schedule:
+    - cron: '17 6 * * 1'
 concurrency:
   group: protocol-${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -12,13 +14,14 @@ permissions:
   contents: read
 jobs:
   protocol:
+    if: &full-suite ${{ github.event_name != 'schedule' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: Install pinned Rust and SPIN
+      - uses: ./.github/actions/toolchains
+      - name: Install SPIN
         run: |
-          rustup toolchain install 1.99.0 --profile minimal
           sudo apt-get update
           sudo apt-get install -y spin
       - name: Native tests and build
@@ -41,9 +44,10 @@ jobs:
             formal/evidence
             evidence/examples
   downstream:
+    if: *full-suite
     uses: ./.github/workflows/downstream.yml
   check:
-    if: ${{ always() }}
+    if: ${{ always() && github.event_name != 'schedule' }}
     needs: [protocol, downstream, reference-host]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -58,7 +62,86 @@ jobs:
           test "$DOWNSTREAM_RESULT" = success
           test "$REFERENCE_RESULT" = success
   reference-host:
+    if: *full-suite
     uses: emmett08/mas-reference-host/.github/workflows/check.yml@11351c72675732214ee29c2b7c18755bcd5071f6
-    with:
+    with: &reference-inputs
       reference_host_ref: 11351c72675732214ee29c2b7c18755bcd5071f6
       protocol_ref: ${{ github.sha }}
+  reference-clients:
+    if: *full-suite
+    uses: emmett08/mas-reference-host/.github/workflows/clients.yml@11351c72675732214ee29c2b7c18755bcd5071f6
+    with: *reference-inputs
+  reference-compose:
+    if: *full-suite
+    uses: emmett08/mas-reference-host/.github/workflows/compose.yml@11351c72675732214ee29c2b7c18755bcd5071f6
+    with: *reference-inputs
+  reference-postgres:
+    if: *full-suite
+    uses: emmett08/mas-reference-host/.github/workflows/postgres.yml@11351c72675732214ee29c2b7c18755bcd5071f6
+    with: *reference-inputs
+  native-admission:
+    if: *full-suite
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16.15
+        env:
+          POSTGRES_PASSWORD: fixture-password
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready --health-interval 5s
+          --health-timeout 5s --health-retries 10
+    env:
+      MAS_TEST_POSTGRES_DSN: host=localhost user=postgres password=fixture-password dbname=postgres
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: ./.github/actions/toolchains
+      - name: Exercise actual PostgreSQL authority and native admission
+        run: cargo test --locked --manifest-path rust-protocol/Cargo.toml --features postgres-repository --test postgres_repository -- --ignored --test-threads=2
+  reference-containment:
+    if: *full-suite
+    uses: emmett08/mas-reference-host/.github/workflows/workspace-containment.yml@11351c72675732214ee29c2b7c18755bcd5071f6
+    with: *reference-inputs
+  reference-machines:
+    if: *full-suite
+    uses: emmett08/mas-reference-host/.github/workflows/multimachine.yml@11351c72675732214ee29c2b7c18755bcd5071f6
+    with: *reference-inputs
+  reference-security:
+    uses: emmett08/mas-reference-host/.github/workflows/security.yml@11351c72675732214ee29c2b7c18755bcd5071f6
+    with: *reference-inputs
+  # Keep the existing protected status names and reject skipped prerequisites.
+  host-and-compose:
+    needs: reference-compose
+    if: ${{ always() && github.event_name != 'schedule' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            architecture: amd64
+          - runner: ubuntu-24.04-arm
+            architecture: arm64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 5
+    steps:
+      - name: Require every migrated host and container qualification
+        env:
+          RESULT: ${{ needs.reference-compose.result }}
+        run: test "$RESULT" = success
+  dependency-audit:
+    needs: reference-security
+    if: ${{ always() }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps: &security-gate
+      - name: Require migrated dependency and image audits
+        env:
+          RESULT: ${{ needs.reference-security.result }}
+        run: test "$RESULT" = success
+  image-audit:
+    needs: reference-security
+    if: ${{ always() }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps: *security-gate
