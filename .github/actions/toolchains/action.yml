@@ -1,0 +1,36 @@
+name: Install CI toolchains
+description: Install the repository's Rust toolchain and the runtimes required by a suite.
+inputs:
+  go:
+    description: Whether the suite executes Go commands.
+    default: 'false'
+  node:
+    description: Whether the suite executes Node or npm commands.
+    default: 'false'
+  rust-components:
+    description: Optional comma-separated Rust components required by the suite.
+    default: ''
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
+      if: ${{ inputs.go == 'true' }}
+      with:
+        go-version: '1.24.0'
+        cache: false
+    - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+      if: ${{ inputs.node == 'true' }}
+      with:
+        node-version: '22'
+        package-manager-cache: false
+    - name: Install pinned Rust
+      shell: bash
+      env:
+        RUST_COMPONENTS: ${{ inputs.rust-components }}
+      run: |
+        channel="$(python3 -c 'import os, pathlib, tomllib; print(tomllib.loads((pathlib.Path(os.environ["GITHUB_WORKSPACE"]) / "rust-toolchain.toml").read_text())["toolchain"]["channel"])')"
+        arguments=(toolchain install "$channel" --profile minimal)
+        if [[ -n "$RUST_COMPONENTS" ]]; then
+          arguments+=(--component "$RUST_COMPONENTS")
+        fi
+        rustup "${arguments[@]}"

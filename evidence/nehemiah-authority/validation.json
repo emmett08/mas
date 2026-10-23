@@ -1,0 +1,31 @@
+{
+  "base_revision": "7bbd1301ed651e0994390ac04b5c340a700fdfcd",
+  "source_sha256": {
+    ".github/workflows/check.yml": "491506fa9d89e142496eac2a077137d33d81c0950f13f931be9a7cd01c3a0f16",
+    ".github/workflows/postgres.yml": "841fad4d60bf89587d87206dbea2c78c11c8355273e275951270f26e2266e5f7",
+    "docs/nehemiah-authority.md": "0bdf0c097e6c4a1da5ffcade3a864a68d4301b595e6251d47c9bcda496ae1217",
+    "formal/native-dispatch.pml": "07906428beb5790087eb9cf7cac634de4cae3c2c39bcb155274c4bb4c23df337",
+    "formal/verify-native-dispatch.py": "da33ecd3dc9c15eb82b626f151443dfe6a5ca8e8da8c535f06dc57efd4d259d2",
+    "rust-protocol/src/lib.rs": "82499625947c5ff977aec4df83ea8aece6ed219fbb4562102585ed96d4bcbc25",
+    "rust-protocol/src/postgres_repository.rs": "6231a40e367d842a94dd48d9ad9b3d08c156284fa3deb6e1d68f3348aec0ee73",
+    "rust-protocol/src/shared_commands.rs": "54da1a504610a2327831bebe3b705c6bc0c09d43a93ca12a25c4cec6fc524d99",
+    "rust-protocol/src/shared_host.rs": "dd40fc36d6913a7e888f39bfe0e9badc0c20cd889329f02cc43ae79ef2af43bb",
+    "rust-protocol/src/shared_native.rs": "d1ac2450cf0ea2910b757e872b72377eb05e9f2f79a2324c7a6a6166cc074ca4",
+    "rust-protocol/src/shared_native_package.rs": "f52d7c48cf08f41c1c1624dbbf855b87c5c77eb7b42a36130b8ce70d8a13f9f7",
+    "rust-protocol/src/shared_scheduler.rs": "7686495c1c19383f471dee30d5255b2b598b77a0b590e4f2f092be6eec39bffd",
+    "rust-protocol/src/shared_tasks.rs": "4dfa06ecb93634527a8ac9d9965a7b377937adfdd9a4c6683412c1b7e92b8e74",
+    "rust-protocol/tests/postgres_repository.rs": "e91712572a4c4f58d376d3f22863886cdd233f4ba3a37b26a83c3652399cb905"
+  },
+  "results": {
+    "protocol_tests": "PASS:91 passed,3 ignored",
+    "postgres_feature_library": "PASS:39 passed",
+    "postgres_integration_compilation": "PASS",
+    "postgres_runtime": "NOT_RUN:non-root database execution unavailable in local user namespace; CI uses actual PostgreSQL16.15",
+    "finite_model": "PASS:1 exhaustive zero-error safety search,3 replayed mechanism violations,2 replayed reachability witnesses"
+  },
+  "limits": [
+    "Finite model does not establish SQL/Rust refinement or capacity",
+    "Strict additional Clippy check reports pre-existing warnings in legacy modules; repository CI uses its existing gates",
+    "Shared profile requires PostgreSQL CI qualification"
+  ]
+}

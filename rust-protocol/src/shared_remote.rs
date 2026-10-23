@@ -1,6 +1,8 @@
 //! Shared peer, provider circuit and remote-effect repositories.
 //! Domain commands run under the same fenced authority transaction as native
 //! host admission. An immutable command receipt is never dispatch permission.
+mod quota;
+pub use quota::{ProviderAdmission, ProviderDispatchPermit};
 use crate::postgres_repository::db_error;
 use postgres::Transaction;
 use serde_json::{json, Value};
@@ -365,11 +367,13 @@ fn circuit_policy(p: &Value) -> Result<(String, i64, i64, i64)> {
             "open_seconds",
             "half_open_seconds",
         ],
-        &[],
+        if policy["format"] == "mas-provider-circuit/2" {
+            &["window_ms", "max_requests"]
+        } else {
+            &[]
+        },
     )?;
-    if policy["format"] != "mas-provider-circuit/1" {
-        return Err("invalid circuit profile".into());
-    }
+    quota::policy(policy)?;
     Ok((
         text(policy, "resource_key")?.into(),
         integer(policy, "failure_threshold", 1, 100)?,
@@ -377,17 +381,74 @@ fn circuit_policy(p: &Value) -> Result<(String, i64, i64, i64)> {
         integer(policy, "half_open_seconds", 1, 600)? * 1000,
     ))
 }
+/// Current provider eligibility under the existing authority lock. Reaping an
+/// expired half-open probe records its uncertainty and cooldown; it never
+/// refunds the original request credit or grants a fresh native permission.
+pub(crate) fn native_provider_eligibility(
+    tx: &mut Transaction<'_>,
+    policy: &Value,
+    call: &str,
+) -> Result<Option<i64>> {
+    let (resource, _, cooldown, _) = circuit_policy(&json!({"policy":policy}))?;
+    let allowance = quota::policy(policy)?.ok_or("native provider requires circuit version two")?;
+    let view = query(tx, "circuit.status", &json!({"policy":policy}))?;
+    let timestamp = now(tx)?;
+    if tx
+        .query_opt("SELECT 1 FROM provider_permits WHERE call_id=$1", &[&call])
+        .map_err(db_error)?
+        .is_some()
+    {
+        return Err("prepared native provider identity already has credit".into());
+    }
+    let mut until = view["open_until_ms"]
+        .as_i64()
+        .ok_or("invalid provider cooldown")?;
+    if let Some(row) = tx
+        .query_opt(
+            "SELECT probe_call,probe_deadline_ms FROM provider_circuits WHERE resource=$1",
+            &[&resource],
+        )
+        .map_err(db_error)?
+    {
+        if let Some(probe) = row.get::<_, Option<String>>(0) {
+            let deadline = row
+                .get::<_, Option<i64>>(1)
+                .ok_or("invalid provider probe deadline")?;
+            if deadline <= timestamp {
+                until = until.max(
+                    timestamp
+                        .checked_add(cooldown)
+                        .ok_or("provider clock overflow")?,
+                );
+                tx.execute("UPDATE provider_permits SET observation='abandoned',observed_ms=$1 WHERE call_id=$2 AND observation IS NULL", &[&timestamp,&probe]).map_err(db_error)?;
+                tx.execute("UPDATE provider_circuits SET open_until_ms=$1,generation=generation+1,probe_call=NULL,probe_deadline_ms=NULL WHERE resource=$2", &[&until,&resource]).map_err(db_error)?;
+            } else {
+                until = until.max(deadline);
+            }
+        }
+    }
+    let usage = quota::usage(tx, &resource, allowance, timestamp)?;
+    if usage["remaining_requests"] == 0 {
+        until = until.max(
+            usage["window_reset_ms"]
+                .as_i64()
+                .ok_or("invalid provider window")?,
+        );
+    }
+    Ok((until > timestamp).then_some(until))
+}
 fn circuit(tx: &mut Transaction<'_>, op: &str, p: &Value) -> Result<Value> {
     fields(
         p,
         &["policy", "call_id"],
-        if op == "circuit.observe" {
-            &["category"]
-        } else {
-            &[]
+        match op {
+            "circuit.observe" => &["category"],
+            "circuit.defer" => &["not_before_ms"],
+            _ => &[],
         },
     )?;
     let (resource, threshold, cooldown, lease) = circuit_policy(p)?;
+    let allowance = quota::policy(&p["policy"])?;
     let call = text(p, "call_id")?;
     let timestamp = now(tx)?;
     let policy = p["policy"].to_string();
@@ -411,11 +472,49 @@ fn circuit(tx: &mut Transaction<'_>, op: &str, p: &Value) -> Result<Value> {
             &[&call],
         )
         .map_err(db_error)?;
+    if op == "circuit.defer" {
+        if allowance.is_none() {
+            return Err("provider deferral requires circuit version two".into());
+        }
+        let permit = permit.ok_or("provider deferral permit missing")?;
+        if permit.get::<_, String>(0) != resource {
+            return Err("provider deferral permit mismatch".into());
+        }
+        let requested = integer(p, "not_before_ms", 0, i64::MAX)?;
+        let not_before = until.max(requested);
+        tx.execute(
+            "UPDATE provider_circuits SET open_until_ms=$1 WHERE resource=$2",
+            &[&not_before, &resource],
+        )
+        .map_err(db_error)?;
+        return Ok(
+            json!({"deferred":true,"resource_key":resource,"call_id":call,"not_before_ms":not_before,"execution_permission":false}),
+        );
+    }
     if op == "circuit.admit" {
         if let Some(permit) = permit {
+            if allowance.is_some() {
+                return Ok(
+                    json!({"admitted":false,"fresh":false,"resource_key":resource,"call_id":call,
+                    "disposition":if permit.get::<_,String>(0)==resource {"retained"}else{"identity_conflict"},"not_before_ms":until,"quota":null}),
+                );
+            }
             return Ok(
                 json!({"admitted":permit.get::<_,String>(0)==resource&&permit.get::<_,i64>(1)==generation&&permit.get::<_,Option<String>>(3).is_none()}),
             );
+        }
+        let quota_view = allowance
+            .map(|policy| quota::usage(tx, &resource, policy, timestamp))
+            .transpose()?;
+        if let Some(view) = &quota_view {
+            let exhausted = view["remaining_requests"] == 0;
+            if exhausted || until > timestamp {
+                return Ok(
+                    json!({"admitted":false,"fresh":false,"resource_key":resource,"call_id":call,
+                    "disposition":if exhausted {"quota_deferred"}else{"circuit_deferred"},
+                    "not_before_ms":until.max(if exhausted {view["window_reset_ms"].as_i64().unwrap()}else{0}),"quota":view}),
+                );
+            }
         }
         if until > timestamp {
             return Ok(json!({"admitted":false}));
@@ -426,7 +525,11 @@ fn circuit(tx: &mut Transaction<'_>, op: &str, p: &Value) -> Result<Value> {
                 tx.execute("UPDATE provider_permits SET observation='abandoned',observed_ms=$1 WHERE call_id=$2 AND observation IS NULL",&[&timestamp,&probe]).map_err(db_error)?;
                 tx.execute("UPDATE provider_circuits SET open_until_ms=$1,generation=generation+1,probe_call=NULL,probe_deadline_ms=NULL WHERE resource=$2",&[&(timestamp+cooldown),&resource]).map_err(db_error)?;
             }
-            return Ok(json!({"admitted":false}));
+            return Ok(if allowance.is_some() {
+                json!({"admitted":false,"fresh":false,"resource_key":resource,"call_id":call,"disposition":"probe_pending","not_before_ms":deadline.unwrap_or(timestamp+cooldown),"quota":quota_view})
+            } else {
+                json!({"admitted":false})
+            });
         }
         tx.execute("INSERT INTO provider_permits(call_id,resource,generation,probe,created_ms) VALUES($1,$2,$3,$4,$5)",&[&call,&resource,&generation,&probing,&timestamp]).map_err(db_error)?;
         if probing {
@@ -436,7 +539,11 @@ fn circuit(tx: &mut Transaction<'_>, op: &str, p: &Value) -> Result<Value> {
             )
             .map_err(db_error)?;
         }
-        return Ok(json!({"admitted":true}));
+        return Ok(if let Some(policy) = allowance {
+            json!({"admitted":true,"fresh":true,"resource_key":resource,"call_id":call,"disposition":"fresh","not_before_ms":0,"quota":quota::usage(tx,&resource,policy,timestamp)?})
+        } else {
+            json!({"admitted":true})
+        });
     }
     let category = text(p, "category")?;
     if !matches!(category, "success" | "provider_failure" | "aborted") {
@@ -462,7 +569,7 @@ fn circuit(tx: &mut Transaction<'_>, op: &str, p: &Value) -> Result<Value> {
             return Err("provider probe ownership changed".into());
         }
         let success = category == "success";
-        tx.execute("UPDATE provider_circuits SET failures=$1,open_until_ms=$2,generation=generation+1,probe_call=NULL,probe_deadline_ms=NULL WHERE resource=$3",&[&(if success{0}else{failures.max(threshold)}),&(if success{0}else{timestamp+cooldown}),&resource]).map_err(db_error)?;
+        tx.execute("UPDATE provider_circuits SET failures=$1,open_until_ms=$2,generation=generation+1,probe_call=NULL,probe_deadline_ms=NULL WHERE resource=$3",&[&(if success{0}else{failures.max(threshold)}),&(if allowance.is_some(){if success{until}else{until.max(timestamp+cooldown)}}else if success{0}else{timestamp+cooldown}),&resource]).map_err(db_error)?;
     } else if category == "success" {
         tx.execute(
             "UPDATE provider_circuits SET failures=0 WHERE resource=$1",
@@ -472,7 +579,7 @@ fn circuit(tx: &mut Transaction<'_>, op: &str, p: &Value) -> Result<Value> {
     } else if category == "provider_failure" {
         let count = failures + 1;
         let opened = count >= threshold;
-        tx.execute("UPDATE provider_circuits SET failures=$1,open_until_ms=$2,generation=$3 WHERE resource=$4",&[&count,&(if opened{timestamp+cooldown}else{0}),&(generation+i64::from(opened)),&resource]).map_err(db_error)?;
+        tx.execute("UPDATE provider_circuits SET failures=$1,open_until_ms=$2,generation=$3 WHERE resource=$4",&[&count,&(if allowance.is_some(){until.max(if opened{timestamp+cooldown}else{0})}else if opened{timestamp+cooldown}else{0}),&(generation+i64::from(opened)),&resource]).map_err(db_error)?;
     }
     Ok(json!({"observed":true}))
 }
@@ -480,7 +587,7 @@ fn circuit(tx: &mut Transaction<'_>, op: &str, p: &Value) -> Result<Value> {
 pub(crate) fn apply(tx: &mut Transaction<'_>, op: &str, p: &Value) -> Result<Value> {
     match op {
         "peer.register" | "peer.revoke" => peer_change(tx, op, p),
-        "circuit.admit" | "circuit.observe" => circuit(tx, op, p),
+        "circuit.admit" | "circuit.observe" | "circuit.defer" => circuit(tx, op, p),
         _ => remote_command(tx, op, p),
     }
 }
@@ -537,8 +644,10 @@ pub(crate) fn query(tx: &mut Transaction<'_>, op: &str, p: &Value) -> Result<Val
             fields(p, &["policy"], &[])?;
             let (resource, threshold, _, _) = circuit_policy(p)?;
             if let Some(row)=tx.query_opt("SELECT policy,failures,open_until_ms,probe_call FROM provider_circuits WHERE resource=$1",&[&resource]).map_err(db_error)?{
-            if row.get::<_,String>(0)!=p["policy"].to_string(){return Err("provider circuit policy conflict".into())}let failures:i64=row.get(1);let probe:Option<String>=row.get(3);Ok(json!({"resource_key":resource,"state":if probe.is_some(){"half_open"}else if failures>=threshold{"open"}else{"closed"},"failures":failures,"open_until_ms":row.get::<_,i64>(2),"probe_call":probe}))
-        }else{Ok(json!({"resource_key":resource,"state":"closed","failures":0,"open_until_ms":0,"probe_call":null}))}
+            if row.get::<_,String>(0)!=p["policy"].to_string(){return Err("provider circuit policy conflict".into())}let failures:i64=row.get(1);let probe:Option<String>=row.get(3);let until:i64=row.get(2);let mut view=json!({"resource_key":resource,"state":if probe.is_some(){"half_open"}else if failures>=threshold{"open"}else{"closed"},"failures":failures,"open_until_ms":until,"probe_call":probe});
+            if let Some(policy)=quota::policy(&p["policy"])? {let timestamp=now(tx)?;view["quota"]=quota::usage(tx,&resource,policy,timestamp)?;if until>timestamp&&failures<threshold{view["state"]=json!("deferred");}view["execution_permission"]=json!(false);}
+            Ok(view)
+        }else{let mut view=json!({"resource_key":resource,"state":"closed","failures":0,"open_until_ms":0,"probe_call":null});if let Some(policy)=quota::policy(&p["policy"])?{let timestamp=now(tx)?;view["quota"]=quota::usage(tx,&resource,policy,timestamp)?;view["execution_permission"]=json!(false);}Ok(view)}
         }
         _ => remote_query(tx, op, p),
     }

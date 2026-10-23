@@ -1,5 +1,7 @@
 #![cfg(feature = "postgres-repository")]
 //! Real backend tests, deliberately opt-in: no mock can qualify PostgreSQL.
+#[path = "support/native_provider_cases.rs"]
+mod native_provider_cases;
 use mas_protocol_codec::{
     gateway::Gateway,
     postgres_repository::{AuthorityBinding, PostgresRepository},
@@ -487,6 +489,89 @@ fn prepare(repo: &mut PostgresRepository, key: &str, call: &str, amount: i64) {
 
 #[test]
 #[ignore = "requires MAS_TEST_POSTGRES_DSN and an actual PostgreSQL server"]
+fn native_typed_admission_never_turns_retained_receipt_into_dispatch() {
+    use mas_protocol_codec::shared_native::{NativeAdmission, NativeRejection};
+    let fixture = Fixture::new();
+    let mut repo = host_setup(&fixture);
+    prepare(&mut repo, "native-step", "native-call", 10);
+    let first=repo.admit_native_invocation("native-admit", "r", "owner-one", "native-call");
+    let NativeAdmission::FreshDispatch(permit)=first else { panic!("expected fresh admission: {first:?}"); };
+    assert_eq!(permit.run(), "r");
+    assert_eq!(permit.command_id(), "native-admit");
+    assert_eq!(permit.into_call_id(), "native-call");
+    assert!(matches!(repo.admit_native_invocation("native-admit", "r", "owner-one", "native-call"),NativeAdmission::Retained{..}));
+    assert!(matches!(repo.admit_native_invocation("replacement", "r", "owner-one", "native-call"),NativeAdmission::Retained{..}));
+    assert!(matches!(repo.admit_native_invocation("native-admit", "r", "owner-one", "other-call"),NativeAdmission::Rejected{code:NativeRejection::IdentityConflict}));
+    assert!(matches!(repo.admit_native_invocation("new-id", "r", "wrong-owner", "native-call"),NativeAdmission::Rejected{code:NativeRejection::StaleOwner}));
+    assert!(matches!(repo.admit_native_invocation("bad id", "r", "owner-one", "native-call"),NativeAdmission::Rejected{code:NativeRejection::InvalidIdentity}));
+    assert_eq!(repo.host_query("scope",&json!({"scope":"deployment"})).unwrap()["calls"],1);
+    drop(repo);
+    let mut reopened=fixture.open();
+    assert!(matches!(reopened.admit_native_invocation("native-admit", "r", "owner-one", "native-call"),NativeAdmission::Retained{..}));
+}
+
+#[test]
+#[ignore = "requires MAS_TEST_POSTGRES_DSN and an actual PostgreSQL server"]
+fn native_typed_admission_reconciles_lost_reply_without_dispatch() {
+    use mas_protocol_codec::shared_native::NativeAdmission;
+    let fixture=Fixture::new(); let mut repo=host_setup(&fixture);
+    prepare(&mut repo,"lost-step","lost-call",10);
+    // The caller loses this actual committed response.
+    repo.host_command("lost-command","admit_invocation",&json!({"run":"r","owner":"owner-one","call_id":"lost-call"})).unwrap();
+    assert!(matches!(repo.admit_native_invocation("lost-command","r","owner-one","lost-call"),NativeAdmission::Retained{..}));
+    let _next=repo.handover("controller-two").unwrap();
+    assert!(matches!(repo.admit_native_invocation("lost-command","r","owner-one","lost-call"),NativeAdmission::Uncertain{..}));
+}
+
+#[test]
+#[ignore = "requires MAS_TEST_POSTGRES_DSN and an actual PostgreSQL server"]
+fn observational_host_query_does_not_wait_for_authority_writer_or_expire_run() {
+    let fixture=Fixture::new(); let _repo=host_setup(&fixture);
+    let mut client=Client::connect(&fixture.dsn,NoTls).unwrap();
+    client.batch_execute("SET statement_timeout='500ms'").unwrap();
+    let repo=PostgresRepository::open(client,&fixture.schema,fixture.binding.clone()).unwrap();
+    let mut admin=fixture.admin();
+    admin.execute("UPDATE runs SET deadline=0,expired=false WHERE id='r'",&[]).unwrap();
+    let mut lock=admin.transaction().unwrap();
+    lock.query_one("SELECT epoch FROM authority WHERE singleton FOR UPDATE",&[]).unwrap();
+    assert_eq!(repo.host_query("scope",&json!({"scope":"deployment"})).unwrap()["calls"],0);
+    assert!(!lock.query_one("SELECT expired FROM runs WHERE id='r'",&[]).unwrap().get::<_,bool>(0));
+    lock.rollback().unwrap();
+}
+
+#[test]
+#[ignore = "requires MAS_TEST_POSTGRES_DSN and an actual PostgreSQL server"]
+fn scheduler_amendment_is_exact_replay_safe_and_preserves_occupied_allowances() {
+    use mas_protocol_codec::shared_scheduler::policy_digest;
+    let fixture=Fixture::new(); let mut repo=host_setup(&fixture);
+    repo.install_controller_repository().unwrap(); repo.install_service_repository().unwrap();
+    let before=json!({"max_workers":16,"max_per_principal":8,"workflows":{},"resources":{"github":2}});
+    repo.host_command("scheduler-initial","task.configure_scheduler",&json!({"policy":before})).unwrap();
+    let after=json!({"format":"mas-scheduler-policy/2","revision":1,"max_workers":512,"max_per_principal":256,"workflows":{},"resources":{"github":4}});
+    let p=json!({"expected_policy_digest":policy_digest(&before),"expected_revision":0,"policy":after,"reason":"qualified capacity increase","authoriser":"operator/alice"});
+    assert_eq!(repo.host_command("scheduler-amend","task.amend_scheduler",&p).unwrap()["replayed"],false);
+    assert_eq!(repo.host_command("scheduler-amend","task.amend_scheduler",&p).unwrap()["replayed"],true);
+    assert!(repo.host_command("scheduler-stale","task.amend_scheduler",&p).is_err());
+    assert_eq!(repo.host_query("task.scheduler",&json!({})).unwrap()["policy"],after);
+    let mut admin=fixture.admin();
+    for assignment in ["slot-a","slot-b"] {
+        admin.execute("INSERT INTO service_slots VALUES($1,'alice','sample',$2,'[\"github\"]','owner',1)",&[&assignment,&"a".repeat(64)]).unwrap();
+    }
+    let smaller=json!({"format":"mas-scheduler-policy/2","revision":2,"max_workers":1,"max_per_principal":1,"workflows":{},"resources":{"github":1}});
+    let p=json!({"expected_policy_digest":policy_digest(&after),"expected_revision":1,"policy":smaller,"reason":"too small","authoriser":"operator/alice"});
+    assert_eq!(repo.host_command("scheduler-lower","task.amend_scheduler",&p).unwrap()["receipt"]["occupied_at_amendment"],2);
+    let state=repo.host_query("task.scheduler",&json!({})).unwrap();
+    assert_eq!(state["policy"],smaller); assert_eq!(state["occupied"],2);
+    // Returning to the same capacity values has a distinct revision/digest.
+    let mut returned=after.clone(); returned["revision"]=json!(3);
+    let p=json!({"expected_policy_digest":policy_digest(&smaller),"expected_revision":2,"policy":returned,"reason":"return capacity","authoriser":"operator/alice"});
+    repo.host_command("scheduler-return","task.amend_scheduler",&p).unwrap();
+    let stale=json!({"expected_policy_digest":policy_digest(&after),"expected_revision":1,"policy":smaller,"reason":"stale before return","authoriser":"operator/alice"});
+    assert!(repo.host_command("scheduler-aba","task.amend_scheduler",&stale).is_err());
+}
+
+#[test]
+#[ignore = "requires MAS_TEST_POSTGRES_DSN and an actual PostgreSQL server"]
 fn shared_host_admission_and_known_observation_are_atomic_and_replay_safe() {
     let fixture = Fixture::new();
     let mut repo = host_setup(&fixture);
@@ -729,3 +814,231 @@ fn controller_drain_blocks_new_admission_but_retains_observation_and_audited_rec
         "resolved"
     );
 }
+
+#[test]
+#[ignore = "requires MAS_TEST_POSTGRES_DSN and an actual PostgreSQL server"]
+fn independent_native_callers_never_both_receive_fresh_dispatch() {
+    use mas_protocol_codec::shared_native::NativeAdmission;
+    for shared_command in [true, false] {
+        let fixture = Fixture::new();
+        let mut setup = host_setup(&fixture);
+        prepare(&mut setup, "race-step", "race-call", 10);
+        drop(setup);
+        let barrier = Arc::new(Barrier::new(3));
+        let mut callers = Vec::new();
+        for index in 0..2 {
+            let dsn = fixture.dsn.clone();
+            let schema = fixture.schema.clone();
+            let binding = fixture.binding.clone();
+            let barrier = Arc::clone(&barrier);
+            callers.push(std::thread::spawn(move || {
+                let mut repo = PostgresRepository::open(
+                    Client::connect(&dsn, NoTls).unwrap(), &schema, binding,
+                ).unwrap();
+                let command = if shared_command { "racing-command".into() }
+                    else { format!("racing-command-{index}") };
+                barrier.wait();
+                match repo.admit_native_invocation(&command, "r", "owner-one", "race-call") {
+                    NativeAdmission::FreshDispatch(permit) => {
+                        assert_eq!(permit.into_call_id(), "race-call");
+                        true
+                    }
+                    NativeAdmission::Retained { .. } => false,
+                    other => panic!("unexpected racing admission: {other:?}"),
+                }
+            }));
+        }
+        barrier.wait();
+        let fresh = callers.into_iter().map(|thread| thread.join().unwrap())
+            .filter(|fresh| *fresh).count();
+        assert_eq!(fresh, 1);
+        let repo = fixture.open();
+        assert_eq!(repo.host_query("scope", &json!({"scope":"deployment"})).unwrap()["calls"], 1);
+        let mut admin = fixture.admin();
+        let receipts: i64 = admin.query_one(
+            "SELECT count(*) FROM host_commands WHERE id LIKE 'racing-command%'", &[],
+        ).unwrap().get(0);
+        assert_eq!(receipts, 1);
+        assert_eq!(repo.host_query("invocation", &json!({"run":"r","call_id":"race-call"})).unwrap()["state"], "executing");
+    }
+}
+
+#[test]
+#[ignore = "requires MAS_TEST_POSTGRES_DSN and an actual PostgreSQL server"]
+fn typed_native_budget_refusals_issue_no_receipt_or_dispatch_charge() {
+    use mas_protocol_codec::shared_native::{NativeAdmission, NativeRejection};
+    for scope_exhausted in [true, false] {
+        let fixture = Fixture::new();
+        let mut repo = host_setup(&fixture);
+        prepare(&mut repo, "budget-step", "budget-call", if scope_exhausted { 101 } else { 10 });
+        let mut admin = fixture.admin();
+        if !scope_exhausted {
+            admin.execute("UPDATE runs SET call_count=(config::jsonb->>'max_calls')::bigint WHERE id='r'", &[]).unwrap();
+        }
+        let outcome = repo.admit_native_invocation("budget-refused", "r", "owner-one", "budget-call");
+        let expected = if scope_exhausted { NativeRejection::ScopeBudgetExceeded }
+            else { NativeRejection::CallBudgetExceeded };
+        assert!(matches!(outcome, NativeAdmission::Rejected { code } if code == expected));
+        assert_eq!(repo.host_query("scope", &json!({"scope":"deployment"})).unwrap()["calls"], 0);
+        assert_eq!(repo.host_query("invocation", &json!({"run":"r","call_id":"budget-call"})).unwrap()["state"], "prepared");
+        let receipts: i64 = admin.query_one("SELECT count(*) FROM host_commands WHERE id='budget-refused'", &[]).unwrap().get(0);
+        assert_eq!(receipts, 0);
+        // An unchanged refusal remains definite on the original identity.
+        assert!(matches!(repo.admit_native_invocation("budget-refused", "r", "owner-one", "budget-call"),
+            NativeAdmission::Rejected { code } if code == expected));
+    }
+}
+
+fn provider_setup(f: &Fixture, quota_index: bool) -> PostgresRepository {
+    let mut repo = f.open();
+    repo.install_host_repository().unwrap();
+    repo.install_controller_repository().unwrap();
+    repo.install_service_repository().unwrap();
+    if quota_index {
+        repo.install_provider_quota_index().unwrap();
+        repo.install_provider_quota_index().unwrap();
+    }
+    repo
+}
+fn provider_policy() -> Value {
+    json!({"format":"mas-provider-circuit/2","resource_key":"github/installation/fixture",
+        "failure_threshold":2,"open_seconds":10,"half_open_seconds":5,
+        "window_ms":86400000,"max_requests":1})
+}
+fn provider_admit(repo: &mut PostgresRepository, command: &str, call: &str, policy: &Value) -> Value {
+    repo.host_command(command, "circuit.admit", &json!({"policy":policy,"call_id":call})).unwrap()
+}
+
+#[test]
+#[ignore = "requires MAS_TEST_POSTGRES_DSN and an actual PostgreSQL server"]
+fn provider_quota_serialises_last_credit_and_retains_lost_reply() {
+    let fixture = Fixture::new();
+    let mut repo = provider_setup(&fixture, true);
+    let barrier = Arc::new(Barrier::new(2));
+    let mut workers = Vec::new();
+    for id in 0..2 {
+        let mut other = fixture.open();
+        let barrier = barrier.clone();
+        workers.push(std::thread::spawn(move || {
+            barrier.wait();
+            let key = format!("quota-race-{id}");
+            (key.clone(), provider_admit(&mut other, &key, &key, &provider_policy()))
+        }));
+    }
+    let replies: Vec<_> = workers.into_iter().map(|worker| worker.join().unwrap()).collect();
+    assert_eq!(replies.iter().filter(|(_, r)| r["replayed"] == false && r["receipt"]["fresh"] == true).count(), 1);
+    let (fresh_id, fresh) = replies.iter().find(|(_,r)|r["receipt"]["fresh"] == true).unwrap();
+    let replay = provider_admit(&mut repo, fresh_id, fresh_id, &provider_policy());
+    assert_eq!(replay["replayed"], true); // retained historical fresh receipt is not permission
+    assert_eq!(replay["receipt"], fresh["receipt"]);
+    let duplicate = provider_admit(&mut repo, "duplicate-command", fresh_id, &provider_policy());
+    assert_eq!(duplicate["receipt"]["fresh"], false);
+    assert_eq!(duplicate["receipt"]["disposition"], "retained");
+    // Unknown execution still holds its provider credit. Even a definite local
+    // abort releases no provider credit before the authoritative window resets.
+    repo.host_command("abort-provider-call", "circuit.observe", &json!({"policy":provider_policy(),"call_id":fresh_id,"category":"aborted"})).unwrap();
+    let blocked = provider_admit(&mut repo, "after-abort-command", "after-abort", &provider_policy());
+    assert_eq!(blocked["receipt"]["disposition"], "quota_deferred");
+    assert_eq!(blocked["receipt"]["quota"]["used_requests"], 1);
+    let mut changed = provider_policy(); changed["max_requests"] = json!(2);
+    assert!(repo.host_command("quota-reset", "circuit.admit", &json!({"policy":changed,"call_id":"reset-attempt"})).is_err());
+    assert_eq!(fixture.admin().query_one("SELECT count(*) FROM provider_permits", &[]).unwrap().get::<_, i64>(0), 1);
+}
+
+#[test]
+#[ignore = "requires MAS_TEST_POSTGRES_DSN and an actual PostgreSQL server"]
+fn provider_defer_is_monotone_and_expired_credit_preserves_identity() {
+    let fixture = Fixture::new();
+    let mut repo = provider_setup(&fixture, true);
+    let policy = provider_policy();
+    assert_eq!(provider_admit(&mut repo, "admit-provider", "original", &policy)["receipt"]["fresh"], true);
+    let now: i64 = fixture.admin().query_one("SELECT floor(extract(epoch FROM clock_timestamp())*1000)::bigint", &[]).unwrap().get(0);
+    let until = now + 3_600_000;
+    let defer = json!({"policy":policy,"call_id":"original","not_before_ms":until});
+    repo.host_command("retain-provider-delay", "circuit.defer", &defer).unwrap();
+    assert_eq!(repo.host_command("retain-provider-delay", "circuit.defer", &defer).unwrap()["replayed"], true);
+    assert!(repo.host_command("retain-provider-delay", "circuit.defer", &json!({"policy":policy,"call_id":"original","not_before_ms":0})).is_err());
+    repo.host_command("shorter-provider-delay", "circuit.defer", &json!({"policy":policy,"call_id":"original","not_before_ms":0})).unwrap();
+    repo.host_command("successful-provider-response", "circuit.observe", &json!({"policy":policy,"call_id":"original","category":"success"})).unwrap();
+    let status = repo.host_query("circuit.status", &json!({"policy":policy})).unwrap();
+    assert_eq!(status["open_until_ms"], until);
+    assert_eq!(status["state"], "deferred");
+    assert_eq!(status["execution_permission"], false);
+    assert!(repo.host_command("foreign-deferral", "circuit.defer", &json!({"policy":policy,"call_id":"unregistered","not_before_ms":until})).is_err());
+    // Controlled fixture ageing tests reset arithmetic without waiting or
+    // deleting retained original identities. It is not a database clock test.
+    fixture.admin().batch_execute("UPDATE provider_permits SET created_ms=0; UPDATE provider_circuits SET open_until_ms=0").unwrap();
+    assert_eq!(provider_admit(&mut repo, "after-window", "new-window-call", &policy)["receipt"]["fresh"], true);
+    assert_eq!(provider_admit(&mut repo, "aged-identity", "original", &policy)["receipt"]["fresh"], false);
+    assert_eq!(fixture.admin().query_one("SELECT count(*) FROM provider_permits", &[]).unwrap().get::<_, i64>(0), 2);
+    fixture.admin().execute("UPDATE provider_permits SET created_ms=$1 WHERE call_id='new-window-call'", &[&(now+86_400_000)]).unwrap();
+    assert!(repo.host_command("regressed-clock", "circuit.admit", &json!({"policy":policy,"call_id":"clock-regression"})).is_err());
+}
+
+#[test]
+#[ignore = "requires MAS_TEST_POSTGRES_DSN and an actual PostgreSQL server"]
+fn provider_quota_index_upgrade_guards_layout_and_v1_remains_compatible() {
+    let fixture = Fixture::new();
+    let mut repo = provider_setup(&fixture, false);
+    let v1 = json!({"format":"mas-provider-circuit/1","resource_key":"legacy/provider","failure_threshold":2,"open_seconds":10,"half_open_seconds":5});
+    assert_eq!(provider_admit(&mut repo, "legacy-provider", "legacy-call", &v1)["receipt"]["admitted"], true);
+    assert!(repo.host_command("requires-index", "circuit.admit", &json!({"policy":provider_policy(),"call_id":"quota-call"})).is_err());
+    let digest: String = fixture.admin().query_one("SELECT layout_digest FROM authority", &[]).unwrap().get(0);
+    fixture.admin().batch_execute("CREATE TABLE unexpected_drift(value bigint)").unwrap();
+    assert!(repo.install_provider_quota_index().is_err());
+    let mut admin = fixture.admin();
+    assert_eq!(admin.query_one("SELECT layout_digest FROM authority", &[]).unwrap().get::<_, String>(0), digest);
+    assert_eq!(admin.query_one("SELECT count(*) FROM pg_indexes WHERE schemaname=current_schema() AND indexname='provider_quota_window'", &[]).unwrap().get::<_, i64>(0), 0);
+    admin.batch_execute("DROP TABLE unexpected_drift").unwrap();
+    repo.install_provider_quota_index().unwrap();
+    assert_eq!(provider_admit(&mut repo, "now-qualified", "quota-call", &provider_policy())["receipt"]["fresh"], true);
+    assert_eq!(provider_admit(&mut repo, "legacy-duplicate", "legacy-call", &v1)["receipt"]["admitted"], true);
+}
+
+#[test]
+#[ignore = "requires MAS_TEST_POSTGRES_DSN and an actual PostgreSQL server"]
+fn typed_provider_permission_never_comes_from_replay_or_unknown_response() {
+    use mas_protocol_codec::shared_remote::ProviderAdmission;
+    let fixture = Fixture::new();
+    let mut repo = provider_setup(&fixture, true);
+    match repo.admit_provider_request("typed-provider", &provider_policy(), "typed-call") {
+        ProviderAdmission::FreshDispatch(permit) => {
+            assert_eq!(permit.resource(), "github/installation/fixture");
+            assert_eq!(permit.into_call_id(), "typed-call");
+        }
+        other => panic!("expected fresh typed permission, got {other:?}"),
+    }
+    assert!(matches!(repo.admit_provider_request("typed-provider", &provider_policy(), "typed-call"), ProviderAdmission::Retained));
+    assert!(matches!(repo.admit_provider_request("typed-duplicate", &provider_policy(), "typed-call"), ProviderAdmission::Retained));
+    assert!(matches!(repo.admit_provider_request("typed-deferred", &provider_policy(), "new-call"), ProviderAdmission::Deferred { .. }));
+    assert!(matches!(repo.admit_provider_request("typed-uncertain", &json!({}), "unbound-call"), ProviderAdmission::Uncertain { .. }));
+}
+
+#[test]
+#[ignore = "requires MAS_TEST_POSTGRES_DSN and an actual PostgreSQL server"]
+fn bounded_shared_task_status_uses_owned_record_without_payload_or_reconciliation() {
+    let fixture=Fixture::new();
+    let _installed=provider_setup(&fixture,false);
+    let mut client=Client::connect(&fixture.dsn,NoTls).unwrap();
+    client.batch_execute("SET statement_timeout='500ms'").unwrap();
+    let repo=PostgresRepository::open(client,&fixture.schema,fixture.binding.clone()).unwrap();
+    let mut admin=fixture.admin();
+    // Direct trusted fixture insertion isolates this observation contract from
+    // definition registration and scheduler setup, tested in the queue suite.
+    admin.execute("INSERT INTO service_tasks(id,principal,namespace,epoch,request_key,workflow,identity,state,input,metadata,result,created,updated) VALUES('status-task','alice','mas-unified/1','epoch-one','request','workflow',$1,'completed',$2,$3,$2,10,20)", &[&"a".repeat(64),&json!({"privatePayload":"x".repeat(65536)}).to_string(),&json!({"a2a_service":"b".repeat(64),"a2a_agent":"actor"}).to_string()]).unwrap();
+    let before: i64=admin.query_one("SELECT count(*) FROM host_commands",&[]).unwrap().get(0);
+    let mut lock=admin.transaction().unwrap();
+    lock.query_one("SELECT epoch FROM authority WHERE singleton FOR UPDATE",&[]).unwrap();
+    let status=repo.host_query("task.status",&json!({"principal":"alice","task":"status-task"})).unwrap();
+    assert_eq!(status["state"],"completed");
+    assert_eq!(status["updated_at"],20);
+    assert_eq!(status["output_retained"],true);
+    assert_eq!(status["execution_permission"],false);
+    assert!(status.get("input").is_none() && status.get("result").is_none() && status.to_string().len()<2048);
+    assert!(repo.host_query("task.status",&json!({"principal":"bob","task":"status-task"})).is_err());
+    lock.rollback().unwrap();
+    assert_eq!(admin.query_one("SELECT count(*) FROM host_commands",&[]).unwrap().get::<_,i64>(0),before);
+}
+
+#[path="support/queue_admission_cases.rs"]
+mod queue_admission_cases;

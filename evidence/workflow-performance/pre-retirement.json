@@ -1,0 +1,349 @@
+{
+  "schema": "workflow-retirement/1",
+  "baseline_revision": "2021477d052a19fb56ec91337d4e2e6c19228a55",
+  "run_id": 39920005618,
+  "url": "https://github.com/emmett08/mas/actions/runs/39920005618",
+  "observations": 1,
+  "reason": "User explicitly retired mas-reference-host from the supported qualification scope on 2026-10-23. No changes to that repository are part of this work.",
+  "measurement": "GitHub job timestamps, one-second resolution. Runner-seconds exclude queuing and do not represent billed minutes.",
+  "before": {
+    "workflow_files": 2,
+    "event_runs_per_pr": 1,
+    "jobs": 35,
+    "runner_seconds": 7733,
+    "elapsed_seconds": 859
+  },
+  "after_target": {
+    "workflow_files": 2,
+    "event_runs_per_pr": 1,
+    "jobs": 10,
+    "weekly_jobs": 1,
+    "required_contexts": [
+      "check",
+      "dependency-audit"
+    ]
+  },
+  "constraints": [
+    "Every native protocol, PostgreSQL, native-host, example and demo test command and consumer pin is retained.",
+    "The required check must require protocol, downstream, native-admission and a real RustSec dependency audit.",
+    "Remove obsolete Python/container qualification and associated image/Compose required contexts together. Preserve other repository protections.",
+    "Do not describe removed qualification work as a same-coverage timing optimisation."
+  ],
+  "jobs": [
+    {
+      "id": 120302675417,
+      "name": "protocol",
+      "conclusion": "success",
+      "started_at": "2026-10-23T07:46:17Z",
+      "completed_at": "2026-10-23T07:53:50Z",
+      "seconds": 453,
+      "retained": true
+    },
+    {
+      "id": 120302675469,
+      "name": "downstream / Examples (incident)",
+      "conclusion": "success",
+      "started_at": "2026-10-23T07:46:17Z",
+      "completed_at": "2026-10-23T07:51:19Z",
+      "seconds": 302,
+      "retained": true
+    },
+    {
+      "id": 120302675704,
+      "name": "downstream / demo",
+      "conclusion": "success",
+      "started_at": "2026-10-23T07:46:17Z",
+      "completed_at": "2026-10-23T07:48:00Z",
+      "seconds": 103,
+      "retained": true
+    },
+    {
+      "id": 120302675725,
+      "name": "native-admission",
+      "conclusion": "success",
+      "started_at": "2026-10-23T07:46:17Z",
+      "completed_at": "2026-10-23T07:47:22Z",
+      "seconds": 65,
+      "retained": true
+    },
+    {
+      "id": 120302676013,
+      "name": "downstream / Examples (applications)",
+      "conclusion": "success",
+      "started_at": "2026-10-23T07:46:17Z",
+      "completed_at": "2026-10-23T07:54:03Z",
+      "seconds": 466,
+      "retained": true
+    },
+    {
+      "id": 120302676029,
+      "name": "reference-clients / client (macos-15)",
+      "conclusion": "success",
+      "started_at": "2026-10-23T07:46:18Z",
+      "completed_at": "2026-10-23T07:47:09Z",
+      "seconds": 51,
+      "retained": false
+    },
+    {
+      "id": 120302676038,
+      "name": "downstream / Examples (interoperability)",
+      "conclusion": "success",
+      "started_at": "2026-10-23T07:46:17Z",
+      "completed_at": "2026-10-23T07:49:53Z",
+      "seconds": 216,
+      "retained": true
+    },
+    {
+      "id": 120302676048,
+      "name": "downstream / native-host",
+      "conclusion": "success",
+      "started_at": "2026-10-23T07:46:18Z",
+      "completed_at": "2026-10-23T07:51:39Z",
+      "seconds": 321,
+      "retained": true
+    },
+    {
+      "id": 120302676053,
+      "name": "reference-clients / client (windows-2025)",
+      "conclusion": "success",
+      "started_at": "2026-10-23T07:46:17Z",
+      "completed_at": "2026-10-23T07:46:56Z",
+      "seconds": 39,
+      "retained": false
+    },
+    {
+      "id": 120302676089,
+      "name": "reference-clients / client (ubuntu-24.04)",
+      "conclusion": "success",
+      "started_at": "2026-10-23T07:46:17Z",
+      "completed_at": "2026-10-23T07:46:34Z",
+      "seconds": 17,
+      "retained": false
+    },
+    {
+      "id": 120302676496,
+      "name": "reference-containment / real-linux-container",
+      "conclusion": "success",
+      "started_at": "2026-10-23T07:46:18Z",
+      "completed_at": "2026-10-23T07:47:39Z",
+      "seconds": 81,
+      "retained": false
+    },
+    {
+      "id": 120302676668,
+      "name": "reference-compose / native-host (ubuntu-24.04, amd64)",
+      "conclusion": "failure",
+      "started_at": "2026-10-23T07:46:17Z",
+      "completed_at": "2026-10-23T07:54:26Z",
+      "seconds": 489,
+      "retained": false
+    },
+    {
+      "id": 120302676735,
+      "name": "reference-compose / native-host (ubuntu-24.04-arm, arm64)",
+      "conclusion": "success",
+      "started_at": "2026-10-23T07:46:19Z",
+      "completed_at": "2026-10-23T07:54:27Z",
+      "seconds": 488,
+      "retained": false
+    },
+    {
+      "id": 120302676764,
+      "name": "reference-compose / cursor-container (ubuntu-24.04, amd64)",
+      "conclusion": "success",
+      "started_at": "2026-10-23T07:46:17Z",
+      "completed_at": "2026-10-23T07:52:41Z",
+      "seconds": 384,
+      "retained": false
+    },
+    {
+      "id": 120302676806,
+      "name": "reference-compose / standard-container (ubuntu-24.04, amd64)",
+      "conclusion": "success",
+      "started_at": "2026-10-23T07:46:18Z",
+      "completed_at": "2026-10-23T07:56:36Z",
+      "seconds": 618,
+      "retained": false
+    },
+    {
+      "id": 120302676816,
+      "name": "reference-compose / cursor-container (ubuntu-24.04-arm, arm64)",
+      "conclusion": "success",
+      "started_at": "2026-10-23T07:46:19Z",
+      "completed_at": "2026-10-23T07:51:43Z",
+      "seconds": 324,
+      "retained": false
+    },
+    {
+      "id": 120302676819,
+      "name": "reference-compose / standard-container (ubuntu-24.04-arm, arm64)",
+      "conclusion": "success",
+      "started_at": "2026-10-23T07:46:20Z",
+      "completed_at": "2026-10-23T07:53:54Z",
+      "seconds": 454,
+      "retained": false
+    },
+    {
+      "id": 120302676913,
+      "name": "reference-security / image-audit",
+      "conclusion": "failure",
+      "started_at": "2026-10-23T07:46:18Z",
+      "completed_at": "2026-10-23T07:50:35Z",
+      "seconds": 257,
+      "retained": false
+    },
+    {
+      "id": 120302676915,
+      "name": "reference-security / dependency-profiles",
+      "conclusion": "failure",
+      "started_at": "2026-10-23T07:46:17Z",
+      "completed_at": "2026-10-23T07:46:36Z",
+      "seconds": 19,
+      "retained": false
+    },
+    {
+      "id": 120302676940,
+      "name": "reference-machines / independent-kernels",
+      "conclusion": "success",
+      "started_at": "2026-10-23T07:46:17Z",
+      "completed_at": "2026-10-23T08:00:33Z",
+      "seconds": 856,
+      "retained": false
+    },
+    {
+      "id": 120302676953,
+      "name": "reference-postgres / Shared PostgreSQL tests (3)",
+      "conclusion": "success",
+      "started_at": "2026-10-23T07:46:18Z",
+      "completed_at": "2026-10-23T07:52:02Z",
+      "seconds": 344,
+      "retained": false
+    },
+    {
+      "id": 120302676968,
+      "name": "reference-postgres / Shared PostgreSQL tests (2)",
+      "conclusion": "success",
+      "started_at": "2026-10-23T07:46:17Z",
+      "completed_at": "2026-10-23T07:49:27Z",
+      "seconds": 190,
+      "retained": false
+    },
+    {
+      "id": 120302677007,
+      "name": "reference-postgres / Shared PostgreSQL tests (0)",
+      "conclusion": "success",
+      "started_at": "2026-10-23T07:46:17Z",
+      "completed_at": "2026-10-23T07:51:06Z",
+      "seconds": 289,
+      "retained": false
+    },
+    {
+      "id": 120302677083,
+      "name": "reference-host / dependency-audit",
+      "conclusion": "failure",
+      "started_at": "2026-10-23T07:46:17Z",
+      "completed_at": "2026-10-23T07:46:33Z",
+      "seconds": 16,
+      "retained": false
+    },
+    {
+      "id": 120302677114,
+      "name": "reference-postgres / Shared PostgreSQL tests (1)",
+      "conclusion": "success",
+      "started_at": "2026-10-23T07:46:17Z",
+      "completed_at": "2026-10-23T07:50:23Z",
+      "seconds": 246,
+      "retained": false
+    },
+    {
+      "id": 120302677130,
+      "name": "reference-host / reference-host",
+      "conclusion": "success",
+      "started_at": "2026-10-23T07:46:18Z",
+      "completed_at": "2026-10-23T07:56:35Z",
+      "seconds": 617,
+      "retained": false
+    },
+    {
+      "id": 120304251380,
+      "name": "dependency-audit",
+      "conclusion": "failure",
+      "started_at": "2026-10-23T07:50:37Z",
+      "completed_at": "2026-10-23T07:50:40Z",
+      "seconds": 3,
+      "retained": false
+    },
+    {
+      "id": 120304251446,
+      "name": "image-audit",
+      "conclusion": "failure",
+      "started_at": "2026-10-23T07:50:37Z",
+      "completed_at": "2026-10-23T07:50:40Z",
+      "seconds": 3,
+      "retained": false
+    },
+    {
+      "id": 120304780124,
+      "name": "reference-postgres / conformance",
+      "conclusion": "success",
+      "started_at": "2026-10-23T07:52:04Z",
+      "completed_at": "2026-10-23T07:52:07Z",
+      "seconds": 3,
+      "retained": false
+    },
+    {
+      "id": 120305521791,
+      "name": "downstream / examples",
+      "conclusion": "success",
+      "started_at": "2026-10-23T07:54:06Z",
+      "completed_at": "2026-10-23T07:54:10Z",
+      "seconds": 4,
+      "retained": true
+    },
+    {
+      "id": 120306475469,
+      "name": "check",
+      "conclusion": "failure",
+      "started_at": "2026-10-23T07:56:38Z",
+      "completed_at": "2026-10-23T07:56:41Z",
+      "seconds": 3,
+      "retained": false
+    },
+    {
+      "id": 120306480744,
+      "name": "reference-compose / host-and-compose (ubuntu-24.04-arm, arm64)",
+      "conclusion": "failure",
+      "started_at": "2026-10-23T07:56:41Z",
+      "completed_at": "2026-10-23T07:56:44Z",
+      "seconds": 3,
+      "retained": false
+    },
+    {
+      "id": 120306480776,
+      "name": "reference-compose / host-and-compose (ubuntu-24.04, amd64)",
+      "conclusion": "failure",
+      "started_at": "2026-10-23T07:56:38Z",
+      "completed_at": "2026-10-23T07:56:40Z",
+      "seconds": 2,
+      "retained": false
+    },
+    {
+      "id": 120306529114,
+      "name": "host-and-compose (ubuntu-24.04, amd64)",
+      "conclusion": "failure",
+      "started_at": "2026-10-23T07:56:46Z",
+      "completed_at": "2026-10-23T07:56:50Z",
+      "seconds": 4,
+      "retained": false
+    },
+    {
+      "id": 120306529180,
+      "name": "host-and-compose (ubuntu-24.04-arm, arm64)",
+      "conclusion": "failure",
+      "started_at": "2026-10-23T07:56:48Z",
+      "completed_at": "2026-10-23T07:56:51Z",
+      "seconds": 3,
+      "retained": false
+    }
+  ]
+}

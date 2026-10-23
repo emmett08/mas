@@ -1,7 +1,6 @@
 name: Downstream compatibility
 on:
   workflow_call:
-  workflow_dispatch:
 permissions:
   contents: read
 defaults:
@@ -26,16 +25,11 @@ jobs:
           ref: 71e40fe57521aa1048d001dff16c40379a3a3046
           path: .consumers/mas-host
           persist-credentials: false
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
+      - uses: ./.github/actions/toolchains
         with:
-          go-version: '1.24.0'
-          cache: false
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
-        with:
-          node-version: '22'
-          package-manager-cache: false
-      - name: Install pinned Rust
-        run: rustup toolchain install 1.99.0 --profile minimal --component rustfmt --component clippy
+          go: 'true'
+          node: 'true'
+          rust-components: rustfmt,clippy
       - uses: ./.github/actions/downstream-protocol
         with:
           directory: .consumers/mas-host
@@ -49,9 +43,16 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y spin
           python3 formal/verify.py
-  examples:
+  example-suite:
+    name: Examples (${{ matrix.suite }})
     runs-on: ubuntu-24.04
     timeout-minutes: 30
+    # Each suite gets its own checkout because the consumer's Makefile shares
+    # generated worker directories and explicitly forbids parallel make targets.
+    strategy:
+      fail-fast: false
+      matrix:
+        suite: [applications, interoperability, incident]
     env:
       CARGO_HOME: ${{ github.workspace }}/.candidate-cargo
     defaults:
@@ -67,16 +68,11 @@ jobs:
           ref: 6899cceb6314e0191070d6f5a0ae8d4100b4c6a0
           path: .consumers/examples
           persist-credentials: false
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
+      - uses: ./.github/actions/toolchains
         with:
-          go-version: '1.24.0'
-          cache: false
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
-        with:
-          node-version: '22'
-          package-manager-cache: false
-      - name: Install pinned Rust
-        run: rustup toolchain install 1.99.0 --profile minimal --component rustfmt --component clippy
+          go: ${{ matrix.suite != 'incident' }}
+          node: ${{ matrix.suite == 'interoperability' }}
+          rust-components: ${{ matrix.suite == 'applications' && 'rustfmt,clippy' || '' }}
       - name: Read the example repository's unchanged host pin
         id: host
         run: |
@@ -95,16 +91,19 @@ jobs:
       - name: Build host with only the protocol dependency overridden
         run: cargo build --locked --manifest-path .tools/mas-host/Cargo.toml --target-dir .tools/mas-host/target -p mas-host
       - name: Application acceptance and documented commands
+        if: ${{ matrix.suite == 'applications' }}
         run: |
           make verify
           make go rust cpp python python-client command star tree mesh composed
           make a2a
       - name: Official A2A SDK interoperability
+        if: ${{ matrix.suite == 'interoperability' }}
         run: |
           python3 -m venv .tools/a2a-sdk
           .tools/a2a-sdk/bin/python -m pip install -r examples/a2a-review/requirements-sdk.txt
           .tools/a2a-sdk/bin/python examples/a2a-review/sdk_check.py --report .state/a2a-review/official-sdk.json
       - name: Mixed-agent protocol and assessment conformance
+        if: ${{ matrix.suite == 'interoperability' }}
         working-directory: .consumers/examples/examples/k3s-live
         env:
           MAS_HOST_BIN: ${{ github.workspace }}/.consumers/examples/.tools/mas-host/target/debug/mas-host
@@ -113,6 +112,7 @@ jobs:
           npm ci --ignore-scripts
           npm run test:host
       - name: Check frozen incident experiment and run the credential-free rehearsal
+        if: ${{ matrix.suite == 'incident' }}
         run: |
           python3 -m unittest discover -s experiments/incident-revision -p 'test_*.py'
           python3 experiments/incident-revision/run.py freeze --out .state/incident-pilot --host .tools/mas-host/target/debug/mas-host --sdk .tools/mas-host --mode fixture
@@ -134,6 +134,16 @@ jobs:
           assert result['incident_count'] == 12 and result['independent_families'] == 6, 'Incomplete incident coverage'
           print('Verified 108 complete fixture arms and 324 provider effects.')
           PYTHON
+  examples:
+    if: ${{ always() }}
+    needs: example-suite
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Require every examples suite
+        env:
+          RESULT: ${{ needs.example-suite.result }}
+        run: test "$RESULT" = success
   demo:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
@@ -152,16 +162,10 @@ jobs:
           ref: 4e0d2f6ff8a9cd20c75f9ae18e0d0bbe4c89b96d
           path: .consumers/demo
           persist-credentials: false
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
+      - uses: ./.github/actions/toolchains
         with:
-          go-version: '1.24.0'
-          cache: false
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
-        with:
-          node-version: '22'
-          package-manager-cache: false
-      - name: Install pinned Rust
-        run: rustup toolchain install 1.99.0 --profile minimal --component rustfmt --component clippy
+          go: 'true'
+          node: 'true'
       - name: Build candidate protocol CLI
         run: |
           cargo build --release --locked --manifest-path "$GITHUB_WORKSPACE/rust-protocol/Cargo.toml" --bin mas

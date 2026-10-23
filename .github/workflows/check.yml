@@ -5,20 +5,23 @@ on:
   pull_request:
   workflow_dispatch:
   workflow_call:
+  schedule:
+    - cron: '17 6 * * 1'
 concurrency:
-  group: protocol-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  group: protocol-${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 permissions:
   contents: read
 jobs:
   protocol:
+    if: &full-suite ${{ github.event_name != 'schedule' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: Install pinned Rust and SPIN
+      - uses: ./.github/actions/toolchains
+      - name: Install SPIN
         run: |
-          rustup toolchain install 1.99.0 --profile minimal
           sudo apt-get update
           sudo apt-get install -y spin
       - name: Native tests and build
@@ -27,6 +30,10 @@ jobs:
           cargo build --release --locked --manifest-path rust-protocol/Cargo.toml
       - name: SPIN simulations and verification
         run: ./rust-protocol/target/release/verify
+      - name: Native dispatch and scheduler finite safety
+        run: python3 formal/verify-native-dispatch.py
+      - name: Provider quota finite safety
+        run: python3 formal/verify-provider-quota.py
       - name: Executable examples
         run: make examples
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -37,24 +44,63 @@ jobs:
             formal/evidence
             evidence/examples
   downstream:
+    if: *full-suite
     uses: ./.github/workflows/downstream.yml
-  check:
-    if: ${{ always() }}
-    needs: [protocol, downstream, reference-host]
+  native-admission:
+    if: *full-suite
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16.15
+        env:
+          POSTGRES_PASSWORD: fixture-password
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready --health-interval 5s
+          --health-timeout 5s --health-retries 10
+    env:
+      MAS_TEST_POSTGRES_DSN: host=localhost user=postgres password=fixture-password dbname=postgres
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: ./.github/actions/toolchains
+      - name: Exercise actual PostgreSQL authority and native admission
+        run: cargo test --locked --manifest-path rust-protocol/Cargo.toml --features postgres-repository --test postgres_repository -- --ignored --test-threads=2
+  dependency-audit:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
-      - name: Require protocol and downstream compatibility
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Install checksum-verified RustSec auditor
+        run: |
+          version=0.22.2
+          archive="$RUNNER_TEMP/cargo-audit.tgz"
+          curl --silent --show-error --fail --location --retry 3 --output "$archive" \
+            "https://github.com/rustsec/rustsec/releases/download/cargo-audit/v$version/cargo-audit-x86_64-unknown-linux-gnu-v$version.tgz"
+          printf '%s  %s\n' ab28a1bdb54db4d5d8ad5981cf1f959410370b3d28250dbd35f6a44248620e39 "$archive" | sha256sum --check -
+          tar --no-same-owner -xzf "$archive" -C "$RUNNER_TEMP" \
+            "cargo-audit-x86_64-unknown-linux-gnu-v$version/cargo-audit"
+          echo "$RUNNER_TEMP/cargo-audit-x86_64-unknown-linux-gnu-v$version" >> "$GITHUB_PATH"
+      - name: Audit every locked protocol dependency
+        run: |
+          cargo-audit --version
+          cargo-audit audit --file rust-protocol/Cargo.lock
+  check:
+    if: ${{ always() && github.event_name != 'schedule' }}
+    needs: [protocol, downstream, native-admission, dependency-audit]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Require protocol, consumers, PostgreSQL admission and security
         env:
           PROTOCOL_RESULT: ${{ needs.protocol.result }}
           DOWNSTREAM_RESULT: ${{ needs.downstream.result }}
-          REFERENCE_RESULT: ${{ needs.reference-host.result }}
+          ADMISSION_RESULT: ${{ needs.native-admission.result }}
+          AUDIT_RESULT: ${{ needs.dependency-audit.result }}
         run: |
           test "$PROTOCOL_RESULT" = success
           test "$DOWNSTREAM_RESULT" = success
-          test "$REFERENCE_RESULT" = success
-  reference-host:
-    uses: emmett08/mas-reference-host/.github/workflows/check.yml@11351c72675732214ee29c2b7c18755bcd5071f6
-    with:
-      reference_host_ref: 11351c72675732214ee29c2b7c18755bcd5071f6
-      protocol_ref: ${{ github.sha }}
+          test "$ADMISSION_RESULT" = success
+          test "$AUDIT_RESULT" = success

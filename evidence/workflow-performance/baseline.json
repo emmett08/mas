@@ -1,0 +1,820 @@
+{
+  "schema": "workflow-performance/1",
+  "baseline_revision": "e1257fb7125cdc971d94e38221c5185818bb577d",
+  "observations_per_workflow": 1,
+  "measurement": "GitHub job/step timestamps rounded to seconds; queue time excluded from job durations",
+  "warmup": "Fresh hosted runners. No added caching.",
+  "objective": {
+    "primary": "Reduce downstream examples elapsed time by at least 20%",
+    "constraint": "Keep all prior commands, immutable consumer pins, candidate dependency verification and required gates. Target no more than 15% additional examples runner-seconds.",
+    "secondary": "Cancel all superseded PR work while retaining each push, dispatch and scheduled invocation."
+  },
+  "workflows": [
+    {
+      "name": "Protocol checks",
+      "run_id": 39870744062,
+      "url": "https://github.com/emmett08/mas/actions/runs/39870744062",
+      "conclusion": "failure",
+      "created_at": "2026-10-22T23:16:58Z",
+      "completed_at": "2026-10-22T23:37:51Z",
+      "elapsed_seconds": 1253,
+      "referenced_workflows": [
+        {
+          "path": "emmett08/mas-reference-host/.github/workflows/check.yml@11351c72675732214ee29c2b7c18755bcd5071f6",
+          "sha": "11351c72675732214ee29c2b7c18755bcd5071f6"
+        },
+        {
+          "path": "emmett08/mas/.github/workflows/downstream.yml@5dc5baed955257235460d1705c8111f9fadef4e8",
+          "sha": "5dc5baed955257235460d1705c8111f9fadef4e8",
+          "ref": "refs/pull/55/merge"
+        }
+      ],
+      "jobs": [
+        {
+          "name": "protocol",
+          "id": 120144460166,
+          "conclusion": "success",
+          "runner_labels": [
+            "ubuntu-24.04"
+          ],
+          "started_at": "2026-10-22T23:17:35Z",
+          "completed_at": "2026-10-22T23:29:26Z",
+          "seconds": 711,
+          "steps": [
+            {
+              "name": "Install pinned Rust and SPIN",
+              "conclusion": "success",
+              "seconds": 17
+            },
+            {
+              "name": "Native tests and build",
+              "conclusion": "success",
+              "seconds": 74
+            },
+            {
+              "name": "SPIN simulations and verification",
+              "conclusion": "success",
+              "seconds": 595
+            }
+          ]
+        },
+        {
+          "name": "downstream / demo",
+          "id": 120144460221,
+          "conclusion": "success",
+          "runner_labels": [
+            "ubuntu-24.04"
+          ],
+          "started_at": "2026-10-22T23:17:35Z",
+          "completed_at": "2026-10-22T23:19:12Z",
+          "seconds": 97,
+          "steps": [
+            {
+              "name": "Build candidate protocol CLI",
+              "conclusion": "success",
+              "seconds": 47
+            },
+            {
+              "name": "Validate Go and real MAS integration",
+              "conclusion": "success",
+              "seconds": 19
+            }
+          ]
+        },
+        {
+          "name": "reference-host / dependency-audit",
+          "id": 120144460233,
+          "conclusion": "failure",
+          "runner_labels": [
+            "ubuntu-24.04"
+          ],
+          "started_at": "2026-10-22T23:17:35Z",
+          "completed_at": "2026-10-22T23:18:11Z",
+          "seconds": 36,
+          "steps": [
+            {
+              "name": "Audit all locked dependency profiles",
+              "conclusion": "failure",
+              "seconds": 28
+            }
+          ]
+        },
+        {
+          "name": "downstream / native-host",
+          "id": 120144460282,
+          "conclusion": "success",
+          "runner_labels": [
+            "ubuntu-24.04"
+          ],
+          "started_at": "2026-10-22T23:17:35Z",
+          "completed_at": "2026-10-22T23:23:18Z",
+          "seconds": 343,
+          "steps": [
+            {
+              "name": "Native host, SDKs and effect recovery against candidate protocol",
+              "conclusion": "success",
+              "seconds": 270
+            },
+            {
+              "name": "Check bounded revision and disclosure",
+              "conclusion": "success",
+              "seconds": 44
+            }
+          ]
+        },
+        {
+          "name": "reference-host / reference-host",
+          "id": 120144460324,
+          "conclusion": "success",
+          "runner_labels": [
+            "ubuntu-24.04"
+          ],
+          "started_at": "2026-10-22T23:17:35Z",
+          "completed_at": "2026-10-22T23:31:07Z",
+          "seconds": 812,
+          "steps": [
+            {
+              "name": "Initialize containers",
+              "conclusion": "success",
+              "seconds": 21
+            },
+            {
+              "name": "Build external protocol binaries",
+              "conclusion": "success",
+              "seconds": 96
+            },
+            {
+              "name": "Install locked reference host",
+              "conclusion": "success",
+              "seconds": 17
+            },
+            {
+              "name": "Test reference host and extraction",
+              "conclusion": "success",
+              "seconds": 669
+            }
+          ]
+        },
+        {
+          "name": "downstream / examples",
+          "id": 120144460666,
+          "conclusion": "success",
+          "runner_labels": [
+            "ubuntu-24.04"
+          ],
+          "started_at": "2026-10-22T23:17:35Z",
+          "completed_at": "2026-10-22T23:37:46Z",
+          "seconds": 1211,
+          "steps": [
+            {
+              "name": "Build host with only the protocol dependency overridden",
+              "conclusion": "success",
+              "seconds": 18
+            },
+            {
+              "name": "Application acceptance and documented commands",
+              "conclusion": "success",
+              "seconds": 410
+            },
+            {
+              "name": "Official A2A SDK interoperability",
+              "conclusion": "success",
+              "seconds": 25
+            },
+            {
+              "name": "Mixed-agent protocol and assessment conformance",
+              "conclusion": "success",
+              "seconds": 274
+            },
+            {
+              "name": "Check frozen incident experiment and run the credential-free rehearsal",
+              "conclusion": "success",
+              "seconds": 457
+            }
+          ]
+        },
+        {
+          "name": "check",
+          "id": 120151845368,
+          "conclusion": "failure",
+          "runner_labels": [
+            "ubuntu-24.04"
+          ],
+          "started_at": "2026-10-22T23:37:48Z",
+          "completed_at": "2026-10-22T23:37:50Z",
+          "seconds": 2,
+          "steps": []
+        }
+      ]
+    },
+    {
+      "name": "Portable client checks",
+      "run_id": 39870744030,
+      "url": "https://github.com/emmett08/mas/actions/runs/39870744030",
+      "conclusion": "success",
+      "created_at": "2026-10-22T23:16:58Z",
+      "completed_at": "2026-10-22T23:18:02Z",
+      "elapsed_seconds": 64,
+      "referenced_workflows": [
+        {
+          "path": "emmett08/mas-reference-host/.github/workflows/clients.yml@11351c72675732214ee29c2b7c18755bcd5071f6",
+          "sha": "11351c72675732214ee29c2b7c18755bcd5071f6"
+        }
+      ],
+      "jobs": [
+        {
+          "name": "reference / client (windows-2025)",
+          "id": 120144246375,
+          "conclusion": "success",
+          "runner_labels": [
+            "windows-2025"
+          ],
+          "started_at": "2026-10-22T23:17:01Z",
+          "completed_at": "2026-10-22T23:17:41Z",
+          "seconds": 40,
+          "steps": [
+            {
+              "name": "Install exact locked build tools and client",
+              "conclusion": "success",
+              "seconds": 12
+            }
+          ]
+        },
+        {
+          "name": "reference / client (ubuntu-24.04)",
+          "id": 120144246395,
+          "conclusion": "success",
+          "runner_labels": [
+            "ubuntu-24.04"
+          ],
+          "started_at": "2026-10-22T23:17:01Z",
+          "completed_at": "2026-10-22T23:17:19Z",
+          "seconds": 18,
+          "steps": []
+        },
+        {
+          "name": "reference / client (macos-15)",
+          "id": 120144246622,
+          "conclusion": "success",
+          "runner_labels": [
+            "macos-15"
+          ],
+          "started_at": "2026-10-22T23:17:03Z",
+          "completed_at": "2026-10-22T23:18:01Z",
+          "seconds": 58,
+          "steps": [
+            {
+              "name": "Run native HTTP client and command-line conformance",
+              "conclusion": "success",
+              "seconds": 39
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "PostgreSQL protocol repository",
+      "run_id": 39870744024,
+      "url": "https://github.com/emmett08/mas/actions/runs/39870744024",
+      "conclusion": "success",
+      "created_at": "2026-10-22T23:16:58Z",
+      "completed_at": "2026-10-22T23:22:11Z",
+      "elapsed_seconds": 313,
+      "referenced_workflows": [
+        {
+          "path": "emmett08/mas-reference-host/.github/workflows/postgres.yml@11351c72675732214ee29c2b7c18755bcd5071f6",
+          "sha": "11351c72675732214ee29c2b7c18755bcd5071f6"
+        }
+      ],
+      "jobs": [
+        {
+          "name": "native-admission",
+          "id": 120144246242,
+          "conclusion": "success",
+          "runner_labels": [
+            "ubuntu-24.04"
+          ],
+          "started_at": "2026-10-22T23:17:00Z",
+          "completed_at": "2026-10-22T23:18:13Z",
+          "seconds": 73,
+          "steps": [
+            {
+              "name": "Initialize containers",
+              "conclusion": "success",
+              "seconds": 19
+            },
+            {
+              "name": "Exercise actual PostgreSQL authority and native admission",
+              "conclusion": "success",
+              "seconds": 39
+            }
+          ]
+        },
+        {
+          "name": "reference / Shared PostgreSQL tests (0)",
+          "id": 120144246536,
+          "conclusion": "success",
+          "runner_labels": [
+            "ubuntu-24.04"
+          ],
+          "started_at": "2026-10-22T23:17:01Z",
+          "completed_at": "2026-10-22T23:22:06Z",
+          "seconds": 305,
+          "steps": [
+            {
+              "name": "Initialize containers",
+              "conclusion": "success",
+              "seconds": 13
+            },
+            {
+              "name": "Existing native contracts with shared backend compiled",
+              "conclusion": "success",
+              "seconds": 42
+            },
+            {
+              "name": "Real PostgreSQL conformance and fault boundaries",
+              "conclusion": "success",
+              "seconds": 12
+            },
+            {
+              "name": "Run the Python runner against shared Rust and PostgreSQL authority",
+              "conclusion": "success",
+              "seconds": 195
+            }
+          ]
+        },
+        {
+          "name": "reference / Shared PostgreSQL tests (3)",
+          "id": 120144246883,
+          "conclusion": "success",
+          "runner_labels": [
+            "ubuntu-24.04"
+          ],
+          "started_at": "2026-10-22T23:17:01Z",
+          "completed_at": "2026-10-22T23:21:58Z",
+          "seconds": 297,
+          "steps": [
+            {
+              "name": "Initialize containers",
+              "conclusion": "success",
+              "seconds": 19
+            },
+            {
+              "name": "Build the shared host command channel",
+              "conclusion": "success",
+              "seconds": 21
+            },
+            {
+              "name": "Run the Python runner against shared Rust and PostgreSQL authority",
+              "conclusion": "success",
+              "seconds": 232
+            }
+          ]
+        },
+        {
+          "name": "reference / Shared PostgreSQL tests (2)",
+          "id": 120144246925,
+          "conclusion": "success",
+          "runner_labels": [
+            "ubuntu-24.04"
+          ],
+          "started_at": "2026-10-22T23:17:00Z",
+          "completed_at": "2026-10-22T23:20:54Z",
+          "seconds": 234,
+          "steps": [
+            {
+              "name": "Initialize containers",
+              "conclusion": "success",
+              "seconds": 22
+            },
+            {
+              "name": "Build the shared host command channel",
+              "conclusion": "success",
+              "seconds": 43
+            },
+            {
+              "name": "Run the Python runner against shared Rust and PostgreSQL authority",
+              "conclusion": "success",
+              "seconds": 145
+            }
+          ]
+        },
+        {
+          "name": "reference / Shared PostgreSQL tests (1)",
+          "id": 120144246995,
+          "conclusion": "success",
+          "runner_labels": [
+            "ubuntu-24.04"
+          ],
+          "started_at": "2026-10-22T23:17:01Z",
+          "completed_at": "2026-10-22T23:21:13Z",
+          "seconds": 252,
+          "steps": [
+            {
+              "name": "Initialize containers",
+              "conclusion": "success",
+              "seconds": 14
+            },
+            {
+              "name": "Build the shared host command channel",
+              "conclusion": "success",
+              "seconds": 43
+            },
+            {
+              "name": "Run the Python runner against shared Rust and PostgreSQL authority",
+              "conclusion": "success",
+              "seconds": 170
+            }
+          ]
+        },
+        {
+          "name": "reference / conformance",
+          "id": 120146120987,
+          "conclusion": "success",
+          "runner_labels": [
+            "ubuntu-24.04"
+          ],
+          "started_at": "2026-10-22T23:22:08Z",
+          "completed_at": "2026-10-22T23:22:10Z",
+          "seconds": 2,
+          "steps": []
+        }
+      ]
+    },
+    {
+      "name": "Dependency and image security",
+      "run_id": 39870743926,
+      "url": "https://github.com/emmett08/mas/actions/runs/39870743926",
+      "conclusion": "failure",
+      "created_at": "2026-10-22T23:16:58Z",
+      "completed_at": "2026-10-22T23:20:39Z",
+      "elapsed_seconds": 221,
+      "referenced_workflows": [
+        {
+          "path": "emmett08/mas-reference-host/.github/workflows/security.yml@11351c72675732214ee29c2b7c18755bcd5071f6",
+          "sha": "11351c72675732214ee29c2b7c18755bcd5071f6"
+        }
+      ],
+      "jobs": [
+        {
+          "name": "reference / image-audit",
+          "id": 120144246490,
+          "conclusion": "failure",
+          "runner_labels": [
+            "ubuntu-24.04"
+          ],
+          "started_at": "2026-10-22T23:17:00Z",
+          "completed_at": "2026-10-22T23:20:32Z",
+          "seconds": 212,
+          "steps": [
+            {
+              "name": "Build pinned image",
+              "conclusion": "success",
+              "seconds": 127
+            },
+            {
+              "name": "Scan image including unfixed high and critical advisories",
+              "conclusion": "success",
+              "seconds": 20
+            },
+            {
+              "name": "Produce complete image SBOM",
+              "conclusion": "success",
+              "seconds": 15
+            },
+            {
+              "name": "Scan optional Cursor image including native bridge dependencies",
+              "conclusion": "failure",
+              "seconds": 19
+            },
+            {
+              "name": "Produce optional Cursor image SBOM",
+              "conclusion": "success",
+              "seconds": 17
+            }
+          ]
+        },
+        {
+          "name": "reference / dependency-profiles",
+          "id": 120144246801,
+          "conclusion": "failure",
+          "runner_labels": [
+            "ubuntu-24.04"
+          ],
+          "started_at": "2026-10-22T23:17:00Z",
+          "completed_at": "2026-10-22T23:17:23Z",
+          "seconds": 23,
+          "steps": []
+        },
+        {
+          "name": "dependency-audit",
+          "id": 120145558533,
+          "conclusion": "failure",
+          "runner_labels": [
+            "ubuntu-24.04"
+          ],
+          "started_at": "2026-10-22T23:20:34Z",
+          "completed_at": "2026-10-22T23:20:37Z",
+          "seconds": 3,
+          "steps": []
+        },
+        {
+          "name": "image-audit",
+          "id": 120145558705,
+          "conclusion": "failure",
+          "runner_labels": [
+            "ubuntu-24.04"
+          ],
+          "started_at": "2026-10-22T23:20:34Z",
+          "completed_at": "2026-10-22T23:20:38Z",
+          "seconds": 4,
+          "steps": []
+        }
+      ]
+    },
+    {
+      "name": "Workspace containment qualification",
+      "run_id": 39870743923,
+      "url": "https://github.com/emmett08/mas/actions/runs/39870743923",
+      "conclusion": "success",
+      "created_at": "2026-10-22T23:16:58Z",
+      "completed_at": "2026-10-22T23:18:05Z",
+      "elapsed_seconds": 67,
+      "referenced_workflows": [
+        {
+          "path": "emmett08/mas-reference-host/.github/workflows/workspace-containment.yml@11351c72675732214ee29c2b7c18755bcd5071f6",
+          "sha": "11351c72675732214ee29c2b7c18755bcd5071f6"
+        }
+      ],
+      "jobs": [
+        {
+          "name": "reference / real-linux-container",
+          "id": 120144250636,
+          "conclusion": "success",
+          "runner_labels": [
+            "ubuntu-24.04"
+          ],
+          "started_at": "2026-10-22T23:17:01Z",
+          "completed_at": "2026-10-22T23:18:04Z",
+          "seconds": 63,
+          "steps": [
+            {
+              "name": "Install pinned Rust and build protocol binaries",
+              "conclusion": "success",
+              "seconds": 46
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Independent machine worker qualification",
+      "run_id": 39870743902,
+      "url": "https://github.com/emmett08/mas/actions/runs/39870743902",
+      "conclusion": "success",
+      "created_at": "2026-10-22T23:16:58Z",
+      "completed_at": "2026-10-22T23:33:53Z",
+      "elapsed_seconds": 1015,
+      "referenced_workflows": [
+        {
+          "path": "emmett08/mas-reference-host/.github/workflows/multimachine.yml@11351c72675732214ee29c2b7c18755bcd5071f6",
+          "sha": "11351c72675732214ee29c2b7c18755bcd5071f6"
+        }
+      ],
+      "jobs": [
+        {
+          "name": "reference / independent-kernels",
+          "id": 120144246188,
+          "conclusion": "success",
+          "runner_labels": [
+            "ubuntu-24.04"
+          ],
+          "started_at": "2026-10-22T23:17:29Z",
+          "completed_at": "2026-10-22T23:33:52Z",
+          "seconds": 983,
+          "steps": [
+            {
+              "name": "Install unprivileged VM prerequisites and pinned Rust",
+              "conclusion": "success",
+              "seconds": 104
+            },
+            {
+              "name": "Exercise real VM network, process, spool and artifact failures",
+              "conclusion": "success",
+              "seconds": 864
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Host and Compose checks",
+      "run_id": 39870743897,
+      "url": "https://github.com/emmett08/mas/actions/runs/39870743897",
+      "conclusion": "failure",
+      "created_at": "2026-10-22T23:16:58Z",
+      "completed_at": "2026-10-22T23:26:08Z",
+      "elapsed_seconds": 550,
+      "referenced_workflows": [
+        {
+          "path": "emmett08/mas-reference-host/.github/workflows/compose.yml@11351c72675732214ee29c2b7c18755bcd5071f6",
+          "sha": "11351c72675732214ee29c2b7c18755bcd5071f6"
+        }
+      ],
+      "jobs": [
+        {
+          "name": "reference / native-host (ubuntu-24.04-arm, arm64)",
+          "id": 120144246476,
+          "conclusion": "success",
+          "runner_labels": [
+            "ubuntu-24.04-arm"
+          ],
+          "started_at": "2026-10-22T23:17:46Z",
+          "completed_at": "2026-10-22T23:25:53Z",
+          "seconds": 487,
+          "steps": [
+            {
+              "name": "Build Rust host binaries",
+              "conclusion": "success",
+              "seconds": 70
+            },
+            {
+              "name": "Install host and test without API calls",
+              "conclusion": "success",
+              "seconds": 243
+            },
+            {
+              "name": "Test installed orchestrator SDKs and real Temporal server",
+              "conclusion": "success",
+              "seconds": 163
+            }
+          ]
+        },
+        {
+          "name": "reference / standard-container (ubuntu-24.04-arm, arm64)",
+          "id": 120144246648,
+          "conclusion": "success",
+          "runner_labels": [
+            "ubuntu-24.04-arm"
+          ],
+          "started_at": "2026-10-22T23:17:47Z",
+          "completed_at": "2026-10-22T23:25:05Z",
+          "seconds": 438,
+          "steps": [
+            {
+              "name": "Build and run mock mesh in Docker",
+              "conclusion": "success",
+              "seconds": 46
+            },
+            {
+              "name": "Test installed musl runtime and shared libraries",
+              "conclusion": "success",
+              "seconds": 350
+            },
+            {
+              "name": "Exercise supervised bridge deployment and restart recovery",
+              "conclusion": "success",
+              "seconds": 15
+            }
+          ]
+        },
+        {
+          "name": "reference / cursor-container (ubuntu-24.04, amd64)",
+          "id": 120144246733,
+          "conclusion": "success",
+          "runner_labels": [
+            "ubuntu-24.04"
+          ],
+          "started_at": "2026-10-22T23:17:44Z",
+          "completed_at": "2026-10-22T23:23:45Z",
+          "seconds": 361,
+          "steps": [
+            {
+              "name": "Build optional Cursor runtime and test without network or API calls",
+              "conclusion": "success",
+              "seconds": 352
+            }
+          ]
+        },
+        {
+          "name": "reference / standard-container (ubuntu-24.04, amd64)",
+          "id": 120144246752,
+          "conclusion": "success",
+          "runner_labels": [
+            "ubuntu-24.04"
+          ],
+          "started_at": "2026-10-22T23:17:44Z",
+          "completed_at": "2026-10-22T23:25:53Z",
+          "seconds": 489,
+          "steps": [
+            {
+              "name": "Build and run mock mesh in Docker",
+              "conclusion": "success",
+              "seconds": 57
+            },
+            {
+              "name": "Test installed musl runtime and shared libraries",
+              "conclusion": "success",
+              "seconds": 378
+            },
+            {
+              "name": "Exercise supervised bridge deployment and restart recovery",
+              "conclusion": "success",
+              "seconds": 16
+            }
+          ]
+        },
+        {
+          "name": "reference / cursor-container (ubuntu-24.04-arm, arm64)",
+          "id": 120144246866,
+          "conclusion": "success",
+          "runner_labels": [
+            "ubuntu-24.04-arm"
+          ],
+          "started_at": "2026-10-22T23:17:46Z",
+          "completed_at": "2026-10-22T23:23:10Z",
+          "seconds": 324,
+          "steps": [
+            {
+              "name": "Build optional Cursor runtime and test without network or API calls",
+              "conclusion": "success",
+              "seconds": 312
+            }
+          ]
+        },
+        {
+          "name": "reference / native-host (ubuntu-24.04, amd64)",
+          "id": 120144246994,
+          "conclusion": "failure",
+          "runner_labels": [
+            "ubuntu-24.04"
+          ],
+          "started_at": "2026-10-22T23:17:44Z",
+          "completed_at": "2026-10-22T23:25:31Z",
+          "seconds": 467,
+          "steps": [
+            {
+              "name": "Build Rust host binaries",
+              "conclusion": "success",
+              "seconds": 67
+            },
+            {
+              "name": "Install host and test without API calls",
+              "conclusion": "failure",
+              "seconds": 393
+            }
+          ]
+        },
+        {
+          "name": "reference / host-and-compose (ubuntu-24.04, amd64)",
+          "id": 120147488524,
+          "conclusion": "failure",
+          "runner_labels": [
+            "ubuntu-24.04"
+          ],
+          "started_at": "2026-10-22T23:25:55Z",
+          "completed_at": "2026-10-22T23:25:57Z",
+          "seconds": 2,
+          "steps": []
+        },
+        {
+          "name": "reference / host-and-compose (ubuntu-24.04-arm, arm64)",
+          "id": 120147488562,
+          "conclusion": "failure",
+          "runner_labels": [
+            "ubuntu-24.04-arm"
+          ],
+          "started_at": "2026-10-22T23:25:58Z",
+          "completed_at": "2026-10-22T23:26:01Z",
+          "seconds": 3,
+          "steps": []
+        },
+        {
+          "name": "host-and-compose (ubuntu-24.04-arm, arm64)",
+          "id": 120147535619,
+          "conclusion": "failure",
+          "runner_labels": [
+            "ubuntu-24.04-arm"
+          ],
+          "started_at": "2026-10-22T23:26:05Z",
+          "completed_at": "2026-10-22T23:26:07Z",
+          "seconds": 2,
+          "steps": []
+        },
+        {
+          "name": "host-and-compose (ubuntu-24.04, amd64)",
+          "id": 120147535752,
+          "conclusion": "failure",
+          "runner_labels": [
+            "ubuntu-24.04"
+          ],
+          "started_at": "2026-10-22T23:26:03Z",
+          "completed_at": "2026-10-22T23:26:06Z",
+          "seconds": 3,
+          "steps": []
+        }
+      ]
+    }
+  ],
+  "step_selection": "Only steps taking at least 12 seconds are retained; every job is retained."
+}

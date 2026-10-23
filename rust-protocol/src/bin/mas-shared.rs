@@ -96,6 +96,7 @@ fn execute(request: Value) -> Result<Value, String> {
             repository.install_archive_repository()?;
             repository.install_transfer_repository()?;
             repository.install_artifact_retention_repository()?;
+            repository.install_provider_quota_index()?;
             Ok(json!({"installed":true}))
         }
         "recovery_seal" => repository.recovery_seal(&request["parameters"]),
